@@ -2559,6 +2559,28 @@ then
 fi
 
 dnl
+dnl  ARIB support
+dnl
+AC_ARG_ENABLE(arib,
+  [  --enable-arib           ARIB support (default disabled)])
+have_arib=no
+if test "${enable_arib}" = "yes"
+then
+  VLC_ADD_CPPFLAGS([ts],[-I/usr/include/PCSC])
+  VLC_ADD_LIBS([ts],[-lpcsclite])
+
+  CPPFLAGS="${CPPFLAGS_save} ${CPPFLAGS_ts}"
+  AC_CHECK_HEADERS(dvbpsi/cat.h, [],
+    [ AC_MSG_ERROR([Could not find libdvbpsi on your system: you may get it from www.videolan.org, you'll need at least version 0.1.5]) ])
+  AC_CHECK_HEADERS(winscard.h, [],
+    [ AC_MSG_ERROR([Could not find libpcsclite on your system]) ])
+  CPPFLAGS="${CPPFLAGS_save}"
+  AC_DEFINE(HAVE_ARIB, 1, [Define if you want ARIB support])
+  have_arib=yes
+fi
+AM_CONDITIONAL(HAVE_ARIB, [ test "${have_arib}" = "yes" ])
+
+dnl
 dnl  gnomeVFS access module
 dnl
 AC_ARG_ENABLE(gnomevfs,
