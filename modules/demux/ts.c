@@ -80,6 +80,12 @@
 #include <time.h>
 #undef TS_DEBUG
 
+#ifdef HAVE_ARIB
+#  include <dvbpsi/cat.h>
+#  include "arib/b_cas_card.h"
+#  include "arib/multi2.h"
+#endif
+
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -280,6 +286,9 @@ typedef struct
     dvbpsi_handle   handle; /* PAT/SDT/EIT */
     int             i_pat_version;
     int             i_sdt_version;
+#ifdef HAVE_ARIB
+    int             i_cat_version;
+#endif
 
     /* For PMT */
     int             i_prg;
@@ -372,6 +381,10 @@ struct demux_sys_t
 
     /* */
     bool        b_start_record;
+
+#ifdef HAVE_ARIB
+    B_CAS_CARD  *arib_card;
+#endif
 };
 
 static int Demux    ( demux_t *p_demux );
@@ -383,6 +396,9 @@ static void PIDClean( es_out_t *out, ts_pid_t *pid );
 static int  PIDFillFormat( ts_pid_t *pid, int i_stream_type );
 
 static void PATCallBack( demux_t *, dvbpsi_pat_t * );
+#ifdef HAVE_ARIB
+static void CATCallBack( demux_t *, dvbpsi_cat_t * );
+#endif
 static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt );
 #ifdef TS_USE_DVB_SI
 static void PSINewTableCallBack( demux_t *, dvbpsi_handle,
@@ -424,6 +440,9 @@ static int Open( vlc_object_t *p_this )
     int          i_packet_size;
 
     ts_pid_t    *pat;
+#ifdef HAVE_ARIB
+    ts_pid_t    *cat;
+#endif
     const char  *psz_mode;
     bool         b_append;
     bool         b_topfield = false;
@@ -641,11 +660,41 @@ static int Open( vlc_object_t *p_this )
     p_sys->csa = NULL;
     p_sys->b_start_record = false;
 
+#ifdef HAVE_ARIB
+    p_sys->arib_card = create_b_cas_card();
+    if( p_sys->arib_card )
+    {
+        if( p_sys->arib_card->init( p_sys->arib_card ) < 0 )
+        {
+            p_sys->arib_card->release( p_sys->arib_card );
+            p_sys->arib_card = NULL;
+        }
+    }
+    if( p_sys->arib_card ) {
+        msg_Info( p_demux, "ARIB card detected" );
+    }
+#endif
+
     /* Init PAT handler */
     pat = &p_sys->pid[0];
     PIDInit( pat, true, NULL );
     pat->psi->handle = dvbpsi_AttachPAT( (dvbpsi_pat_callback)PATCallBack,
                                          p_demux );
+#ifdef HAVE_ARIB
+    if( p_sys->arib_card )
+    {
+        cat = &p_sys->pid[1];
+        PIDInit( cat, true, NULL );
+        cat->psi->handle = dvbpsi_AttachCAT( (dvbpsi_cat_callback)CATCallBack,
+                                             p_demux );
+        if( p_sys->b_access_control )
+        {
+            if( stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                                ACCESS_SET_PRIVATE_ID_STATE, 0x1, true ) )
+                p_sys->b_access_control = false;
+        }
+    }
+#endif
 #ifdef TS_USE_DVB_SI
     if( p_sys->b_dvb_meta )
     {
@@ -793,6 +842,9 @@ static void Close( vlc_object_t *p_this )
                 free( pid->psi );
                 break;
             case 1: /* CAT */
+#ifdef HAVE_ARIB
+                dvbpsi_DetachCAT( pid->psi->handle );
+#endif
                 free( pid->psi );
                 break;
             default:
@@ -865,6 +917,11 @@ static void Close( vlc_object_t *p_this )
 
     free( p_sys->buffer );
     free( p_sys->psz_file );
+
+#ifdef HAVE_ARIB
+    if( p_sys->arib_card )
+        p_sys->arib_card->release( p_sys->arib_card );
+#endif
 
     vlc_mutex_destroy( &p_sys->csa_lock );
     free( p_sys );
@@ -1079,7 +1136,14 @@ static int Demux( demux_t *p_demux )
         {
             if( p_pid->psi )
             {
+#ifdef HAVE_ARIB
+                if( p_pid->i_pid == 0 ||
+                    ( p_sys->b_dvb_meta && ( p_pid->i_pid == 0x11 ||
+                                             p_pid->i_pid == 0x12 ) ) ||
+                    p_sys->arib_card && p_pid->i_pid == 1 )
+#else
                 if( p_pid->i_pid == 0 || ( p_sys->b_dvb_meta && ( p_pid->i_pid == 0x11 || p_pid->i_pid == 0x12 ) ) )
+#endif
                 {
                     dvbpsi_PushPacket( p_pid->psi->handle, p_pkt->p_buffer );
                 }
@@ -4221,3 +4285,34 @@ static void PATCallBack( demux_t *p_demux, dvbpsi_pat_t *p_pat )
 
     dvbpsi_DeletePAT( p_pat );
 }
+
+#ifdef HAVE_ARIB
+static void CATCallBack( demux_t *p_demux, dvbpsi_cat_t *p_cat )
+{
+    demux_sys_t         *p_sys = p_demux->p_sys;
+    ts_pid_t            *cat = &p_sys->pid[1];
+    dvbpsi_descriptor_t *p_dr;
+
+    msg_Dbg( p_demux, "CATCallBack called" );
+
+    if( cat->psi->i_cat_version != -1 &&
+        ( !p_cat->b_current_next ||
+	  p_cat->i_version == cat->psi->i_cat_version ) )
+    {
+        dvbpsi_DeleteCAT( p_cat );
+        return;
+    }
+
+    msg_Dbg( p_demux, "new CAT version=%d current_next=%d",
+             p_cat->i_version, p_cat->b_current_next );
+
+    for( p_dr = p_cat->p_first_descriptor; p_dr != NULL;
+         p_dr = p_dr->p_next )
+    {
+        msg_Dbg( p_demux, "  * dr->i_tag=0x%x", p_dr->i_tag );
+    }
+    cat->psi->i_cat_version = p_cat->i_version;
+
+    dvbpsi_DeleteCAT( p_cat );
+}
+#endif
