@@ -276,6 +276,9 @@ typedef struct
     int             i_number;
     int             i_pid_pcr;
     int             i_pid_pmt;
+#ifdef HAVE_ARIB
+    int             i_pid_ecm;
+#endif
     /* IOD stuff (mpeg4) */
     iod_descriptor_t *iod;
 
@@ -289,12 +292,16 @@ typedef struct
     int             i_sdt_version;
 #ifdef HAVE_ARIB
     int             i_cat_version;
+    int             i_ecm_version;
 #endif
 
     /* For PMT */
     int             i_prg;
     ts_prg_psi_t    **prg;
 
+#ifdef HAVE_ARIB
+    MULTI2          *arib_descrambler;
+#endif
 } ts_psi_t;
 
 typedef struct
@@ -388,6 +395,12 @@ struct demux_sys_t
 #endif
 };
 
+typedef struct {
+    dvbpsi_decoder_t dvbpsi_decoder;
+    demux_sys_t *p_sys;
+    int i_pid;
+} ecm_decoder_t;
+
 static int Demux    ( demux_t *p_demux );
 static int DemuxFile( demux_t *p_demux );
 static int Control( demux_t *p_demux, int i_query, va_list args );
@@ -399,6 +412,8 @@ static int  PIDFillFormat( ts_pid_t *pid, int i_stream_type );
 static void PATCallBack( demux_t *, dvbpsi_pat_t * );
 #ifdef HAVE_ARIB
 static void CATCallBack( demux_t *, dvbpsi_cat_t * );
+static void ECMCallBack( dvbpsi_decoder_t *p_dvbpsi_decoder,
+                         dvbpsi_psi_section_t *section );
 #endif
 static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt );
 #ifdef TS_USE_DVB_SI
@@ -1141,8 +1156,10 @@ static int Demux( demux_t *p_demux )
                 if( p_pid->i_pid == 0 ||
                     ( p_sys->b_dvb_meta && ( p_pid->i_pid == 0x11 ||
                                              p_pid->i_pid == 0x12 ) ) ||
-                    p_sys->arib_card && p_pid->i_pid == 1 )
+                    ( p_sys->arib_card && p_pid->i_pid == 1 ) ||
+                    ( p_pid->psi->arib_descrambler ) )
 #else
+                
                 if( p_pid->i_pid == 0 || ( p_sys->b_dvb_meta && ( p_pid->i_pid == 0x11 || p_pid->i_pid == 0x12 ) ) )
 #endif
                 {
@@ -1329,6 +1346,21 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
                                 ACCESS_SET_PRIVATE_ID_STATE, i_pmt_pid,
                                 false );
+#ifdef HAVE_ARIB
+                ts_pid_t *pmt = &p_sys->pid[i_pmt_pid];
+                for( int i_prg = 0; i_prg < pmt->psi->i_prg; i_prg++ )
+                {
+                    ts_prg_psi_t *p_prg = pmt->psi->prg[i_prg];
+                    if( p_prg->i_number == p_sys->i_current_program )
+                    {
+                        if ( p_prg->i_pid_ecm >= 0 )
+                            stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                                            ACCESS_SET_PRIVATE_ID_STATE,
+                                            p_prg->i_pid_ecm, false );
+                        break;
+                    }
+                }
+#endif
                 /* All ES */
                 for( int i = 2; i < 8192; i++ )
                 {
@@ -1379,6 +1411,22 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
                                 ACCESS_SET_PRIVATE_ID_STATE, p_prg->i_pid_pcr,
                                 true );
+
+#ifdef HAVE_ARIB
+                ts_pid_t *pmt = &p_sys->pid[i_pmt_pid];
+                for( int i_prg = 0; i_prg < pmt->psi->i_prg; i_prg++ )
+                {
+                    ts_prg_psi_t *p_prg = pmt->psi->prg[i_prg];
+                    if( p_prg->i_number == p_sys->i_current_program )
+                    {
+                        if ( p_prg->i_pid_ecm >= 0 )
+                            stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                                            ACCESS_SET_PRIVATE_ID_STATE,
+                                            p_prg->i_pid_ecm, true );
+                        break;
+                    }
+                }
+#endif
 
                 for( int i = 2; i < 8192; i++ )
                 {
@@ -1586,12 +1634,19 @@ static void PIDInit( ts_pid_t *pid, bool b_psi, ts_psi_t *p_owner )
             {
                 pid->psi->handle = NULL;
                 TAB_INIT( pid->psi->i_prg, pid->psi->prg );
+#ifdef HAVE_ARIB
+                pid->psi->arib_descrambler = NULL;
+#endif
             }
         }
         assert( pid->psi );
 
         pid->psi->i_pat_version  = -1;
         pid->psi->i_sdt_version  = -1;
+#ifdef HAVE_ARIB
+        pid->psi->i_cat_version  = -1;
+        pid->psi->i_ecm_version  = -1;
+#endif
         if( p_owner )
         {
             ts_prg_psi_t *prg = malloc( sizeof( ts_prg_psi_t ) );
@@ -1602,6 +1657,7 @@ static void PIDInit( ts_pid_t *pid, bool b_psi, ts_psi_t *p_owner )
                 prg->i_number   = -1;
                 prg->i_pid_pcr  = -1;
                 prg->i_pid_pmt  = -1;
+                prg->i_pid_ecm  = -1;
                 prg->iod        = NULL;
                 prg->handle     = NULL;
 
@@ -1631,6 +1687,14 @@ static void PIDClean( es_out_t *out, ts_pid_t *pid )
 {
     if( pid->psi )
     {
+#ifdef HAVE_ARIB
+        if( pid->psi->arib_descrambler )
+        {
+            pid->psi->arib_descrambler->release( pid->psi->arib_descrambler );
+            free( pid->psi->handle );
+        }
+        else
+#endif
         if( pid->psi->handle )
             dvbpsi_DetachPMT( pid->psi->handle );
         for( int i = 0; i < pid->psi->i_prg; i++ )
@@ -2055,6 +2119,28 @@ static bool GatherPES( demux_t *p_demux, ts_pid_t *pid, block_t *p_bk )
     /* We have to gather it */
     p_bk->p_buffer += i_skip;
     p_bk->i_buffer -= i_skip;
+
+#ifdef HAVE_ARIB
+    if ( b_scrambled ) {
+        ts_psi_t *p_owner = pid->p_owner;
+        for ( int i_prg = 0; i_prg < p_owner->i_prg; i_prg++ )
+        {
+            ts_prg_psi_t *p_prg = p_owner->prg[i_prg];
+            if ( p_prg->i_number == pid->i_owner_number )
+            {
+                int i_pid_ecm = p_prg->i_pid_ecm;
+                if ( i_pid_ecm < 0 )
+                    break;
+
+                ts_pid_t *ecm = &p_demux->p_sys->pid[i_pid_ecm];
+                MULTI2 *descrambler = ecm->psi->arib_descrambler;
+                descrambler->decrypt(descrambler, (p[3] >> 6) & 0x03,
+                                     p_bk->p_buffer, p_bk->i_buffer);
+                break;
+            }
+        }
+    }
+#endif
 
     if( b_unit_start )
     {
@@ -3879,6 +3965,64 @@ static void PMTParseEsIso639( demux_t *p_demux, ts_pid_t *pid,
 #endif
 }
 
+#ifdef HAVE_ARIB
+static int AttachECM( demux_t *p_demux, int i_pid )
+{
+    demux_sys_t *p_sys;
+    B_CAS_INIT_STATUS status;
+    MULTI2 *descrambler;
+    ecm_decoder_t *p_decoder;
+    ts_pid_t *ecm;
+
+    p_sys = p_demux->p_sys;
+    ecm = &p_sys->pid[i_pid];
+    if ( ecm->b_valid )
+        return 0;
+
+    if( p_sys->arib_card->get_init_status( p_sys->arib_card, &status ) < 0 )
+        return 0;
+
+    descrambler = create_multi2();
+    if( !descrambler )
+        return 0;
+
+    descrambler->set_system_key(descrambler, status.system_key);
+    descrambler->set_init_cbc(descrambler, status.init_cbc);
+    descrambler->set_round(descrambler, 4);
+
+    p_decoder = malloc( sizeof( ecm_decoder_t ));
+    if( !p_decoder )
+    {
+        descrambler->release(descrambler);
+        return 0;
+    }
+
+    /* PSI decoder configuration */
+    p_decoder->dvbpsi_decoder.pf_callback = ECMCallBack;
+    p_decoder->dvbpsi_decoder.p_private_decoder = p_decoder;
+    p_decoder->dvbpsi_decoder.i_section_max_size = 1024;
+    /* PSI decoder initial state */
+    p_decoder->dvbpsi_decoder.i_continuity_counter = 31;
+    p_decoder->dvbpsi_decoder.b_discontinuity = 1;
+    p_decoder->dvbpsi_decoder.p_current_section = NULL;
+
+    p_decoder->p_sys = p_sys;
+    p_decoder->i_pid = i_pid;
+
+    PIDInit( ecm, true, NULL );
+    if( !ecm->psi ) {
+        PIDClean( p_demux->out, ecm );
+        free( p_decoder );
+        descrambler->release( descrambler );
+        return 0;
+    }
+
+    ecm->psi->arib_descrambler = descrambler;
+    ecm->psi->handle = &p_decoder->dvbpsi_decoder;
+    return 1;
+}
+#endif
+
 static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt )
 {
     demux_sys_t          *p_sys = p_demux->p_sys;
@@ -3891,6 +4035,10 @@ static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt )
     ts_pid_t             **pp_clean = NULL;
     int                  i_clean = 0;
     bool                 b_hdmv = false;
+
+#ifdef HAVE_ARIB
+    int                  i_pid_ecm = -1;
+#endif
 
     msg_Dbg( p_demux, "PMTCallBack called" );
 
@@ -3978,6 +4126,13 @@ static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt )
             uint16_t i_sysid = ((uint16_t)p_dr->p_data[0] << 8)
                                 | p_dr->p_data[1];
             msg_Dbg( p_demux, " * descriptor : CA (0x9) SysID 0x%x", i_sysid );
+#ifdef HAVE_ARIB
+            if( i_sysid == 0x5 && p_sys->arib_card )
+            {
+                i_pid_ecm = (((int)p_dr->p_data[2] << 8) & 0x1f00)
+                             | p_dr->p_data[3];
+            }
+#endif
         }
         else if( p_dr->i_tag == 0x05 )
         {
@@ -4004,6 +4159,25 @@ static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt )
             msg_Dbg( p_demux, " * descriptor : unknown (0x%x)", p_dr->i_tag );
         }
     }
+
+#ifdef HAVE_ARIB
+    if ( prg->i_pid_ecm >= 0 )
+    {
+        PIDClean( p_demux->out, &p_sys->pid[prg->i_pid_ecm] );
+        if( ProgramIsSelected( p_demux, prg->i_number ) )
+            stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                            ACCESS_SET_PRIVATE_ID_STATE,
+                            prg->i_pid_ecm, false );
+    }
+    if( i_pid_ecm >= 0 && AttachECM( p_demux, i_pid_ecm ) )
+    {
+        if( ProgramIsSelected( p_demux, prg->i_number ) )
+            stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                            ACCESS_SET_PRIVATE_ID_STATE,
+                            i_pid_ecm, true );
+        prg->i_pid_ecm = i_pid_ecm;
+    }
+#endif
 
     for( p_es = p_pmt->p_first_es; p_es != NULL; p_es = p_es->p_next )
     {
@@ -4367,7 +4541,7 @@ static void CATCallBack( demux_t *p_demux, dvbpsi_cat_t *p_cat )
 
     if( cat->psi->i_cat_version != -1 &&
         ( !p_cat->b_current_next ||
-	  p_cat->i_version == cat->psi->i_cat_version ) )
+          p_cat->i_version == cat->psi->i_cat_version ) )
     {
         dvbpsi_DeleteCAT( p_cat );
         return;
@@ -4384,5 +4558,48 @@ static void CATCallBack( demux_t *p_demux, dvbpsi_cat_t *p_cat )
     cat->psi->i_cat_version = p_cat->i_version;
 
     dvbpsi_DeleteCAT( p_cat );
+}
+
+static void ECMCallBack(dvbpsi_decoder_t *p_dvbpsi_decoder,
+                        dvbpsi_psi_section_t *p_section)
+{
+    if( !p_section->b_syntax_indicator )
+        goto out;
+
+    ecm_decoder_t *p_decoder =
+        (ecm_decoder_t *)p_dvbpsi_decoder->p_private_decoder;
+    ts_pid_t *ecm = &p_decoder->p_sys->pid[p_decoder->i_pid];
+    if ( !ecm->b_valid || !ecm->psi )
+        goto out;
+
+    if ( !p_section->b_current_next )
+        goto out;
+
+    if( ecm->psi->i_ecm_version != -1 &&
+        ( !p_section->b_current_next ||
+          p_section->i_version == ecm->psi->i_ecm_version ) )
+        goto out;
+
+    ecm->psi->i_ecm_version = p_section->i_version;
+
+    B_CAS_CARD *card = p_decoder->p_sys->arib_card;
+    B_CAS_ECM_RESULT result;
+    uint8_t *start = p_section->p_payload_start;
+    if ( card->
+         proc_ecm(card, &result, start, p_section->p_payload_end - start) < 0 )
+        goto out;
+
+    if ( result.return_code != 0x0800 && result.return_code != 0x0400 &&
+         result.return_code != 0x0200 )
+        goto out;
+
+    MULTI2 *descrambler = ecm->psi->arib_descrambler;
+    if ( !descrambler )
+        goto out;
+
+    descrambler->set_scramble_key(descrambler, result.scramble_key);
+
+out:
+    dvbpsi_DeletePSISections(p_section);
 }
 #endif
