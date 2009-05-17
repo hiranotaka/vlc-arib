@@ -293,6 +293,7 @@ typedef struct
 #ifdef HAVE_ARIB
     int             i_cat_version;
     int             i_ecm_version;
+    int             i_emm_version;
 #endif
 
     /* For PMT */
@@ -392,6 +393,7 @@ struct demux_sys_t
 
 #ifdef HAVE_ARIB
     B_CAS_CARD  *arib_card;
+    int         i_pid_emm;
 #endif
 };
 
@@ -400,6 +402,11 @@ typedef struct {
     demux_sys_t *p_sys;
     int i_pid;
 } ecm_decoder_t;
+
+typedef struct {
+    dvbpsi_decoder_t dvbpsi_decoder;
+    demux_sys_t *p_sys;
+} emm_decoder_t;
 
 static int Demux    ( demux_t *p_demux );
 static int DemuxFile( demux_t *p_demux );
@@ -413,6 +420,8 @@ static void PATCallBack( demux_t *, dvbpsi_pat_t * );
 #ifdef HAVE_ARIB
 static void CATCallBack( demux_t *, dvbpsi_cat_t * );
 static void ECMCallBack( dvbpsi_decoder_t *p_dvbpsi_decoder,
+                         dvbpsi_psi_section_t *section );
+static void EMMCallBack( dvbpsi_decoder_t *p_dvbpsi_decoder,
                          dvbpsi_psi_section_t *section );
 #endif
 static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt );
@@ -689,6 +698,7 @@ static int Open( vlc_object_t *p_this )
     if( p_sys->arib_card ) {
         msg_Info( p_demux, "ARIB card detected" );
     }
+    p_sys->i_pid_emm = -1;
 #endif
 
     /* Init PAT handler */
@@ -870,6 +880,13 @@ static void Close( vlc_object_t *p_this )
                     dvbpsi_DetachDemux( pid->psi->handle );
                     free( pid->psi );
                 }
+#ifdef HAVE_ARIB
+                else if ( pid->i_pid == p_sys->i_pid_emm )
+                {
+                    free( pid->psi->handle );
+                    free( pid->psi );
+                }
+#endif
                 else
                 {
                     PIDClean( p_demux->out, pid );
@@ -1157,7 +1174,8 @@ static int Demux( demux_t *p_demux )
                     ( p_sys->b_dvb_meta && ( p_pid->i_pid == 0x11 ||
                                              p_pid->i_pid == 0x12 ) ) ||
                     ( p_sys->arib_card && p_pid->i_pid == 1 ) ||
-                    ( p_pid->psi->arib_descrambler ) )
+                    ( p_pid->psi->arib_descrambler ) ||
+                    ( p_pid->i_pid == p_sys->i_pid_emm ) )
 #else
                 
                 if( p_pid->i_pid == 0 || ( p_sys->b_dvb_meta && ( p_pid->i_pid == 0x11 || p_pid->i_pid == 0x12 ) ) )
@@ -4021,6 +4039,43 @@ static int AttachECM( demux_t *p_demux, int i_pid )
     ecm->psi->handle = &p_decoder->dvbpsi_decoder;
     return 1;
 }
+
+static int AttachEMM( demux_t *p_demux, int i_pid )
+{
+    demux_sys_t *p_sys;
+    emm_decoder_t *p_decoder;
+    ts_pid_t *emm;
+
+    p_sys = p_demux->p_sys;
+    emm = &p_sys->pid[i_pid];
+    if ( emm->b_valid )
+        return 0;
+
+    p_decoder = malloc( sizeof( emm_decoder_t ));
+    if( !p_decoder )
+        return 0;
+
+    /* PSI decoder configuration */
+    p_decoder->dvbpsi_decoder.pf_callback = EMMCallBack;
+    p_decoder->dvbpsi_decoder.p_private_decoder = p_decoder;
+    p_decoder->dvbpsi_decoder.i_section_max_size = 1024;
+    /* PSI decoder initial state */
+    p_decoder->dvbpsi_decoder.i_continuity_counter = 31;
+    p_decoder->dvbpsi_decoder.b_discontinuity = 1;
+    p_decoder->dvbpsi_decoder.p_current_section = NULL;
+
+    p_decoder->p_sys = p_sys;
+
+    PIDInit( emm, true, NULL );
+    if( !emm->psi ) {
+        PIDClean( p_demux->out, emm );
+        free( p_decoder );
+        return 0;
+    }
+
+    emm->psi->handle = &p_decoder->dvbpsi_decoder;
+    return 1;
+}
 #endif
 
 static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt )
@@ -4536,6 +4591,7 @@ static void CATCallBack( demux_t *p_demux, dvbpsi_cat_t *p_cat )
     demux_sys_t         *p_sys = p_demux->p_sys;
     ts_pid_t            *cat = &p_sys->pid[1];
     dvbpsi_descriptor_t *p_dr;
+    int                 i_pid_emm = -1;
 
     msg_Dbg( p_demux, "CATCallBack called" );
 
@@ -4553,8 +4609,37 @@ static void CATCallBack( demux_t *p_demux, dvbpsi_cat_t *p_cat )
     for( p_dr = p_cat->p_first_descriptor; p_dr != NULL;
          p_dr = p_dr->p_next )
     {
-        msg_Dbg( p_demux, "  * dr->i_tag=0x%x", p_dr->i_tag );
+        if( p_dr->i_tag == 0x9 )
+        {
+            uint16_t i_sysid = ((uint16_t)p_dr->p_data[0] << 8)
+                                | p_dr->p_data[1];
+            msg_Dbg( p_demux, "  * descriptor : CA (0x9) SysID 0x%x", i_sysid );
+            if( i_sysid == 0x5 && p_sys->arib_card )
+            {
+                i_pid_emm = (((int)p_dr->p_data[2] << 8) & 0x1f00)
+                             | p_dr->p_data[3];
+            }
+        }
+        else
+        {
+            msg_Dbg( p_demux, "  * dr->i_tag=0x%x", p_dr->i_tag );
+        }
     }
+
+    if ( p_sys->i_pid_emm >= 0 )
+    {
+        PIDClean( p_demux->out, &p_sys->pid[p_sys->i_pid_emm] );
+        stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                        ACCESS_SET_PRIVATE_ID_STATE, p_sys->i_pid_emm,
+                        false );
+    }
+    if( i_pid_emm >= 0 && AttachEMM( p_demux, i_pid_emm ) )
+    {
+        stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                        ACCESS_SET_PRIVATE_ID_STATE, i_pid_emm, true );
+        p_sys->i_pid_emm = i_pid_emm;
+    }
+
     cat->psi->i_cat_version = p_cat->i_version;
 
     dvbpsi_DeleteCAT( p_cat );
@@ -4598,6 +4683,37 @@ static void ECMCallBack(dvbpsi_decoder_t *p_dvbpsi_decoder,
         goto out;
 
     descrambler->set_scramble_key(descrambler, result.scramble_key);
+
+out:
+    dvbpsi_DeletePSISections(p_section);
+}
+
+static void EMMCallBack(dvbpsi_decoder_t *p_dvbpsi_decoder,
+                        dvbpsi_psi_section_t *p_section)
+{
+    if( !p_section->b_syntax_indicator )
+        goto out;
+
+    emm_decoder_t *p_decoder =
+        (emm_decoder_t *)p_dvbpsi_decoder->p_private_decoder;
+    ts_pid_t *emm = &p_decoder->p_sys->pid[p_decoder->p_sys->i_pid_emm];
+    if ( !emm->b_valid || !emm->psi )
+        goto out;
+
+    if ( !p_section->b_current_next )
+        goto out;
+
+    if( emm->psi->i_emm_version != -1 &&
+        ( !p_section->b_current_next ||
+          p_section->i_version == emm->psi->i_emm_version ) )
+        goto out;
+
+    emm->psi->i_emm_version = p_section->i_version;
+
+    B_CAS_CARD *card = p_decoder->p_sys->arib_card;
+    uint8_t *start = p_section->p_payload_start;
+    if ( card->proc_emm(card, start, p_section->p_payload_end - start) < 0 )
+        goto out;
 
 out:
     dvbpsi_DeletePSISections(p_section);
