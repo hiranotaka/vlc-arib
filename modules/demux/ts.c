@@ -3984,7 +3984,7 @@ static void PMTParseEsIso639( demux_t *p_demux, ts_pid_t *pid,
 }
 
 #ifdef HAVE_ARIB
-static int AttachECM( demux_t *p_demux, int i_pid )
+static int AttachECM( demux_t *p_demux, ts_prg_psi_t *prg, int i_pid )
 {
     demux_sys_t *p_sys;
     B_CAS_INIT_STATUS status;
@@ -3992,9 +3992,19 @@ static int AttachECM( demux_t *p_demux, int i_pid )
     ecm_decoder_t *p_decoder;
     ts_pid_t *ecm;
 
+    if ( i_pid < 0 )
+        return 0;
+
     p_sys = p_demux->p_sys;
     ecm = &p_sys->pid[i_pid];
     if ( ecm->b_valid )
+    {
+        if ( !ecm->psi || !ecm->psi->arib_descrambler )
+            return 0;
+        goto valid;
+    }
+
+    if ( !p_sys->arib_card )
         return 0;
 
     if( p_sys->arib_card->get_init_status( p_sys->arib_card, &status ) < 0 )
@@ -4037,7 +4047,50 @@ static int AttachECM( demux_t *p_demux, int i_pid )
 
     ecm->psi->arib_descrambler = descrambler;
     ecm->psi->handle = &p_decoder->dvbpsi_decoder;
+
+valid:
+    prg->i_pid_ecm = i_pid;
+
+    if( ProgramIsSelected( p_demux, prg->i_number ) )
+        stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                        ACCESS_SET_PRIVATE_ID_STATE,
+                        i_pid, true );
+
     return 1;
+}
+
+static void DetachECM( demux_t *p_demux, ts_prg_psi_t *prg )
+{
+    int i_pid;
+    demux_sys_t *p_sys;
+    ts_pid_t *ecm, *pmt;
+    int i_pmt, i_prg;
+
+    i_pid = prg->i_pid_ecm;
+    if ( i_pid < 0 )
+        return;
+
+    prg->i_pid_ecm = -1;
+
+    if( ProgramIsSelected( p_demux, prg->i_number ) )
+        stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                        ACCESS_SET_PRIVATE_ID_STATE,
+                        prg->i_pid_ecm, false );
+
+    p_sys = p_demux->p_sys;
+    ecm = &p_sys->pid[i_pid];
+
+    for( i_pmt = 0; i_pmt < p_sys->i_pmt; i_pmt++ )
+    {
+        pmt = p_sys->pmt[i_pmt];
+        for( i_prg = 0; i_prg < pmt->psi->i_prg; i_prg++ )
+        {
+            if ( pmt->psi->prg[i_prg]->i_pid_ecm == i_pid )
+                return;
+        }
+    }
+
+    PIDClean( p_demux->out, ecm );
 }
 
 static int AttachEMM( demux_t *p_demux, int i_pid )
@@ -4216,22 +4269,8 @@ static void PMTCallBack( demux_t *p_demux, dvbpsi_pmt_t *p_pmt )
     }
 
 #ifdef HAVE_ARIB
-    if ( prg->i_pid_ecm >= 0 )
-    {
-        PIDClean( p_demux->out, &p_sys->pid[prg->i_pid_ecm] );
-        if( ProgramIsSelected( p_demux, prg->i_number ) )
-            stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
-                            ACCESS_SET_PRIVATE_ID_STATE,
-                            prg->i_pid_ecm, false );
-    }
-    if( i_pid_ecm >= 0 && AttachECM( p_demux, i_pid_ecm ) )
-    {
-        if( ProgramIsSelected( p_demux, prg->i_number ) )
-            stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
-                            ACCESS_SET_PRIVATE_ID_STATE,
-                            i_pid_ecm, true );
-        prg->i_pid_ecm = i_pid_ecm;
-    }
+    DetachECM( p_demux, prg );
+    AttachECM( p_demux, prg, i_pid_ecm );
 #endif
 
     for( p_es = p_pmt->p_first_es; p_es != NULL; p_es = p_es->p_next )
