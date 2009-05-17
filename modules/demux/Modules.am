@@ -12,7 +12,7 @@ SOURCES_nsv = nsv.c
 SOURCES_real = real.c
 SOURCES_ts = ts.c ../mux/mpeg/csa.c
 if HAVE_ARIB
-SOURCES_ts += arib/b_cas_card.c arib/multi2.c
+SOURCES_ts += arib/b_cas_card.c arib/multi2.c arib/str.c
 endif
 SOURCES_ps = ps.c ps.h
 SOURCES_mod = mod.c

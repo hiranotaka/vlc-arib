@@ -84,6 +84,7 @@
 #  include <dvbpsi/cat.h>
 #  include "arib/b_cas_card.h"
 #  include "arib/multi2.h"
+#  include "arib/str.h"
 #endif
 
 /*****************************************************************************
@@ -2703,12 +2704,29 @@ static void SDTCallBack( demux_t *p_demux, dvbpsi_sdt_t *p_sdt )
                 dvbpsi_service_dr_t *pD = dvbpsi_DecodeServiceDr( p_dr );
                 char str1[257];
                 char str2[257];
+#ifdef HAVE_ARIB
+                int count;
+#endif
 
+#ifdef HAVE_ARIB
+                count = arib_str_decode( pD->i_service_provider_name,
+                                         pD->i_service_provider_name_length,
+                                         str1, sizeof( str1 ) - 1 );
+                str1[count] = 0;
+#else
                 memcpy( str1, pD->i_service_provider_name,
                         pD->i_service_provider_name_length );
                 str1[pD->i_service_provider_name_length] = '\0';
+#endif
+#ifdef HAVE_ARIB
+                count = arib_str_decode( pD->i_service_name,
+                                         pD->i_service_name_length,
+                                         str2, sizeof( str2 ) - 1);
+                str2[count] = 0;
+#else
                 memcpy( str2, pD->i_service_name, pD->i_service_name_length );
                 str2[pD->i_service_name_length] = '\0';
+#endif
 
                 msg_Dbg( p_demux, "    - type=%d provider=%s name=%s",
                          pD->i_service_type, str1, str2 );
@@ -2810,6 +2828,19 @@ static int EITConvertDuration( uint32_t i_duration )
 static char *EITConvertToUTF8( const unsigned char *psz_instring,
                                size_t i_length )
 {
+#ifdef HAVE_ARIB
+    char *psz_outstring;
+    size_t i_out;
+
+    i_out = i_length * 3;
+    psz_outstring = malloc( i_out + 1 );
+    if( !psz_outstring )
+            return NULL;
+
+    i_out = arib_str_decode( psz_instring, i_length, psz_outstring, i_out );
+    psz_outstring[i_out] = 0;
+    return psz_outstring;
+#else
     const char *psz_encoding;
     char *psz_outstring;
     char psz_encbuf[sizeof( "ISO_8859-123" )];
@@ -2932,6 +2963,7 @@ static char *EITConvertToUTF8( const unsigned char *psz_instring,
         *psz_out = '\0';
     }
     return psz_outstring;
+#endif
 }
 
 static void EITCallBack( demux_t *p_demux, dvbpsi_eit_t *p_eit )
@@ -2965,6 +2997,9 @@ static void EITCallBack( demux_t *p_demux, dvbpsi_eit_t *p_eit )
         int i_duration;
 
         i_start = EITConvertStartTime( p_evt->i_start_time );
+#ifdef HAVE_ARIB
+        i_start -= 9 * 60 * 60;
+#endif
         i_duration = EITConvertDuration( p_evt->i_duration );
 
         msg_Dbg( p_demux, "  * event id=%d start_time:%d duration=%d "
@@ -3010,10 +3045,41 @@ static void EITCallBack( demux_t *p_demux, dvbpsi_eit_t *p_eit )
 
                     for( int i = 0; i < pE->i_entry_count; i++ )
                     {
+#ifdef HAVE_ARIB
+                        if ( !pE->i_item_description_length[i] )
+                            continue;
+#endif
                         char *psz_dsc = EITConvertToUTF8( pE->i_item_description[i],
                                                           pE->i_item_description_length[i] );
-                        char *psz_itm = EITConvertToUTF8( pE->i_item[i], pE->i_item_length[i] );
+#ifdef HAVE_ARIB
+                        int j;
+                        size_t i_length;
+                        j = i;
+                        i_length = 0;
+                        do {
+                            i_length += pE->i_item_length[j];
+                        } while ( ++j < pE->i_entry_count &&
+                                  !pE->i_item_description_length[j] );
 
+                        unsigned char *psz_instring = malloc( i_length );
+                        char *psz_itm = NULL;
+                        if ( psz_instring )
+                        {
+                            j = i;
+                            i_length = 0;
+                            do {
+                                memcpy( psz_instring + i_length,
+                                        pE->i_item[j], pE->i_item_length[j]);
+                                i_length += pE->i_item_length[j];
+                            } while ( ++j < pE->i_entry_count &&
+                                      !pE->i_item_description_length[j] );
+                            psz_itm = EITConvertToUTF8( psz_instring,
+                                                        i_length );
+                            free( psz_instring );
+                        }
+#else
+                        char *psz_itm = EITConvertToUTF8( pE->i_item[i], pE->i_item_length[i] );
+#endif
                         if( psz_dsc && psz_itm )
                         {
                             msg_Dbg( p_demux, "       - desc='%s' item='%s'", psz_dsc, psz_itm );
@@ -3037,7 +3103,11 @@ static void EITCallBack( demux_t *p_demux, dvbpsi_eit_t *p_eit )
         }
 
         /* */
+#ifdef HAVE_ARIB
+        if( i_start > 0 && psz_name )
+#else
         if( i_start > 0 )
+#endif
             vlc_epg_AddEvent( p_epg, i_start, i_duration, psz_name, psz_text, psz_extra );
 
         /* Update "now playing" field */
