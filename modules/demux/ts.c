@@ -4098,6 +4098,9 @@ static int AttachEMM( demux_t *p_demux, int i_pid )
     emm_decoder_t *p_decoder;
     ts_pid_t *emm;
 
+    if ( i_pid < 0 )
+        return 0;
+
     p_sys = p_demux->p_sys;
     emm = &p_sys->pid[i_pid];
     if ( emm->b_valid )
@@ -4120,13 +4123,40 @@ static int AttachEMM( demux_t *p_demux, int i_pid )
 
     PIDInit( emm, true, NULL );
     if( !emm->psi ) {
-        PIDClean( p_demux->out, emm );
         free( p_decoder );
         return 0;
     }
 
     emm->psi->handle = &p_decoder->dvbpsi_decoder;
+    p_sys->i_pid_emm = i_pid;
+
+    stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                    ACCESS_SET_PRIVATE_ID_STATE, i_pid, true );
+
     return 1;
+}
+
+static void DetachEMM( demux_t *p_demux )
+{
+    demux_sys_t *p_sys;
+    int i_pid;
+    ts_pid_t *emm;
+
+    p_sys = p_demux->p_sys;
+
+    i_pid = p_sys->i_pid_emm;
+    if ( i_pid < 0 )
+        return;
+
+    p_sys->i_pid_emm = -1;
+
+    stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
+                    ACCESS_SET_PRIVATE_ID_STATE, i_pid, false );
+
+    emm = &p_sys->pid[i_pid];
+    free ( emm->psi->handle );
+    free ( emm->psi );
+    emm->b_valid = false;
 }
 #endif
 
@@ -4664,19 +4694,8 @@ static void CATCallBack( demux_t *p_demux, dvbpsi_cat_t *p_cat )
         }
     }
 
-    if ( p_sys->i_pid_emm >= 0 )
-    {
-        PIDClean( p_demux->out, &p_sys->pid[p_sys->i_pid_emm] );
-        stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
-                        ACCESS_SET_PRIVATE_ID_STATE, p_sys->i_pid_emm,
-                        false );
-    }
-    if( i_pid_emm >= 0 && AttachEMM( p_demux, i_pid_emm ) )
-    {
-        stream_Control( p_demux->s, STREAM_CONTROL_ACCESS,
-                        ACCESS_SET_PRIVATE_ID_STATE, i_pid_emm, true );
-        p_sys->i_pid_emm = i_pid_emm;
-    }
+    DetachEMM( p_demux );
+    AttachEMM( p_demux, i_pid_emm );
 
     cat->psi->i_cat_version = p_cat->i_version;
 
