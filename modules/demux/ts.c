@@ -1177,7 +1177,6 @@ static int Demux( demux_t *p_demux )
                     ( p_pid->psi->arib_descrambler ) ||
                     ( p_pid->i_pid == p_sys->i_pid_emm ) )
 #else
-                
                 if( p_pid->i_pid == 0 || ( p_sys->b_dvb_meta && ( p_pid->i_pid == 0x11 || p_pid->i_pid == 0x12 ) ) )
 #endif
                 {
