@@ -33,7 +33,6 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
 
 #include "vlc_filter.h"
 #include "vlc_block.h"
@@ -204,33 +203,35 @@ static int CreateFilter( vlc_object_t *p_this )
         return VLC_ENOMEM;
 
     vlc_mutex_init( &p_sys->lock );
-    p_sys->p_style = malloc( sizeof( text_style_t ) );
-    memcpy( p_sys->p_style, &default_text_style, sizeof( text_style_t ) );
+    p_sys->p_style = text_style_New();
 
     config_ChainParse( p_filter, CFG_PREFIX, ppsz_filter_options,
                        p_filter->p_cfg );
+
 
 #define CREATE_VAR( stor, type, var ) \
     p_sys->stor = var_CreateGet##type##Command( p_filter, var ); \
     var_AddCallback( p_filter, var, MarqueeCallback, p_sys );
 
+    p_sys->b_need_update = true;
     CREATE_VAR( i_xoff, Integer, "marq-x" );
     CREATE_VAR( i_yoff, Integer, "marq-y" );
     CREATE_VAR( i_timeout,Integer, "marq-timeout" );
-    CREATE_VAR( i_refresh,Integer, "marq-refresh" );
-    p_sys->i_refresh *= 1000;
+    p_sys->i_refresh = 1000 * var_CreateGetIntegerCommand( p_filter,
+                                                           "marq-refresh" );
+    var_AddCallback( p_filter, "marq-refresh", MarqueeCallback, p_sys );
     CREATE_VAR( i_pos, Integer, "marq-position" );
     CREATE_VAR( psz_marquee, String, "marq-marquee" );
     CREATE_VAR( p_style->i_font_alpha, Integer, "marq-opacity" );
+    p_sys->p_style->i_font_alpha =
+         255 - var_CreateGetIntegerCommand( p_filter, "marq-opacity" );
+    var_AddCallback( p_filter, "marq-opacity", MarqueeCallback, p_sys );
     CREATE_VAR( p_style->i_font_color, Integer, "marq-color" );
     CREATE_VAR( p_style->i_font_size, Integer, "marq-size" );
-
-    p_sys->p_style->i_font_alpha = 255 - p_sys->p_style->i_font_alpha ;
 
     /* Misc init */
     p_filter->pf_sub_filter = Filter;
     p_sys->last_time = 0;
-    p_sys->b_need_update = true;
 
     return VLC_SUCCESS;
 }
@@ -241,9 +242,6 @@ static void DestroyFilter( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys = p_filter->p_sys;
-
-    free( p_sys->p_style );
-    free( p_sys->psz_marquee );
 
     /* Delete the marquee variables */
 #define DEL_VAR(var) \
@@ -259,6 +257,8 @@ static void DestroyFilter( vlc_object_t *p_this )
     DEL_VAR( "marq-size" );
 
     vlc_mutex_destroy( &p_sys->lock );
+    text_style_Delete( p_sys->p_style );
+    free( p_sys->psz_marquee );
     free( p_sys );
 }
 
@@ -284,7 +284,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
         goto out;
 
     memset( &fmt, 0, sizeof(video_format_t) );
-    fmt.i_chroma = VLC_FOURCC('T','E','X','T');
+    fmt.i_chroma = VLC_CODEC_TEXT;
     fmt.i_aspect = 0;
     fmt.i_width = fmt.i_height = 0;
     fmt.i_x_offset = 0;
@@ -323,7 +323,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     p_spu->p_region->i_x = p_sys->i_xoff;
     p_spu->p_region->i_y = p_sys->i_yoff;
 
-    p_spu->p_region->p_style = p_sys->p_style;
+    p_spu->p_region->p_style = text_style_Duplicate( p_sys->p_style );
 
 out:
     vlc_mutex_unlock( &p_sys->lock );

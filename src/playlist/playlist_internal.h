@@ -41,6 +41,15 @@
 #include "fetcher.h"
 #include "preparser.h"
 
+typedef struct playlist_services_discovery_support_t {
+    /* the playlist items for category and onelevel */
+    playlist_item_t      *p_cat;
+    playlist_item_t      *p_one;
+    services_discovery_t *p_sd; /**< Loaded service discovery modules */
+    char                 *psz_name;
+} vlc_sd_internal_t;
+
+
 typedef struct playlist_private_t
 {
     playlist_t           public_data;
@@ -50,12 +59,7 @@ typedef struct playlist_private_t
     playlist_item_array_t items_to_delete; /**< Array of items and nodes to
             delete... At the very end. This sucks. */
 
-    struct playlist_services_discovery_support_t {
-        /* the playlist items for category and onelevel */
-        playlist_item_t*    p_cat;
-        playlist_item_t*    p_one;
-        services_discovery_t * p_sd; /**< Loaded service discovery modules */
-    } ** pp_sds;
+    vlc_sd_internal_t   **pp_sds;
     int                   i_sds;   /**< Number of service discovery modules */
     input_thread_t *      p_input;  /**< the input thread associated
                                      * with the current item */
@@ -135,10 +139,11 @@ playlist_item_t * playlist_NodeAddInput( playlist_t *, input_item_t *,
 
 /* Tree walking */
 playlist_item_t *playlist_ItemFindFromInputAndRoot( playlist_t *p_playlist,
-                                   int i_input_id, playlist_item_t *p_root,
-                                   bool );
+                                input_item_t *p_input, playlist_item_t *p_root,
+                                bool );
 
-int playlist_DeleteFromInputInParent( playlist_t *, int, playlist_item_t *, bool );
+int playlist_DeleteFromInputInParent( playlist_t *, input_item_t *,
+                                      playlist_item_t *, bool );
 int playlist_DeleteFromItemId( playlist_t*, int );
 int playlist_ItemRelease( playlist_item_t * );
 

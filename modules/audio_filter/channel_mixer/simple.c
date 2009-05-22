@@ -102,7 +102,8 @@ static void DoWork( aout_instance_t * p_aout, aout_filter_t * p_filter,
 
     const bool b_input_7_0 = (i_input_physical & ~AOUT_CHAN_LFE) == AOUT_CHANS_7_0;
     const bool b_input_5_0 = !b_input_7_0 &&
-                             (i_input_physical & (AOUT_CHANS_5_0|AOUT_CHANS_5_0_MIDDLE));
+                             ( (i_input_physical & AOUT_CHANS_5_0) == AOUT_CHANS_5_0 ||
+                               (i_input_physical & AOUT_CHANS_5_0_MIDDLE) == AOUT_CHANS_5_0_MIDDLE );
     int i_input_nb = aout_FormatNbChannels( &p_filter->input );
     int i_output_nb = aout_FormatNbChannels( &p_filter->output );
     float *p_dest = (float *)p_out_buf->p_buffer;
@@ -290,7 +291,7 @@ static block_t *Filter( filter_t *p_filter, block_t *p_block )
  *****************************************************************************/
 static bool IsSupported( const audio_format_t *p_input, const audio_format_t *p_output )
 {
-    if( p_input->i_format != VLC_FOURCC('f','l','3','2') ||
+    if( p_input->i_format != VLC_CODEC_FL32 ||
           p_input->i_format != p_output->i_format ||
           p_input->i_rate != p_output->i_rate )
         return false;

@@ -1107,13 +1107,11 @@ static void InitPrograms( input_thread_t * p_input )
     /* Set up es_out */
     es_out_Control( p_input->p->p_es_out, ES_OUT_SET_ACTIVE, true );
     i_es_out_mode = ES_OUT_MODE_AUTO;
-    val.p_list = NULL;
     if( p_input->p->p_sout )
     {
         if( var_GetBool( p_input, "sout-all" ) )
         {
             i_es_out_mode = ES_OUT_MODE_ALL;
-            val.p_list = NULL;
         }
         else
         {
@@ -1125,8 +1123,7 @@ static void InitPrograms( input_thread_t * p_input )
             }
             else
             {
-                var_Change( p_input, "programs", VLC_VAR_FREELIST, &val,
-                            NULL );
+                var_FreeList( &val, NULL );
             }
         }
     }
@@ -1141,6 +1138,7 @@ static void InitPrograms( input_thread_t * p_input )
     {
         demux_Control( p_input->p->input.p_demux, DEMUX_SET_GROUP, -1,
                         val.p_list );
+        var_FreeList( &val, NULL );
     }
     else
     {
@@ -1205,7 +1203,9 @@ static int Init( input_thread_t * p_input )
         i_length = 0;
     if( i_length <= 0 )
         i_length = input_item_GetDuration( p_input->p->p_item );
-    input_SendEventTimes( p_input, 0.0, 0, i_length );
+    input_SendEventLength( p_input, i_length );
+
+    input_SendEventPosition( p_input, 0.0, 0 );
 
     if( !p_input->b_preparsing )
     {
@@ -2435,7 +2435,7 @@ static int InputSourceInit( input_thread_t *p_input,
             in->b_can_pause = false;
         var_SetBool( p_input, "can-pause", in->b_can_pause || !in->b_can_pace_control ); /* XXX temporary because of es_out_timeshift*/
         var_SetBool( p_input, "can-rate", !in->b_can_pace_control || in->b_can_rate_control ); /* XXX temporary because of es_out_timeshift*/
-        var_SetBool( p_input, "can-rewind", !in->b_rescale_ts && !in->b_can_pace_control );
+        var_SetBool( p_input, "can-rewind", !in->b_rescale_ts && !in->b_can_pace_control && in->b_can_rate_control );
 
         bool b_can_seek;
         if( demux_Control( in->p_demux, DEMUX_CAN_SEEK, &b_can_seek ) )
@@ -3228,7 +3228,7 @@ static void SubtitleAdd( input_thread_t *p_input, char *psz_subtitle, bool b_for
             es_out_Control( p_input->p->p_es_out_display, ES_OUT_SET_ES_DEFAULT_BY_ID, i_id );
             es_out_Control( p_input->p->p_es_out_display, ES_OUT_SET_ES_BY_ID, i_id );
         }
-        var_Change( p_input, "spu-es", VLC_VAR_FREELIST, &list, NULL );
+        var_FreeList( &list, NULL );
     }
 }
 

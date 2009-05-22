@@ -30,7 +30,6 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
 #include "vlc_filter.h"
 
 /*****************************************************************************
@@ -68,9 +67,9 @@ static int OpenFilter( vlc_object_t *p_this )
     filter_sys_t *p_sys;
 
     /* XXX Only support RV24 -> RV32 conversion */
-    if( p_filter->fmt_in.video.i_chroma != VLC_FOURCC('R','V','2','4') ||
-        (p_filter->fmt_out.video.i_chroma != VLC_FOURCC('R', 'V', '3', '2') &&
-        p_filter->fmt_out.video.i_chroma != VLC_FOURCC('R', 'G', 'B', 'A')) )
+    if( p_filter->fmt_in.video.i_chroma != VLC_CODEC_RGB24 ||
+        (p_filter->fmt_out.video.i_chroma != VLC_CODEC_RGB32 &&
+        p_filter->fmt_out.video.i_chroma != VLC_CODEC_RGBA) )
     {
         return VLC_EGENERIC;
     }

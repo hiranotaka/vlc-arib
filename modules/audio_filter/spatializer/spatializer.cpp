@@ -27,12 +27,12 @@
 /*****************************************************************************
  * Preamble
  *****************************************************************************/
-#include <stdlib.h>                                      /* malloc(), free() */
-#include <math.h>
-
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
+
+#include <stdlib.h>                                      /* malloc(), free() */
+#include <math.h>
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
@@ -103,7 +103,8 @@ private:
 
 static const char *psz_control_names[] =
 {
-    "Roomsize", "Width" , "Wet", "Dry", "Damp"
+    "spatializer-roomsize", "spatializer-width" ,
+    "spatializer-wet", "spatializer-dry", "spatializer-damp"
 };
 static void DoWork( aout_instance_t *, aout_filter_t *,
                     aout_buffer_t *, aout_buffer_t * );
@@ -133,12 +134,12 @@ static int Open( vlc_object_t *p_this )
     bool         b_fit = true;
     msg_Dbg(p_this, "Opening filter spatializer %s %s %d", __FILE__,__func__,__LINE__);
 
-    if( p_filter->input.i_format != VLC_FOURCC('f','l','3','2' ) ||
-        p_filter->output.i_format != VLC_FOURCC('f','l','3','2') )
+    if( p_filter->input.i_format != VLC_CODEC_FL32 ||
+        p_filter->output.i_format != VLC_CODEC_FL32 )
     {
         b_fit = false;
-        p_filter->input.i_format = VLC_FOURCC('f','l','3','2');
-        p_filter->output.i_format = VLC_FOURCC('f','l','3','2');
+        p_filter->input.i_format = VLC_CODEC_FL32;
+        p_filter->output.i_format = VLC_CODEC_FL32;
         msg_Warn( p_filter, "bad input or output format" );
     }
     if ( !AOUT_FMTS_SIMILAR( &p_filter->input, &p_filter->output ) )

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * vlc_keys.h: keycode defines
  *****************************************************************************
- * Copyright (C) 2003 the VideoLAN team
+ * Copyright (C) 2003-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Sigmund Augdal Helberg <dnumgis@videolan.org>
@@ -24,6 +24,10 @@
 #ifndef VLC_KEYS_H
 #define VLC_KEYS_H 1
 
+#ifdef __APPLE__
+#include <stdint.h>
+#endif
+
 /**
  * \file
  * This file defines keys, functions and structures for hotkey handling in vlc
@@ -37,65 +41,61 @@
 #define KEY_MODIFIER_META    0x08000000
 #define KEY_MODIFIER_COMMAND 0x10000000
 
-#define KEY_SPECIAL          0x00FF0000
-#define KEY_LEFT             0x00010000
-#define KEY_RIGHT            0x00020000
-#define KEY_UP               0x00030000
-#define KEY_DOWN             0x00040000
-#define KEY_SPACE            0x00050000
-#define KEY_ENTER            0x00060000
-#define KEY_F1               0x00070000
-#define KEY_F2               0x00080000
-#define KEY_F3               0x00090000
-#define KEY_F4               0x000A0000
-#define KEY_F5               0x000B0000
-#define KEY_F6               0x000C0000
-#define KEY_F7               0x000D0000
-#define KEY_F8               0x000E0000
-#define KEY_F9               0x000F0000
-#define KEY_F10              0x00100000
-#define KEY_F11              0x00110000
-#define KEY_F12              0x00120000
-#define KEY_HOME             0x00130000
-#define KEY_END              0x00140000
-#define KEY_INSERT           0x00150000
-#define KEY_DELETE           0x00160000
-#define KEY_MENU             0x00170000
-#define KEY_ESC              0x00180000
-#define KEY_PAGEUP           0x00190000
-#define KEY_PAGEDOWN         0x001A0000
-#define KEY_TAB              0x001B0000
-#define KEY_BACKSPACE        0x001C0000
-#define KEY_MOUSEWHEELUP     0x001D0000
-#define KEY_MOUSEWHEELDOWN   0x001E0000
-#define KEY_MOUSEWHEELLEFT   0x001F0000
-#define KEY_MOUSEWHEELRIGHT  0x00200000
+#define KEY_UNSET            0x00000000
+/* End of Unicode range:     0x0010FFFF */
+#define KEY_LEFT             0x00210000
+#define KEY_RIGHT            0x00220000
+#define KEY_UP               0x00230000
+#define KEY_DOWN             0x00240000
+#define KEY_SPACE            0x00250000
+#define KEY_ENTER            0x00260000
+#define KEY_F1               0x00270000
+#define KEY_F2               0x00280000
+#define KEY_F3               0x00290000
+#define KEY_F4               0x002A0000
+#define KEY_F5               0x002B0000
+#define KEY_F6               0x002C0000
+#define KEY_F7               0x002D0000
+#define KEY_F8               0x002E0000
+#define KEY_F9               0x002F0000
+#define KEY_F10              0x00300000
+#define KEY_F11              0x00310000
+#define KEY_F12              0x00320000
+#define KEY_HOME             0x00330000
+#define KEY_END              0x00340000
+#define KEY_INSERT           0x00350000
+#define KEY_DELETE           0x00360000
+#define KEY_MENU             0x00370000
+#define KEY_ESC              0x00380000
+#define KEY_PAGEUP           0x00390000
+#define KEY_PAGEDOWN         0x003A0000
+#define KEY_TAB              0x003B0000
+#define KEY_BACKSPACE        0x003C0000
 
-/* TODO:
- * The media keys are only used in win32. Support for other OSes needs to
- * be added */
-#define KEY_BROWSER_BACK     0x001F0000
-#define KEY_BROWSER_FORWARD  0x00200000
-#define KEY_BROWSER_REFRESH  0x00210000
-#define KEY_BROWSER_STOP     0x00220000
-#define KEY_BROWSER_SEARCH   0x00230000
-#define KEY_BROWSER_FAVORITES 0x00240000
-#define KEY_BROWSER_HOME     0x00250000
-#define KEY_VOLUME_MUTE      0x00260000
-#define KEY_VOLUME_DOWN      0x00270000
-#define KEY_VOLUME_UP        0x00280000
-#define KEY_MEDIA_NEXT_TRACK 0x00290000
-#define KEY_MEDIA_PREV_TRACK 0x002a0000
-#define KEY_MEDIA_STOP       0x002b0000
-#define KEY_MEDIA_PLAY_PAUSE 0x002c0000
+#define KEY_BROWSER_BACK     0x003F0000
+#define KEY_BROWSER_FORWARD  0x00400000
+#define KEY_BROWSER_REFRESH  0x00410000
+#define KEY_BROWSER_STOP     0x00420000
+#define KEY_BROWSER_SEARCH   0x00430000
+#define KEY_BROWSER_FAVORITES 0x00440000
+#define KEY_BROWSER_HOME     0x00450000
+#define KEY_VOLUME_MUTE      0x00460000
+#define KEY_VOLUME_DOWN      0x00470000
+#define KEY_VOLUME_UP        0x00480000
+#define KEY_MEDIA_NEXT_TRACK 0x00490000
+#define KEY_MEDIA_PREV_TRACK 0x004A0000
+#define KEY_MEDIA_STOP       0x004B0000
+#define KEY_MEDIA_PLAY_PAUSE 0x004C0000
 
-#define KEY_ASCII            0x0000007F
-#define KEY_UNSET            0
+#define KEY_MOUSEWHEELUP     0x00F00000
+#define KEY_MOUSEWHEELDOWN   0x00F10000
+#define KEY_MOUSEWHEELLEFT   0x00F20000
+#define KEY_MOUSEWHEELRIGHT  0x00F30000
 
 typedef struct key_descriptor_s
 {
     const char *psz_key_string;
-    int i_key_code;
+    uint32_t i_key_code;
 } key_descriptor_t;
 
 #define ADD_KEY(a) { a, *a }
@@ -108,10 +108,76 @@ static const struct key_descriptor_s vlc_modifiers[] =
     { "Meta", KEY_MODIFIER_META },
     { "Command", KEY_MODIFIER_COMMAND }
 };
+enum { vlc_num_modifiers=sizeof(vlc_modifiers)
+                        /sizeof(struct key_descriptor_s) };
 
 static const struct key_descriptor_s vlc_keys[] =
 {
     { "Unset", KEY_UNSET },
+    { "!", '!' },
+    { "\"", '\"' },
+    { "#", '#' },
+    { "$", '$' },
+    { "%", '%' },
+    { "&", '&' },
+    { "'", '\'' },
+    { "(", ')' },
+    { ")", ')' },
+    { "*", '*' },
+    { "+", '+' },
+    { ",", ',' },
+    { "-", '-' },
+    { ".", '.' },
+    { "/", '/' },
+    { "0", '0' },
+    { "1", '1' },
+    { "2", '2' },
+    { "3", '3' },
+    { "4", '4' },
+    { "5", '5' },
+    { "6", '6' },
+    { "7", '7' },
+    { "8", '8' },
+    { "9", '9' },
+    { ":", ':' },
+    { ";", ';' },
+    { "<", '<' },
+    { "=", '=' },
+    { ">", '>' },
+    { "?", '?' },
+    { "@", '@' },
+    { "[", '[' },
+    { "\\", '\\' },
+    { "]", ']' },
+    { "^", '^' },
+    { "_", '_' },
+    { "`", '`' },
+    { "a", 'a' },
+    { "b", 'b' },
+    { "c", 'c' },
+    { "d", 'd' },
+    { "e", 'e' },
+    { "f", 'f' },
+    { "g", 'g' },
+    { "h", 'h' },
+    { "i", 'i' },
+    { "j", 'j' },
+    { "k", 'k' },
+    { "l", 'l' },
+    { "m", 'm' },
+    { "n", 'n' },
+    { "o", 'o' },
+    { "p", 'p' },
+    { "q", 'q' },
+    { "r", 'r' },
+    { "s", 's' },
+    { "t", 't' },
+    { "u", 'u' },
+    { "v", 'v' },
+    { "w", 'w' },
+    { "x", 'x' },
+    { "y", 'y' },
+    { "z", 'z' },
     { "Left", KEY_LEFT },
     { "Right", KEY_RIGHT },
     { "Up", KEY_UP },
@@ -140,72 +206,6 @@ static const struct key_descriptor_s vlc_keys[] =
     { "Page Down", KEY_PAGEDOWN },
     { "Tab", KEY_TAB },
     { "Backspace", KEY_BACKSPACE },
-    { "Mouse Wheel Up", KEY_MOUSEWHEELUP },
-    { "Mouse Wheel Down", KEY_MOUSEWHEELDOWN },
-    { "0", '0' },
-    { "1", '1' },
-    { "2", '2' },
-    { "3", '3' },
-    { "4", '4' },
-    { "5", '5' },
-    { "6", '6' },
-    { "7", '7' },
-    { "8", '8' },
-    { "9", '9' },
-    { "a", 'a' },
-    { "b", 'b' },
-    { "c", 'c' },
-    { "d", 'd' },
-    { "e", 'e' },
-    { "f", 'f' },
-    { "g", 'g' },
-    { "h", 'h' },
-    { "i", 'i' },
-    { "j", 'j' },
-    { "k", 'k' },
-    { "l", 'l' },
-    { "m", 'm' },
-    { "n", 'n' },
-    { "o", 'o' },
-    { "p", 'p' },
-    { "q", 'q' },
-    { "r", 'r' },
-    { "s", 's' },
-    { "t", 't' },
-    { "u", 'u' },
-    { "v", 'v' },
-    { "w", 'w' },
-    { "x", 'x' },
-    { "y", 'y' },
-    { "z", 'z' },
-    { "!", '!' },
-    { "\"", '\"' },
-    { "#", '#' },
-    { "$", '$' },
-    { "%", '%' },
-    { "&", '&' },
-    { "'", '\'' },
-    { "(", ')' },
-    { ")", ')' },
-    { "*", '*' },
-    { "+", '+' },
-    { ",", ',' },
-    { "-", '-' },
-    { ".", '.' },
-    { "/", '/' },
-    { ":", ':' },
-    { ";", ';' },
-    { "<", '<' },
-    { "=", '=' },
-    { ">", '>' },
-    { "?", '?' },
-    { "@", '@' },
-    { "[", '[' },
-    { "\\", '\\' },
-    { "]", ']' },
-    { "^", '^' },
-    { "_", '_' },
-    { "`", '`' },
     { "Browser Back", KEY_BROWSER_BACK },
     { "Browser Forward", KEY_BROWSER_FORWARD },
     { "Browser Refresh", KEY_BROWSER_REFRESH },
@@ -219,26 +219,35 @@ static const struct key_descriptor_s vlc_keys[] =
     { "Media Next Track", KEY_MEDIA_NEXT_TRACK },
     { "Media Prev Track", KEY_MEDIA_PREV_TRACK },
     { "Media Stop", KEY_MEDIA_STOP },
-    { "Media Play Pause", KEY_MEDIA_PLAY_PAUSE }
+    { "Media Play Pause", KEY_MEDIA_PLAY_PAUSE },
+    { "Mouse Wheel Up", KEY_MOUSEWHEELUP },
+    { "Mouse Wheel Down", KEY_MOUSEWHEELDOWN },
+    { "Mouse Wheel Left", KEY_MOUSEWHEELLEFT },
+    { "Mouse Wheel Right", KEY_MOUSEWHEELRIGHT },
 };
+enum { vlc_num_keys=sizeof(vlc_keys)/sizeof(struct key_descriptor_s) };
 
-static inline const char *KeyToString( int i_key )
+#include <stdlib.h>
+
+static inline int cmpkey (const void *key, const void *elem)
 {
-    unsigned int i = 0;
-    for ( i = 0; i < sizeof(vlc_keys) / sizeof(key_descriptor_t); i++ )
-    {
-        if ( vlc_keys[i].i_key_code == i_key )
-        {
-            return vlc_keys[i].psz_key_string;
-        }
-    }
-    return NULL;
+    return ((uintptr_t)key) - ((key_descriptor_t *)elem)->i_key_code;
+}
+
+static inline const char *KeyToString( uint32_t i_key )
+{
+    key_descriptor_t *d;
+
+    d = (key_descriptor_t *)
+        bsearch ((void *)(uintptr_t)i_key, vlc_keys, vlc_num_keys,
+                 sizeof (vlc_keys[0]), cmpkey);
+    return d ? d->psz_key_string : NULL;
 }
 
 static inline int StringToKey( char *psz_key )
 {
-    unsigned int i = 0;
-    for ( i = 0; i < sizeof(vlc_keys) / sizeof(key_descriptor_t); i++ )
+    size_t i;
+    for ( i = 0; i < vlc_num_keys; ++i )
     {
         if ( !strcmp( vlc_keys[i].psz_key_string, psz_key ))
         {

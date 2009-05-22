@@ -408,8 +408,6 @@ picture_t *vout_RenderPicture( vout_thread_t *p_vout, picture_t *p_pic,
                                   p_vout->fmt_out.i_aspect );
             p_tmp_pic->i_type = MEMORY_PICTURE;
             p_tmp_pic->i_status = RESERVED_PICTURE;
-            /* some modules (such as blend)  needs to know the extra information in picture heap */
-            p_tmp_pic->p_heap = &p_vout->output;
         }
 
         /* Convert image to the first direct buffer */
@@ -560,8 +558,8 @@ int __vout_AllocatePicture( vlc_object_t *p_this, picture_t *p_pic,
     i_width_aligned = (i_width + 15) >> 4 << 4;
     i_height_aligned = (i_height + 15) >> 4 << 4;
 
-    if( vout_InitPicture( p_this, p_pic, i_chroma,
-                          i_width, i_height, i_aspect ) != VLC_SUCCESS )
+    if( picture_Setup( p_pic, i_chroma,
+                       i_width, i_height, i_aspect ) != VLC_SUCCESS )
     {
         p_pic->i_planes = 0;
         return VLC_EGENERIC;
@@ -592,362 +590,6 @@ int __vout_AllocatePicture( vlc_object_t *p_this, picture_t *p_pic,
 }
 
 /**
- * Initialise the video format fields given chroma/size.
- *
- * This function initializes all the video_frame_format_t fields given the
- * static properties of a picture (chroma and size).
- * \param p_format Pointer to the format structure to initialize
- * \param i_chroma Chroma to set
- * \param i_width Width to set
- * \param i_height Height to set
- * \param i_aspect Aspect ratio
- */
-void vout_InitFormat( video_frame_format_t *p_format, vlc_fourcc_t i_chroma,
-                      int i_width, int i_height, int i_aspect )
-{
-    p_format->i_chroma   = i_chroma;
-    p_format->i_width    = p_format->i_visible_width  = i_width;
-    p_format->i_height   = p_format->i_visible_height = i_height;
-    p_format->i_x_offset = p_format->i_y_offset = 0;
-    p_format->i_aspect   = i_aspect;
-
-#if 0
-    /* Assume we have square pixels */
-    if( i_width && i_height )
-        p_format->i_aspect = i_width * VOUT_ASPECT_FACTOR / i_height;
-    else
-        p_format->i_aspect = 0;
-#endif
-
-    switch( i_chroma )
-    {
-        case FOURCC_YUVA:
-            p_format->i_bits_per_pixel = 32;
-            break;
-        case FOURCC_I444:
-        case FOURCC_J444:
-            p_format->i_bits_per_pixel = 24;
-            break;
-        case FOURCC_I422:
-        case FOURCC_YUY2:
-        case FOURCC_UYVY:
-        case FOURCC_J422:
-            p_format->i_bits_per_pixel = 16;
-            break;
-        case FOURCC_I440:
-        case FOURCC_J440:
-            p_format->i_bits_per_pixel = 16;
-            break;
-        case FOURCC_I411:
-        case FOURCC_YV12:
-        case FOURCC_I420:
-        case FOURCC_J420:
-        case FOURCC_IYUV:
-            p_format->i_bits_per_pixel = 12;
-            break;
-        case FOURCC_I410:
-        case FOURCC_YVU9:
-            p_format->i_bits_per_pixel = 9;
-            break;
-        case FOURCC_Y211:
-            p_format->i_bits_per_pixel = 8;
-            break;
-        case FOURCC_YUVP:
-            p_format->i_bits_per_pixel = 8;
-            break;
-
-        case FOURCC_RV32:
-        case FOURCC_RGBA:
-            p_format->i_bits_per_pixel = 32;
-            break;
-        case FOURCC_RV24:
-            p_format->i_bits_per_pixel = 24;
-            break;
-        case FOURCC_RV15:
-        case FOURCC_RV16:
-            p_format->i_bits_per_pixel = 16;
-            break;
-        case FOURCC_RGB2:
-            p_format->i_bits_per_pixel = 8;
-            break;
-
-        case FOURCC_GREY:
-        case FOURCC_Y800:
-        case FOURCC_Y8:
-        case FOURCC_RGBP:
-            p_format->i_bits_per_pixel = 8;
-            break;
-
-        default:
-            p_format->i_bits_per_pixel = 0;
-            break;
-    }
-}
-
-/**
- * Initialise the picture_t fields given chroma/size.
- *
- * This function initializes most of the picture_t fields given a chroma and
- * size. It makes the assumption that stride == width.
- * \param p_this The calling object
- * \param p_pic Pointer to the picture to initialize
- * \param i_chroma The chroma fourcc to set
- * \param i_width The width of the picture
- * \param i_height The height of the picture
- * \param i_aspect The aspect ratio of the picture
- */
-int __vout_InitPicture( vlc_object_t *p_this, picture_t *p_pic,
-                        vlc_fourcc_t i_chroma,
-                        int i_width, int i_height, int i_aspect )
-{
-    int i_index, i_width_aligned, i_height_aligned;
-
-    /* Store default values */
-    for( i_index = 0; i_index < VOUT_MAX_PLANES; i_index++ )
-    {
-        p_pic->p[i_index].p_pixels = NULL;
-        p_pic->p[i_index].i_pixel_pitch = 1;
-    }
-
-    p_pic->pf_release = NULL;
-    p_pic->pf_lock = NULL;
-    p_pic->pf_unlock = NULL;
-    p_pic->i_refcount = 0;
-
-    p_pic->i_qtype = QTYPE_NONE;
-    p_pic->i_qstride = 0;
-    p_pic->p_q = NULL;
-
-    vout_InitFormat( &p_pic->format, i_chroma, i_width, i_height, i_aspect );
-
-    /* Make sure the real dimensions are a multiple of 16 */
-    i_width_aligned = (i_width + 15) >> 4 << 4;
-    i_height_aligned = (i_height + 15) >> 4 << 4;
-
-    /* Calculate coordinates */
-    switch( i_chroma )
-    {
-        case FOURCC_I411:
-            p_pic->p[ Y_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ Y_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ U_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ U_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ U_PLANE ].i_pitch = i_width_aligned / 4;
-            p_pic->p[ U_PLANE ].i_visible_pitch = i_width / 4;
-            p_pic->p[ V_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ V_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ V_PLANE ].i_pitch = i_width_aligned / 4;
-            p_pic->p[ V_PLANE ].i_visible_pitch = i_width / 4;
-            p_pic->i_planes = 3;
-            break;
-
-        case FOURCC_I410:
-        case FOURCC_YVU9:
-            p_pic->p[ Y_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ Y_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ U_PLANE ].i_lines = i_height_aligned / 4;
-            p_pic->p[ U_PLANE ].i_visible_lines = i_height / 4;
-            p_pic->p[ U_PLANE ].i_pitch = i_width_aligned / 4;
-            p_pic->p[ U_PLANE ].i_visible_pitch = i_width / 4;
-            p_pic->p[ V_PLANE ].i_lines = i_height_aligned / 4;
-            p_pic->p[ V_PLANE ].i_visible_lines = i_height / 4;
-            p_pic->p[ V_PLANE ].i_pitch = i_width_aligned / 4;
-            p_pic->p[ V_PLANE ].i_visible_pitch = i_width / 4;
-            p_pic->i_planes = 3;
-            break;
-
-        case FOURCC_YV12:
-        case FOURCC_I420:
-        case FOURCC_IYUV:
-        case FOURCC_J420:
-            p_pic->p[ Y_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ Y_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ U_PLANE ].i_lines = i_height_aligned / 2;
-            p_pic->p[ U_PLANE ].i_visible_lines = i_height / 2;
-            p_pic->p[ U_PLANE ].i_pitch = i_width_aligned / 2;
-            p_pic->p[ U_PLANE ].i_visible_pitch = i_width / 2;
-            p_pic->p[ V_PLANE ].i_lines = i_height_aligned / 2;
-            p_pic->p[ V_PLANE ].i_visible_lines = i_height / 2;
-            p_pic->p[ V_PLANE ].i_pitch = i_width_aligned / 2;
-            p_pic->p[ V_PLANE ].i_visible_pitch = i_width / 2;
-            p_pic->i_planes = 3;
-            break;
-
-        case FOURCC_I422:
-        case FOURCC_J422:
-            p_pic->p[ Y_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ Y_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ U_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ U_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ U_PLANE ].i_pitch = i_width_aligned / 2;
-            p_pic->p[ U_PLANE ].i_visible_pitch = i_width / 2;
-            p_pic->p[ V_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ V_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ V_PLANE ].i_pitch = i_width_aligned / 2;
-            p_pic->p[ V_PLANE ].i_visible_pitch = i_width / 2;
-            p_pic->i_planes = 3;
-            break;
-
-        case FOURCC_I440:
-        case FOURCC_J440:
-            p_pic->p[ Y_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ Y_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ U_PLANE ].i_lines = i_height_aligned / 2;
-            p_pic->p[ U_PLANE ].i_visible_lines = i_height / 2;
-            p_pic->p[ U_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ U_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ V_PLANE ].i_lines = i_height_aligned / 2;
-            p_pic->p[ V_PLANE ].i_visible_lines = i_height / 2;
-            p_pic->p[ V_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ V_PLANE ].i_visible_pitch = i_width;
-            p_pic->i_planes = 3;
-            break;
-
-        case FOURCC_I444:
-        case FOURCC_J444:
-            p_pic->p[ Y_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ Y_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ U_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ U_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ U_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ U_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ V_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ V_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ V_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ V_PLANE ].i_visible_pitch = i_width;
-            p_pic->i_planes = 3;
-            break;
-
-        case FOURCC_YUVA:
-            p_pic->p[ Y_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ Y_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ Y_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ U_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ U_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ U_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ U_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ V_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ V_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ V_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ V_PLANE ].i_visible_pitch = i_width;
-            p_pic->p[ A_PLANE ].i_lines = i_height_aligned;
-            p_pic->p[ A_PLANE ].i_visible_lines = i_height;
-            p_pic->p[ A_PLANE ].i_pitch = i_width_aligned;
-            p_pic->p[ A_PLANE ].i_visible_pitch = i_width;
-            p_pic->i_planes = 4;
-            break;
-
-        case FOURCC_YUVP:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned;
-            p_pic->p->i_visible_pitch = i_width;
-            p_pic->p->i_pixel_pitch = 8;
-            p_pic->i_planes = 1;
-            break;
-
-        case FOURCC_Y211:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned;
-            p_pic->p->i_visible_pitch = i_width;
-            p_pic->p->i_pixel_pitch = 4;
-            p_pic->i_planes = 1;
-            break;
-
-        case FOURCC_UYVY:
-        case FOURCC_YUY2:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned * 2;
-            p_pic->p->i_visible_pitch = i_width * 2;
-            p_pic->p->i_pixel_pitch = 4;
-            p_pic->i_planes = 1;
-            break;
-
-        case FOURCC_RGB2:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned;
-            p_pic->p->i_visible_pitch = i_width;
-            p_pic->p->i_pixel_pitch = 1;
-            p_pic->i_planes = 1;
-            break;
-
-        case FOURCC_RV15:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned * 2;
-            p_pic->p->i_visible_pitch = i_width * 2;
-            p_pic->p->i_pixel_pitch = 2;
-            p_pic->i_planes = 1;
-            break;
-
-        case FOURCC_RV16:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned * 2;
-            p_pic->p->i_visible_pitch = i_width * 2;
-            p_pic->p->i_pixel_pitch = 2;
-            p_pic->i_planes = 1;
-            break;
-
-        case FOURCC_RV24:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned * 3;
-            p_pic->p->i_visible_pitch = i_width * 3;
-            p_pic->p->i_pixel_pitch = 3;
-            p_pic->i_planes = 1;
-            break;
-
-        case FOURCC_RV32:
-        case FOURCC_RGBA:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned * 4;
-            p_pic->p->i_visible_pitch = i_width * 4;
-            p_pic->p->i_pixel_pitch = 4;
-            p_pic->i_planes = 1;
-            break;
-
-        case FOURCC_GREY:
-        case FOURCC_Y800:
-        case FOURCC_Y8:
-        case FOURCC_RGBP:
-            p_pic->p->i_lines = i_height_aligned;
-            p_pic->p->i_visible_lines = i_height;
-            p_pic->p->i_pitch = i_width_aligned;
-            p_pic->p->i_visible_pitch = i_width;
-            p_pic->p->i_pixel_pitch = 1;
-            p_pic->i_planes = 1;
-            break;
-
-        default:
-            if( p_this )
-                msg_Err( p_this, "unknown chroma type 0x%.8x (%4.4s)",
-                                 i_chroma, (char*)&i_chroma );
-            p_pic->i_planes = 0;
-            return VLC_EGENERIC;
-    }
-
-    return VLC_SUCCESS;
-}
-
-/**
  * Compare two chroma values
  *
  * This function returns 1 if the two fourcc values given as argument are
@@ -956,29 +598,24 @@ int __vout_InitPicture( vlc_object_t *p_this, picture_t *p_pic,
 int vout_ChromaCmp( vlc_fourcc_t i_chroma, vlc_fourcc_t i_amorhc )
 {
     static const vlc_fourcc_t p_I420[] = {
-        FOURCC_I420, FOURCC_IYUV, FOURCC_YV12, FOURCC_J420, 0
+        VLC_CODEC_I420, VLC_CODEC_YV12, VLC_CODEC_J420, 0
     };
     static const vlc_fourcc_t p_I422[] = {
-        FOURCC_I422, FOURCC_J422, 0
+        VLC_CODEC_I422, VLC_CODEC_J422, 0
     };
     static const vlc_fourcc_t p_I440[] = {
-        FOURCC_I440, FOURCC_J440, 0
+        VLC_CODEC_I440, VLC_CODEC_J440, 0
     };
     static const vlc_fourcc_t p_I444[] = {
-        FOURCC_I444, FOURCC_J444, 0
-    };
-    static const vlc_fourcc_t p_UYVY[] = {
-        FOURCC_UYVY, FOURCC_UYNV, FOURCC_Y422, 0
-    };
-    static const vlc_fourcc_t p_YUYV[] = {
-        FOURCC_YUY2, FOURCC_YUNV, 0
-    };
-    static const vlc_fourcc_t p_GREY[] = {
-        FOURCC_GREY, FOURCC_Y800, FOURCC_Y8, 0
+        VLC_CODEC_I444, VLC_CODEC_J444, 0
     };
     static const vlc_fourcc_t *pp_fcc[] = {
-        p_I420, p_I422, p_I440, p_I444, p_UYVY, p_YUYV, p_GREY, NULL
+        p_I420, p_I422, p_I440, p_I444, NULL
     };
+
+    /* */
+    i_chroma = vlc_fourcc_GetCodec( VIDEO_ES, i_chroma );
+    i_amorhc = vlc_fourcc_GetCodec( VIDEO_ES, i_amorhc );
 
     /* If they are the same, they are the same ! */
     if( i_chroma == i_amorhc )
@@ -1011,6 +648,255 @@ static void PictureReleaseCallback( picture_t *p_picture )
         return;
     picture_Delete( p_picture );
 }
+
+/*****************************************************************************
+ *
+ *****************************************************************************/
+int picture_Setup( picture_t *p_picture, vlc_fourcc_t i_chroma, int i_width, int i_height, int i_aspect )
+{
+    int i_index, i_width_aligned, i_height_aligned;
+
+    /* Store default values */
+    for( i_index = 0; i_index < VOUT_MAX_PLANES; i_index++ )
+    {
+        p_picture->p[i_index].p_pixels = NULL;
+        p_picture->p[i_index].i_pixel_pitch = 1;
+    }
+
+    p_picture->pf_release = NULL;
+    p_picture->p_release_sys = NULL;
+    p_picture->pf_lock = NULL;
+    p_picture->pf_unlock = NULL;
+    p_picture->i_refcount = 0;
+
+    p_picture->i_qtype = QTYPE_NONE;
+    p_picture->i_qstride = 0;
+    p_picture->p_q = NULL;
+
+    video_format_Setup( &p_picture->format, i_chroma, i_width, i_height, i_aspect );
+
+    /* Make sure the real dimensions are a multiple of 16 */
+    i_width_aligned = (i_width + 15) >> 4 << 4;
+    i_height_aligned = (i_height + 15) >> 4 << 4;
+
+    /* Calculate coordinates */
+    switch( vlc_fourcc_GetCodec( VIDEO_ES, i_chroma ) )
+    {
+    case VLC_CODEC_I411:
+        p_picture->p[ Y_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ Y_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ U_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ U_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ U_PLANE ].i_pitch = i_width_aligned / 4;
+        p_picture->p[ U_PLANE ].i_visible_pitch = i_width / 4;
+        p_picture->p[ V_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ V_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ V_PLANE ].i_pitch = i_width_aligned / 4;
+        p_picture->p[ V_PLANE ].i_visible_pitch = i_width / 4;
+        p_picture->i_planes = 3;
+        break;
+
+    case VLC_CODEC_I410:
+        p_picture->p[ Y_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ Y_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ U_PLANE ].i_lines = i_height_aligned / 4;
+        p_picture->p[ U_PLANE ].i_visible_lines = i_height / 4;
+        p_picture->p[ U_PLANE ].i_pitch = i_width_aligned / 4;
+        p_picture->p[ U_PLANE ].i_visible_pitch = i_width / 4;
+        p_picture->p[ V_PLANE ].i_lines = i_height_aligned / 4;
+        p_picture->p[ V_PLANE ].i_visible_lines = i_height / 4;
+        p_picture->p[ V_PLANE ].i_pitch = i_width_aligned / 4;
+        p_picture->p[ V_PLANE ].i_visible_pitch = i_width / 4;
+        p_picture->i_planes = 3;
+        break;
+
+    case VLC_CODEC_YV12:
+    case VLC_CODEC_I420:
+    case VLC_CODEC_J420:
+        p_picture->p[ Y_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ Y_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ U_PLANE ].i_lines = i_height_aligned / 2;
+        p_picture->p[ U_PLANE ].i_visible_lines = i_height / 2;
+        p_picture->p[ U_PLANE ].i_pitch = i_width_aligned / 2;
+        p_picture->p[ U_PLANE ].i_visible_pitch = i_width / 2;
+        p_picture->p[ V_PLANE ].i_lines = i_height_aligned / 2;
+        p_picture->p[ V_PLANE ].i_visible_lines = i_height / 2;
+        p_picture->p[ V_PLANE ].i_pitch = i_width_aligned / 2;
+        p_picture->p[ V_PLANE ].i_visible_pitch = i_width / 2;
+        p_picture->i_planes = 3;
+        break;
+
+    case VLC_CODEC_I422:
+    case VLC_CODEC_J422:
+        p_picture->p[ Y_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ Y_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ U_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ U_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ U_PLANE ].i_pitch = i_width_aligned / 2;
+        p_picture->p[ U_PLANE ].i_visible_pitch = i_width / 2;
+        p_picture->p[ V_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ V_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ V_PLANE ].i_pitch = i_width_aligned / 2;
+        p_picture->p[ V_PLANE ].i_visible_pitch = i_width / 2;
+        p_picture->i_planes = 3;
+        break;
+
+    case VLC_CODEC_I440:
+    case VLC_CODEC_J440:
+        p_picture->p[ Y_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ Y_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ U_PLANE ].i_lines = i_height_aligned / 2;
+        p_picture->p[ U_PLANE ].i_visible_lines = i_height / 2;
+        p_picture->p[ U_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ U_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ V_PLANE ].i_lines = i_height_aligned / 2;
+        p_picture->p[ V_PLANE ].i_visible_lines = i_height / 2;
+        p_picture->p[ V_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ V_PLANE ].i_visible_pitch = i_width;
+        p_picture->i_planes = 3;
+        break;
+
+    case VLC_CODEC_I444:
+    case VLC_CODEC_J444:
+        p_picture->p[ Y_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ Y_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ U_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ U_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ U_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ U_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ V_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ V_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ V_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ V_PLANE ].i_visible_pitch = i_width;
+        p_picture->i_planes = 3;
+        break;
+
+    case VLC_CODEC_YUVA:
+        p_picture->p[ Y_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ Y_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ Y_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ U_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ U_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ U_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ U_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ V_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ V_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ V_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ V_PLANE ].i_visible_pitch = i_width;
+        p_picture->p[ A_PLANE ].i_lines = i_height_aligned;
+        p_picture->p[ A_PLANE ].i_visible_lines = i_height;
+        p_picture->p[ A_PLANE ].i_pitch = i_width_aligned;
+        p_picture->p[ A_PLANE ].i_visible_pitch = i_width;
+        p_picture->i_planes = 4;
+        break;
+
+    case VLC_CODEC_YUVP:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned;
+        p_picture->p->i_visible_pitch = i_width;
+        p_picture->p->i_pixel_pitch = 8;
+        p_picture->i_planes = 1;
+        break;
+
+    case VLC_CODEC_Y211:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned;
+        p_picture->p->i_visible_pitch = i_width;
+        p_picture->p->i_pixel_pitch = 4;
+        p_picture->i_planes = 1;
+        break;
+
+    case VLC_CODEC_UYVY:
+    case VLC_CODEC_VYUY:
+    case VLC_CODEC_YUYV:
+    case VLC_CODEC_YVYU:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned * 2;
+        p_picture->p->i_visible_pitch = i_width * 2;
+        p_picture->p->i_pixel_pitch = 4;
+        p_picture->i_planes = 1;
+        break;
+
+    case VLC_CODEC_RGB8:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned;
+        p_picture->p->i_visible_pitch = i_width;
+        p_picture->p->i_pixel_pitch = 1;
+        p_picture->i_planes = 1;
+        break;
+
+    case VLC_CODEC_RGB15:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned * 2;
+        p_picture->p->i_visible_pitch = i_width * 2;
+        p_picture->p->i_pixel_pitch = 2;
+        p_picture->i_planes = 1;
+        break;
+
+    case VLC_CODEC_RGB16:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned * 2;
+        p_picture->p->i_visible_pitch = i_width * 2;
+        p_picture->p->i_pixel_pitch = 2;
+        p_picture->i_planes = 1;
+        break;
+
+    case VLC_CODEC_RGB24:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned * 3;
+        p_picture->p->i_visible_pitch = i_width * 3;
+        p_picture->p->i_pixel_pitch = 3;
+        p_picture->i_planes = 1;
+        break;
+
+    case VLC_CODEC_RGB32:
+    case VLC_CODEC_RGBA:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned * 4;
+        p_picture->p->i_visible_pitch = i_width * 4;
+        p_picture->p->i_pixel_pitch = 4;
+        p_picture->i_planes = 1;
+        break;
+
+    case VLC_CODEC_GREY:
+    case VLC_CODEC_RGBP:
+        p_picture->p->i_lines = i_height_aligned;
+        p_picture->p->i_visible_lines = i_height;
+        p_picture->p->i_pitch = i_width_aligned;
+        p_picture->p->i_visible_pitch = i_width;
+        p_picture->p->i_pixel_pitch = 1;
+        p_picture->i_planes = 1;
+        break;
+
+    default:
+        p_picture->i_planes = 0;
+        return VLC_EGENERIC;
+    }
+
+    return VLC_SUCCESS;
+}
+
 /*****************************************************************************
  *
  *****************************************************************************/
@@ -1040,6 +926,7 @@ picture_t *picture_New( vlc_fourcc_t i_chroma, int i_width, int i_height, int i_
 void picture_Delete( picture_t *p_picture )
 {
     assert( p_picture && p_picture->i_refcount == 0 );
+    assert( p_picture->p_release_sys == NULL );
 
     free( p_picture->p_q );
     free( p_picture->p_data_orig );
@@ -1162,4 +1049,3 @@ int picture_Export( vlc_object_t *p_obj,
 /*****************************************************************************
  *
  *****************************************************************************/
-

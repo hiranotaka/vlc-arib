@@ -121,7 +121,7 @@ static int Create( vlc_object_t *p_this )
     p_sys->p_fd = NULL;
 
     p_sys->b_yuv4mpeg2 = var_CreateGetBool( p_this, CFG_PREFIX "yuv4mpeg2" );
-    p_sys->i_chroma = VLC_FOURCC('I','4','2','0');
+    p_sys->i_chroma = VLC_CODEC_I420;
 
     p_sys->psz_file =
             var_CreateGetString( p_this, CFG_PREFIX "file" );
@@ -134,21 +134,19 @@ static int Create( vlc_object_t *p_this )
     }
 
     psz_fcc = var_CreateGetNonEmptyString( p_this, CFG_PREFIX "chroma" );
-    if( psz_fcc && (strlen( psz_fcc ) == 4) )
-    {
-        p_sys->i_chroma = VLC_FOURCC( psz_fcc[0], psz_fcc[1],
-                                      psz_fcc[2], psz_fcc[3] );
-    }
+    const vlc_fourcc_t i_requested_chroma =
+        vlc_fourcc_GetCodecFromString( VIDEO_ES, psz_fcc );
+    if( i_requested_chroma )
+        p_sys->i_chroma = i_requested_chroma;
     free( psz_fcc );
 
     if( p_sys->b_yuv4mpeg2 )
     {
         switch( p_sys->i_chroma )
         {
-            case VLC_FOURCC('Y','V','1','2'):
-            case VLC_FOURCC('I','4','2','0'):
-            case VLC_FOURCC('I','Y','U','V'):
-            case VLC_FOURCC('J','4','2','0'):
+            case VLC_CODEC_YV12:
+            case VLC_CODEC_I420:
+            case VLC_CODEC_J420:
                 break;
             default:
                 msg_Err( p_this,

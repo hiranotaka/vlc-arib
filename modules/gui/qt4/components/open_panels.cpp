@@ -166,7 +166,8 @@ void FileOpenPanel::browseFile()
     QStringList files = QFileDialog::getOpenFileNames( this );
     foreach( const QString &file, files)
     {
-        QListWidgetItem *item = new QListWidgetItem( file, ui.fileListWidg );
+        QListWidgetItem *item =
+            new QListWidgetItem( toNativeSeparators( file ), ui.fileListWidg );
         item->setFlags( Qt::ItemIsEditable | Qt::ItemIsEnabled );
         ui.fileListWidg->addItem( item );
     }
@@ -193,7 +194,7 @@ void FileOpenPanel::browseFileSub()
                            EXT_FILTER_SUBTITLE, p_intf->p_sys->filepath );
 
     if( files.isEmpty() ) return;
-    ui.subInput->setText( files.join(" ") );
+    ui.subInput->setText( toNativeSeparators( files.join(" ") ) );
     updateMRL();
 }
 
@@ -1070,6 +1071,9 @@ void CaptureOpenPanel::initialize()
     screenFPS->setValue( 1 );
     screenFPS->setAlignment( Qt::AlignRight );
     screenPropLayout->addWidget( screenFPS, 0, 1 );
+
+    /* Screen connect */
+    CuMRL( screenFPS, valueChanged( int ) );
 
     /* General connects */
     CONNECT( ui.deviceCombo, activated( int ) ,

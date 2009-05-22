@@ -212,7 +212,7 @@ static int Open( vlc_object_t *p_this )
         msg_Dbg( p_demux, "Using %s for the mouse pointer image", psz_mouse );
         memset( &fmt_in, 0, sizeof( fmt_in ) );
         memset( &fmt_out, 0, sizeof( fmt_out ) );
-        fmt_out.i_chroma = VLC_FOURCC('R','G','B','A');
+        fmt_out.i_chroma = VLC_CODEC_RGBA;
         p_image = image_HandlerCreate( p_demux );
         if( p_image )
         {
@@ -336,18 +336,18 @@ void RenderCursor( demux_t *p_demux, int i_x, int i_y,
 {
     demux_sys_t *p_sys = p_demux->p_sys;
     if( !p_sys->dst.i_planes )
-        vout_InitPicture( p_demux, &p_sys->dst,
-                          p_sys->fmt.video.i_chroma,
-                          p_sys->fmt.video.i_width,
-                          p_sys->fmt.video.i_height,
-                          p_sys->fmt.video.i_aspect );
+        picture_Setup( &p_sys->dst,
+                       p_sys->fmt.video.i_chroma,
+                       p_sys->fmt.video.i_width,
+                       p_sys->fmt.video.i_height,
+                       p_sys->fmt.video.i_aspect );
     if( !p_sys->p_blend )
     {
         p_sys->p_blend = vlc_object_create( p_demux, sizeof(filter_t) );
         if( p_sys->p_blend )
         {
             es_format_Init( &p_sys->p_blend->fmt_in, VIDEO_ES,
-                            VLC_FOURCC('R','G','B','A') );
+                            VLC_CODEC_RGBA );
             p_sys->p_blend->fmt_in.video = p_sys->p_mouse->format;
             p_sys->p_blend->fmt_out = p_sys->fmt;
             p_sys->p_blend->p_module =

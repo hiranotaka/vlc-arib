@@ -139,13 +139,13 @@ typedef DWORD   vlc_threadvar_t;
 /*****************************************************************************
  * Function definitions
  *****************************************************************************/
-VLC_EXPORT( int,  vlc_mutex_init,    ( vlc_mutex_t * ) );
-VLC_EXPORT( int,  vlc_mutex_init_recursive, ( vlc_mutex_t * ) );
+VLC_EXPORT( void, vlc_mutex_init,    ( vlc_mutex_t * ) );
+VLC_EXPORT( void, vlc_mutex_init_recursive, ( vlc_mutex_t * ) );
 VLC_EXPORT( void, vlc_mutex_destroy, ( vlc_mutex_t * ) );
 VLC_EXPORT( void, vlc_mutex_lock, ( vlc_mutex_t * ) );
-VLC_EXPORT( int, vlc_mutex_trylock, ( vlc_mutex_t * ) );
+VLC_EXPORT( int,  vlc_mutex_trylock, ( vlc_mutex_t * ) LIBVLC_USED );
 VLC_EXPORT( void, vlc_mutex_unlock, ( vlc_mutex_t * ) );
-VLC_EXPORT( int,  vlc_cond_init,     ( vlc_cond_t * ) );
+VLC_EXPORT( void, vlc_cond_init,     ( vlc_cond_t * ) );
 VLC_EXPORT( void, vlc_cond_destroy,  ( vlc_cond_t * ) );
 VLC_EXPORT( void, vlc_cond_signal, (vlc_cond_t *) );
 VLC_EXPORT( void, vlc_cond_broadcast, (vlc_cond_t *) );
@@ -155,11 +155,11 @@ VLC_EXPORT( int, vlc_threadvar_create, (vlc_threadvar_t * , void (*) (void *) ) 
 VLC_EXPORT( void, vlc_threadvar_delete, (vlc_threadvar_t *) );
 VLC_EXPORT( int, vlc_threadvar_set, (vlc_threadvar_t, void *) );
 VLC_EXPORT( void *, vlc_threadvar_get, (vlc_threadvar_t) );
-VLC_EXPORT( int,  vlc_thread_create, ( vlc_object_t *, const char *, int, const char *, void * ( * ) ( vlc_object_t * ), int ) );
+VLC_EXPORT( int,  vlc_thread_create, ( vlc_object_t *, const char *, int, const char *, void * ( * ) ( vlc_object_t * ), int ) LIBVLC_USED );
 VLC_EXPORT( int,  __vlc_thread_set_priority, ( vlc_object_t *, const char *, int, int ) );
 VLC_EXPORT( void, __vlc_thread_join,   ( vlc_object_t * ) );
 
-VLC_EXPORT( int, vlc_clone, (vlc_thread_t *, void * (*) (void *), void *, int) );
+VLC_EXPORT( int, vlc_clone, (vlc_thread_t *, void * (*) (void *), void *, int) LIBVLC_USED );
 VLC_EXPORT( void, vlc_cancel, (vlc_thread_t) );
 VLC_EXPORT( void, vlc_join, (vlc_thread_t, void **) );
 VLC_EXPORT (void, vlc_control_cancel, (int cmd, ...));
@@ -242,9 +242,10 @@ typedef pthread_spinlock_t vlc_spinlock_t;
 /**
  * Initializes a spinlock.
  */
-static inline int vlc_spin_init (vlc_spinlock_t *spin)
+static inline void vlc_spin_init (vlc_spinlock_t *spin)
 {
-    return pthread_spin_init (spin, PTHREAD_PROCESS_PRIVATE);
+    if (pthread_spin_init (spin, PTHREAD_PROCESS_PRIVATE))
+        abort ();
 }
 
 /**
@@ -271,21 +272,17 @@ static inline void vlc_spin_destroy (vlc_spinlock_t *spin)
     pthread_spin_destroy (spin);
 }
 
-#elif defined( WIN32 )
+#elif defined (WIN32) && !defined (UNDER_CE)
 
 typedef CRITICAL_SECTION vlc_spinlock_t;
 
 /**
  * Initializes a spinlock.
  */
-static inline int vlc_spin_init (vlc_spinlock_t *spin)
+static inline void vlc_spin_init (vlc_spinlock_t *spin)
 {
-#ifdef UNDER_CE
-    InitializeCriticalSection(spin);
-    return 0;
-#else
-    return !InitializeCriticalSectionAndSpinCount(spin, 4000);
-#endif
+    if (!InitializeCriticalSectionAndSpinCount(spin, 4000))
+        abort ();
 }
 
 /**
@@ -317,9 +314,9 @@ static inline void vlc_spin_destroy (vlc_spinlock_t *spin)
 /* Fallback to plain mutexes if spinlocks are not available */
 typedef vlc_mutex_t vlc_spinlock_t;
 
-static inline int vlc_spin_init (vlc_spinlock_t *spin)
+static inline void vlc_spin_init (vlc_spinlock_t *spin)
 {
-    return vlc_mutex_init (spin);
+    vlc_mutex_init (spin);
 }
 
 # define vlc_spin_lock    vlc_mutex_lock

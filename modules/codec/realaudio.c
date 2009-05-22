@@ -182,8 +182,8 @@ static int Open( vlc_object_t *p_this )
 
     switch( p_dec->fmt_in.i_codec )
     {
-    case VLC_FOURCC('c','o','o','k'):
-    case VLC_FOURCC('a','t','r','c'):
+    case VLC_CODEC_COOK:
+    case VLC_CODEC_ATRAC3:
     case VLC_FOURCC('s','i','p','r'):
         break;
 
@@ -222,7 +222,7 @@ static int Open( vlc_object_t *p_this )
     if( p_sys->win32_dll ) Close( p_this );
 #endif
 
-    es_format_Init( &p_dec->fmt_out, AUDIO_ES, AOUT_FMT_S16_NE );
+    es_format_Init( &p_dec->fmt_out, AUDIO_ES, VLC_CODEC_S16N );
     p_dec->fmt_out.audio.i_rate = p_dec->fmt_in.audio.i_rate;
     p_dec->fmt_out.audio.i_channels = p_dec->fmt_in.audio.i_channels;
     p_dec->fmt_out.audio.i_bitspersample =

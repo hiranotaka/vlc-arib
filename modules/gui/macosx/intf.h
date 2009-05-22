@@ -83,8 +83,6 @@ struct intf_sys_t
     msg_subscription_t * p_sub;
 };
 
-static void MsgCallback( msg_cb_data_t *, msg_item_t *, unsigned );
-
 /*****************************************************************************
  * VLCMain interface
  *****************************************************************************/
@@ -276,6 +274,7 @@ static void MsgCallback( msg_cb_data_t *, msg_item_t *, unsigned );
     IBOutlet NSMenu * o_mu_window;
     IBOutlet NSMenuItem * o_mi_minimize;
     IBOutlet NSMenuItem * o_mi_close_window;
+    IBOutlet NSMenuItem * o_mi_player;
     IBOutlet NSMenuItem * o_mi_controller;
     IBOutlet NSMenuItem * o_mi_equalizer;
     IBOutlet NSMenuItem * o_mi_extended;

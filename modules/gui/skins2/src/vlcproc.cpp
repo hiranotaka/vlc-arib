@@ -410,17 +410,18 @@ int VlcProc::onIntfShow( vlc_object_t *pObj, const char *pVariable,
 
 
 int VlcProc::onItemChange( vlc_object_t *pObj, const char *pVariable,
-                           vlc_value_t oldVal, vlc_value_t newVal,
+                           vlc_value_t oldval, vlc_value_t newval,
                            void *pParam )
 {
     VlcProc *pThis = (VlcProc*)pParam;
+    input_item_t *p_item = static_cast<input_item_t*>(newval.p_address);
 
     // Update the stream variable
     pThis->updateStreamName();
 
     // Create a playtree notify command
     CmdPlaytreeUpdate *pCmdTree = new CmdPlaytreeUpdate( pThis->getIntf(),
-                                                         newVal.i_int );
+                                                         p_item->i_id );
 
     // Push the command in the asynchronous command queue
     AsyncQueue *pQueue = AsyncQueue::instance( pThis->getIntf() );
@@ -474,10 +475,11 @@ int VlcProc::onItemDelete( vlc_object_t *pObj, const char *pVariable,
 
 
 int VlcProc::onPlaylistChange( vlc_object_t *pObj, const char *pVariable,
-                               vlc_value_t oldVal, vlc_value_t newVal,
+                               vlc_value_t oldval, vlc_value_t newval,
                                void *pParam )
 {
     VlcProc *pThis = (VlcProc*)pParam;
+    input_item_t *p_item = static_cast<input_item_t*>(newval.p_address);
 
     AsyncQueue *pQueue = AsyncQueue::instance( pThis->getIntf() );
 
@@ -485,10 +487,13 @@ int VlcProc::onPlaylistChange( vlc_object_t *pObj, const char *pVariable,
     pThis->updateStreamName();
 
     // Create two playtree notify commands: one for old item, one for new
+#if 0 /* FIXME: Heck, no! You cannot do that.
+         There is no warranty that the old item is still valid. */
     CmdPlaytreeUpdate *pCmdTree = new CmdPlaytreeUpdate( pThis->getIntf(),
                                                          oldVal.i_int );
     pQueue->push( CmdGenericPtr( pCmdTree ) , true );
-    pCmdTree = new CmdPlaytreeUpdate( pThis->getIntf(), newVal.i_int );
+#endif
+    CmdPlaytreeUpdate *pCmdTree = new CmdPlaytreeUpdate( pThis->getIntf(), p_item->i_id );
     pQueue->push( CmdGenericPtr( pCmdTree ) , true );
 
     return VLC_SUCCESS;

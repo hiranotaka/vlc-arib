@@ -179,7 +179,7 @@ static picture_t *LoadImage( vlc_object_t *p_this, char *psz_filename )
     memset( &fmt_in, 0, sizeof(video_format_t) );
     memset( &fmt_out, 0, sizeof(video_format_t) );
 
-    fmt_out.i_chroma = VLC_FOURCC('Y','U','V','A');
+    fmt_out.i_chroma = VLC_CODEC_YUVA;
     p_image = image_HandlerCreate( p_this );
     p_pic = image_ReadUrl( p_image, psz_filename, &fmt_in, &fmt_out );
     image_HandlerDelete( p_image );
@@ -346,11 +346,12 @@ static int Create( vlc_object_t *p_this )
     p_sys->pos = var_CreateGetIntegerCommand( p_vout, "logo-position" );
     p_sys->posx = var_CreateGetIntegerCommand( p_vout, "logo-x" );
     p_sys->posy = var_CreateGetIntegerCommand( p_vout, "logo-y" );
-    p_logo_list->i_delay = __MAX( __MIN(
-        var_CreateGetIntegerCommand( p_vout, "logo-delay" ) , 60000 ), 0 );
+    p_logo_list->i_delay = var_CreateGetIntegerCommand( p_vout, "logo-delay" );
+    p_logo_list->i_delay = __MAX( __MIN( p_logo_list->i_delay, 60000 ), 0 );
     p_logo_list->i_repeat = var_CreateGetIntegerCommand( p_vout, "logo-repeat");
-    p_logo_list->i_alpha = __MAX( __MIN(
-        var_CreateGetIntegerCommand( p_vout, "logo-transparency" ), 255 ), 0 );
+    p_logo_list->i_alpha = var_CreateGetIntegerCommand( p_vout,
+                                                        "logo-transparency" );
+    p_logo_list->i_alpha = __MAX( __MIN( p_logo_list->i_alpha, 255 ), 0 );
 
     LoadLogoList( p_vout, p_logo_list );
 
@@ -392,7 +393,7 @@ static int Init( vout_thread_t *p_vout )
         p_sys->p_blend->fmt_in.video.i_y_offset = 0;
     p_sys->p_blend->fmt_out.video.i_aspect = p_vout->render.i_aspect;
     p_sys->p_blend->fmt_out.video.i_chroma = p_vout->output.i_chroma;
-    p_sys->p_blend->fmt_in.video.i_chroma = VLC_FOURCC('Y','U','V','A');
+    p_sys->p_blend->fmt_in.video.i_chroma = VLC_CODEC_YUVA;
     p_sys->p_blend->fmt_in.video.i_aspect = VOUT_ASPECT_FACTOR;
     p_sys->i_width =
         p_sys->p_blend->fmt_in.video.i_width =
@@ -695,12 +696,16 @@ static int CreateFilter( vlc_object_t *p_this )
     p_sys->posx = var_CreateGetIntegerCommand( p_filter, "logo-x" );
     p_sys->posy = var_CreateGetIntegerCommand( p_filter, "logo-y" );
     p_sys->pos = var_CreateGetIntegerCommand( p_filter, "logo-position" );
-    p_logo_list->i_alpha = __MAX( __MIN( var_CreateGetIntegerCommand(
-                           p_filter, "logo-transparency"), 255 ), 0 );
+    p_logo_list->i_alpha = var_CreateGetIntegerCommand( p_filter,
+                                                        "logo-transparency");
+    p_logo_list->i_alpha = __MAX( __MIN( p_logo_list->i_alpha, 255 ), 0 );
     p_logo_list->i_delay =
         var_CreateGetIntegerCommand( p_filter, "logo-delay" );
     p_logo_list->i_repeat =
         var_CreateGetIntegerCommand( p_filter, "logo-repeat" );
+
+    vlc_mutex_init( &p_logo_list->lock );
+    LoadLogoList( p_this, p_logo_list );
 
     var_AddCallback( p_filter, "logo-file", LogoCallback, p_sys );
     var_AddCallback( p_filter, "logo-x", LogoCallback, p_sys );
@@ -708,13 +713,6 @@ static int CreateFilter( vlc_object_t *p_this )
     var_AddCallback( p_filter, "logo-position", LogoCallback, p_sys );
     var_AddCallback( p_filter, "logo-transparency", LogoCallback, p_sys );
     var_AddCallback( p_filter, "logo-repeat", LogoCallback, p_sys );
-
-    vlc_mutex_init( &p_logo_list->lock );
-    vlc_mutex_lock( &p_logo_list->lock );
-
-    LoadLogoList( p_this, p_logo_list );
-
-    vlc_mutex_unlock( &p_logo_list->lock );
 
     /* Misc init */
     p_filter->pf_sub_filter = Filter;
@@ -821,7 +819,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
 
     /* Create new SPU region */
     memset( &fmt, 0, sizeof(video_format_t) );
-    fmt.i_chroma = VLC_FOURCC('Y','U','V','A');
+    fmt.i_chroma = VLC_CODEC_YUVA;
     fmt.i_aspect = VOUT_ASPECT_FACTOR;
     fmt.i_sar_num = fmt.i_sar_den = 1;
     fmt.i_width = fmt.i_visible_width = p_pic->p[Y_PLANE].i_visible_pitch;

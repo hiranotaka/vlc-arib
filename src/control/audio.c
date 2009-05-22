@@ -299,18 +299,8 @@ void libvlc_audio_output_set_device_type( libvlc_instance_t *p_instance,
     aout_instance_t *p_aout = GetAOut( p_instance, p_e );
     if( p_aout )
     {
-        vlc_value_t val;
-        int i_ret = -1;
-
-        val.i_int = (int) device_type;
-        i_ret = var_Set( p_aout, "audio-device", val );
-        if( i_ret < 0 )
-        {
+        if( var_SetInteger( p_aout, "audio-device", device_type ) < 0 )
             libvlc_exception_raise( p_e, "Failed setting audio device" );
-            vlc_object_release( p_aout );
-            return;
-        }
-
         vlc_object_release( p_aout );
     }
 }
@@ -329,15 +319,7 @@ void libvlc_audio_toggle_mute( libvlc_instance_t *p_instance,
 int libvlc_audio_get_mute( libvlc_instance_t *p_instance,
                            libvlc_exception_t *p_e )
 {
-    /*
-     * If the volume level is 0, then the channel is muted
-     */
-    audio_volume_t i_volume;
-
-    i_volume = libvlc_audio_get_volume(p_instance, p_e);
-    if ( i_volume == 0 )
-        return true;
-    return false;
+    return (libvlc_audio_get_volume(p_instance, p_e) == 0);
 }
 
 void libvlc_audio_set_mute( libvlc_instance_t *p_instance, int mute,
@@ -390,14 +372,15 @@ int libvlc_audio_get_track_count( libvlc_media_player_t *p_mi,
                                   libvlc_exception_t *p_e )
 {
     input_thread_t *p_input_thread = libvlc_get_input_thread( p_mi, p_e );
-    vlc_value_t val_list;
+    int i_track_count;
 
     if( !p_input_thread )
         return -1;
 
-    var_Change( p_input_thread, "audio-es", VLC_VAR_GETCHOICES, &val_list, NULL );
+    i_track_count = var_CountChoices( p_input_thread, "audio-es" );
+
     vlc_object_release( p_input_thread );
-    return val_list.p_list->i_count;
+    return i_track_count;
 }
 
 /*****************************************************************************
@@ -437,13 +420,13 @@ int libvlc_audio_get_track( libvlc_media_player_t *p_mi,
     var_Change( p_input_thread, "audio-es", VLC_VAR_GETCHOICES, &val_list, NULL );
     for( i = 0; i < val_list.p_list->i_count; i++ )
     {
-        vlc_value_t track_val = val_list.p_list->p_values[i];
-        if( track_val.i_int == val.i_int )
+        if( val_list.p_list->p_values[i].i_int == val.i_int )
         {
             i_track = i;
             break;
-       }
+        }
     }
+    var_FreeList( &val_list, NULL );
     vlc_object_release( p_input_thread );
     return i_track;
 }
@@ -466,16 +449,16 @@ void libvlc_audio_set_track( libvlc_media_player_t *p_mi, int i_track,
     if( (i_track < 0) && (i_track > val_list.p_list->i_count) )
     {
         libvlc_exception_raise( p_e, "Audio track out of range" );
-        vlc_object_release( p_input_thread );
-        return;
+        goto end;
     }
 
     newval = val_list.p_list->p_values[i_track];
     i_ret = var_Set( p_input_thread, "audio-es", newval );
     if( i_ret < 0 )
-    {
         libvlc_exception_raise( p_e, "Setting audio track failed" );
-    }
+
+end:
+    var_FreeList( &val_list, NULL );
     vlc_object_release( p_input_thread );
 }
 

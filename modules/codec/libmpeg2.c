@@ -31,7 +31,6 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
 #include <vlc_codec.h>
 #include <vlc_block_helper.h>
 #include "../codec/cc.h"
@@ -119,15 +118,22 @@ static int OpenDecoder( vlc_object_t *p_this )
     decoder_sys_t *p_sys;
     uint32_t i_accel = 0;
 
-    if( p_dec->fmt_in.i_codec != VLC_FOURCC('m','p','g','v') &&
-        p_dec->fmt_in.i_codec != VLC_FOURCC('m','p','g','1') &&
-        /* Pinnacle hardware-mpeg1 */
-        p_dec->fmt_in.i_codec != VLC_FOURCC('P','I','M','1') &&
-        p_dec->fmt_in.i_codec != VLC_FOURCC('m','p','2','v') &&
-        p_dec->fmt_in.i_codec != VLC_FOURCC('m','p','g','2') &&
-        p_dec->fmt_in.i_codec != VLC_FOURCC('h','d','v','2') )
-    {
+    if( p_dec->fmt_in.i_codec != VLC_CODEC_MPGV )
         return VLC_EGENERIC;
+
+    /* Select onl recognized original format (standard mpeg video) */
+    switch( p_dec->fmt_in.i_original_fourcc )
+    {
+    case VLC_FOURCC('m','p','g','1'):
+    case VLC_FOURCC('m','p','g','2'):
+    case VLC_FOURCC('m','p','g','v'):
+    case VLC_FOURCC('P','I','M','1'):
+    case VLC_FOURCC('h','d','v','2'):
+        break;
+    default:
+        if( p_dec->fmt_in.i_original_fourcc )
+            return VLC_EGENERIC;
+        break;
     }
 
     /* Allocate the memory needed to store the decoder's structure */
@@ -665,7 +671,7 @@ static picture_t *GetNewPicture( decoder_t *p_dec, uint8_t **pp_buf )
     p_dec->fmt_out.i_codec =
         ( p_sys->p_info->sequence->chroma_height <
           p_sys->p_info->sequence->height ) ?
-        VLC_FOURCC('I','4','2','0') : VLC_FOURCC('I','4','2','2');
+        VLC_CODEC_I420 : VLC_CODEC_I422;
 
     /* Get a new picture */
     p_pic = decoder_NewPicture( p_dec );

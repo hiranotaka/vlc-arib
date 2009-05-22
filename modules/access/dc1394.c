@@ -33,7 +33,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_input.h>
-#include <vlc_vout.h>
 #include <vlc_demux.h>
 
 
@@ -215,7 +214,6 @@ static int Open( vlc_object_t *p_this )
     int i;
     int i_width;
     int i_height;
-    int i_aspect;
     int result = 0;
 
     if( strncmp(p_demux->psz_access, "dc1394", 6) != 0 )
@@ -477,12 +475,16 @@ static int Open( vlc_object_t *p_this )
     i_width = p_sys->camera.frame_width;
     i_height = p_sys->camera.frame_height;
 
-    i_aspect = vout_InitPicture( VLC_OBJECT(p_demux), &p_sys->pic,
-                    VLC_FOURCC('U', 'Y', 'V', 'Y'),
-                    i_width, i_height,
-                    i_width * VOUT_ASPECT_FACTOR / i_height );
+    if( picture_Setup( &p_sys->pic, VLC_CODEC_UYVY,
+                       i_width, i_height,
+                       i_width * VOUT_ASPECT_FACTOR / i_height ) )
+    {
+        msg_Err( p_demux ,"unknown chroma" );
+        Close( p_this );
+        return VLC_EGENERIC;
+    }
 
-    es_format_Init( &fmt, VIDEO_ES, VLC_FOURCC('U', 'Y', 'V', 'Y') );
+    es_format_Init( &fmt, VIDEO_ES, VLC_CODEC_UYVY );
 
     fmt.video.i_width = i_width;
     fmt.video.i_height = i_height;
@@ -498,11 +500,11 @@ static int Open( vlc_object_t *p_this )
         if( p_sys->fd_audio >= 0 )
         {
             es_format_t fmt;
-            es_format_Init( &fmt, AUDIO_ES, VLC_FOURCC('a','r','a','w') );
+            es_format_Init( &fmt, AUDIO_ES, VLC_CODEC_S16L ); /* FIXME: hmm, ?? */
 
             fmt.audio.i_channels = p_sys->channels ? p_sys->channels : 1;
             fmt.audio.i_rate = p_sys->i_sample_rate;
-            fmt.audio.i_bitspersample = 16; /* FIXME: hmm, ?? */
+            fmt.audio.i_bitspersample = 16;
             fmt.audio.i_blockalign = fmt.audio.i_channels *
                                      fmt.audio.i_bitspersample / 8;
             fmt.i_bitrate = fmt.audio.i_channels * fmt.audio.i_rate *

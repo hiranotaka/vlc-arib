@@ -141,7 +141,7 @@ int OpenAudio( vlc_object_t *p_this )
     }
     pp.format.voices         = i_nb_channels;
 
-    p_aout->output.output.i_format = AOUT_FMT_S16_NE;
+    p_aout->output.output.i_format = VLC_CODEC_S16N;
     p_aout->output.i_nb_samples = DEFAULT_FRAME_SIZE;
     pp.format.format = SND_PCM_SFMT_S16;
     i_bytes_per_sample = 2;
@@ -270,7 +270,7 @@ static void* QNXaoutThread( vlc_object_t *p_this )
         int i_tmp, i_size;
         uint8_t * p_bytes;
 
-        if ( p_aout->output.output.i_format != VLC_FOURCC('s','p','d','i') )
+        if ( p_aout->output.output.i_format != VLC_CODEC_SPDIFL )
         {
             mtime_t next_date = 0;
 

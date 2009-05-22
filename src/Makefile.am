@@ -58,6 +58,7 @@ pluginsinclude_HEADERS = \
 	../include/vlc_es_out.h \
 	../include/vlc_events.h \
 	../include/vlc_filter.h \
+	../include/vlc_fourcc.h \
 	../include/vlc_gcrypt.h \
 	../include/vlc_httpd.h \
 	../include/vlc_image.h \
@@ -70,6 +71,7 @@ pluginsinclude_HEADERS = \
 	../include/vlc_modules.h \
 	../include/vlc_mtime.h \
 	../include/vlc_objects.h \
+	../include/vlc_picture.h \
 	../include/vlc_playlist.h \
 	../include/vlc_plugin.h \
 	../include/vlc_rand.h \
@@ -77,6 +79,7 @@ pluginsinclude_HEADERS = \
 	../include/vlc_sout.h \
 	../include/vlc_stream.h \
 	../include/vlc_strings.h \
+	../include/vlc_subpicture.h \
 	../include/vlc_threads.h \
 	../include/vlc_url.h \
 	../include/vlc_variables.h \
@@ -159,7 +162,7 @@ libvlccore_la_CFLAGS = `$(VLC_CONFIG) --cflags libvlccore` \
 libvlccore_la_LDFLAGS = `$(VLC_CONFIG) --ldflags libvlccore` $(AM_LDFLAGS) \
 	-no-undefined \
 	-export-symbols $(srcdir)/libvlccore.sym \
-	-version-info 2:0:0
+	-version-info 3:0:0
 libvlccore_la_LIBADD = `$(VLC_CONFIG) -libs libvlccore` $(AM_LIBADD) \
 	$(LTLIBINTL) ../compat/libcompat.la
 libvlccore_la_DEPENDENCIES = libvlccore.sym
@@ -176,7 +179,7 @@ libvlc_la_LIBADD = `$(VLC_CONFIG) -libs libvlc` \
 	libvlccore.la ../compat/libcompat.la
 libvlc_la_CFLAGS = `$(VLC_CONFIG) --cflags libvlc`
 libvlc_la_LDFLAGS = $(AM_LDFLAGS) `$(VLC_CONFIG) --ldflags libvlc` \
-	-version-info 4:0:2 \
+	-version-info 5:0:0 \
 	-export-symbols $(srcdir)/libvlc.sym
 libvlc_la_DEPENDENCIES = libvlc.sym libvlccore.la
 if HAVE_WIN32
@@ -235,22 +238,28 @@ endif
 endif
 
 SOURCES_libvlc_beos = \
+	misc/pthread.c \
 	$(NULL)
 
 SOURCES_libvlc_darwin = \
+	misc/pthread.c \
 	misc/darwin_specific.c \
 	$(NULL)
 
 SOURCES_libvlc_linux = \
+	misc/pthread.c \
 	misc/linux_specific.c \
 	$(NULL)
 
 SOURCES_libvlc_win32 = \
+	misc/w32thread.c \
 	misc/win32_specific.c \
 	network/winsock.c \
 	$(NULL)
 
-SOURCES_libvlc_other = misc/not_specific.c
+SOURCES_libvlc_other = \
+	misc/pthread.c \
+	misc/not_specific.c
 
 SOURCES_libvlc_dirent = \
 	extras/dirent.c \
@@ -359,6 +368,7 @@ SOURCES_libvlc_common = \
 	misc/rand.c \
 	misc/mtime.c \
 	misc/block.c \
+	misc/fourcc.c \
 	misc/es_format.c \
 	modules/modules.h \
 	modules/modules.c \

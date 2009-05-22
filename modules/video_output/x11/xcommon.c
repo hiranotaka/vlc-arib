@@ -286,7 +286,7 @@ int Activate ( vlc_object_t *p_this )
             }
         }
     }
-    p_vout->output.i_chroma = X112VLC_FOURCC(p_vout->output.i_chroma);
+    p_vout->output.i_chroma = vlc_fourcc_GetCodec( VIDEO_ES, X112VLC_FOURCC(p_vout->output.i_chroma) );
 #elif defined(MODULE_NAME_IS_glx)
     {
         int i_opcode, i_evt, i_err = 0;
@@ -812,7 +812,7 @@ static int InitVideo( vout_thread_t *p_vout )
 #if XvVersion < 2 || ( XvVersion == 2 && XvRevision < 2 )
     switch( p_vout->output.i_chroma )
     {
-        case VLC_FOURCC('R','V','1','6'):
+        case VLC_CODEC_RGB16:
 #if defined( WORDS_BIGENDIAN )
             p_vout->output.i_rmask = 0xf800;
             p_vout->output.i_gmask = 0x07e0;
@@ -823,7 +823,7 @@ static int InitVideo( vout_thread_t *p_vout )
             p_vout->output.i_bmask = 0xf800;
 #endif
             break;
-        case VLC_FOURCC('R','V','1','5'):
+        case VLC_CODEC_RGB15:
 #if defined( WORDS_BIGENDIAN )
             p_vout->output.i_rmask = 0x7c00;
             p_vout->output.i_gmask = 0x03e0;
@@ -843,14 +843,14 @@ static int InitVideo( vout_thread_t *p_vout )
     switch( p_vout->p_sys->i_screen_depth )
     {
         case 8: /* FIXME: set the palette */
-            p_vout->output.i_chroma = VLC_FOURCC('R','G','B','2'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB8; break;
         case 15:
-            p_vout->output.i_chroma = VLC_FOURCC('R','V','1','5'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB15; break;
         case 16:
-            p_vout->output.i_chroma = VLC_FOURCC('R','V','1','6'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB16; break;
         case 24:
         case 32:
-            p_vout->output.i_chroma = VLC_FOURCC('R','V','3','2'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB32; break;
         default:
             msg_Err( p_vout, "unknown screen depth %i",
                      p_vout->p_sys->i_screen_depth );
@@ -926,12 +926,12 @@ static int InitVideo( vout_thread_t *p_vout )
         I_OUTPUTPICTURES++;
     }
 
-    if( p_vout->output.i_chroma == VLC_FOURCC('Y','V','1','2') )
+    if( p_vout->output.i_chroma == VLC_CODEC_YV12 )
     {
         /* U and V inverted compared to I420
          * Fixme: this should be handled by the vout core */
-        p_vout->output.i_chroma = VLC_FOURCC('I','4','2','0');
-        p_vout->fmt_out.i_chroma = VLC_FOURCC('I','4','2','0');
+        p_vout->output.i_chroma = VLC_CODEC_I420;
+        p_vout->fmt_out.i_chroma = VLC_CODEC_I420;
     }
 
     return VLC_SUCCESS;
@@ -1232,6 +1232,8 @@ static int ManageVideo( vout_thread_t *p_vout )
                     val.i_int |= 1;
                     var_Set( p_vout, "mouse-button-down", val );
 
+                    var_SetBool( p_vout->p_libvlc, "intf-popupmenu", false );
+
                     /* detect double-clicks */
                     if( ( ((XButtonEvent *)&xevent)->time -
                           p_vout->p_sys->i_time_button_last_pressed ) < 300 )
@@ -1252,6 +1254,7 @@ static int ManageVideo( vout_thread_t *p_vout )
                     var_Get( p_vout, "mouse-button-down", &val );
                     val.i_int |= 4;
                     var_Set( p_vout, "mouse-button-down", val );
+                    var_SetBool( p_vout->p_libvlc, "intf-popupmenu", true );
                     break;
 
                 case Button4:
@@ -1279,7 +1282,6 @@ static int ManageVideo( vout_thread_t *p_vout )
                         var_Set( p_vout, "mouse-button-down", val );
 
                         var_SetBool( p_vout, "mouse-clicked", true );
-                        var_SetBool( p_vout->p_libvlc, "intf-popupmenu", false );
                     }
                     break;
 
@@ -1301,7 +1303,6 @@ static int ManageVideo( vout_thread_t *p_vout )
                         val.i_int &= ~4;
                         var_Set( p_vout, "mouse-button-down", val );
 
-                        var_SetBool( p_vout->p_libvlc, "intf-popupmenu", true );
                     }
                     break;
 
@@ -1611,6 +1612,8 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
     {
         p_win->owner_window = vout_RequestXWindow( p_vout, &p_win->i_x,
                               &p_win->i_y, &p_win->i_width, &p_win->i_height );
+        if( !p_win->owner_window )
+            return VLC_EGENERIC;
         xsize_hints.base_width  = xsize_hints.width = p_win->i_width;
         xsize_hints.base_height = xsize_hints.height = p_win->i_height;
         xsize_hints.flags       = PSize | PMinSize;
@@ -1621,6 +1624,30 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
             xsize_hints.y = p_win->i_y;
             xsize_hints.flags |= PPosition;
         }
+
+        /* Select events we are interested in. */
+        XSelectInput( p_vout->p_sys->p_display,
+                      p_win->owner_window->handle.xid, StructureNotifyMask );
+
+        /* Get the parent window's geometry information */
+        XGetGeometry( p_vout->p_sys->p_display,
+                      p_win->owner_window->handle.xid,
+                      &(Window){ 0 }, &(int){ 0 }, &(int){ 0 },
+                      &p_win->i_width,
+                      &p_win->i_height,
+                      &(unsigned){ 0 }, &(unsigned){ 0 } );
+
+        /* From man XSelectInput: only one client at a time can select a
+         * ButtonPress event, so we need to open a new window anyway. */
+        p_win->base_window =
+            XCreateWindow( p_vout->p_sys->p_display,
+                           p_win->owner_window->handle.xid,
+                           0, 0,
+                           p_win->i_width, p_win->i_height,
+                           0,
+                           0, CopyFromParent, 0,
+                           CWBackingStore | CWBackPixel | CWEventMask,
+                           &xwindow_attributes );
     }
     else
     {
@@ -1631,10 +1658,7 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
             DisplayWidth( p_vout->p_sys->p_display, p_vout->p_sys->i_screen );
         p_win->i_height =
             DisplayHeight( p_vout->p_sys->p_display, p_vout->p_sys->i_screen );
-    }
 
-    if( !p_win->owner_window )
-    {
         /* Create the window and set hints - the window must receive
          * ConfigureNotify events, and until it is displayed, Expose and
          * MapNotify events. */
@@ -1668,66 +1692,6 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
                         p_win->base_window, val.psz_string );
         }
         free( val.psz_string );
-
-        if( !p_vout->b_fullscreen )
-        {
-            const char *argv[] = { "vlc", NULL };
-
-            /* Set window manager hints and properties: size hints, command,
-             * window's name, and accepted protocols */
-            XSetWMNormalHints( p_vout->p_sys->p_display,
-                               p_win->base_window, &xsize_hints );
-            XSetCommand( p_vout->p_sys->p_display, p_win->base_window,
-                         (char**)argv, 1 );
-
-            if( !var_GetBool( p_vout, "video-deco") )
-            {
-                Atom prop;
-                mwmhints_t mwmhints;
-
-                mwmhints.flags = MWM_HINTS_DECORATIONS;
-                mwmhints.decorations = False;
-
-                prop = XInternAtom( p_vout->p_sys->p_display, "_MOTIF_WM_HINTS",
-                                    False );
-
-                XChangeProperty( p_vout->p_sys->p_display,
-                                 p_win->base_window,
-                                 prop, prop, 32, PropModeReplace,
-                                 (unsigned char *)&mwmhints,
-                                 PROP_MWM_HINTS_ELEMENTS );
-            }
-        }
-    }
-    else
-    {
-        Window dummy1;
-        int dummy2, dummy3;
-        unsigned int dummy4, dummy5;
-
-        /* Select events we are interested in. */
-        XSelectInput( p_vout->p_sys->p_display,
-                      p_win->owner_window->handle.xid, StructureNotifyMask );
-
-        /* Get the parent window's geometry information */
-        XGetGeometry( p_vout->p_sys->p_display,
-                      p_win->owner_window->handle.xid,
-                      &dummy1, &dummy2, &dummy3,
-                      &p_win->i_width,
-                      &p_win->i_height,
-                      &dummy4, &dummy5 );
-
-        /* From man XSelectInput: only one client at a time can select a
-         * ButtonPress event, so we need to open a new window anyway. */
-        p_win->base_window =
-            XCreateWindow( p_vout->p_sys->p_display,
-                           p_win->owner_window->handle.xid,
-                           0, 0,
-                           p_win->i_width, p_win->i_height,
-                           0,
-                           0, CopyFromParent, 0,
-                           CWBackingStore | CWBackPixel | CWEventMask,
-                           &xwindow_attributes );
     }
 
     if( (p_win->wm_protocols == None)        /* use WM_DELETE_WINDOW */
@@ -1902,9 +1866,10 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
 #endif
 
     /* Fill in picture_t fields */
-    vout_InitPicture( VLC_OBJECT(p_vout), p_pic, p_vout->output.i_chroma,
-                      p_vout->output.i_width, p_vout->output.i_height,
-                      p_vout->output.i_aspect );
+    if( picture_Setup( p_pic, p_vout->output.i_chroma,
+                       p_vout->output.i_width, p_vout->output.i_height,
+                       p_vout->output.i_aspect ) )
+        return -1;
 
 #ifdef HAVE_SYS_SHM_H
     if( p_vout->p_sys->i_shm_opcode )
@@ -1958,15 +1923,15 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
     switch( p_vout->output.i_chroma )
     {
 #if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
-        case VLC_FOURCC('I','4','2','0'):
-        case VLC_FOURCC('Y','V','1','2'):
-        case VLC_FOURCC('Y','2','1','1'):
-        case VLC_FOURCC('Y','U','Y','2'):
-        case VLC_FOURCC('U','Y','V','Y'):
-        case VLC_FOURCC('R','V','1','5'):
-        case VLC_FOURCC('R','V','1','6'):
-        case VLC_FOURCC('R','V','2','4'): /* Fixme: pixel pitch == 4 ? */
-        case VLC_FOURCC('R','V','3','2'):
+        case VLC_CODEC_I420:
+        case VLC_CODEC_YV12:
+        case VLC_CODEC_Y211:
+        case VLC_CODEC_YUYV:
+        case VLC_CODEC_UYVY:
+        case VLC_CODEC_RGB15:
+        case VLC_CODEC_RGB16:
+        case VLC_CODEC_RGB24: /* Fixme: pixel pitch == 4 ? */
+        case VLC_CODEC_RGB32:
 
             for( i_plane = 0; i_plane < p_pic->p_sys->p_image->num_planes;
                  i_plane++ )
@@ -1976,7 +1941,7 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
                 p_pic->p[i_plane].i_pitch =
                     p_pic->p_sys->p_image->pitches[i_plane];
             }
-            if( p_vout->output.i_chroma == VLC_FOURCC('Y','V','1','2') )
+            if( p_vout->output.i_chroma == VLC_CODEC_YV12 )
             {
                 /* U and V inverted compared to I420
                  * Fixme: this should be handled by the vout core */
@@ -1989,11 +1954,11 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
             break;
 
 #else
-        case VLC_FOURCC('R','G','B','2'):
-        case VLC_FOURCC('R','V','1','6'):
-        case VLC_FOURCC('R','V','1','5'):
-        case VLC_FOURCC('R','V','2','4'):
-        case VLC_FOURCC('R','V','3','2'):
+        case VLC_CODEC_RGB8:
+        case VLC_CODEC_RGB16:
+        case VLC_CODEC_RGB15:
+        case VLC_CODEC_RGB24:
+        case VLC_CODEC_RGB32:
 
             p_pic->p->i_lines = p_pic->p_sys->p_image->height;
             p_pic->p->i_visible_lines = p_pic->p_sys->p_image->height;
@@ -2002,7 +1967,7 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
             p_pic->p->i_pitch = p_pic->p_sys->p_image->bytes_per_line;
 
             /* p_pic->p->i_pixel_pitch = 4 for RV24 but this should be set
-             * properly by vout_InitPicture() */
+             * properly by picture_Setup() */
             p_pic->p->i_visible_pitch = p_pic->p->i_pixel_pitch
                                          * p_pic->p_sys->p_image->width;
             break;

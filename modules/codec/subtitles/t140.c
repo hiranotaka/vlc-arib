@@ -25,7 +25,6 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
 #include <vlc_codec.h>
 #include <vlc_sout.h>
 
@@ -49,7 +48,7 @@ static int Open( vlc_object_t *p_this )
 
     switch( p_enc->fmt_out.i_codec )
     {
-        case VLC_FOURCC('s','u','b','t'):
+        case VLC_CODEC_SUBT:
             if( ( p_enc->fmt_out.subs.psz_encoding != NULL )
              && strcasecmp( p_enc->fmt_out.subs.psz_encoding, "utf8" )
              && strcasecmp( p_enc->fmt_out.subs.psz_encoding, "UTF-8" ) )
@@ -57,14 +56,14 @@ static int Open( vlc_object_t *p_this )
                 msg_Err( p_this, "Only UTF-8 encoding supported" );
                 return VLC_EGENERIC;
             }
-        case VLC_FOURCC('t','1','4','0'):
+        case VLC_CODEC_ITU_T140:
             break;
 
         default:
             if( !p_enc->b_force )
                 return VLC_EGENERIC;
 
-            p_enc->fmt_out.i_codec = VLC_FOURCC('t','1','4','0');
+            p_enc->fmt_out.i_codec = VLC_CODEC_ITU_T140;
     }
 
     p_enc->p_sys = NULL;
@@ -92,7 +91,7 @@ static block_t *Encode( encoder_t *p_enc, subpicture_t *p_spu )
 
     p_region = p_spu->p_region;
     if( ( p_region == NULL )
-     || ( p_region->fmt.i_chroma != VLC_FOURCC('T','E','X','T') )
+     || ( p_region->fmt.i_chroma != VLC_CODEC_TEXT )
      || ( p_region->psz_text == NULL ) )
         return NULL;
 

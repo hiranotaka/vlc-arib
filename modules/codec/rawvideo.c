@@ -31,7 +31,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
-#include <vlc_vout.h>
 
 /*****************************************************************************
  * decoder_sys_t : raw video decoder descriptor
@@ -92,36 +91,28 @@ static int OpenDecoder( vlc_object_t *p_this )
     switch( p_dec->fmt_in.i_codec )
     {
         /* Planar YUV */
-        case VLC_FOURCC('I','4','4','4'):
-        case VLC_FOURCC('I','4','2','2'):
-        case VLC_FOURCC('I','4','2','0'):
-        case VLC_FOURCC('Y','V','1','2'):
-        case VLC_FOURCC('I','Y','U','V'):
-        case VLC_FOURCC('I','4','1','1'):
-        case VLC_FOURCC('I','4','1','0'):
-        case VLC_FOURCC('Y','V','U','9'):
-        case VLC_FOURCC('Y','4','2','B'):
-        case VLC_FOURCC('Y','4','1','B'):
+        case VLC_CODEC_I444:
+        case VLC_CODEC_I422:
+        case VLC_CODEC_I420:
+        case VLC_CODEC_YV12:
+        case VLC_CODEC_I411:
+        case VLC_CODEC_I410:
+        case VLC_CODEC_GREY:
+        case VLC_CODEC_YUVP:
 
         /* Packed YUV */
-        case VLC_FOURCC('Y','U','Y','2'):
-        case VLC_FOURCC('Y','8','0','0'):
-        case VLC_FOURCC('U','Y','V','Y'):
-        case VLC_FOURCC('H','D','Y','C'):
+        case VLC_CODEC_YUYV:
+        case VLC_CODEC_YVYU:
+        case VLC_CODEC_UYVY:
+        case VLC_CODEC_VYUY:
 
         /* RGB */
-        case VLC_FOURCC('R','V','3','2'):
-        case VLC_FOURCC('R','V','2','4'):
-        case VLC_FOURCC('R','V','1','6'):
-        case VLC_FOURCC('R','V','1','5'):
-            break;
-        case VLC_FOURCC('2','V','u','y'):
-        case VLC_FOURCC('2','v','u','y'):
-        case VLC_FOURCC('A','V','U','I'):
-            p_dec->fmt_in.i_codec = VLC_FOURCC('U','Y','V','Y');
-            break;
-        case VLC_FOURCC('y','v','1','2'):
-            p_dec->fmt_in.i_codec = VLC_FOURCC('Y','V','1','2');
+        case VLC_CODEC_RGB32:
+        case VLC_CODEC_RGB24:
+        case VLC_CODEC_RGB16:
+        case VLC_CODEC_RGB15:
+        case VLC_CODEC_RGB8:
+        case VLC_CODEC_RGBP:
             break;
 
         default:
@@ -165,10 +156,10 @@ static int OpenDecoder( vlc_object_t *p_this )
     }
 
     /* Find out p_vdec->i_raw_size */
-    vout_InitFormat( &p_dec->fmt_out.video, p_dec->fmt_in.i_codec,
-                     p_dec->fmt_in.video.i_width,
-                     p_dec->fmt_in.video.i_height,
-                     p_dec->fmt_in.video.i_aspect );
+    video_format_Setup( &p_dec->fmt_out.video, p_dec->fmt_in.i_codec,
+                        p_dec->fmt_in.video.i_width,
+                        p_dec->fmt_in.video.i_height,
+                        p_dec->fmt_in.video.i_aspect );
     p_sys->i_raw_size = p_dec->fmt_out.video.i_bits_per_pixel *
         p_dec->fmt_out.video.i_width * p_dec->fmt_out.video.i_height / 8;
 
@@ -329,9 +320,9 @@ static block_t *SendFrame( decoder_t *p_dec, block_t *p_block )
         int i, j;
 
         /* Fill in picture_t fields */
-        vout_InitPicture( VLC_OBJECT(p_dec), &pic, p_dec->fmt_out.i_codec,
-                          p_dec->fmt_out.video.i_width,
-                          p_dec->fmt_out.video.i_height, VOUT_ASPECT_FACTOR );
+        picture_Setup( &pic, p_dec->fmt_out.i_codec,
+                       p_dec->fmt_out.video.i_width,
+                       p_dec->fmt_out.video.i_height, VOUT_ASPECT_FACTOR );
 
         if( !pic.i_planes )
         {

@@ -144,6 +144,7 @@ private:
     pl_dock_e            i_pl_dock;
     bool                 isDocked() { return ( i_pl_dock != PL_UNDOCKED ); }
     int                  i_bg_height;         ///< Save height of bgWidget
+    bool                 b_shouldHide;
 
     /* Status Bar */
     QLabel              *nameLabel;
@@ -182,7 +183,6 @@ signals:
     void askReleaseVideo( );
     void askVideoToResize( unsigned int, unsigned int );
     void askVideoToShow( unsigned int, unsigned int );
-    void askVideoToToggle();
     void askBgWidgetToToggle();
     void askUpdate();
     void minimalViewToggled( bool );

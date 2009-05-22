@@ -151,8 +151,8 @@ static int OpenDecoder( vlc_object_t *p_this )
     }
 
     /* Set output properties */
-    //p_dec->fmt_out.i_codec = VLC_FOURCC('R','G','B','A');
-    p_dec->fmt_out.i_codec = VLC_FOURCC('R','V','2','4');
+    //p_dec->fmt_out.i_codec = VLC_CODEC_RGBA;
+    p_dec->fmt_out.i_codec = VLC_CODEC_RGB24;
     p_dec->fmt_out.video.i_width = p_dec->p_sys->i_width;
     p_dec->fmt_out.video.i_height = p_dec->p_sys->i_height;
     p_dec->fmt_out.video.i_aspect = VOUT_ASPECT_FACTOR * p_dec->p_sys->i_width / p_dec->p_sys->i_height;
@@ -189,7 +189,6 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     if( p_sys->p_pic != NULL )
         picture_Release( p_sys->p_pic );
     p_sys->p_pic = decoder_NewPicture( p_dec );
-    p_sys->p_pic = p_dec->pf_vout_buffer_new( p_dec );
     p_sys->p_pic->b_force = true;
     p_sys->p_pic->p->i_pitch = p_dec->p_sys->i_pitch;
     p_sys->p_pic->date = p_block->i_pts > 0 ? p_block->i_pts : p_block->i_dts;

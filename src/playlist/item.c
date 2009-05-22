@@ -64,7 +64,7 @@ static void input_item_subitem_added( const vlc_event_t * p_event,
      * listening using the onelevel and the category representent
      * (Because of the playlist design) */
     p_child_in_category = playlist_ItemFindFromInputAndRoot(
-                            p_playlist, p_child->i_id,
+                            p_playlist, p_child,
                             p_playlist->p_root_category,
                             false /* Only non-node */ );
 
@@ -72,7 +72,7 @@ static void input_item_subitem_added( const vlc_event_t * p_event,
     {
         /* Then, transform to a node if needed */
         p_item_in_category = playlist_ItemFindFromInputAndRoot(
-                                p_playlist, p_parent->i_id,
+                                p_playlist, p_parent,
                                 p_playlist->p_root_category,
                                 false /* Only non-node */ );
         if( !p_item_in_category )
@@ -117,7 +117,7 @@ static void input_item_changed( const vlc_event_t * p_event,
 {
     playlist_item_t *p_item = user_data;
     VLC_UNUSED( p_event );
-    var_SetInteger( p_item->p_playlist, "item-change", p_item->p_input->i_id );
+    var_SetAddress( p_item->p_playlist, "item-change", p_item->p_input );
 }
 
 /*****************************************************************************
@@ -218,12 +218,12 @@ int playlist_ItemRelease( playlist_item_t *p_item )
  *
  * Remove an input item when it appears from a root playlist item
  * \param p_playlist playlist object
- * \param i_input_id id of the input to delete
+ * \param p_input the input to delete
  * \param p_root root playlist item
  * \param b_do_stop must stop or not the playlist
  * \return VLC_SUCCESS or VLC_EGENERIC
 */
-static int DeleteFromInput( playlist_t *p_playlist, int i_input_id,
+static int DeleteFromInput( playlist_t *p_playlist, input_item_t *p_input,
                             playlist_item_t *p_root, bool b_do_stop )
 {
     int i;
@@ -231,14 +231,14 @@ static int DeleteFromInput( playlist_t *p_playlist, int i_input_id,
     for( i = 0 ; i< p_root->i_children ; i++ )
     {
         if( p_root->pp_children[i]->i_children == -1 &&
-            p_root->pp_children[i]->p_input->i_id == i_input_id )
+            p_root->pp_children[i]->p_input == p_input )
         {
             DeleteInner( p_playlist, p_root->pp_children[i], b_do_stop );
             return VLC_SUCCESS;
         }
         else if( p_root->pp_children[i]->i_children >= 0 )
         {
-            int i_ret = DeleteFromInput( p_playlist, i_input_id,
+            int i_ret = DeleteFromInput( p_playlist, p_input,
                                          p_root->pp_children[i], b_do_stop );
             if( i_ret == VLC_SUCCESS ) return VLC_SUCCESS;
         }
@@ -251,18 +251,18 @@ static int DeleteFromInput( playlist_t *p_playlist, int i_input_id,
  *
  * Remove an input item when it appears from a root playlist item
  * \param p_playlist playlist object
- * \param i_input_id id of the input to delete
+ * \param p_input the input to delete
  * \param p_root root playlist item
  * \param b_locked TRUE if the playlist is locked
  * \return VLC_SUCCESS or VLC_EGENERIC
  */
-int playlist_DeleteFromInputInParent( playlist_t *p_playlist, int i_input_id,
+int playlist_DeleteFromInputInParent( playlist_t *p_playlist,
+                                      input_item_t *p_item,
                                       playlist_item_t *p_root, bool b_locked )
 {
     int i_ret;
     PL_LOCK_IF( !b_locked );
-    i_ret = DeleteFromInput( p_playlist, i_input_id,
-                             p_root, true );
+    i_ret = DeleteFromInput( p_playlist, p_item, p_root, true );
     PL_UNLOCK_IF( !b_locked );
     return i_ret;
 }
@@ -272,18 +272,18 @@ int playlist_DeleteFromInputInParent( playlist_t *p_playlist, int i_input_id,
  *
  * Remove an input item from ONELEVEL and CATEGORY
  * \param p_playlist playlist object
- * \param i_input_id id of the input to delete
+ * \param p_input the input to delete
  * \param b_locked TRUE if the playlist is locked
  * \return VLC_SUCCESS or VLC_ENOITEM
  */
-int playlist_DeleteFromInput( playlist_t *p_playlist, int i_input_id,
+int playlist_DeleteFromInput( playlist_t *p_playlist, input_item_t *p_input,
                               bool b_locked )
 {
     int i_ret1, i_ret2;
     PL_LOCK_IF( !b_locked );
-    i_ret1 = DeleteFromInput( p_playlist, i_input_id,
+    i_ret1 = DeleteFromInput( p_playlist, p_input,
                              p_playlist->p_root_category, true );
-    i_ret2 = DeleteFromInput( p_playlist, i_input_id,
+    i_ret2 = DeleteFromInput( p_playlist, p_input,
                      p_playlist->p_root_onelevel, true );
     PL_UNLOCK_IF( !b_locked );
     return ( i_ret1 == VLC_SUCCESS || i_ret2 == VLC_SUCCESS ) ?
@@ -338,7 +338,7 @@ int playlist_DeleteFromItemId( playlist_t *p_playlist, int i_id )
  *        regardless of its size
  * \param b_playlist TRUE for playlist, FALSE for media library
  * \param b_locked TRUE if the playlist is locked
- * \return The id of the playlist item
+ * \return VLC_SUCCESS or a VLC error code
  */
 int playlist_Add( playlist_t *p_playlist, const char *psz_uri,
                   const char *psz_name, int i_mode, int i_pos,
@@ -364,26 +364,27 @@ int playlist_Add( playlist_t *p_playlist, const char *psz_uri,
  * \param i_option_flags options flags
  * \param b_playlist TRUE for playlist, FALSE for media library
  * \param b_locked TRUE if the playlist is locked
- * \return The id of the playlist item
+ * \return VLC_SUCCESS or a VLC error code
 */
 int playlist_AddExt( playlist_t *p_playlist, const char * psz_uri,
                      const char *psz_name, int i_mode, int i_pos,
                      mtime_t i_duration,
-                     int i_options, const char *const *ppsz_options, unsigned i_option_flags,
+                     int i_options, const char *const *ppsz_options,
+                     unsigned i_option_flags,
                      bool b_playlist, bool b_locked )
 {
     int i_ret;
-    input_item_t *p_input = input_item_NewExt( p_playlist, psz_uri, psz_name,
-                                              i_options, ppsz_options, i_option_flags,
-                                              i_duration );
+    input_item_t *p_input;
 
+    p_input = input_item_NewExt( p_playlist, psz_uri, psz_name,
+                                 i_options, ppsz_options, i_option_flags,
+                                 i_duration );
+    if( p_input == NULL )
+        return VLC_ENOMEM;
     i_ret = playlist_AddInput( p_playlist, p_input, i_mode, i_pos, b_playlist,
                                b_locked );
-    int i_id = (i_ret == VLC_SUCCESS) ? p_input->i_id : -1;
-
     vlc_gc_decref( p_input );
-
-    return i_id;
+    return i_ret;
 }
 
 /**
@@ -480,8 +481,8 @@ int playlist_BothAddInput( playlist_t *p_playlist,
     }
     for( i_top = 0 ; i_top < p_playlist->p_root_onelevel->i_children; i_top++ )
     {
-        if( p_playlist->p_root_onelevel->pp_children[i_top]->p_input->i_id ==
-                             p_up->p_input->i_id )
+        if( p_playlist->p_root_onelevel->pp_children[i_top]->p_input ==
+                             p_up->p_input )
         {
             AddItem( p_playlist, p_item_one,
                      p_playlist->p_root_onelevel->pp_children[i_top],
@@ -579,14 +580,14 @@ static playlist_item_t *ItemToNode( playlist_t *p_playlist,
 
     /** \todo First look if we don't already have it */
     p_item_in_category = playlist_ItemFindFromInputAndRoot(
-                                            p_playlist, p_item->p_input->i_id,
+                                            p_playlist, p_item->p_input,
                                             p_playlist->p_root_category,
                                             true );
 
     if( p_item_in_category )
     {
         playlist_item_t *p_item_in_one = playlist_ItemFindFromInputAndRoot(
-                                            p_playlist, p_item->p_input->i_id,
+                                            p_playlist, p_item->p_input,
                                             p_playlist->p_root_onelevel,
                                             true );
         assert( p_item_in_one );
@@ -619,12 +620,12 @@ static playlist_item_t *ItemToNode( playlist_t *p_playlist,
                 if( p_prev_status_item )
                     set_current_status_item( p_playlist, p_prev_status_item );
             }
-            DeleteFromInput( p_playlist, p_item_in_one->p_input->i_id,
+            DeleteFromInput( p_playlist, p_item_in_one->p_input,
                              p_playlist->p_root_onelevel, false );
         }
         pl_priv(p_playlist)->b_reset_currently_playing = true;
         vlc_cond_signal( &pl_priv(p_playlist)->signal );
-        var_SetInteger( p_playlist, "item-change", p_item_in_category->p_input->i_id );
+        var_SetAddress( p_playlist, "item-change", p_item_in_category->p_input );
         PL_UNLOCK_IF( !b_locked );
         return p_item_in_category;
     }
@@ -640,13 +641,13 @@ static playlist_item_t *ItemToNode( playlist_t *p_playlist,
  * Find an item within a root, given its input id.
  *
  * \param p_playlist the playlist object
- * \param i_input_id id of the input
+ * \param p_item the input item
  * \param p_root root playlist item
  * \param b_items_only TRUE if we want the item himself
  * \return the first found item, or NULL if not found
  */
 playlist_item_t *playlist_ItemFindFromInputAndRoot( playlist_t *p_playlist,
-                                                    int i_input_id,
+                                                    input_item_t *p_item,
                                                     playlist_item_t *p_root,
                                                     bool b_items_only )
 {
@@ -654,14 +655,14 @@ playlist_item_t *playlist_ItemFindFromInputAndRoot( playlist_t *p_playlist,
     for( i = 0 ; i< p_root->i_children ; i++ )
     {
         if( ( b_items_only ? p_root->pp_children[i]->i_children == -1 : 1 ) &&
-            p_root->pp_children[i]->p_input->i_id == i_input_id )
+            p_root->pp_children[i]->p_input == p_item )
         {
             return p_root->pp_children[i];
         }
         else if( p_root->pp_children[i]->i_children >= 0 )
         {
             playlist_item_t *p_search =
-                 playlist_ItemFindFromInputAndRoot( p_playlist, i_input_id,
+                 playlist_ItemFindFromInputAndRoot( p_playlist, p_item,
                                                     p_root->pp_children[i],
                                                     b_items_only );
             if( p_search ) return p_search;
@@ -730,11 +731,11 @@ int playlist_TreeMove( playlist_t * p_playlist, playlist_item_t *p_item,
             playlist_item_t *p_node_onelevel;
             playlist_item_t *p_item_onelevel;
             p_node_onelevel = playlist_ItemFindFromInputAndRoot( p_playlist,
-                                                p_node->p_input->i_id,
+                                                p_node->p_input,
                                                 p_playlist->p_root_onelevel,
                                                 false );
             p_item_onelevel = playlist_ItemFindFromInputAndRoot( p_playlist,
-                                                p_item->p_input->i_id,
+                                                p_item->p_input,
                                                 p_playlist->p_root_onelevel,
                                                 false );
             if( p_node_onelevel && p_item_onelevel )
@@ -744,11 +745,11 @@ int playlist_TreeMove( playlist_t * p_playlist, playlist_item_t *p_item,
             playlist_item_t *p_node_category;
             playlist_item_t *p_item_category;
             p_node_category = playlist_ItemFindFromInputAndRoot( p_playlist,
-                                                p_node->p_input->i_id,
+                                                p_node->p_input,
                                                 p_playlist->p_root_category,
                                                 false );
             p_item_category = playlist_ItemFindFromInputAndRoot( p_playlist,
-                                                p_item->p_input->i_id,
+                                                p_item->p_input,
                                                 p_playlist->p_root_category,
                                                 false );
             if( p_node_category && p_item_category )

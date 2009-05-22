@@ -208,7 +208,7 @@ vout_thread_t *__vout_Request( vlc_object_t *p_this, vout_thread_t *p_vout,
             free( psz_filter_chain );
         }
 
-        if( p_vout->fmt_render.i_chroma != p_fmt->i_chroma ||
+        if( p_vout->fmt_render.i_chroma != vlc_fourcc_GetCodec( VIDEO_ES, p_fmt->i_chroma ) ||
             p_vout->fmt_render.i_width != p_fmt->i_width ||
             p_vout->fmt_render.i_height != p_fmt->i_height ||
             p_vout->p->b_filter_change )
@@ -303,7 +303,7 @@ vout_thread_t * __vout_Create( vlc_object_t *p_parent, video_format_t *p_fmt )
 
     unsigned int i_width = p_fmt->i_width;
     unsigned int i_height = p_fmt->i_height;
-    vlc_fourcc_t i_chroma = p_fmt->i_chroma;
+    vlc_fourcc_t i_chroma = vlc_fourcc_GetCodec( VIDEO_ES, p_fmt->i_chroma );
     unsigned int i_aspect = p_fmt->i_aspect;
 
     config_chain_t *p_cfg;
@@ -816,10 +816,10 @@ static bool ChromaIsEqual( const picture_heap_t *p_output, const picture_heap_t 
      if( !vout_ChromaCmp( p_output->i_chroma, p_render->i_chroma ) )
          return false;
 
-     if( p_output->i_chroma != FOURCC_RV15 &&
-         p_output->i_chroma != FOURCC_RV16 &&
-         p_output->i_chroma != FOURCC_RV24 &&
-         p_output->i_chroma != FOURCC_RV32 )
+     if( p_output->i_chroma != VLC_CODEC_RGB15 &&
+         p_output->i_chroma != VLC_CODEC_RGB16 &&
+         p_output->i_chroma != VLC_CODEC_RGB24 &&
+         p_output->i_chroma != VLC_CODEC_RGB32 )
          return true;
 
      return p_output->i_rmask == p_render->i_rmask &&
@@ -981,17 +981,6 @@ static int InitThread( vout_thread_t *p_vout )
             if( I_RENDERPICTURES == VOUT_MAX_PICTURES )
                 break;
         }
-    }
-
-    /* Link pictures back to their heap */
-    for( i = 0 ; i < I_RENDERPICTURES ; i++ )
-    {
-        PP_RENDERPICTURE[ i ]->p_heap = &p_vout->render;
-    }
-
-    for( i = 0 ; i < I_OUTPUTPICTURES ; i++ )
-    {
-        PP_OUTPUTPICTURE[ i ]->p_heap = &p_vout->output;
     }
 
     return VLC_SUCCESS;
@@ -1927,7 +1916,8 @@ static int DeinterlaceCallback( vlc_object_t *p_this, char const *psz_cmd,
     const deinterlace_mode_t *p_mode;
     for( p_mode = &p_deinterlace_mode[0]; p_mode->psz_mode; p_mode++ )
     {
-        if( !strcmp( p_mode->psz_mode, newval.psz_string ?: "" ) )
+        if( !strcmp( p_mode->psz_mode,
+                     newval.psz_string ? newval.psz_string : "" ) )
             break;
     }
     if( !p_mode->psz_mode )
@@ -2023,7 +2013,7 @@ static void DeinterlaceEnable( vout_thread_t *p_vout )
         else if( DeinterlaceIsPresent( p_vout, false ) )
             psz_mode = var_CreateGetNonEmptyString( p_vout, "sout-deinterlace-mode" );
     }
-    var_SetString( p_vout, "deinterlace", psz_mode ?: "" );
+    var_SetString( p_vout, "deinterlace", psz_mode ? psz_mode : "" );
     free( psz_mode );
 }
 

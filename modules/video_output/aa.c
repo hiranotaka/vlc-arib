@@ -127,7 +127,7 @@ static int Init( vout_thread_t *p_vout )
 
     I_OUTPUTPICTURES = 0;
 
-    p_vout->output.i_chroma = VLC_FOURCC('R','G','B','2');
+    p_vout->output.i_chroma = VLC_CODEC_RGB8;
     p_vout->output.i_width = p_vout->p_sys->i_width;
     p_vout->output.i_height = p_vout->p_sys->i_height;
     p_vout->output.i_aspect = p_vout->p_sys->i_width
@@ -231,7 +231,7 @@ static void Render( vout_thread_t *p_vout, picture_t *p_pic )
 static void Display( vout_thread_t *p_vout, picture_t *p_pic )
 {
     /* No need to do anything, the fake direct buffers stay as they are */
-    int i_width, i_height, i_x, i_y;
+    unsigned int i_width, i_height, i_x, i_y;
 
     vout_PlacePicture( p_vout, p_vout->p_sys->i_width, p_vout->p_sys->i_height,
                        &i_x, &i_y, &i_width, &i_height );

@@ -71,12 +71,20 @@ class IMEvent : public QEvent
 {
 friend class InputManager;
     public:
-    IMEvent( int type, int id ) : QEvent( (QEvent::Type)(type) )
-    { i_id = id ; }
-    virtual ~IMEvent() {}
+    IMEvent( int type, input_item_t *p_input = NULL )
+        : QEvent( (QEvent::Type)(type) )
+    {
+        if( (p_item = p_input) != NULL )
+            vlc_gc_incref( p_item );
+    }
+    virtual ~IMEvent()
+    {
+        if( p_item )
+            vlc_gc_decref( p_item );
+    }
 
 private:
-    int i_id;
+    input_item_t *p_item;
 };
 
 class InputManager : public QObject
@@ -106,7 +114,7 @@ public:
 private:
     intf_thread_t  *p_intf;
     input_thread_t *p_input;
-    int             i_input_id;
+    input_item_t   *p_item;
     int             i_old_playing_status;
     QString         oldName;
     QString         artUrl;
@@ -177,7 +185,7 @@ signals:
     /// Statistics are updated
     void statisticsUpdated( input_item_t* );
     void infoChanged( input_item_t* );
-    void metaChanged( input_item_t* );
+    void currentMetaChanged( input_item_t* );
     void metaChanged( int );
     void artChanged( QString );
     /// Play/pause status

@@ -50,7 +50,6 @@ VlcPlugin::VlcPlugin( NPP instance, uint16 mode ) :
     libvlc_instance(NULL),
     libvlc_media_list(NULL),
     libvlc_media_player(NULL),
-    libvlc_log(NULL),
     p_scriptClass(NULL),
     p_browser(instance),
     psz_baseURL(NULL)
@@ -136,7 +135,7 @@ NPError VlcPlugin::init(int argc, char* const argn[], char* const argv[])
     /* parse plugin arguments */
     for( int i = 0; i < argc ; i++ )
     {
-        fprintf(stderr, "argn=%s, argv=%s\n", argn[i], argv[i]);
+       /* fprintf(stderr, "argn=%s, argv=%s\n", argn[i], argv[i]); */
 
         if( !strcmp( argn[i], "target" )
          || !strcmp( argn[i], "mrl")
@@ -187,7 +186,7 @@ NPError VlcPlugin::init(int argc, char* const argn[], char* const argv[])
         }
         else if( !strcmp( argn[i], "toolbar" ) )
         {
-/* FIXME: Remove this when toolbar functionality has been implemented on\
+/* FIXME: Remove this when toolbar functionality has been implemented on
  * MacOS X and Win32 for Firefox/Mozilla/Safari. */
 #ifdef XP_UNIX
             b_toolbar = boolValue(argv[i]);
@@ -199,7 +198,6 @@ NPError VlcPlugin::init(int argc, char* const argn[], char* const argv[])
     libvlc_exception_init(&ex);
 
     libvlc_instance = libvlc_new(ppsz_argc, ppsz_argv, &ex);
-
     if( libvlc_exception_raised(&ex) )
     {
         libvlc_exception_clear(&ex);
@@ -268,8 +266,6 @@ VlcPlugin::~VlcPlugin()
 {
     free(psz_baseURL);
     free(psz_target);
-    if( libvlc_log )
-        libvlc_log_close(libvlc_log, NULL);
     if( libvlc_media_player )
         libvlc_media_player_release( libvlc_media_player );
     if( libvlc_media_list )
@@ -477,7 +473,7 @@ relativeurl:
             if( href )
             {
                 /* prepend base URL */
-                strcpy(href, psz_baseURL);
+                memcpy(href, psz_baseURL, baseLen+1);
 
                 /*
                 ** relative url could be empty,
@@ -492,7 +488,7 @@ relativeurl:
 
                 /* skip over protocol part  */
                 char *pathstart = strchr(href, ':');
-                char *pathend;
+                char *pathend = href+baseLen;
                 if( pathstart )
                 {
                     if( '/' == *(++pathstart) )
@@ -504,7 +500,6 @@ relativeurl:
                     }
                     /* skip over host part */
                     pathstart = strchr(pathstart, '/');
-                    pathend = href+baseLen;
                     if( ! pathstart )
                     {
                         // no path, add a / past end of url (over '\0')
@@ -522,7 +517,6 @@ relativeurl:
                         return NULL;
                     }
                     pathstart = href;
-                    pathend = href+baseLen;
                 }
 
                 /* relative URL made of an absolute path ? */

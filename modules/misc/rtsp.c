@@ -221,6 +221,17 @@ typedef enum
     RTSP_CMD_TYPE_FORWARD,
 } rtsp_cmd_type_t;
 
+/* */
+typedef struct
+{
+    int i_type;
+    int i_media_id;
+    //vod_media_t *p_media;
+    char *psz_session;
+    char *psz_arg;
+    double f_arg;
+} rtsp_cmd_t;
+
 static vod_media_t *MediaNew( vod_t *, const char *, input_item_t * );
 static void         MediaDel( vod_t *, vod_media_t * );
 static int          MediaAddES( vod_t *, vod_media_t *, es_format_t * );
@@ -337,12 +348,22 @@ static void Close( vlc_object_t * p_this )
 {
     vod_t *p_vod = (vod_t *)p_this;
     vod_sys_t *p_sys = p_vod->p_sys;
+    block_t *p_block_cmd;
+    rtsp_cmd_t cmd;
 
     /* Stop command thread */
     vlc_object_kill( p_vod );
     CommandPush( p_vod, RTSP_CMD_TYPE_NONE, NULL, NULL, 0.0, NULL );
     vlc_thread_join( p_vod );
 
+    while( block_FifoCount( p_sys->p_fifo_cmd ) > 0 )
+    {
+         p_block_cmd = block_FifoGet( p_sys->p_fifo_cmd );
+         memcpy( &cmd, p_block_cmd->p_buffer, sizeof(cmd) );
+         block_Release( p_block_cmd );
+         free( cmd.psz_session );
+         free( cmd.psz_arg );
+    }
     block_FifoRelease( p_sys->p_fifo_cmd );
 
     httpd_HostDelete( p_sys->p_rtsp_host );
@@ -517,7 +538,7 @@ static int MediaAddES( vod_t *p_vod, vod_media_t *p_media, es_format_t *p_fmt )
 
     switch( p_fmt->i_codec )
     {
-        case VLC_FOURCC( 's', '1', '6', 'b' ):
+        case VLC_CODEC_S16B:
             if( p_fmt->audio.i_channels == 1 && p_fmt->audio.i_rate == 44100 )
             {
                 p_es->i_payload_type = 11;
@@ -535,31 +556,30 @@ static int MediaAddES( vod_t *p_vod, vod_media_t *p_media, es_format_t *p_fmt )
                           p_fmt->audio.i_channels ) == -1 )
                 p_es->psz_rtpmap = NULL;
             break;
-        case VLC_FOURCC( 'u', '8', ' ', ' ' ):
+        case VLC_CODEC_U8:
             p_es->i_payload_type = p_media->i_payload_type++;
             if( asprintf( &p_es->psz_rtpmap, "L8/%d/%d", p_fmt->audio.i_rate,
                           p_fmt->audio.i_channels ) == -1 )
                 p_es->psz_rtpmap = NULL;
             break;
-        case VLC_FOURCC( 'm', 'p', 'g', 'a' ):
-        case VLC_FOURCC( 'm', 'p', '3', ' ' ):
+        case VLC_CODEC_MPGA:
             p_es->i_payload_type = 14;
             p_es->psz_rtpmap = strdup( "MPA/90000" );
             break;
-        case VLC_FOURCC( 'm', 'p', 'g', 'v' ):
+        case VLC_CODEC_MPGV:
             p_es->i_payload_type = 32;
             p_es->psz_rtpmap = strdup( "MPV/90000" );
             break;
-        case VLC_FOURCC( 'a', '5', '2', ' ' ):
+        case VLC_CODEC_A52:
             p_es->i_payload_type = p_media->i_payload_type++;
             if( asprintf( &p_es->psz_rtpmap, "ac3/%d", p_fmt->audio.i_rate ) == -1 )
                 p_es->psz_rtpmap = NULL;
             break;
-        case VLC_FOURCC( 'H', '2', '6', '3' ):
+        case VLC_CODEC_H263:
             p_es->i_payload_type = p_media->i_payload_type++;
             p_es->psz_rtpmap = strdup( "H263-1998/90000" );
             break;
-        case VLC_FOURCC( 'h', '2', '6', '4' ):
+        case VLC_CODEC_H264:
             p_es->i_payload_type = p_media->i_payload_type++;
             p_es->psz_rtpmap = strdup( "H264/90000" );
             p_es->psz_fmtp = NULL;
@@ -625,7 +645,7 @@ static int MediaAddES( vod_t *p_vod, vod_media_t *p_media, es_format_t *p_fmt )
             if( !p_es->psz_fmtp )
                 p_es->psz_fmtp = strdup( "packetization-mode=1" );
             break;
-        case VLC_FOURCC( 'm', 'p', '4', 'v' ):
+        case VLC_CODEC_MP4V:
             p_es->i_payload_type = p_media->i_payload_type++;
             p_es->psz_rtpmap = strdup( "MP4V-ES/90000" );
             if( p_fmt->i_extra > 0 )
@@ -638,7 +658,7 @@ static int MediaAddES( vod_t *p_vod, vod_media_t *p_media, es_format_t *p_fmt )
                 free( p_hexa );
             }
             break;
-        case VLC_FOURCC( 'm', 'p', '4', 'a' ):
+        case VLC_CODEC_MP4A:
             p_es->i_payload_type = p_media->i_payload_type++;
             if( asprintf( &p_es->psz_rtpmap, "mpeg4-generic/%d", p_fmt->audio.i_rate ) == -1 )
                 p_es->psz_rtpmap = NULL;
@@ -664,13 +684,13 @@ static int MediaAddES( vod_t *p_vod, vod_media_t *p_media, es_format_t *p_fmt )
             p_es->i_payload_type = p_media->i_payload_type++;
             p_es->psz_rtpmap = strdup( "MP2P/90000" );
             break;
-        case VLC_FOURCC( 's', 'a', 'm', 'r' ):
+        case VLC_CODEC_AMR_NB:
             p_es->i_payload_type = p_media->i_payload_type++;
             p_es->psz_rtpmap = strdup( p_fmt->audio.i_channels == 2 ?
                                     "AMR/8000/2" : "AMR/8000" );
             p_es->psz_fmtp = strdup( "octet-align=1" );
             break;
-        case VLC_FOURCC( 's', 'a', 'w', 'b' ):
+        case VLC_CODEC_AMR_WB:
             p_es->i_payload_type = p_media->i_payload_type++;
             p_es->psz_rtpmap = strdup( p_fmt->audio.i_channels == 2 ?
                                     "AMR-WB/16000/2" : "AMR-WB/16000" );
@@ -779,17 +799,6 @@ static void MediaDelES( vod_t *p_vod, vod_media_t *p_media, es_format_t *p_fmt)
     es_format_Clean( &p_es->fmt );
     free( p_es );
 }
-
-/* */
-typedef struct
-{
-    int i_type;
-    int i_media_id;
-    //vod_media_t *p_media;
-    char *psz_session;
-    char *psz_arg;
-    double f_arg;
-} rtsp_cmd_t;
 
 static void CommandPush( vod_t *p_vod, rtsp_cmd_type_t i_type, vod_media_t *p_media, const char *psz_session,
                          double f_arg, const char *psz_arg )

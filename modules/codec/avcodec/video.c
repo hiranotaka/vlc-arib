@@ -31,7 +31,6 @@
 
 #include <vlc_common.h>
 #include <vlc_codec.h>
-#include <vlc_vout.h>
 #include <vlc_codecs.h>                               /* BITMAPINFOHEADER */
 #include <vlc_avcodec.h>
 
@@ -128,7 +127,7 @@ static inline picture_t *ffmpeg_NewPictBuf( decoder_t *p_dec,
     if( GetVlcChroma( &p_dec->fmt_out.video, p_context->pix_fmt ) != VLC_SUCCESS )
     {
         /* we are doomed, but not really, because most codecs set their pix_fmt much later */
-        p_dec->fmt_out.i_codec = VLC_FOURCC('I','4','2','0');
+        p_dec->fmt_out.i_codec = VLC_CODEC_I420;
     }
     p_dec->fmt_out.i_codec = p_dec->fmt_out.video.i_chroma;
 
@@ -195,7 +194,7 @@ int InitVideoDec( decoder_t *p_dec, AVCodecContext *p_context,
     p_sys->b_delayed_open = true;
 
     /* ***** Fill p_context with init values ***** */
-    p_sys->p_context->codec_tag = ffmpeg_CodecTag( p_dec->fmt_in.i_codec );
+    p_sys->p_context->codec_tag = ffmpeg_CodecTag( p_dec->fmt_in.i_original_fourcc ?: p_dec->fmt_in.i_codec );
 
     /*  ***** Get configuration of ffmpeg plugin ***** */
     p_sys->p_context->workaround_bugs =
@@ -340,7 +339,7 @@ int InitVideoDec( decoder_t *p_dec, AVCodecContext *p_context,
     if( GetVlcChroma( &p_dec->fmt_out.video, p_context->pix_fmt ) != VLC_SUCCESS )
     {
         /* we are doomed. but not really, because most codecs set their pix_fmt later on */
-        p_dec->fmt_out.i_codec = VLC_FOURCC('I','4','2','0');
+        p_dec->fmt_out.i_codec = VLC_CODEC_I420;
     }
     p_dec->fmt_out.i_codec = p_dec->fmt_out.video.i_chroma;
 

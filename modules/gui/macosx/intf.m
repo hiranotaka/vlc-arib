@@ -69,6 +69,12 @@ static void * ManageThread( void *user_data );
 static unichar VLCKeyToCocoa( unsigned int i_key );
 static unsigned int VLCModifiersToCocoa( unsigned int i_key );
 
+static void updateProgressPanel (void *, const char *, float);
+static bool checkProgressPanel (void *);
+static void destroyProgressPanel (void *);
+
+static void MsgCallback( msg_cb_data_t *, msg_item_t *, unsigned );
+
 #pragma mark -
 #pragma mark VLC Interface Object Callbacks
 
@@ -176,7 +182,6 @@ static void MsgCallback( msg_cb_data_t *data, msg_item_t *item, unsigned int i )
     vlc_restorecancel( canc );
 }
 
-
 /*****************************************************************************
  * playlistChanged: Callback triggered by the intf-change playlist
  * variable, to let the intf update the playlist.
@@ -231,13 +236,51 @@ static int DialogCallback( vlc_object_t *p_this, const char *type, vlc_value_t p
     NSAutoreleasePool * o_pool = [[NSAutoreleasePool alloc] init];
     VLCMain *interface = (VLCMain *)data;
 
-    const dialog_fatal_t *p_dialog = (const dialog_fatal_t *)value.p_address;
+    if( [[NSString stringWithUTF8String: type] isEqualToString: @"dialog-progress-bar"] )
+    {
+        /* the progress panel needs to update itself and therefore wants special treatment within this context */
+        dialog_progress_bar_t *p_dialog = (dialog_progress_bar_t *)value.p_address;
 
-    NSValue *o_value = [NSValue valueWithPointer:p_dialog];
+        p_dialog->pf_update = updateProgressPanel;
+        p_dialog->pf_check = checkProgressPanel;
+        p_dialog->pf_destroy = destroyProgressPanel;
+        p_dialog->p_sys = VLCIntf->p_libvlc;
+    }
+
+    NSValue *o_value = [NSValue valueWithPointer:value.p_address];
     [[NSNotificationCenter defaultCenter] postNotificationName: @"VLCNewCoreDialogEventNotification" object:[interface coreDialogProvider] userInfo:[NSDictionary dictionaryWithObjectsAndKeys: o_value, @"VLCDialogPointer", [NSString stringWithUTF8String: type], @"VLCDialogType", nil]];
 
     [o_pool release];
     return VLC_SUCCESS;
+}
+
+void updateProgressPanel (void *priv, const char *text, float value)
+{
+    NSAutoreleasePool *o_pool = [[NSAutoreleasePool alloc] init];
+
+    NSString *o_txt;
+    if( text != NULL )
+        o_txt = [NSString stringWithUTF8String: text];
+    else
+        o_txt = @"";
+
+    [[[VLCMain sharedInstance] coreDialogProvider] updateProgressPanelWithText: o_txt andNumber: (double)(value * 1000.)];
+
+    [o_pool release];
+}
+
+void destroyProgressPanel (void *priv)
+{
+    NSAutoreleasePool *o_pool = [[NSAutoreleasePool alloc] init];
+    [[[VLCMain sharedInstance] coreDialogProvider] destroyProgressPanel];
+    [o_pool release];
+}
+
+bool checkProgressPanel (void *priv)
+{
+    NSAutoreleasePool *o_pool = [[NSAutoreleasePool alloc] init];
+    return [[[VLCMain sharedInstance] coreDialogProvider] progressCancelled];
+    [o_pool release];
 }
 
 #pragma mark -
@@ -655,6 +698,7 @@ static VLCMain *_o_sharedMainInstance = nil;
     [o_mu_window setTitle: _NS("Window")];
     [o_mi_minimize setTitle: _NS("Minimize Window")];
     [o_mi_close_window setTitle: _NS("Close Window")];
+    [o_mi_player setTitle: _NS("Player...")];
     [o_mi_controller setTitle: _NS("Controller...")];
     [o_mi_equalizer setTitle: _NS("Equalizer...")];
     [o_mi_extended setTitle: _NS("Extended Controls...")];
@@ -1267,7 +1311,7 @@ static unsigned int VLCModifiersToCocoa( unsigned int i_key )
     unichar key = 0;
     vlc_value_t val;
     unsigned int i_pressed_modifiers = 0;
-    struct hotkey *p_hotkeys;
+    const struct hotkey *p_hotkeys;
     int i;
 
     val.i_int = 0;
@@ -1565,6 +1609,19 @@ static void manage_cleanup( void * args )
         p_intf->p_sys->b_intf_update = true;
         p_intf->p_sys->b_input_update = false;
         [self setupMenus]; /* Make sure input menu is up to date */
+
+        /* update our info-panel to reflect the new item, if we don't show
+         * the playlist or the selection is empty */
+        if( [self isPlaylistCollapsed] == YES )
+        {
+            playlist_t * p_playlist = pl_Hold( p_intf );
+            PL_LOCK;
+            playlist_item_t * p_item = playlist_CurrentPlayingItem( p_playlist );
+            PL_UNLOCK;
+            if( p_item )
+                [[self info] updatePanelWithItem: p_item->p_input];
+            pl_Release( p_intf );
+        }
     }
     if( p_intf->p_sys->b_intf_update )
     {
@@ -1594,15 +1651,6 @@ static void manage_cleanup( void * args )
                 b_buffering = YES;
             }
 
-            /* update our info-panel to reflect the new item, if we don't show
-             * the playlist or the selection is empty */
-            if( [self isPlaylistCollapsed] == YES )
-            {
-                PL_LOCK;
-                [[self info] updatePanelWithItem: playlist_CurrentPlayingItem( p_playlist )->p_input];
-                PL_UNLOCK;
-            }
-
             /* seekable streams */
             b_seekable = var_GetBool( p_input, "can-seek" );
 
@@ -1628,10 +1676,13 @@ static void manage_cleanup( void * args )
         }
 
         [o_btn_stop setEnabled: b_input];
+        [o_embedded_window setStop: b_input];
         [o_btn_ff setEnabled: b_seekable];
         [o_btn_rewind setEnabled: b_seekable];
         [o_btn_prev setEnabled: (b_plmul || b_chapters)];
+        [o_embedded_window setPrev: (b_plmul || b_chapters)];
         [o_btn_next setEnabled: (b_plmul || b_chapters)];
+        [o_embedded_window setNext: (b_plmul || b_chapters)];
 
         [o_timeslider setFloatValue: 0.0];
         [o_timeslider setEnabled: b_seekable];
@@ -1640,6 +1691,7 @@ static void manage_cleanup( void * args )
         [[[self controls] fspanel] setSeekable: b_seekable];
 
         [o_embedded_window setSeekable: b_seekable];
+        [o_embedded_window setTime:@"00:00" position:0.0];
 
         p_intf->p_sys->b_current_title_update = true;
         
@@ -1696,6 +1748,7 @@ static void manage_cleanup( void * args )
             [[o_controls voutView] updateTitle];
  
             [o_playlist updateRowSelection];
+
             p_intf->p_sys->b_current_title_update = FALSE;
         }
 
@@ -1759,6 +1812,8 @@ static void manage_cleanup( void * args )
         i_volume_step = config_GetInt( p_intf->p_libvlc, "volume-step" );
         [o_volumeslider setFloatValue: (float)i_lastShownVolume / i_volume_step];
         [o_volumeslider setEnabled: TRUE];
+        [o_embedded_window setVolumeSlider: (float)i_lastShownVolume / i_volume_step];
+        [o_embedded_window setVolumeEnabled: TRUE];
         [[[self controls] fspanel] setVolumeLevel: (float)i_lastShownVolume / i_volume_step];
         p_intf->p_sys->b_mute = ( i_lastShownVolume == 0 );
         p_intf->p_sys->b_volume_update = FALSE;

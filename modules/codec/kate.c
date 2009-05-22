@@ -346,7 +346,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     decoder_sys_t *p_sys;
     int            i_ret;
 
-    if( p_dec->fmt_in.i_codec != VLC_FOURCC('k','a','t','e') )
+    if( p_dec->fmt_in.i_codec != VLC_CODEC_KATE )
     {
         return VLC_EGENERIC;
     }
@@ -450,7 +450,7 @@ static int OpenPacketizer( vlc_object_t *p_this )
     if( i_ret == VLC_SUCCESS )
     {
         p_dec->p_sys->b_packetizer = true;
-        p_dec->fmt_out.i_codec = VLC_FOURCC( 'k', 'a', 't', 'e' );
+        p_dec->fmt_out.i_codec = VLC_CODEC_KATE;
     }
 
     return i_ret;
@@ -952,7 +952,7 @@ static void TigerUpdateRegions( spu_t *p_spu, subpicture_t *p_subpic, const vide
 
     /* create a full frame region - this will also tell Tiger the size of the frame */
     fmt = *p_fmt;
-    fmt.i_chroma = VLC_FOURCC('R','G','B','A');
+    fmt.i_chroma = VLC_CODEC_RGBA;
     fmt.i_width = fmt.i_visible_width;
     fmt.i_height = fmt.i_visible_height;
     fmt.i_bits_per_pixel = 0;
@@ -1348,7 +1348,7 @@ static subpicture_t *SetupSimpleKateSPU( decoder_t *p_dec, subpicture_t *p_spu,
 
         /* create a separate region for the bitmap */
         memset( &fmt, 0, sizeof(video_format_t) );
-        fmt.i_chroma = VLC_FOURCC('Y','U','V','P');
+        fmt.i_chroma = VLC_CODEC_YUVP;
         fmt.i_aspect = 0;
         fmt.i_width = fmt.i_visible_width = ev->bitmap->width;
         fmt.i_height = fmt.i_visible_height = ev->bitmap->height;
@@ -1371,7 +1371,7 @@ static subpicture_t *SetupSimpleKateSPU( decoder_t *p_dec, subpicture_t *p_spu,
     }
 
     /* text region */
-    fmt.i_chroma = VLC_FOURCC('T','E','X','T');
+    fmt.i_chroma = VLC_CODEC_TEXT;
     fmt.i_aspect = 0;
     fmt.i_width = fmt.i_height = 0;
     fmt.i_x_offset = fmt.i_y_offset = 0;

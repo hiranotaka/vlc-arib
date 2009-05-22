@@ -27,6 +27,7 @@
 /* FIXME: i'm not too sure about this include but it fixes compilation of
  * video chromas -- dionoea */
 #include "vlc_common.h"
+#include <vlc_fourcc.h>
 
 /**
  * \file
@@ -97,14 +98,6 @@ struct audio_format_t
     uint8_t      i_channels; /* must be <=32 */
     uint8_t      i_flavor;
 };
-
-#ifdef WORDS_BIGENDIAN
-#   define AUDIO_FMT_S16_NE VLC_FOURCC('s','1','6','b')
-#   define AUDIO_FMT_U16_NE VLC_FOURCC('u','1','6','b')
-#else
-#   define AUDIO_FMT_S16_NE VLC_FOURCC('s','1','6','l')
-#   define AUDIO_FMT_U16_NE VLC_FOURCC('u','1','6','l')
-#endif
 
 /**
  * video format description
@@ -179,6 +172,12 @@ static inline void video_format_Clean( video_format_t *p_src )
 }
 
 /**
+ * It will fill up a video_format_tvideo_format_t using the given arguments.
+ * Becarefull that the video_format_t must already be initialized.
+ */
+VLC_EXPORT( void, video_format_Setup, ( video_format_t *, vlc_fourcc_t i_chroma, int i_width, int i_height, int i_aspect ) );
+
+/**
  * subtitles format description
  */
 struct subs_format_t
@@ -227,8 +226,9 @@ typedef struct extra_languages_t
  */
 struct es_format_t
 {
-    int             i_cat;      /**< ES category @see es_format_category_e */
-    vlc_fourcc_t    i_codec;    /**< FOURCC value as used in vlc */
+    int             i_cat;              /**< ES category @see es_format_category_e */
+    vlc_fourcc_t    i_codec;            /**< FOURCC value as used in vlc */
+    vlc_fourcc_t    i_original_fourcc;  /**< original FOURCC from the container */
 
     int             i_id;       /**< es identifier, where means
                                     -1: let the core mark the right id

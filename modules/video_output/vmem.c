@@ -133,28 +133,26 @@ static int Init( vout_thread_t *p_vout )
     int i_index;
     picture_t *p_pic;
     char *psz_chroma, *psz_tmp;
-    int i_width, i_height, i_pitch, i_chroma;
+    int i_width, i_height, i_pitch;
+    vlc_fourcc_t i_chroma;
 
     i_width = var_CreateGetInteger( p_vout, "vmem-width" );
     i_height = var_CreateGetInteger( p_vout, "vmem-height" );
     i_pitch = var_CreateGetInteger( p_vout, "vmem-pitch" );
 
     psz_chroma = var_CreateGetString( p_vout, "vmem-chroma" );
-    if( psz_chroma )
-    {
-        if( strlen( psz_chroma ) < 4 )
-        {
-            msg_Err( p_vout, "vmem-chroma should be 4 characters long" );
-            free( psz_chroma );
-            return VLC_EGENERIC;
-        }
-        i_chroma = VLC_FOURCC( psz_chroma[0], psz_chroma[1],
-                               psz_chroma[2], psz_chroma[3] );
-        free( psz_chroma );
-    }
-    else
+    if( !psz_chroma )
     {
         msg_Err( p_vout, "Cannot find chroma information." );
+        return VLC_EGENERIC;
+    }
+
+    i_chroma = vlc_fourcc_GetCodecFromString( VIDEO_ES, psz_chroma );
+    free( psz_chroma );
+
+    if( !i_chroma )
+    {
+        msg_Err( p_vout, "vmem-chroma should be 4 characters long" );
         return VLC_EGENERIC;
     }
 
@@ -189,25 +187,25 @@ static int Init( vout_thread_t *p_vout )
     /* Define the bitmasks */
     switch( i_chroma )
     {
-      case VLC_FOURCC( 'R','V','1','5' ):
+      case VLC_CODEC_RGB15:
         p_vout->output.i_rmask = 0x001f;
         p_vout->output.i_gmask = 0x03e0;
         p_vout->output.i_bmask = 0x7c00;
         break;
 
-      case VLC_FOURCC( 'R','V','1','6' ):
+      case VLC_CODEC_RGB16:
         p_vout->output.i_rmask = 0x001f;
         p_vout->output.i_gmask = 0x07e0;
         p_vout->output.i_bmask = 0xf800;
         break;
 
-      case VLC_FOURCC( 'R','V','2','4' ):
+      case VLC_CODEC_RGB24:
         p_vout->output.i_rmask = 0xff0000;
         p_vout->output.i_gmask = 0x00ff00;
         p_vout->output.i_bmask = 0x0000ff;
         break;
 
-      case VLC_FOURCC( 'R','V','3','2' ):
+      case VLC_CODEC_RGB32:
         p_vout->output.i_rmask = 0xff0000;
         p_vout->output.i_gmask = 0x00ff00;
         p_vout->output.i_bmask = 0x0000ff;
@@ -233,9 +231,13 @@ static int Init( vout_thread_t *p_vout )
         return VLC_SUCCESS;
     }
 
-    vout_InitPicture( VLC_OBJECT(p_vout), p_pic, p_vout->output.i_chroma,
-                      p_vout->output.i_width, p_vout->output.i_height,
-                      p_vout->output.i_aspect );
+    if( picture_Setup( p_pic, p_vout->output.i_chroma,
+                       p_vout->output.i_width, p_vout->output.i_height,
+                       p_vout->output.i_aspect ) )
+    {
+        free( p_pic );
+        return VLC_EGENERIC;
+    }
 
     p_pic->p->i_pitch = i_pitch;
 

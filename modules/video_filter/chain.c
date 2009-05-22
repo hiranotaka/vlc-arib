@@ -60,10 +60,10 @@ static void EsFormatMergeSize( es_format_t *p_dst,
                                const es_format_t *p_size );
 
 static const vlc_fourcc_t pi_allowed_chromas[] = {
-    VLC_FOURCC('I','4','2','0'),
-    VLC_FOURCC('I','4','2','2'),
-    VLC_FOURCC('R','V','3','2'),
-    VLC_FOURCC('R','V','2','4'),
+    VLC_CODEC_I420,
+    VLC_CODEC_I422,
+    VLC_CODEC_RGB32,
+    VLC_CODEC_RGB24,
     0
 };
 
@@ -220,13 +220,13 @@ static picture_t *BufferNew( filter_t *p_filter )
 {
     filter_t *p_parent = (filter_t*)p_filter->p_owner;
 
-    return p_parent->pf_vout_buffer_new( p_parent );
+    return filter_NewPicture( p_parent );
 }
 static void BufferDel( filter_t *p_filter, picture_t *p_pic )
 {
     filter_t *p_parent = (filter_t*)p_filter->p_owner;
 
-    p_parent->pf_vout_buffer_del( p_parent, p_pic );
+    return filter_DeletePicture( p_parent, p_pic );
 }
 static int BufferAllocationInit ( filter_t *p_filter, void *p_data )
 {

@@ -32,7 +32,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
-#include <vlc_vout.h>
 #include "vlc_image.h"
 
 #include "vlc_filter.h"
@@ -100,7 +99,7 @@ static void LoadMask( filter_t *p_filter, const char *psz_filename )
     picture_t *p_old_mask = p_filter->p_sys->p_mask;
     memset( &fmt_in, 0, sizeof( video_format_t ) );
     memset( &fmt_out, 0, sizeof( video_format_t ) );
-    fmt_out.i_chroma = VLC_FOURCC('Y','U','V','A');
+    fmt_out.i_chroma = VLC_CODEC_YUVA;
     p_image = image_HandlerCreate( p_filter );
     p_filter->p_sys->p_mask =
         image_ReadUrl( p_image, psz_filename, &fmt_in, &fmt_out );
@@ -128,13 +127,12 @@ static int Create( vlc_object_t *p_this )
 
     switch( p_filter->fmt_in.video.i_chroma )
     {
-        case VLC_FOURCC('I','4','2','0'):
-        case VLC_FOURCC('I','Y','U','V'):
-        case VLC_FOURCC('J','4','2','0'):
-        case VLC_FOURCC('Y','V','1','2'):
+        case VLC_CODEC_I420:
+        case VLC_CODEC_J420:
+        case VLC_CODEC_YV12:
 
-        case VLC_FOURCC('I','4','2','2'):
-        case VLC_FOURCC('J','4','2','2'):
+        case VLC_CODEC_I422:
+        case VLC_CODEC_J422:
             break;
 
         default:
@@ -169,11 +167,10 @@ static int Create( vlc_object_t *p_this )
     p_sys->i_x = var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "x" );
     p_sys->i_y = var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "y" );
 
+    vlc_mutex_init( &p_sys->lock );
     var_AddCallback( p_filter, CFG_PREFIX "x", EraseCallback, p_sys );
     var_AddCallback( p_filter, CFG_PREFIX "y", EraseCallback, p_sys );
     var_AddCallback( p_filter, CFG_PREFIX "mask", EraseCallback, p_sys );
-
-    vlc_mutex_init( &p_sys->lock );
 
     return VLC_SUCCESS;
 }
@@ -188,6 +185,9 @@ static void Destroy( vlc_object_t *p_this )
     if( p_sys->p_mask )
         picture_Release( p_sys->p_mask );
 
+    var_DelCallback( p_filter, CFG_PREFIX "x", EraseCallback, p_sys );
+    var_DelCallback( p_filter, CFG_PREFIX "y", EraseCallback, p_sys );
+    var_DelCallback( p_filter, CFG_PREFIX "mask", EraseCallback, p_sys );
     vlc_mutex_destroy( &p_sys->lock );
 
     free( p_filter->p_sys );
@@ -223,13 +223,12 @@ static void FilterErase( filter_t *p_filter, picture_t *p_inpic,
 {
     filter_sys_t *p_sys = p_filter->p_sys;
 
-    int i_plane;
-
+    vlc_mutex_lock( &p_sys->lock );
     const int i_mask_pitch = p_sys->p_mask->A_PITCH;
     const int i_mask_visible_pitch = p_sys->p_mask->p[A_PLANE].i_visible_pitch;
     const int i_mask_visible_lines = p_sys->p_mask->p[A_PLANE].i_visible_lines;
 
-    for( i_plane = 0; i_plane < p_inpic->i_planes; i_plane++ )
+    for( int i_plane = 0; i_plane < p_inpic->i_planes; i_plane++ )
     {
         const int i_pitch = p_inpic->p[i_plane].i_pitch;
         const int i_2pitch = i_pitch<<1;
@@ -240,16 +239,15 @@ static void FilterErase( filter_t *p_filter, picture_t *p_inpic,
         uint8_t *p_inpix = p_inpic->p[i_plane].p_pixels;
         uint8_t *p_outpix = p_outpic->p[i_plane].p_pixels;
         uint8_t *p_mask = p_sys->p_mask->A_PIXELS;
+        int i_x = p_sys->i_x, i_y = p_sys->i_y;
 
-        int i_x = p_sys->i_x,
-            i_y = p_sys->i_y;
         int x, y;
         int i_height = i_mask_visible_lines;
         int i_width  = i_mask_visible_pitch;
 
         const bool b_line_factor = ( i_plane /* U_PLANE or V_PLANE */ &&
-            !( p_inpic->format.i_chroma == VLC_FOURCC('I','4','2','2')
-            || p_inpic->format.i_chroma == VLC_FOURCC('J','4','2','2') ) );
+            !( p_inpic->format.i_chroma == VLC_CODEC_I422
+            || p_inpic->format.i_chroma == VLC_CODEC_J422 ) );
 
         if( i_plane ) /* U_PLANE or V_PLANE */
         {
@@ -394,6 +392,7 @@ static void FilterErase( filter_t *p_filter, picture_t *p_inpic,
             }
         }
     }
+    vlc_mutex_unlock( &p_sys->lock );
 }
 
 static int EraseCallback( vlc_object_t *p_this, char const *psz_var,

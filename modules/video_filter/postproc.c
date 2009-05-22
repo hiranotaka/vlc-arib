@@ -29,7 +29,7 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
+#include <vlc_filter.h>
 
 #include "filter_picture.h"
 
@@ -140,22 +140,21 @@ static int OpenPostproc( vlc_object_t *p_this )
 
     switch( p_filter->fmt_in.video.i_chroma )
     {
-        case VLC_FOURCC('I','4','4','4'):
-        case VLC_FOURCC('J','4','4','4'):
-        /* case VLC_FOURCC('Y','U','V','A'): FIXME Should work but alpha plane needs to be copied manually and I'm kind of feeling too lazy to write the code to do that ATM (i_pitch vs i_visible_pitch...). */
+        case VLC_CODEC_I444:
+        case VLC_CODEC_J444:
+        /* case VLC_CODEC_YUVA: FIXME Should work but alpha plane needs to be copied manually and I'm kind of feeling too lazy to write the code to do that ATM (i_pitch vs i_visible_pitch...). */
             i_flags |= PP_FORMAT_444;
             break;
-        case VLC_FOURCC('I','4','2','2'):
-        case VLC_FOURCC('J','4','2','2'):
+        case VLC_CODEC_I422:
+        case VLC_CODEC_J422:
             i_flags |= PP_FORMAT_422;
             break;
-        case VLC_FOURCC('I','4','1','1'):
+        case VLC_CODEC_I411:
             i_flags |= PP_FORMAT_411;
             break;
-        case VLC_FOURCC('I','4','2','0'):
-        case VLC_FOURCC('I','Y','U','V'):
-        case VLC_FOURCC('J','4','2','0'):
-        case VLC_FOURCC('Y','V','1','2'):
+        case VLC_CODEC_I420:
+        case VLC_CODEC_J420:
+        case VLC_CODEC_YV12:
             i_flags |= PP_FORMAT_420;
             break;
         default:
@@ -197,7 +196,8 @@ static int OpenPostproc( vlc_object_t *p_this )
     var_AddCallback( p_filter, FILTER_PREFIX "name", PPNameCallback, NULL );
     if( val_orig.i_int )
     {
-        p_sys->pp_mode = pp_get_mode_by_name_and_quality( val.psz_string?:
+        p_sys->pp_mode = pp_get_mode_by_name_and_quality( val.psz_string ?
+                                                          val.psz_string :
                                                           "default",
                                                           val_orig.i_int );
 
@@ -238,7 +238,7 @@ static int OpenPostproc( vlc_object_t *p_this )
                     &val, text.psz_string?&text:NULL );
     }
 
-    vlc_mutex_init( &p_sys->lock );
+    vlc_mutex_init( &p_sys->lock ); /* FIXME: too late w.r.t. callback */
 
     p_filter->pf_video_filter = PostprocPict;
     p_sys->b_had_matrix = true;
@@ -253,6 +253,8 @@ static void ClosePostproc( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys = p_filter->p_sys;
+
+    /* FIXME: delete callbacks before mutex */
     vlc_mutex_destroy( &p_sys->lock );
     pp_free_context( p_sys->pp_context );
     if( p_sys->pp_mode ) pp_free_mode( p_sys->pp_mode );
@@ -328,7 +330,8 @@ static void PPChangeMode( filter_t *p_filter, const char *psz_name,
     vlc_mutex_lock( &p_sys->lock );
     if( i_quality > 0 )
     {
-        pp_mode_t *pp_mode = pp_get_mode_by_name_and_quality( psz_name?:
+        pp_mode_t *pp_mode = pp_get_mode_by_name_and_quality( psz_name ?
+                                                              psz_name :
                                                               "default",
                                                               i_quality );
         if( pp_mode )

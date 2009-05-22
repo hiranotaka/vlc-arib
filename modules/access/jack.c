@@ -41,7 +41,6 @@
 #include <vlc_plugin.h>
 #include <vlc_input.h>
 #include <vlc_demux.h>
-#include <vlc_vout.h>
 #include <vlc_codecs.h>
 #include <vlc_url.h>
 #include <vlc_strings.h>
@@ -305,7 +304,7 @@ static int Open( vlc_object_t *p_this )
     p_sys->jack_sample_size = sizeof( jack_default_audio_sample_t );
 
     /* Define output format */
-    es_format_Init( &fmt, AUDIO_ES, VLC_FOURCC( 'f','l','3','2' ) );
+    es_format_Init( &fmt, AUDIO_ES, VLC_CODEC_FL32 );
     fmt.audio.i_channels =  p_sys->i_channels;
     fmt.audio.i_rate =  p_sys->jack_sample_rate;
     fmt.audio.i_bitspersample =  p_sys->jack_sample_size * 8;

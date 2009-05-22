@@ -93,8 +93,7 @@ ChangeLog: Makefile.am
 ###############################################################################
 
 EXTRA_DIST += \
-	extras/package/macosx/Resources/English.lproj/MainMenu.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/MainMenu.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/MainMenu.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/MainMenu.nib/keyedobjects.nib \
 	extras/package/macosx/Resources/English.lproj/MediaInfo.nib/classes.nib \
 	extras/package/macosx/Resources/English.lproj/MediaInfo.nib/info.nib \
@@ -127,33 +126,25 @@ EXTRA_DIST += \
 	extras/package/macosx/Resources/English.lproj/ErrorPanel.nib/info.nib \
 	extras/package/macosx/Resources/English.lproj/ErrorPanel.nib/keyedobjects.nib \
 	extras/package/macosx/Resources/English.lproj/InfoPlist.strings.in \
-	extras/package/macosx/Resources/a52.icns \
-	extras/package/macosx/Resources/aac.icns \
-	extras/package/macosx/Resources/asf.icns \
-	extras/package/macosx/Resources/asx.icns \
+	extras/package/macosx/Resources/aiff.icns \
+	extras/package/macosx/Resources/audio.icns \
 	extras/package/macosx/Resources/avi.icns \
-	extras/package/macosx/Resources/bin.icns \
-	extras/package/macosx/Resources/cue.icns \
-	extras/package/macosx/Resources/dat.icns \
-	extras/package/macosx/Resources/divx.icns \
-	extras/package/macosx/Resources/dv.icns \
+	extras/package/macosx/Resources/flv.icns \
 	extras/package/macosx/Resources/generic.icns \
-	extras/package/macosx/Resources/m3u.icns \
+	extras/package/macosx/Resources/m4a.icns \
+	extras/package/macosx/Resources/m4v.icns \
+	extras/package/macosx/Resources/mkv.icns \
 	extras/package/macosx/Resources/mov.icns \
+	extras/package/macosx/Resources/movie.icns \
 	extras/package/macosx/Resources/mp3.icns \
-	extras/package/macosx/Resources/mp4.icns \
 	extras/package/macosx/Resources/mpeg.icns \
-	extras/package/macosx/Resources/mpeg1.icns \
-	extras/package/macosx/Resources/mpeg2.icns \
-	extras/package/macosx/Resources/mpeg4.icns \
-	extras/package/macosx/Resources/mpg.icns \
 	extras/package/macosx/Resources/ogg.icns \
-	extras/package/macosx/Resources/ogm.icns \
-	extras/package/macosx/Resources/pls.icns \
-	extras/package/macosx/Resources/srt.icns \
-	extras/package/macosx/Resources/sub.icns \
-	extras/package/macosx/Resources/vlc.icns \
+	extras/package/macosx/Resources/playlist.icns \
+	extras/package/macosx/Resources/rm.icns \
+	extras/package/macosx/Resources/subtitle.icns \
 	extras/package/macosx/Resources/vob.icns \
+	extras/package/macosx/Resources/wav.icns \
+	extras/package/macosx/Resources/vlc.icns \
 	extras/package/macosx/Resources/wma.icns \
 	extras/package/macosx/Resources/wmv.icns \
 	extras/package/macosx/Resources/pause.png \
@@ -251,6 +242,28 @@ EXTRA_DIST += \
 	extras/package/macosx/Resources/skip_previous_graphite.png \
 	extras/package/macosx/Resources/stop_graphite.png \
 	extras/package/macosx/Resources/volumeslider_graphite.png \
+	extras/package/macosx/Resources/backward_big_down.png \
+	extras/package/macosx/Resources/backward_big.png \
+	extras/package/macosx/Resources/eq_sm.pdf \
+	extras/package/macosx/Resources/forward_big_down.png \
+	extras/package/macosx/Resources/forward_big.png \
+	extras/package/macosx/Resources/fs_sm.pdf \
+	extras/package/macosx/Resources/list_sm.pdf \
+	extras/package/macosx/Resources/next_sm.pdf \
+	extras/package/macosx/Resources/pause_big_down.png \
+	extras/package/macosx/Resources/pause_big.png \
+	extras/package/macosx/Resources/play_big_down.png \
+	extras/package/macosx/Resources/play_big.png \
+	extras/package/macosx/Resources/prev_sm.pdf \
+	extras/package/macosx/Resources/sidebarAdd.png \
+	extras/package/macosx/Resources/sidebarRepeat.png \
+	extras/package/macosx/Resources/sidebarRepeatOn.png \
+	extras/package/macosx/Resources/sidebarRepeatOneOn.png \
+	extras/package/macosx/Resources/sidebarResizeWidget.png \
+	extras/package/macosx/Resources/sidebarShuffle.png \
+	extras/package/macosx/Resources/sidebarShuffleOn.png \
+	extras/package/macosx/Resources/sidebarStatusAreaBackground.png \
+	extras/package/macosx/Resources/stop_sm.pdf \
 	extras/package/macosx/Resources/noart.png \
 	extras/package/macosx/Resources/spref_cone_Audio_64.png \
 	extras/package/macosx/Resources/spref_cone_Hotkeys_64.png \
@@ -313,7 +326,8 @@ vlc-config.in: vlc-config.in.in
 	touch $@
 
 CLEANFILES = $(BUILT_SOURCES_clean)
-DISTCLEANFILES = $(BUILT_SOURCES_distclean) vlc-config.in compile ChangeLog
+DISTCLEANFILES = $(BUILT_SOURCES_distclean) vlc-config.in compile
+MAINTAINERCLEANFILES = ChangeLog
 
 # Shortcut for developpers to rebuild the core (libvlc + vlc)
 # Don't use it if you don't know what it is about.

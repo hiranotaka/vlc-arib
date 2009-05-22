@@ -37,6 +37,7 @@
 #include <vlc_es_out.h>
 #include <vlc_block.h>
 #include <vlc_aout.h>
+#include <vlc_fourcc.h>
 
 #include "input_internal.h"
 #include "clock.h"
@@ -211,7 +212,7 @@ static inline int EsOutGetClosedCaptionsChannel( vlc_fourcc_t fcc )
 }
 static inline bool EsFmtIsTeletext( const es_format_t *p_fmt )
 {
-    return p_fmt->i_cat == SPU_ES && p_fmt->i_codec == VLC_FOURCC( 't', 'e', 'l', 'x' );
+    return p_fmt->i_cat == SPU_ES && p_fmt->i_codec == VLC_CODEC_TELETEXT;
 }
 
 /*****************************************************************************
@@ -1386,6 +1387,10 @@ static es_out_id_t *EsOutAdd( es_out_t *out, const es_format_t *fmt )
     es_format_Copy( &es->fmt, fmt );
     if( es->fmt.i_id < 0 )
         es->fmt.i_id = out->p_sys->i_id;
+    if( !es->fmt.i_original_fourcc )
+        es->fmt.i_original_fourcc = es->fmt.i_codec;
+    es->fmt.i_codec = vlc_fourcc_GetCodec( es->fmt.i_cat, es->fmt.i_codec );
+
     es->i_id = es->fmt.i_id;
     es->i_meta_id = out->p_sys->i_id;
     es->b_scrambled = false;
@@ -1684,7 +1689,7 @@ static void EsOutSelect( es_out_t *out, es_out_id_t *es, bool b_force )
                 break;
             }
         }
-        var_Change( p_sys->p_input, "programs", VLC_VAR_FREELIST, &val, NULL );
+        var_FreeList( &val, NULL );
     }
     else if( p_sys->i_mode == ES_OUT_MODE_AUTO )
     {
@@ -1920,19 +1925,13 @@ static int EsOutSend( es_out_t *out, es_out_id_t *es, block_t *p_block )
     input_DecoderIsCcPresent( es->p_dec, pb_cc );
     for( int i = 0; i < 4; i++ )
     {
-        static const vlc_fourcc_t fcc[4] = {
-            VLC_FOURCC('c', 'c', '1', ' '),
-            VLC_FOURCC('c', 'c', '2', ' '),
-            VLC_FOURCC('c', 'c', '3', ' '),
-            VLC_FOURCC('c', 'c', '4', ' '),
-        };
         es_format_t fmt;
 
         if(  es->pb_cc_present[i] || !pb_cc[i] )
             continue;
         msg_Dbg( p_input, "Adding CC track %d for es[%d]", 1+i, es->i_id );
 
-        es_format_Init( &fmt, SPU_ES, fcc[i] );
+        es_format_Init( &fmt, SPU_ES, EsOutFourccClosedCaptions[i] );
         fmt.i_group = es->fmt.i_group;
         if( asprintf( &fmt.psz_description,
                       _("Closed captions %u"), 1 + i ) == -1 )
@@ -2445,20 +2444,24 @@ static int EsOutControlLocked( es_out_t *out, int i_query, va_list args )
             mtime_t i_time = (mtime_t)va_arg( args, mtime_t );
             mtime_t i_length = (mtime_t)va_arg( args, mtime_t );
 
-            /* Fix for buffering delay */
-            const mtime_t i_delay = EsOutGetBuffering( out );
-
-            i_time -= i_delay;
-            if( i_time < 0 )
-                i_time = 0;
-
-            if( i_length > 0 )
-                f_position -= (double)i_delay / i_length;
-            if( f_position < 0 )
-                f_position = 0;
+            input_SendEventLength( p_sys->p_input, i_length );
 
             if( !p_sys->b_buffering )
-                input_SendEventTimes( p_sys->p_input, f_position, i_time, i_length );
+            {
+                /* Fix for buffering delay */
+                const mtime_t i_delay = EsOutGetBuffering( out );
+
+                i_time -= i_delay;
+                if( i_time < 0 )
+                    i_time = 0;
+
+                if( i_length > 0 )
+                    f_position -= (double)i_delay / i_length;
+                if( f_position < 0 )
+                    f_position = 0;
+
+                input_SendEventPosition( p_sys->p_input, f_position, i_time );
+            }
             return VLC_SUCCESS;
         }
         case ES_OUT_SET_JITTER:
@@ -2673,8 +2676,15 @@ static void EsOutUpdateInfo( es_out_t *out, es_out_id_t *es, const es_format_t *
         input_Control( p_input, INPUT_ADD_INFO, psz_cat, _("Original ID"),
                        "%d", es->i_id );
 
-    input_Control( p_input, INPUT_ADD_INFO, psz_cat, _("Codec"),
-                   "%.4s", (char*)&p_fmt_es->i_codec );
+    const char *psz_codec_description =
+        vlc_fourcc_GetDescription( p_fmt_es->i_cat, p_fmt_es->i_codec );
+    const vlc_fourcc_t i_codec_fourcc = p_fmt_es->i_original_fourcc ?: p_fmt_es->i_codec;
+    if( psz_codec_description )
+        input_Control( p_input, INPUT_ADD_INFO, psz_cat, _("Codec"),
+                       "%s (%.4s)", psz_codec_description, (char*)&i_codec_fourcc );
+    else
+        input_Control( p_input, INPUT_ADD_INFO, psz_cat, _("Codec"),
+                       "%.4s", (char*)&i_codec_fourcc );
 
     if( es->psz_language && *es->psz_language )
         input_Control( p_input, INPUT_ADD_INFO, psz_cat, _("Language"),

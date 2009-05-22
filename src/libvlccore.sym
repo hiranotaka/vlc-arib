@@ -216,6 +216,7 @@ libvlc_InternalInit
 libvlc_InternalWait
 libvlc_Quit
 LocaleFree
+make_URI
 mdate
 module_config_free
 module_config_get
@@ -278,6 +279,7 @@ picture_CopyPixels
 picture_Delete
 picture_Export
 picture_New
+picture_Setup
 plane_CopyPixels
 playlist_Add
 playlist_AddExt
@@ -300,7 +302,6 @@ playlist_Import
 playlist_IsServicesDiscoveryLoaded
 playlist_ItemGetById
 playlist_ItemGetByInput
-playlist_ItemGetByInputId
 playlist_LiveSearchUpdate
 playlist_Lock
 playlist_NodeAppend
@@ -375,6 +376,10 @@ subpicture_New
 subpicture_region_ChainDelete
 subpicture_region_Delete
 subpicture_region_New
+text_style_Copy
+text_style_Delete
+text_style_Duplicate
+text_style_New
 tls_ClientCreate
 tls_ClientDelete
 ToLocale
@@ -411,6 +416,7 @@ __var_Command
 __var_Create
 __var_DelCallback
 __var_Destroy
+var_FreeList
 __var_Get
 var_GetChecked
 __var_Set
@@ -418,6 +424,7 @@ var_SetChecked
 __var_TriggerCallback
 __var_Type
 video_format_FixRgb
+video_format_Setup
 vlc_avcodec_mutex
 vlc_b64_decode
 vlc_b64_decode_binary
@@ -447,6 +454,10 @@ vlc_event_manager_register_event_type
 vlc_event_send
 __vlc_execve
 vlc_fastmem_register
+vlc_fourcc_GetCodec
+vlc_fourcc_GetCodecAudio
+vlc_fourcc_GetCodecFromString
+vlc_fourcc_GetDescription
 vlc_freeaddrinfo
 vlc_gai_strerror
 vlc_gc_init
@@ -519,8 +530,6 @@ vout_DestroyPicture
 vout_DisplayPicture
 vout_EnableFilter
 vout_GetSnapshot
-vout_InitFormat
-__vout_InitPicture
 vout_LinkPicture
 vout_OSDIcon
 __vout_OSDMessage

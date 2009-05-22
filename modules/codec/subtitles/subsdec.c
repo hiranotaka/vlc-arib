@@ -232,9 +232,9 @@ static int OpenDecoder( vlc_object_t *p_this )
 
     switch( p_dec->fmt_in.i_codec )
     {
-        case VLC_FOURCC('s','u','b','t'):
-        case VLC_FOURCC('s','s','a',' '):
-        case VLC_FOURCC('t','1','4','0'):
+        case VLC_CODEC_SUBT:
+        case VLC_CODEC_SSA:
+        case VLC_CODEC_ITU_T140:
             break;
         default:
             return VLC_EGENERIC;
@@ -262,14 +262,15 @@ static int OpenDecoder( vlc_object_t *p_this )
     char *psz_charset = NULL;
 
     /* First try demux-specified encoding */
-    if( p_dec->fmt_in.i_codec == VLC_FOURCC('t','1','4','0') )
+    if( p_dec->fmt_in.i_codec == VLC_CODEC_ITU_T140 )
         psz_charset = strdup( "UTF-8" ); /* IUT T.140 is always using UTF-8 */
     else
     if( p_dec->fmt_in.subs.psz_encoding && *p_dec->fmt_in.subs.psz_encoding )
     {
         psz_charset = strdup (p_dec->fmt_in.subs.psz_encoding);
         msg_Dbg (p_dec, "trying demuxer-specified character encoding: %s",
-                 p_dec->fmt_in.subs.psz_encoding ?: "not specified");
+                 p_dec->fmt_in.subs.psz_encoding ?
+                 p_dec->fmt_in.subs.psz_encoding : "not specified");
     }
 
     /* Second, try configured encoding */
@@ -277,7 +278,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     {
         psz_charset = var_CreateGetNonEmptyString (p_dec, "subsdec-encoding");
         msg_Dbg (p_dec, "trying configured character encoding: %s",
-                 psz_charset ?: "not specified");
+                 psz_charset ? psz_charset : "not specified");
     }
 
     /* Third, try "local" encoding with optional UTF-8 autodetection */
@@ -285,7 +286,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     {
         psz_charset = strdup (GetFallbackEncoding ());
         msg_Dbg (p_dec, "trying default character encoding: %s",
-                 psz_charset ?: "not specified");
+                 psz_charset ? psz_charset : "not specified");
 
         if (var_CreateGetBool (p_dec, "subsdec-autodetect-utf8"))
         {
@@ -315,7 +316,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     var_Get( p_dec, "subsdec-align", &val );
     p_sys->i_align = val.i_int;
 
-    if( p_dec->fmt_in.i_codec == VLC_FOURCC('s','s','a',' ')
+    if( p_dec->fmt_in.i_codec == VLC_CODEC_SSA
      && var_CreateGetBool( p_dec, "subsdec-formatted" ) )
     {
         if( p_dec->fmt_in.i_extra > 0 )
@@ -492,7 +493,7 @@ static subpicture_t *ParseText( decoder_t *p_dec, block_t *p_block )
 
     /* Create a new subpicture region */
     memset( &fmt, 0, sizeof(video_format_t) );
-    fmt.i_chroma = VLC_FOURCC('T','E','X','T');
+    fmt.i_chroma = VLC_CODEC_TEXT;
     fmt.i_aspect = 0;
     fmt.i_width = fmt.i_height = 0;
     fmt.i_x_offset = fmt.i_y_offset = 0;
@@ -506,7 +507,7 @@ static subpicture_t *ParseText( decoder_t *p_dec, block_t *p_block )
     }
 
     /* Decode and format the subpicture unit */
-    if( p_dec->fmt_in.i_codec != VLC_FOURCC('s','s','a',' ') )
+    if( p_dec->fmt_in.i_codec != VLC_CODEC_SSA )
     {
         /* Normal text subs, easy markup */
         p_spu->p_region->i_align = SUBPICTURE_ALIGN_BOTTOM | p_sys->i_align;

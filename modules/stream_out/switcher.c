@@ -33,7 +33,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
-#include <vlc_vout.h>
 #include <vlc_avcodec.h>
 
 #include <vlc_block.h>
@@ -323,16 +322,16 @@ static sout_stream_id_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
         return NULL;
 
     if( p_fmt->i_cat == VIDEO_ES &&
-        ( p_fmt->i_codec == VLC_FOURCC('m', 'p', 'g', 'v') ||
+        ( p_fmt->i_codec == VLC_CODEC_MPGV ||
           p_fmt->i_codec == VLC_FOURCC('f', 'a', 'k', 'e') ) )
     {
         id->b_switcher_video = true;
-        p_fmt->i_codec = VLC_FOURCC('m', 'p', 'g', 'v');
+        p_fmt->i_codec = VLC_CODEC_MPGV;
         msg_Dbg( p_stream, "creating video switcher for fcc=`%4.4s' cmd:%d",
                  (char*)&p_fmt->i_codec, p_sys->i_cmd );
     }
     else if ( p_fmt->i_cat == AUDIO_ES &&
-              p_fmt->i_codec == VLC_FOURCC('m', 'p', 'g', 'a') &&
+              p_fmt->i_codec == VLC_CODEC_MPGA &&
               p_sys->b_audio )
     {
         int i_ff_codec = CODEC_ID_MP2;
@@ -613,9 +612,13 @@ static int UnpackFromFile( sout_stream_t *p_stream, const char *psz_file,
         return -1;
     }
 
-    vout_InitPicture( VLC_OBJECT(p_stream), p_pic, VLC_FOURCC('I','4','2','0'),
-                      i_width, i_height,
-                      i_width * VOUT_ASPECT_FACTOR / i_height );
+    if( picture_Setup( p_pic, VLC_CODEC_I420,
+                       i_width, i_height,
+                       i_width * VOUT_ASPECT_FACTOR / i_height ) )
+    {
+        msg_Err( p_stream, "unknown chroma" );
+        return -1;
+    }
     for ( i = 0; i < p_pic->i_planes; i++ )
     {
         p_pic->p[i].p_pixels = malloc( p_pic->p[i].i_lines *

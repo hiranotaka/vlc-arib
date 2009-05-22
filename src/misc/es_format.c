@@ -92,24 +92,24 @@ void video_format_FixRgb( video_format_t *p_fmt )
     {
         switch( p_fmt->i_chroma )
         {
-        case VLC_FOURCC('R','V','1','5'):
+        case VLC_CODEC_RGB15:
             p_fmt->i_rmask = 0x7c00;
             p_fmt->i_gmask = 0x03e0;
             p_fmt->i_bmask = 0x001f;
             break;
 
-        case VLC_FOURCC('R','V','1','6'):
+        case VLC_CODEC_RGB16:
             p_fmt->i_rmask = 0xf800;
             p_fmt->i_gmask = 0x07e0;
             p_fmt->i_bmask = 0x001f;
             break;
 
-        case VLC_FOURCC('R','V','2','4'):
+        case VLC_CODEC_RGB24:
             p_fmt->i_rmask = 0xff0000;
             p_fmt->i_gmask = 0x00ff00;
             p_fmt->i_bmask = 0x0000ff;
             break;
-        case VLC_FOURCC('R','V','3','2'):
+        case VLC_CODEC_RGB32:
             p_fmt->i_rmask = 0x00ff0000;
             p_fmt->i_gmask = 0x0000ff00;
             p_fmt->i_bmask = 0x000000ff;
@@ -128,11 +128,86 @@ void video_format_FixRgb( video_format_t *p_fmt )
                  p_fmt->i_bmask );
 }
 
+void video_format_Setup( video_format_t *p_fmt, vlc_fourcc_t i_chroma, int i_width, int i_height, int i_aspect )
+{
+    p_fmt->i_chroma         = vlc_fourcc_GetCodec( VIDEO_ES, i_chroma );
+    p_fmt->i_width          =
+    p_fmt->i_visible_width  = i_width;
+    p_fmt->i_height         =
+    p_fmt->i_visible_height = i_height;
+    p_fmt->i_x_offset       =
+    p_fmt->i_y_offset       = 0;
+    p_fmt->i_aspect         = i_aspect;
+
+    switch( p_fmt->i_chroma )
+    {
+    case VLC_CODEC_YUVA:
+        p_fmt->i_bits_per_pixel = 32;
+        break;
+    case VLC_CODEC_I444:
+    case VLC_CODEC_J444:
+        p_fmt->i_bits_per_pixel = 24;
+        break;
+    case VLC_CODEC_I422:
+    case VLC_CODEC_YUYV:
+    case VLC_CODEC_YVYU:
+    case VLC_CODEC_UYVY:
+    case VLC_CODEC_VYUY:
+    case VLC_CODEC_J422:
+        p_fmt->i_bits_per_pixel = 16;
+        break;
+    case VLC_CODEC_I440:
+    case VLC_CODEC_J440:
+        p_fmt->i_bits_per_pixel = 16;
+        break;
+    case VLC_CODEC_I411:
+    case VLC_CODEC_YV12:
+    case VLC_CODEC_I420:
+    case VLC_CODEC_J420:
+        p_fmt->i_bits_per_pixel = 12;
+        break;
+    case VLC_CODEC_I410:
+        p_fmt->i_bits_per_pixel = 9;
+        break;
+    case VLC_CODEC_Y211:
+        p_fmt->i_bits_per_pixel = 8;
+        break;
+    case VLC_CODEC_YUVP:
+        p_fmt->i_bits_per_pixel = 8;
+        break;
+
+    case VLC_CODEC_RGB32:
+    case VLC_CODEC_RGBA:
+        p_fmt->i_bits_per_pixel = 32;
+        break;
+    case VLC_CODEC_RGB24:
+        p_fmt->i_bits_per_pixel = 24;
+        break;
+    case VLC_CODEC_RGB15:
+    case VLC_CODEC_RGB16:
+        p_fmt->i_bits_per_pixel = 16;
+        break;
+    case VLC_CODEC_RGB8:
+        p_fmt->i_bits_per_pixel = 8;
+        break;
+
+    case VLC_CODEC_GREY:
+    case VLC_CODEC_RGBP:
+        p_fmt->i_bits_per_pixel = 8;
+        break;
+
+    default:
+        p_fmt->i_bits_per_pixel = 0;
+        break;
+    }
+}
+
 void es_format_Init( es_format_t *fmt,
                      int i_cat, vlc_fourcc_t i_codec )
 {
     fmt->i_cat                  = i_cat;
     fmt->i_codec                = i_codec;
+    fmt->i_original_fourcc      = 0;
     fmt->i_id                   = -1;
     fmt->i_group                = 0;
     fmt->i_priority             = 0;

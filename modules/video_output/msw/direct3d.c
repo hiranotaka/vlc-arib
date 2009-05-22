@@ -202,71 +202,21 @@ static int OpenVideo( vlc_object_t *p_this )
     p_vout->p_sys->i_window_width = p_vout->i_window_width;
     p_vout->p_sys->i_window_height = p_vout->i_window_height;
 
-    /* Create the Vout EventThread, this thread is created by us to isolate
-     * the Win32 PeekMessage function calls. We want to do this because
-     * Windows can stay blocked inside this call for a long time, and when
-     * this happens it thus blocks vlc's video_output thread.
-     * Vout EventThread will take care of the creation of the video
-     * window (because PeekMessage has to be called from the same thread which
-     * created the window). */
-    msg_Dbg( p_vout, "creating Vout EventThread" );
-    p_vout->p_sys->p_event =
-        vlc_object_create( p_vout, sizeof(event_thread_t) );
-    p_vout->p_sys->p_event->p_vout = p_vout;
-    p_vout->p_sys->p_event->window_ready = CreateEvent( NULL, TRUE, FALSE, NULL );
-    if( vlc_thread_create( p_vout->p_sys->p_event, "Vout Events Thread",
-                           EventThread, 0 ) )
+    if ( CreateEventThread( p_vout ) )
     {
-        msg_Err( p_vout, "cannot create Vout EventThread" );
-        CloseHandle( p_vout->p_sys->p_event->window_ready );
-        vlc_object_release( p_vout->p_sys->p_event );
-        p_vout->p_sys->p_event = NULL;
-        goto error;
-    }
-    WaitForSingleObject( p_vout->p_sys->p_event->window_ready, INFINITE );
-    CloseHandle( p_vout->p_sys->p_event->window_ready );
+        /* Variable to indicate if the window should be on top of others */
+        /* Trigger a callback right now */
+        var_TriggerCallback( p_vout, "video-on-top" );
 
-    if( p_vout->p_sys->p_event->b_error )
+        DisableScreensaver ( p_vout );
+
+        return VLC_SUCCESS;
+    }
+    else
     {
-        msg_Err( p_vout, "Vout EventThread failed" );
-        goto error;
+        CloseVideo( VLC_OBJECT(p_vout) );
+        return VLC_EGENERIC;
     }
-
-    vlc_object_attach( p_vout->p_sys->p_event, p_vout );
-
-    msg_Dbg( p_vout, "Vout EventThread running" );
-
-    /* Variable to indicate if the window should be on top of others */
-    /* Trigger a callback right now */
-    var_TriggerCallback( p_vout, "video-on-top" );
-
-    /* disable screensaver by temporarily changing system settings */
-    p_vout->p_sys->i_spi_lowpowertimeout = 0;
-    p_vout->p_sys->i_spi_powerofftimeout = 0;
-    p_vout->p_sys->i_spi_screensavetimeout = 0;
-    if( var_GetBool( p_vout, "disable-screensaver" ) ) {
-        msg_Dbg(p_vout, "disabling screen saver");
-        SystemParametersInfo(SPI_GETLOWPOWERTIMEOUT,
-            0, &(p_vout->p_sys->i_spi_lowpowertimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_lowpowertimeout ) {
-            SystemParametersInfo(SPI_SETLOWPOWERTIMEOUT, 0, NULL, 0);
-        }
-        SystemParametersInfo(SPI_GETPOWEROFFTIMEOUT, 0,
-            &(p_vout->p_sys->i_spi_powerofftimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_powerofftimeout ) {
-            SystemParametersInfo(SPI_SETPOWEROFFTIMEOUT, 0, NULL, 0);
-        }
-        SystemParametersInfo(SPI_GETSCREENSAVETIMEOUT, 0,
-            &(p_vout->p_sys->i_spi_screensavetimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_screensavetimeout ) {
-            SystemParametersInfo(SPI_SETSCREENSAVETIMEOUT, 0, NULL, 0);
-        }
-    }
-    return VLC_SUCCESS;
-
-error:
-    CloseVideo( VLC_OBJECT(p_vout) );
-    return VLC_EGENERIC;
 }
 
 /*****************************************************************************
@@ -280,47 +230,9 @@ static void CloseVideo( vlc_object_t *p_this )
 
     Direct3DVoutRelease( p_vout );
 
-    if( p_vout->b_fullscreen )
-    {
-        msg_Dbg( p_vout, "Quitting fullscreen" );
-        Win32ToggleFullscreen( p_vout );
-        /* Force fullscreen in the core for the next video */
-        var_SetBool( p_vout, "fullscreen", true );
-    }
+    StopEventThread( p_vout );
 
-    if( p_vout->p_sys->p_event )
-    {
-        vlc_object_detach( p_vout->p_sys->p_event );
-
-        /* Kill Vout EventThread */
-        vlc_object_kill( p_vout->p_sys->p_event );
-
-        /* we need to be sure Vout EventThread won't stay stuck in
-         * GetMessage, so we send a fake message */
-        if( p_vout->p_sys->hwnd )
-        {
-            PostMessage( p_vout->p_sys->hwnd, WM_NULL, 0, 0);
-        }
-
-        vlc_thread_join( p_vout->p_sys->p_event );
-        vlc_object_release( p_vout->p_sys->p_event );
-    }
-
-    vlc_mutex_destroy( &p_vout->p_sys->lock );
-
-    /* restore screensaver system settings */
-    if( 0 != p_vout->p_sys->i_spi_lowpowertimeout ) {
-        SystemParametersInfo(SPI_SETLOWPOWERTIMEOUT,
-            p_vout->p_sys->i_spi_lowpowertimeout, NULL, 0);
-    }
-    if( 0 != p_vout->p_sys->i_spi_powerofftimeout ) {
-        SystemParametersInfo(SPI_SETPOWEROFFTIMEOUT,
-            p_vout->p_sys->i_spi_powerofftimeout, NULL, 0);
-    }
-    if( 0 != p_vout->p_sys->i_spi_screensavetimeout ) {
-        SystemParametersInfo(SPI_SETSCREENSAVETIMEOUT,
-            p_vout->p_sys->i_spi_screensavetimeout, NULL, 0);
-    }
+    RestoreScreensaver( p_vout );
 
     free( p_vout->p_sys );
     p_vout->p_sys = NULL;
@@ -883,17 +795,15 @@ static D3DFORMAT Direct3DVoutFindFormat(vout_thread_t *p_vout, int i_chroma, D3D
     /* it sounds like vista does not support YUV surfaces at all */
         switch( i_chroma )
         {
-            case VLC_FOURCC('U','Y','V','Y'):
-            case VLC_FOURCC('U','Y','N','V'):
-            case VLC_FOURCC('Y','4','2','2'):
+            case VLC_CODEC_UYVY:
             {
                 static const D3DFORMAT formats[] =
                     { D3DFMT_UYVY, D3DFMT_YUY2, D3DFMT_X8R8G8B8, D3DFMT_A8R8G8B8, D3DFMT_R5G6B5, D3DFMT_X1R5G5B5 };
                 return Direct3DVoutSelectFormat(p_vout, target, formats, sizeof(formats)/sizeof(D3DFORMAT));
             }
-            case VLC_FOURCC('I','4','2','0'):
-            case VLC_FOURCC('I','4','2','2'):
-            case VLC_FOURCC('Y','V','1','2'):
+            case VLC_CODEC_I420:
+            case VLC_CODEC_I422:
+            case VLC_CODEC_YV12:
             {
                 /* typically 3D textures don't support planar format
                 ** fallback to packed version and use CPU for the conversion
@@ -902,8 +812,7 @@ static D3DFORMAT Direct3DVoutFindFormat(vout_thread_t *p_vout, int i_chroma, D3D
                     { D3DFMT_YUY2, D3DFMT_UYVY, D3DFMT_X8R8G8B8, D3DFMT_A8R8G8B8, D3DFMT_R5G6B5, D3DFMT_X1R5G5B5 };
                 return Direct3DVoutSelectFormat(p_vout, target, formats, sizeof(formats)/sizeof(D3DFORMAT));
             }
-            case VLC_FOURCC('Y','U','Y','2'):
-            case VLC_FOURCC('Y','U','N','V'):
+            case VLC_CODEC_YUYV:
             {
                 static const D3DFORMAT formats[] =
                     { D3DFMT_YUY2, D3DFMT_UYVY, D3DFMT_X8R8G8B8, D3DFMT_A8R8G8B8, D3DFMT_R5G6B5, D3DFMT_X1R5G5B5 };
@@ -914,25 +823,25 @@ static D3DFORMAT Direct3DVoutFindFormat(vout_thread_t *p_vout, int i_chroma, D3D
 
     switch( i_chroma )
     {
-        case VLC_FOURCC('R', 'V', '1', '5'):
+        case VLC_CODEC_RGB15:
         {
             static const D3DFORMAT formats[] =
                 { D3DFMT_X1R5G5B5 };
             return Direct3DVoutSelectFormat(p_vout, target, formats, sizeof(formats)/sizeof(D3DFORMAT));
         }
-        case VLC_FOURCC('R', 'V', '1', '6'):
+        case VLC_CODEC_RGB16:
         {
             static const D3DFORMAT formats[] =
                 { D3DFMT_R5G6B5 };
             return Direct3DVoutSelectFormat(p_vout, target, formats, sizeof(formats)/sizeof(D3DFORMAT));
         }
-        case VLC_FOURCC('R', 'V', '2', '4'):
+        case VLC_CODEC_RGB24:
         {
             static const D3DFORMAT formats[] =
                 { D3DFMT_R8G8B8, D3DFMT_X8R8G8B8, D3DFMT_A8R8G8B8 };
             return Direct3DVoutSelectFormat(p_vout, target, formats, sizeof(formats)/sizeof(D3DFORMAT));
         }
-        case VLC_FOURCC('R', 'V', '3', '2'):
+        case VLC_CODEC_RGB32:
         {
             static const D3DFORMAT formats[] =
                 { D3DFMT_A8R8G8B8, D3DFMT_X8R8G8B8 };
@@ -980,32 +889,32 @@ static int Direct3DVoutSetOutputFormat(vout_thread_t *p_vout, D3DFORMAT format)
     switch( format )
     {
         case D3DFMT_YUY2:
-            p_vout->output.i_chroma = VLC_FOURCC('Y', 'U', 'Y', '2');
+            p_vout->output.i_chroma = VLC_CODEC_YUYV;
             break;
         case D3DFMT_UYVY:
-            p_vout->output.i_chroma = VLC_FOURCC('U', 'Y', 'V', 'Y');
+            p_vout->output.i_chroma = VLC_CODEC_UYVY;
             break;
         case D3DFMT_R8G8B8:
-            p_vout->output.i_chroma = VLC_FOURCC('R', 'V', '2', '4');
+            p_vout->output.i_chroma = VLC_CODEC_RGB24;
             p_vout->output.i_rmask = 0xff0000;
             p_vout->output.i_gmask = 0x00ff00;
             p_vout->output.i_bmask = 0x0000ff;
             break;
         case D3DFMT_X8R8G8B8:
         case D3DFMT_A8R8G8B8:
-            p_vout->output.i_chroma = VLC_FOURCC('R', 'V', '3', '2');
+            p_vout->output.i_chroma = VLC_CODEC_RGB32;
             p_vout->output.i_rmask = 0x00ff0000;
             p_vout->output.i_gmask = 0x0000ff00;
             p_vout->output.i_bmask = 0x000000ff;
             break;
         case D3DFMT_R5G6B5:
-            p_vout->output.i_chroma = VLC_FOURCC('R', 'V', '1', '6');
+            p_vout->output.i_chroma = VLC_CODEC_RGB16;
             p_vout->output.i_rmask = (0x1fL)<<11;
             p_vout->output.i_gmask = (0x3fL)<<5;
             p_vout->output.i_bmask = (0x1fL)<<0;
             break;
         case D3DFMT_X1R5G5B5:
-            p_vout->output.i_chroma = VLC_FOURCC('R', 'V', '1', '5');
+            p_vout->output.i_chroma = VLC_CODEC_RGB15;
             p_vout->output.i_rmask = (0x1fL)<<10;
             p_vout->output.i_gmask = (0x1fL)<<5;
             p_vout->output.i_bmask = (0x1fL)<<0;
@@ -1031,7 +940,8 @@ static int Direct3DVoutCreatePictures( vout_thread_t *p_vout, size_t i_num_pics 
     HRESULT hr;
     size_t c;
     // if vout is already running, use current chroma, otherwise choose from upstream
-    int i_chroma = p_vout->output.i_chroma ? : p_vout->render.i_chroma;
+    int i_chroma = p_vout->output.i_chroma ? p_vout->output.i_chroma
+                                           : p_vout->render.i_chroma;
 
     I_OUTPUTPICTURES = 0;
 
@@ -1077,7 +987,7 @@ static int Direct3DVoutCreatePictures( vout_thread_t *p_vout, size_t i_num_pics 
          * picture_t structures */
         switch( p_vout->output.i_chroma )
         {
-            case VLC_FOURCC('R','G','B','2'):
+            case VLC_CODEC_RGB8:
                 p_pic->p->i_lines = p_vout->output.i_height;
                 p_pic->p->i_visible_lines = p_vout->output.i_height;
                 p_pic->p->i_pixel_pitch = 1;
@@ -1085,8 +995,8 @@ static int Direct3DVoutCreatePictures( vout_thread_t *p_vout, size_t i_num_pics 
                     p_pic->p->i_pixel_pitch;
                 p_pic->i_planes = 1;
             break;
-            case VLC_FOURCC('R','V','1','5'):
-            case VLC_FOURCC('R','V','1','6'):
+            case VLC_CODEC_RGB15:
+            case VLC_CODEC_RGB16:
                 p_pic->p->i_lines = p_vout->output.i_height;
                 p_pic->p->i_visible_lines = p_vout->output.i_height;
                 p_pic->p->i_pixel_pitch = 2;
@@ -1094,7 +1004,7 @@ static int Direct3DVoutCreatePictures( vout_thread_t *p_vout, size_t i_num_pics 
                     p_pic->p->i_pixel_pitch;
                 p_pic->i_planes = 1;
             break;
-            case VLC_FOURCC('R','V','2','4'):
+            case VLC_CODEC_RGB24:
                 p_pic->p->i_lines = p_vout->output.i_height;
                 p_pic->p->i_visible_lines = p_vout->output.i_height;
                 p_pic->p->i_pixel_pitch = 3;
@@ -1102,7 +1012,7 @@ static int Direct3DVoutCreatePictures( vout_thread_t *p_vout, size_t i_num_pics 
                     p_pic->p->i_pixel_pitch;
                 p_pic->i_planes = 1;
             break;
-            case VLC_FOURCC('R','V','3','2'):
+            case VLC_CODEC_RGB32:
                 p_pic->p->i_lines = p_vout->output.i_height;
                 p_pic->p->i_visible_lines = p_vout->output.i_height;
                 p_pic->p->i_pixel_pitch = 4;
@@ -1110,8 +1020,8 @@ static int Direct3DVoutCreatePictures( vout_thread_t *p_vout, size_t i_num_pics 
                     p_pic->p->i_pixel_pitch;
                 p_pic->i_planes = 1;
                 break;
-            case VLC_FOURCC('U','Y','V','Y'):
-            case VLC_FOURCC('Y','U','Y','2'):
+            case VLC_CODEC_UYVY:
+            case VLC_CODEC_YUYV:
                 p_pic->p->i_lines = p_vout->output.i_height;
                 p_pic->p->i_visible_lines = p_vout->output.i_height;
                 p_pic->p->i_pixel_pitch = 2;

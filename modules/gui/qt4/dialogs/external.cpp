@@ -1,5 +1,5 @@
 /*****************************************************************************
- * external.hpp : Dialogs from other LibVLC core and other plugins
+ * external.cpp : Dialogs from other LibVLC core and other plugins
  ****************************************************************************
  * Copyright (C) 2009 Rémi Denis-Courmont
  * Copyright (C) 2006 the VideoLAN team
@@ -35,29 +35,6 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QMutex>
-
-QVLCVariable::QVLCVariable (vlc_object_t *obj, const char *varname, int type)
-    : object (obj), name (qfu(varname))
-{
-    var_Create (object, qtu(name), type);
-    var_AddCallback (object, qtu(name), callback, this);
-}
-
-QVLCVariable::~QVLCVariable (void)
-{
-    var_DelCallback (object, qtu(name), callback, this);
-    var_Destroy (object, qtu(name));
-}
-
-int QVLCVariable::callback (vlc_object_t *object, const char *,
-                            vlc_value_t, vlc_value_t cur, void *data)
-{
-    QVLCVariable *self = (QVLCVariable *)data;
-
-    emit self->pointerChanged (object, cur.p_address);
-    return VLC_SUCCESS;
-}
-
 
 DialogHandler::DialogHandler (intf_thread_t *intf)
     : intf (intf),

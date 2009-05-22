@@ -393,42 +393,41 @@ static int AccessControlResetCallback( vlc_object_t *p_this,
 static const struct
 {
     unsigned int i_v4l2;
-    int i_fourcc;
+    vlc_fourcc_t i_fourcc;
     int i_rmask;
     int i_gmask;
     int i_bmask;
 } v4l2chroma_to_fourcc[] =
 {
     /* Raw data types */
-    { V4L2_PIX_FMT_GREY,    VLC_FOURCC('G','R','E','Y'), 0, 0, 0 },
+    { V4L2_PIX_FMT_GREY,    VLC_CODEC_GREY, 0, 0, 0 },
     { V4L2_PIX_FMT_HI240,   VLC_FOURCC('I','2','4','0'), 0, 0, 0 },
-    { V4L2_PIX_FMT_RGB555,  VLC_FOURCC('R','V','1','5'), 0x001f,0x03e0,0x7c00 },
-    { V4L2_PIX_FMT_RGB565,  VLC_FOURCC('R','V','1','6'), 0x001f,0x07e0,0xf800 },
+    { V4L2_PIX_FMT_RGB555,  VLC_CODEC_RGB15, 0x001f,0x03e0,0x7c00 },
+    { V4L2_PIX_FMT_RGB565,  VLC_CODEC_RGB16, 0x001f,0x07e0,0xf800 },
     /* Won't work since we don't know how to handle such gmask values
      * correctly
-    { V4L2_PIX_FMT_RGB555X, VLC_FOURCC('R','V','1','5'), 0x007c,0xe003,0x1f00 },
-    { V4L2_PIX_FMT_RGB565X, VLC_FOURCC('R','V','1','6'), 0x00f8,0xe007,0x1f00 },
+    { V4L2_PIX_FMT_RGB555X, VLC_CODEC_RGB15, 0x007c,0xe003,0x1f00 },
+    { V4L2_PIX_FMT_RGB565X, VLC_CODEC_RGB16, 0x00f8,0xe007,0x1f00 },
     */
-    { V4L2_PIX_FMT_BGR24,   VLC_FOURCC('R','V','2','4'), 0xff0000,0xff00,0xff },
-    { V4L2_PIX_FMT_RGB24,   VLC_FOURCC('R','V','2','4'), 0xff,0xff00,0xff0000 },
-    { V4L2_PIX_FMT_BGR32,   VLC_FOURCC('R','V','3','2'), 0xff0000,0xff00,0xff },
-    { V4L2_PIX_FMT_RGB32,   VLC_FOURCC('R','V','3','2'), 0xff,0xff00,0xff0000 },
-    { V4L2_PIX_FMT_YUYV,    VLC_FOURCC('Y','U','Y','2'), 0, 0, 0 },
-    { V4L2_PIX_FMT_YUYV,    VLC_FOURCC('Y','U','Y','V'), 0, 0, 0 },
-    { V4L2_PIX_FMT_UYVY,    VLC_FOURCC('U','Y','V','Y'), 0, 0, 0 },
+    { V4L2_PIX_FMT_BGR24,   VLC_CODEC_RGB24, 0xff0000,0xff00,0xff },
+    { V4L2_PIX_FMT_RGB24,   VLC_CODEC_RGB24, 0xff,0xff00,0xff0000 },
+    { V4L2_PIX_FMT_BGR32,   VLC_CODEC_RGB32, 0xff0000,0xff00,0xff },
+    { V4L2_PIX_FMT_RGB32,   VLC_CODEC_RGB32, 0xff,0xff00,0xff0000 },
+    { V4L2_PIX_FMT_YUYV,    VLC_CODEC_YUYV, 0, 0, 0 },
+    { V4L2_PIX_FMT_UYVY,    VLC_CODEC_UYVY, 0, 0, 0 },
     { V4L2_PIX_FMT_Y41P,    VLC_FOURCC('I','4','1','N'), 0, 0, 0 },
-    { V4L2_PIX_FMT_YUV422P, VLC_FOURCC('I','4','2','2'), 0, 0, 0 },
-    { V4L2_PIX_FMT_YVU420,  VLC_FOURCC('Y','V','1','2'), 0, 0, 0 },
-    { V4L2_PIX_FMT_YUV411P, VLC_FOURCC('I','4','1','1'), 0, 0, 0 },
-    { V4L2_PIX_FMT_YUV410,  VLC_FOURCC('I','4','1','0'), 0, 0, 0 },
+    { V4L2_PIX_FMT_YUV422P, VLC_CODEC_I422, 0, 0, 0 },
+    { V4L2_PIX_FMT_YVU420,  VLC_CODEC_YV12, 0, 0, 0 },
+    { V4L2_PIX_FMT_YUV411P, VLC_CODEC_I411, 0, 0, 0 },
+    { V4L2_PIX_FMT_YUV410,  VLC_CODEC_I410, 0, 0, 0 },
 
     /* Raw data types, not in V4L2 spec but still in videodev2.h and supported
      * by VLC */
-    { V4L2_PIX_FMT_YUV420,  VLC_FOURCC('I','4','2','0'), 0, 0, 0 },
-    /* FIXME { V4L2_PIX_FMT_RGB444,  VLC_FOURCC('R','V','3','2') }, */
+    { V4L2_PIX_FMT_YUV420,  VLC_CODEC_I420, 0, 0, 0 },
+    /* FIXME { V4L2_PIX_FMT_RGB444,  VLC_CODEC_RGB32 }, */
 
     /* Compressed data types */
-    { V4L2_PIX_FMT_MJPEG,   VLC_FOURCC('M','J','P','G'), 0, 0, 0 },
+    { V4L2_PIX_FMT_MJPEG,   VLC_CODEC_MJPG, 0, 0, 0 },
 #if 0
     { V4L2_PIX_FMT_JPEG,    VLC_FOURCC('J','P','E','G') },
     { V4L2_PIX_FMT_DV,      VLC_FOURCC('?','?','?','?') },
@@ -1946,21 +1945,18 @@ static int OpenVideoDev( vlc_object_t *p_obj, demux_sys_t *p_sys, bool b_demux )
 
     /* Test and set Chroma */
     fmt.fmt.pix.pixelformat = 0;
-    if( p_sys->psz_requested_chroma && strlen( p_sys->psz_requested_chroma ) > 0 )
+    if( p_sys->psz_requested_chroma && *p_sys->psz_requested_chroma )
     {
         /* User specified chroma */
-        if( strlen( p_sys->psz_requested_chroma ) >= 4 )
+        const vlc_fourcc_t i_requested_fourcc =
+            vlc_fourcc_GetCodecFromString( VIDEO_ES, p_sys->psz_requested_chroma );
+
+        for( int i = 0; v4l2chroma_to_fourcc[i].i_v4l2 != 0; i++ )
         {
-            int i_requested_fourcc = VLC_FOURCC(
-                p_sys->psz_requested_chroma[0], p_sys->psz_requested_chroma[1],
-                p_sys->psz_requested_chroma[2], p_sys->psz_requested_chroma[3] );
-            for( int i = 0; v4l2chroma_to_fourcc[i].i_v4l2 != 0; i++ )
+            if( v4l2chroma_to_fourcc[i].i_fourcc == i_requested_fourcc )
             {
-                if( v4l2chroma_to_fourcc[i].i_fourcc == i_requested_fourcc )
-                {
-                    fmt.fmt.pix.pixelformat = v4l2chroma_to_fourcc[i].i_v4l2;
-                    break;
-                }
+                fmt.fmt.pix.pixelformat = v4l2chroma_to_fourcc[i].i_v4l2;
+                break;
             }
         }
         /* Try and set user chroma */
@@ -2913,6 +2909,7 @@ static void SetAvailControlsByString( vlc_object_t *p_obj, demux_sys_t *p_sys,
                 Control( p_obj, p_sys, i_fd, psz_name, i_cid,
                          strtol( ++psz_assign, &psz_parser, 0) );
             }
+            free( name.psz_string );
         }
 
         if( psz_parser < psz_assign )
@@ -2923,6 +2920,7 @@ static void SetAvailControlsByString( vlc_object_t *p_obj, demux_sys_t *p_sys,
             psz_parser = ( *psz_delim ) ? ( psz_delim + 1 ) : psz_delim;
         }
     }
+    var_FreeList( &val, &text );
 }
 
 /*****************************************************************************
@@ -2958,7 +2956,8 @@ static int ControlReset( vlc_object_t *p_obj, demux_sys_t *p_sys, int i_fd )
                     if( controls[i].i_cid == queryctrl.id ) break;
                 name2var( queryctrl.name );
                 Control( p_obj, p_sys, i_fd,
-                         controls[i].psz_name ? : (const char *)queryctrl.name,
+                         controls[i].psz_name ? controls[i].psz_name
+                          : (const char *)queryctrl.name,
                          queryctrl.id, queryctrl.default_value );
             }
             queryctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
@@ -2988,7 +2987,8 @@ static int ControlReset( vlc_object_t *p_obj, demux_sys_t *p_sys, int i_fd )
                         if( controls[i].i_cid == queryctrl.id ) break;
                     name2var( queryctrl.name );
                     Control( p_obj, p_sys, i_fd,
-                             controls[i].psz_name ? : (const char *)queryctrl.name,
+                             controls[i].psz_name ? controls[i].psz_name
+                              : (const char *)queryctrl.name,
                              queryctrl.id, queryctrl.default_value );
                 }
             }

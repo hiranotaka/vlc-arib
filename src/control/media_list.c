@@ -170,6 +170,7 @@ libvlc_media_list_new( libvlc_instance_t * p_inst,
     }
 
     vlc_mutex_init( &p_mlist->object_lock );
+    vlc_mutex_init( &p_mlist->refcount_lock ); // FIXME: spinlock?
 
     vlc_array_init( &p_mlist->items );
     p_mlist->i_refcount = 1;
@@ -188,21 +189,20 @@ void libvlc_media_list_release( libvlc_media_list_t * p_mlist )
     libvlc_media_t * p_md;
     int i;
 
-    vlc_mutex_lock( &p_mlist->object_lock );
+    vlc_mutex_lock( &p_mlist->refcount_lock );
     p_mlist->i_refcount--;
     if( p_mlist->i_refcount > 0 )
     {
-        vlc_mutex_unlock( &p_mlist->object_lock );
+        vlc_mutex_unlock( &p_mlist->refcount_lock );
         return;
     }
-    vlc_mutex_unlock( &p_mlist->object_lock );
+    vlc_mutex_unlock( &p_mlist->refcount_lock );
 
     /* Refcount null, time to free */
 
     libvlc_event_manager_release( p_mlist->p_event_manager );
 
-    if( p_mlist->p_md )
-        libvlc_media_release( p_mlist->p_md );
+    libvlc_media_release( p_mlist->p_md );
 
     for ( i = 0; i < vlc_array_count( &p_mlist->items ); i++ )
     {
@@ -223,9 +223,9 @@ void libvlc_media_list_release( libvlc_media_list_t * p_mlist )
  **************************************************************************/
 void libvlc_media_list_retain( libvlc_media_list_t * p_mlist )
 {
-    vlc_mutex_lock( &p_mlist->object_lock );
+    vlc_mutex_lock( &p_mlist->refcount_lock );
     p_mlist->i_refcount++;
-    vlc_mutex_unlock( &p_mlist->object_lock );
+    vlc_mutex_unlock( &p_mlist->refcount_lock );
 }
 
 
@@ -279,8 +279,7 @@ void libvlc_media_list_set_media( libvlc_media_list_t * p_mlist,
 {
     VLC_UNUSED(p_e);
     vlc_mutex_lock( &p_mlist->object_lock );
-    if( p_mlist->p_md )
-        libvlc_media_release( p_mlist->p_md );
+    libvlc_media_release( p_mlist->p_md );
     libvlc_media_retain( p_md );
     p_mlist->p_md = p_md;
     vlc_mutex_unlock( &p_mlist->object_lock );

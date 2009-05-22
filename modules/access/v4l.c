@@ -37,7 +37,7 @@
 #include <vlc_input.h>
 #include <vlc_demux.h>
 #include <vlc_access.h>
-#include <vlc_vout.h>
+#include <vlc_picture.h>
 
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -212,27 +212,25 @@ struct quicktime_mjpeg_app1
 static const struct
 {
     int i_v4l;
-    int i_fourcc;
+    vlc_fourcc_t i_fourcc;
 
 } v4lchroma_to_fourcc[] =
 {
-    { VIDEO_PALETTE_GREY, VLC_FOURCC( 'G', 'R', 'E', 'Y' ) },
+    { VIDEO_PALETTE_GREY, VLC_CODEC_GREY },
     { VIDEO_PALETTE_HI240, VLC_FOURCC( 'I', '2', '4', '0' ) },
-    { VIDEO_PALETTE_RGB565, VLC_FOURCC( 'R', 'V', '1', '6' ) },
-    { VIDEO_PALETTE_RGB555, VLC_FOURCC( 'R', 'V', '1', '5' ) },
-    { VIDEO_PALETTE_RGB24, VLC_FOURCC( 'R', 'V', '2', '4' ) },
-    { VIDEO_PALETTE_RGB32, VLC_FOURCC( 'R', 'V', '3', '2' ) },
-    { VIDEO_PALETTE_YUV422, VLC_FOURCC( 'Y', 'U', 'Y', '2' ) },
-    { VIDEO_PALETTE_YUV422, VLC_FOURCC( 'Y', 'U', 'Y', 'V' ) },
-    { VIDEO_PALETTE_YUYV, VLC_FOURCC( 'Y', 'U', 'Y', '2' ) },
-    { VIDEO_PALETTE_YUYV, VLC_FOURCC( 'Y', 'U', 'Y', 'V' ) },
-    { VIDEO_PALETTE_UYVY, VLC_FOURCC( 'U', 'Y', 'V', 'Y' ) },
+    { VIDEO_PALETTE_RGB565, VLC_CODEC_RGB16 },
+    { VIDEO_PALETTE_RGB555, VLC_CODEC_RGB15 },
+    { VIDEO_PALETTE_RGB24, VLC_CODEC_RGB24 },
+    { VIDEO_PALETTE_RGB32, VLC_CODEC_RGB32 },
+    { VIDEO_PALETTE_YUV422, VLC_CODEC_YUYV },
+    { VIDEO_PALETTE_YUYV, VLC_CODEC_YUYV },
+    { VIDEO_PALETTE_UYVY, VLC_CODEC_UYVY },
     { VIDEO_PALETTE_YUV420, VLC_FOURCC( 'I', '4', '2', 'N' ) },
     { VIDEO_PALETTE_YUV411, VLC_FOURCC( 'I', '4', '1', 'N' ) },
     { VIDEO_PALETTE_RAW, VLC_FOURCC( 'G', 'R', 'A', 'W' ) },
-    { VIDEO_PALETTE_YUV422P, VLC_FOURCC( 'I', '4', '2', '2' ) },
-    { VIDEO_PALETTE_YUV420P, VLC_FOURCC( 'I', '4', '2', '0' ) },
-    { VIDEO_PALETTE_YUV411P, VLC_FOURCC( 'I', '4', '1', '1' ) },
+    { VIDEO_PALETTE_YUV422P, VLC_CODEC_I422 },
+    { VIDEO_PALETTE_YUV420P, VLC_CODEC_I420 },
+    { VIDEO_PALETTE_YUV411P, VLC_CODEC_I411 },
     { 0, 0 }
 };
 
@@ -354,18 +352,18 @@ static int Open( vlc_object_t *p_this )
     /* Setup rgb mask for RGB formats */
     switch( p_sys->i_fourcc )
     {
-        case VLC_FOURCC('R','V','1','5'):
+        case VLC_CODEC_RGB15:
             fmt.video.i_rmask = 0x001f;
             fmt.video.i_gmask = 0x03e0;
             fmt.video.i_bmask = 0x7c00;
             break;
-        case VLC_FOURCC('R','V','1','6'):
+        case VLC_CODEC_RGB16:
             fmt.video.i_rmask = 0x001f;
             fmt.video.i_gmask = 0x07e0;
             fmt.video.i_bmask = 0xf800;
             break;
-        case VLC_FOURCC('R','V','2','4'):
-        case VLC_FOURCC('R','V','3','2'):
+        case VLC_CODEC_RGB24:
+        case VLC_CODEC_RGB32:
             fmt.video.i_rmask = 0x00ff0000;
             fmt.video.i_gmask = 0x0000ff00;
             fmt.video.i_bmask = 0x000000ff;
@@ -977,10 +975,12 @@ static int OpenVideoDev( demux_t *p_demux, char *psz_device )
             p_sys->i_fourcc = 0;
 
             psz = var_CreateGetString( p_demux, "v4l-chroma" );
-            if( strlen( psz ) >= 4 )
+
+            const vlc_fourcc_t i_chroma =
+                vlc_fourcc_GetCodecFromString( VIDEO_ES, psz );
+            if( i_chroma )
             {
                 vid_picture.palette = 0;
-                int i_chroma = VLC_FOURCC( psz[0], psz[1], psz[2], psz[3] );
 
                 /* Find out v4l chroma code */
                 for( i = 0; v4lchroma_to_fourcc[i].i_v4l != 0; i++ )
@@ -1056,7 +1056,7 @@ static int OpenVideoDev( demux_t *p_demux, char *psz_device )
             goto vdev_failed;
         }
 
-        p_sys->i_fourcc  = VLC_FOURCC( 'm','j','p','g' );
+        p_sys->i_fourcc  = VLC_CODEC_MJPG;
         p_sys->i_frame_pos = -1;
 
         /* queue up all the frames */
@@ -1072,10 +1072,9 @@ static int OpenVideoDev( demux_t *p_demux, char *psz_device )
     else
     {
         /* Fill in picture_t fields */
-        vout_InitPicture( VLC_OBJECT(p_demux), &p_sys->pic, p_sys->i_fourcc,
-                          p_sys->i_width, p_sys->i_height, p_sys->i_width *
-                          VOUT_ASPECT_FACTOR / p_sys->i_height );
-        if( !p_sys->pic.i_planes )
+        if( picture_Setup( &p_sys->pic, p_sys->i_fourcc,
+                           p_sys->i_width, p_sys->i_height, p_sys->i_width *
+                           VOUT_ASPECT_FACTOR / p_sys->i_height ) )
         {
             msg_Err( p_demux, "unsupported chroma" );
             goto vdev_failed;

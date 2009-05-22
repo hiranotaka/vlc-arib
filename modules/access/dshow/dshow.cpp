@@ -38,7 +38,6 @@
 #include <vlc_input.h>
 #include <vlc_access.h>
 #include <vlc_demux.h>
-#include <vlc_vout.h>
 #include <vlc_dialog.h>
 #include <vlc_charset.h>
 
@@ -349,7 +348,8 @@ static int CommonOpen( vlc_object_t *p_this, access_sys_t *p_sys,
 
     /* Get/parse options and open device(s) */
     string vdevname, adevname;
-    int i_width = 0, i_height = 0, i_chroma = 0;
+    int i_width = 0, i_height = 0;
+    vlc_fourcc_t i_chroma = 0;
     bool b_use_audio = true;
     bool b_use_video = true;
 
@@ -419,12 +419,9 @@ static int CommonOpen( vlc_object_t *p_this, access_sys_t *p_sys,
     p_sys->b_chroma = false;
     var_Create( p_this, "dshow-chroma", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
     var_Get( p_this, "dshow-chroma", &val );
-    if( val.psz_string && strlen( val.psz_string ) >= 4 )
-    {
-        i_chroma = VLC_FOURCC( val.psz_string[0], val.psz_string[1],
-                               val.psz_string[2], val.psz_string[3] );
-        p_sys->b_chroma = true;
-    }
+
+    i_chroma = vlc_fourcc_GetCodecFromString( UNKNOWN_ES, val.psz_string );
+    p_sys->b_chroma = i_chroma != 0;
     free( val.psz_string );
 
     var_Create( p_this, "dshow-fps", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT );
@@ -488,11 +485,9 @@ static int CommonOpen( vlc_object_t *p_this, access_sys_t *p_sys,
         if( p_stream->mt.majortype == MEDIATYPE_Video )
         {
             if( /* Raw DV stream */
-                p_stream->i_fourcc == VLC_FOURCC('d','v','s','l') ||
-                p_stream->i_fourcc == VLC_FOURCC('d','v','s','d') ||
-                p_stream->i_fourcc == VLC_FOURCC('d','v','h','d') ||
+                p_stream->i_fourcc == VLC_CODEC_DV ||
                 /* Raw MPEG video stream */
-                p_stream->i_fourcc == VLC_FOURCC('m','p','2','v') )
+                p_stream->i_fourcc == VLC_CODEC_MPGV )
             {
                 b_use_audio = false;
 
@@ -668,7 +663,7 @@ static int DemuxOpen( vlc_object_t *p_this )
             }
 
             /* Setup rgb mask for RGB formats */
-            if( p_stream->i_fourcc == VLC_FOURCC('R','V','2','4') )
+            if( p_stream->i_fourcc == VLC_CODEC_RGB24 )
             {
                 /* This is in BGR format */
                 fmt.video.i_bmask = 0x00ff0000;
@@ -725,14 +720,12 @@ static int AccessOpen( vlc_object_t *p_this )
     /* Check if we need to force demuxers */
     if( !p_access->psz_demux || !*p_access->psz_demux )
     {
-        if( p_stream->i_fourcc == VLC_FOURCC('d','v','s','l') ||
-            p_stream->i_fourcc == VLC_FOURCC('d','v','s','d') ||
-            p_stream->i_fourcc == VLC_FOURCC('d','v','h','d') )
+        if( p_stream->i_fourcc == VLC_CODEC_DV )
         {
             free( p_access->psz_demux );
             p_access->psz_demux = strdup( "rawdv" );
         }
-        else if( p_stream->i_fourcc == VLC_FOURCC('m','p','2','v') )
+        else if( p_stream->i_fourcc == VLC_CODEC_MPGV )
         {
             free( p_access->psz_demux );
             p_access->psz_demux = strdup( "mpgv" );
@@ -912,17 +905,17 @@ static int GetFourCCPriority( int i_fourcc )
 {
     switch( i_fourcc )
     {
-    case VLC_FOURCC('I','4','2','0'):
-    case VLC_FOURCC('f','l','3','2'):
+    case VLC_CODEC_I420:
+    case VLC_CODEC_FL32:
         return 9;
-    case VLC_FOURCC('Y','V','1','2'):
+    case VLC_CODEC_YV12:
     case VLC_FOURCC('a','r','a','w'):
         return 8;
-    case VLC_FOURCC('R','V','2','4'):
+    case VLC_CODEC_RGB24:
         return 7;
-    case VLC_FOURCC('Y','U','Y','2'):
-    case VLC_FOURCC('R','V','3','2'):
-    case VLC_FOURCC('R','G','B','A'):
+    case VLC_CODEC_YUYV:
+    case VLC_CODEC_RGB32:
+    case VLC_CODEC_RGBA:
         return 6;
     }
 
@@ -1478,7 +1471,7 @@ static size_t EnumDeviceCaps( vlc_object_t *p_this, IBaseFilter *p_filter,
                                     val = i_bitspersample;
                                     if( ! val )
                                     {
-                                        if( VLC_FOURCC('f', 'l', '3', '2') == i_current_fourcc )
+                                        if( VLC_CODEC_FL32 == i_current_fourcc )
                                             val = 32;
                                         else
                                             val = 16;
@@ -1655,7 +1648,7 @@ static size_t EnumDeviceCaps( vlc_object_t *p_this, IBaseFilter *p_filter,
                 {
                     // output format for 'Hauppauge WinTV PVR PCI II Capture'
                     // try I420 as an input format
-                    i_current_fourcc = VLC_FOURCC('I','4','2','0');
+                    i_current_fourcc = VLC_CODEC_I420;
                     if( !i_fourcc || i_fourcc == i_current_fourcc )
                     {
                         // return alternative media type
@@ -1680,7 +1673,7 @@ static size_t EnumDeviceCaps( vlc_object_t *p_this, IBaseFilter *p_filter,
                             ((VIDEOINFOHEADER *)p_mt->pbFormat)->bmiHeader.biHeight;
                         vh.bmiHeader.biPlanes      = 3;
                         vh.bmiHeader.biBitCount    = 12;
-                        vh.bmiHeader.biCompression = VLC_FOURCC('I','4','2','0');
+                        vh.bmiHeader.biCompression = VLC_CODEC_I420;
                         vh.bmiHeader.biSizeImage   = vh.bmiHeader.biWidth * 12 *
                             vh.bmiHeader.biHeight / 8;
                         mtr.lSampleSize            = vh.bmiHeader.biSizeImage;

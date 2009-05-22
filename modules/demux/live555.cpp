@@ -18,9 +18,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -45,6 +45,7 @@
 #include <vlc_dialog.h>
 #include <vlc_network.h>
 #include <vlc_url.h>
+#include <vlc_strings.h>
 
 #include <iostream>
 #include <limits.h>
@@ -78,16 +79,16 @@ static void Close( vlc_object_t * );
     "value should be set in millisecond units." )
 
 #define KASENNA_TEXT N_( "Kasenna RTSP dialect")
-#define KASENNA_LONGTEXT N_( "Kasenna servers use an old and unstandard " \
-    "dialect of RTSP. When you set this parameter, VLC will try this dialect "\
-    "for communication. In this mode you cannot connect to normal RTSP servers." )
+#define KASENNA_LONGTEXT N_( "Kasenna servers use an old and nonstandard " \
+    "dialect of RTSP. With this parameter VLC will try this dialect, but "\
+    "then it cannot connect to normal RTSP servers." )
 
 #define USER_TEXT N_("RTSP user name")
-#define USER_LONGTEXT N_("Allows you to modify the user name that will " \
-    "be used for authenticating the connection.")
+#define USER_LONGTEXT N_("Sets the username for the connection, " \
+    "if no username or password are set in the url.")
 #define PASS_TEXT N_("RTSP password")
-#define PASS_LONGTEXT N_("Allows you to modify the password that will be " \
-    "used for the connection.")
+#define PASS_LONGTEXT N_("Sets the password for the connection, " \
+    "if no username or password are set in the url.")
 
 vlc_module_begin ()
     set_description( N_("RTP/RTSP/SDP demuxer (using Live555)" ) )
@@ -808,12 +809,12 @@ static int SessionsSetup( demux_t *p_demux )
                     !strcmp( sub->codecName(), "MPA-ROBUST" ) ||
                     !strcmp( sub->codecName(), "X-MP3-DRAFT-00" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'm', 'p', 'g', 'a' );
+                    tk->fmt.i_codec = VLC_CODEC_MPGA;
                     tk->fmt.audio.i_rate = 0;
                 }
                 else if( !strcmp( sub->codecName(), "AC3" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'a', '5', '2', ' ' );
+                    tk->fmt.i_codec = VLC_CODEC_A52;
                     tk->fmt.audio.i_rate = 0;
                 }
                 else if( !strcmp( sub->codecName(), "L16" ) )
@@ -828,15 +829,15 @@ static int SessionsSetup( demux_t *p_demux )
                 }
                 else if( !strcmp( sub->codecName(), "PCMU" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'u', 'l', 'a', 'w' );
+                    tk->fmt.i_codec = VLC_CODEC_MULAW;
                 }
                 else if( !strcmp( sub->codecName(), "PCMA" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'a', 'l', 'a', 'w' );
+                    tk->fmt.i_codec = VLC_CODEC_ALAW;
                 }
                 else if( !strncmp( sub->codecName(), "G726", 4 ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'g', '7', '2', '6' );
+                    tk->fmt.i_codec = VLC_CODEC_ADPCM_G726;
                     tk->fmt.audio.i_rate = 8000;
                     tk->fmt.audio.i_channels = 1;
                     if( !strcmp( sub->codecName()+5, "40" ) )
@@ -850,18 +851,18 @@ static int SessionsSetup( demux_t *p_demux )
                 }
                 else if( !strcmp( sub->codecName(), "AMR" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 's', 'a', 'm', 'r' );
+                    tk->fmt.i_codec = VLC_CODEC_AMR_NB;
                 }
                 else if( !strcmp( sub->codecName(), "AMR-WB" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 's', 'a', 'w', 'b' );
+                    tk->fmt.i_codec = VLC_CODEC_AMR_WB;
                 }
                 else if( !strcmp( sub->codecName(), "MP4A-LATM" ) )
                 {
                     unsigned int i_extra;
                     uint8_t      *p_extra;
 
-                    tk->fmt.i_codec = VLC_FOURCC( 'm', 'p', '4', 'a' );
+                    tk->fmt.i_codec = VLC_CODEC_MP4A;
 
                     if( ( p_extra = parseStreamMuxConfigStr( sub->fmtp_config(),
                                                              i_extra ) ) )
@@ -880,7 +881,7 @@ static int SessionsSetup( demux_t *p_demux )
                     unsigned int i_extra;
                     uint8_t      *p_extra;
 
-                    tk->fmt.i_codec = VLC_FOURCC( 'm', 'p', '4', 'a' );
+                    tk->fmt.i_codec = VLC_CODEC_MP4A;
 
                     if( ( p_extra = parseGeneralConfigStr( sub->fmtp_config(),
                                                            i_extra ) ) )
@@ -920,24 +921,24 @@ static int SessionsSetup( demux_t *p_demux )
                 es_format_Init( &tk->fmt, VIDEO_ES, VLC_FOURCC('u','n','d','f') );
                 if( !strcmp( sub->codecName(), "MPV" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'm', 'p', 'g', 'v' );
+                    tk->fmt.i_codec = VLC_CODEC_MPGV;
                 }
                 else if( !strcmp( sub->codecName(), "H263" ) ||
                          !strcmp( sub->codecName(), "H263-1998" ) ||
                          !strcmp( sub->codecName(), "H263-2000" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'H', '2', '6', '3' );
+                    tk->fmt.i_codec = VLC_CODEC_H263;
                 }
                 else if( !strcmp( sub->codecName(), "H261" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'H', '2', '6', '1' );
+                    tk->fmt.i_codec = VLC_CODEC_H261;
                 }
                 else if( !strcmp( sub->codecName(), "H264" ) )
                 {
                     unsigned int i_extra = 0;
                     uint8_t      *p_extra = NULL;
 
-                    tk->fmt.i_codec = VLC_FOURCC( 'h', '2', '6', '4' );
+                    tk->fmt.i_codec = VLC_CODEC_H264;
                     tk->fmt.b_packetized = false;
 
                     if((p_extra=parseH264ConfigStr( sub->fmtp_spropparametersets(),
@@ -952,14 +953,14 @@ static int SessionsSetup( demux_t *p_demux )
                 }
                 else if( !strcmp( sub->codecName(), "JPEG" ) )
                 {
-                    tk->fmt.i_codec = VLC_FOURCC( 'M', 'J', 'P', 'G' );
+                    tk->fmt.i_codec = VLC_CODEC_MJPG;
                 }
                 else if( !strcmp( sub->codecName(), "MP4V-ES" ) )
                 {
                     unsigned int i_extra;
                     uint8_t      *p_extra;
 
-                    tk->fmt.i_codec = VLC_FOURCC( 'm', 'p', '4', 'v' );
+                    tk->fmt.i_codec = VLC_CODEC_MP4V;
 
                     if( ( p_extra = parseGeneralConfigStr( sub->fmtp_config(),
                                                            i_extra ) ) )
@@ -1347,11 +1348,12 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 return VLC_EGENERIC;
 
             /* According to RFC 2326 p56 chapter 12.35 a RTSP server that
-             * supports Scale should:
+             * supports Scale:
              *
-             * "The server should try to approximate the viewing rate, but may
-             *  restrict the range of scale values that it supports. The response
-             *  MUST contain the actual scale value chosen by the server."
+             * "[...] should try to approximate the viewing rate, but
+             *  may restrict the range of scale values that it supports.
+             *  The response MUST contain the actual scale value chosen
+             *  by the server."
              *
              * Scale = 1 indicates normal play
              * Scale > 1 indicates fast forward
@@ -1631,8 +1633,8 @@ static void StreamRead( void *p_private, unsigned int i_size,
         msg_Warn( p_demux, "buffer overflow" );
     }
     /* FIXME could i_size be > buffer size ? */
-    if( tk->fmt.i_codec == VLC_FOURCC('s','a','m','r') ||
-        tk->fmt.i_codec == VLC_FOURCC('s','a','w','b') )
+    if( tk->fmt.i_codec == VLC_CODEC_AMR_NB ||
+        tk->fmt.i_codec == VLC_CODEC_AMR_WB )
     {
         AMRAudioSource *amrSource = (AMRAudioSource*)tk->sub->readSource();
 
@@ -1640,7 +1642,7 @@ static void StreamRead( void *p_private, unsigned int i_size,
         p_block->p_buffer[0] = amrSource->lastFrameHeader();
         memcpy( p_block->p_buffer + 1, tk->p_buffer, i_size );
     }
-    else if( tk->fmt.i_codec == VLC_FOURCC('H','2','6','1') )
+    else if( tk->fmt.i_codec == VLC_CODEC_H261 )
     {
         H261VideoRTPSource *h261Source = (H261VideoRTPSource*)tk->sub->rtpSource();
         uint32_t header = h261Source->lastSpecialHeader();
@@ -1651,7 +1653,7 @@ static void StreamRead( void *p_private, unsigned int i_size,
         if( tk->sub->rtpSource()->curPacketMarkerBit() )
             p_block->i_flags |= BLOCK_FLAG_END_OF_FRAME;
     }
-    else if( tk->fmt.i_codec == VLC_FOURCC('h','2','6','4') )
+    else if( tk->fmt.i_codec == VLC_CODEC_H264 )
     {
         if( (tk->p_buffer[0] & 0x1f) >= 24 )
             msg_Warn( p_demux, "unsupported NAL type for H264" );
@@ -1694,7 +1696,7 @@ static void StreamRead( void *p_private, unsigned int i_size,
     if( !tk->b_muxed )
     {
         /*FIXME: for h264 you should check that packetization-mode=1 in sdp-file */
-        p_block->i_dts = ( tk->fmt.i_codec == VLC_FOURCC( 'm', 'p', 'g', 'v' ) ) ? 0 : i_pts;
+        p_block->i_dts = ( tk->fmt.i_codec == VLC_CODEC_MPGV ) ? 0 : i_pts;
     }
 
     if( tk->b_muxed )
@@ -1781,8 +1783,6 @@ static void* TimeoutPrevention( void *p_data )
 /*****************************************************************************
  *
  *****************************************************************************/
-static int b64_decode( char *dest, char *src );
-
 static int ParseASF( demux_t *p_demux )
 {
     demux_sys_t    *p_sys = p_demux->p_sys;
@@ -1811,7 +1811,8 @@ static int ParseASF( demux_t *p_demux )
 
     /* Always smaller */
     p_header = block_New( p_demux, psz_end - psz_asf );
-    p_header->i_buffer = b64_decode( (char*)p_header->p_buffer, psz_asf );
+    p_header->i_buffer = vlc_b64_decode_binary_to_buffer( p_header->p_buffer,
+                                               p_header->i_buffer, psz_asf );
     //msg_Dbg( p_demux, "Size=%d Hdrb64=%s", p_header->i_buffer, psz_asf );
     if( p_header->i_buffer <= 0 )
     {
@@ -1834,9 +1835,8 @@ static unsigned char* parseH264ConfigStr( char const* configStr,
                                           unsigned int& configSize )
 {
     char *dup, *psz;
-    int i, i_records = 1;
+    size_t i_records = 1;
 
-    if( configSize )
     configSize = 0;
 
     if( configStr == NULL || *configStr == '\0' )
@@ -1844,7 +1844,7 @@ static unsigned char* parseH264ConfigStr( char const* configStr,
 
     psz = dup = strdup( configStr );
 
-    /* Count the number of comma's */
+    /* Count the number of commas */
     for( psz = dup; *psz != '\0'; ++psz )
     {
         if( *psz == ',')
@@ -1854,79 +1854,21 @@ static unsigned char* parseH264ConfigStr( char const* configStr,
         }
     }
 
-    unsigned char *cfg = new unsigned char[5 * strlen(dup)];
+    size_t configMax = 5*strlen(dup);
+    unsigned char *cfg = new unsigned char[configMax];
     psz = dup;
-    for( i = 0; i < i_records; i++ )
+    for( size_t i = 0; i < i_records; ++i )
     {
         cfg[configSize++] = 0x00;
         cfg[configSize++] = 0x00;
         cfg[configSize++] = 0x00;
         cfg[configSize++] = 0x01;
 
-        configSize += b64_decode( (char*)&cfg[configSize], psz );
+        configSize += vlc_b64_decode_binary_to_buffer( cfg+configSize,
+                                          configMax-configSize, psz );
         psz += strlen(psz)+1;
     }
 
     free( dup );
     return cfg;
-}
-
-/*char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";*/
-static int b64_decode( char *dest, char *src )
-{
-    const char *dest_start = dest;
-    int  i_level;
-    int  last = 0;
-    int  b64[256] = {
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* 00-0F */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* 10-1F */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,  /* 20-2F */
-        52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,  /* 30-3F */
-        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,  /* 40-4F */
-        15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,  /* 50-5F */
-        -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,  /* 60-6F */
-        41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,  /* 70-7F */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* 80-8F */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* 90-9F */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* A0-AF */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* B0-BF */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* C0-CF */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* D0-DF */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* E0-EF */
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1   /* F0-FF */
-        };
-
-    for( i_level = 0; *src != '\0'; src++ )
-    {
-        int  c;
-
-        c = b64[(unsigned int)*src];
-        if( c == -1 )
-        {
-            continue;
-        }
-
-        switch( i_level )
-        {
-            case 0:
-                i_level++;
-                break;
-            case 1:
-                *dest++ = ( last << 2 ) | ( ( c >> 4)&0x03 );
-                i_level++;
-                break;
-            case 2:
-                *dest++ = ( ( last << 4 )&0xf0 ) | ( ( c >> 2 )&0x0f );
-                i_level++;
-                break;
-            case 3:
-                *dest++ = ( ( last &0x03 ) << 6 ) | c;
-                i_level = 0;
-        }
-        last = c;
-    }
-
-    *dest = '\0';
-
-    return dest - dest_start;
 }

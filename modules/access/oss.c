@@ -37,7 +37,6 @@
 #include <vlc_access.h>
 #include <vlc_demux.h>
 #include <vlc_input.h>
-#include <vlc_vout.h>
 
 #include <ctype.h>
 #include <fcntl.h>
@@ -397,7 +396,7 @@ static int OpenAudioDev( demux_t *p_demux )
              p_sys->i_sample_rate );
 
     es_format_t fmt;
-    es_format_Init( &fmt, AUDIO_ES, VLC_FOURCC('a','r','a','w') );
+    es_format_Init( &fmt, AUDIO_ES, VLC_CODEC_S16L );
 
     fmt.audio.i_channels = p_sys->b_stereo ? 2 : 1;
     fmt.audio.i_rate = p_sys->i_sample_rate;

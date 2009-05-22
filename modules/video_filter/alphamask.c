@@ -31,7 +31,6 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
 
 #include <vlc_image.h>
 #include <vlc_filter.h>
@@ -88,9 +87,9 @@ static int Create( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys;
-    char *psz_string;
+    char *psz_string = NULL;
 
-    if( p_filter->fmt_in.video.i_chroma != VLC_FOURCC('Y','U','V','A') )
+    if( p_filter->fmt_in.video.i_chroma != VLC_CODEC_YUVA )
     {
         msg_Err( p_filter,
                  "Unsupported input chroma \"%4s\". "
@@ -108,12 +107,8 @@ static int Create( vlc_object_t *p_this )
     config_ChainParse( p_filter, CFG_PREFIX, ppsz_filter_options,
                        p_filter->p_cfg );
 
-    vlc_mutex_init( &p_sys->mask_lock );
-    psz_string =
-        var_CreateGetStringCommand( p_filter, CFG_PREFIX "mask" );
-    var_AddCallback( p_filter, CFG_PREFIX "mask", MaskCallback,
-                     p_filter );
     p_sys->p_mask = NULL;
+#if 0 /* This appears to be dead code. Where is psz_string initialized? */
     if( psz_string && *psz_string )
     {
         LoadMask( p_filter, psz_string );
@@ -122,7 +117,13 @@ static int Create( vlc_object_t *p_this )
                      psz_string );
     }
     free( psz_string );
+#endif
 
+    vlc_mutex_init( &p_sys->mask_lock );
+    psz_string =
+        var_CreateGetStringCommand( p_filter, CFG_PREFIX "mask" );
+    var_AddCallback( p_filter, CFG_PREFIX "mask", MaskCallback,
+                     p_filter );
     p_filter->pf_video_filter = Filter;
 
     return VLC_SUCCESS;
@@ -178,7 +179,7 @@ static void LoadMask( filter_t *p_filter, const char *psz_filename )
     video_format_t fmt_in, fmt_out;
     memset( &fmt_in, 0, sizeof( video_format_t ) );
     memset( &fmt_out, 0, sizeof( video_format_t ) );
-    fmt_out.i_chroma = VLC_FOURCC('Y','U','V','A');
+    fmt_out.i_chroma = VLC_CODEC_YUVA;
     if( p_filter->p_sys->p_mask )
         picture_Release( p_filter->p_sys->p_mask );
     p_image = image_HandlerCreate( p_filter );

@@ -266,39 +266,8 @@ static int OpenVideo( vlc_object_t *p_this )
     p_vout->p_sys->i_window_width = p_vout->i_window_width;
     p_vout->p_sys->i_window_height = p_vout->i_window_height;
 
-    /* Create the Vout EventThread, this thread is created by us to isolate
-     * the Win32 PeekMessage function calls. We want to do this because
-     * Windows can stay blocked inside this call for a long time, and when
-     * this happens it thus blocks vlc's video_output thread.
-     * DirectXEventThread will take care of the creation of the video
-     * window (because PeekMessage has to be called from the same thread which
-     * created the window). */
-    msg_Dbg( p_vout, "creating DirectXEventThread" );
-    p_vout->p_sys->p_event =
-        vlc_object_create( p_vout, sizeof(event_thread_t) );
-    p_vout->p_sys->p_event->p_vout = p_vout;
-    p_vout->p_sys->p_event->window_ready = CreateEvent( NULL, TRUE, FALSE, NULL );
-    if( vlc_thread_create( p_vout->p_sys->p_event, "Vout Events Thread",
-                           EventThread, 0 ) )
-    {
-        msg_Err( p_vout, "cannot create Vout EventThread" );
-        CloseHandle( p_vout->p_sys->p_event->window_ready );
-        vlc_object_release( p_vout->p_sys->p_event );
-        p_vout->p_sys->p_event = NULL;
+    if ( !CreateEventThread( p_vout ) )
         goto error;
-    }
-    WaitForSingleObject( p_vout->p_sys->p_event->window_ready, INFINITE );
-    CloseHandle( p_vout->p_sys->p_event->window_ready );
-
-    if( p_vout->p_sys->p_event->b_error )
-    {
-        msg_Err( p_vout, "Vout EventThread failed" );
-        goto error;
-    }
-
-    vlc_object_attach( p_vout->p_sys->p_event, p_vout );
-
-    msg_Dbg( p_vout, "Vout EventThread running" );
 
     /* Initialise DirectDraw */
     if( DirectXInitDDraw( p_vout ) )
@@ -326,28 +295,7 @@ static int OpenVideo( vlc_object_t *p_this )
     var_AddCallback( p_vout, "directx-wallpaper", WallpaperCallback, NULL );
     var_TriggerCallback( p_vout, "directx-wallpaper" );
 
-    /* disable screensaver by temporarily changing system settings */
-    p_vout->p_sys->i_spi_lowpowertimeout = 0;
-    p_vout->p_sys->i_spi_powerofftimeout = 0;
-    p_vout->p_sys->i_spi_screensavetimeout = 0;
-    if( var_GetBool( p_vout, "disable-screensaver" ) ) {
-        msg_Dbg(p_vout, "disabling screen saver");
-        SystemParametersInfo(SPI_GETLOWPOWERTIMEOUT,
-            0, &(p_vout->p_sys->i_spi_lowpowertimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_lowpowertimeout ) {
-            SystemParametersInfo(SPI_SETLOWPOWERTIMEOUT, 0, NULL, 0);
-        }
-        SystemParametersInfo(SPI_GETPOWEROFFTIMEOUT, 0,
-            &(p_vout->p_sys->i_spi_powerofftimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_powerofftimeout ) {
-            SystemParametersInfo(SPI_SETPOWEROFFTIMEOUT, 0, NULL, 0);
-        }
-        SystemParametersInfo(SPI_GETSCREENSAVETIMEOUT, 0,
-            &(p_vout->p_sys->i_spi_screensavetimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_screensavetimeout ) {
-            SystemParametersInfo(SPI_SETSCREENSAVETIMEOUT, 0, NULL, 0);
-        }
-    }
+    DisableScreensaver ( p_vout );
 
     return VLC_SUCCESS;
 
@@ -407,20 +355,17 @@ static int Init( vout_thread_t *p_vout )
     /* Choose the chroma we will try first. */
     switch( p_vout->render.i_chroma )
     {
-        case VLC_FOURCC('Y','U','Y','2'):
-        case VLC_FOURCC('Y','U','N','V'):
-            p_vout->output.i_chroma = VLC_FOURCC('Y','U','Y','2');
+        case VLC_CODEC_YUYV:
+            p_vout->output.i_chroma = VLC_CODEC_YUYV;
             break;
-        case VLC_FOURCC('U','Y','V','Y'):
-        case VLC_FOURCC('U','Y','N','V'):
-        case VLC_FOURCC('Y','4','2','2'):
-            p_vout->output.i_chroma = VLC_FOURCC('U','Y','V','Y');
+        case VLC_CODEC_UYVY:
+            p_vout->output.i_chroma = VLC_CODEC_UYVY;
             break;
-        case VLC_FOURCC('Y','V','Y','U'):
-            p_vout->output.i_chroma = VLC_FOURCC('Y','V','Y','U');
+        case VLC_CODEC_YVYU:
+            p_vout->output.i_chroma = VLC_CODEC_YVYU;
             break;
         default:
-            p_vout->output.i_chroma = VLC_FOURCC('Y','V','1','2');
+            p_vout->output.i_chroma = VLC_CODEC_YV12;
             break;
     }
 
@@ -431,15 +376,15 @@ static int Init( vout_thread_t *p_vout )
     if( !I_OUTPUTPICTURES )
     {
         /* hmmm, it didn't work! Let's try commonly supported chromas */
-        if( p_vout->output.i_chroma != VLC_FOURCC('I','4','2','0') )
+        if( p_vout->output.i_chroma != VLC_CODEC_I420 )
         {
-            p_vout->output.i_chroma = VLC_FOURCC('Y','V','1','2');
+            p_vout->output.i_chroma = VLC_CODEC_YV12;
             NewPictureVec( p_vout, p_vout->p_picture, MAX_DIRECTBUFFERS );
         }
         if( !I_OUTPUTPICTURES )
         {
             /* hmmm, it still didn't work! Let's try another one */
-            p_vout->output.i_chroma = VLC_FOURCC('Y','U','Y','2');
+            p_vout->output.i_chroma = VLC_CODEC_YUYV;
             NewPictureVec( p_vout, p_vout->p_picture, MAX_DIRECTBUFFERS );
         }
     }
@@ -485,50 +430,12 @@ static void CloseVideo( vlc_object_t *p_this )
 {
     vout_thread_t * p_vout = (vout_thread_t *)p_this;
 
-    if( p_vout->b_fullscreen )
-    {
-        msg_Dbg( p_vout, "Quitting fullscreen" );
-        Win32ToggleFullscreen( p_vout );
-        /* Force fullscreen in the core for the next video */
-        var_SetBool( p_vout, "fullscreen", true );
-    }
-
-    if( p_vout->p_sys->p_event )
-    {
-        vlc_object_detach( p_vout->p_sys->p_event );
-
-        /* Kill Vout EventThread */
-        vlc_object_kill( p_vout->p_sys->p_event );
-
-        /* we need to be sure Vout EventThread won't stay stuck in
-         * GetMessage, so we send a fake message */
-        if( p_vout->p_sys->hwnd )
-        {
-            PostMessage( p_vout->p_sys->hwnd, WM_NULL, 0, 0);
-        }
-
-        vlc_thread_join( p_vout->p_sys->p_event );
-        vlc_object_release( p_vout->p_sys->p_event );
-    }
-
-    vlc_mutex_destroy( &p_vout->p_sys->lock );
+    StopEventThread( p_vout );
 
     /* Make sure the wallpaper is restored */
     SwitchWallpaperMode( p_vout, false );
 
-    /* restore screensaver system settings */
-    if( 0 != p_vout->p_sys->i_spi_lowpowertimeout ) {
-        SystemParametersInfo(SPI_SETLOWPOWERTIMEOUT,
-            p_vout->p_sys->i_spi_lowpowertimeout, NULL, 0);
-    }
-    if( 0 != p_vout->p_sys->i_spi_powerofftimeout ) {
-        SystemParametersInfo(SPI_SETPOWEROFFTIMEOUT,
-            p_vout->p_sys->i_spi_powerofftimeout, NULL, 0);
-    }
-    if( 0 != p_vout->p_sys->i_spi_screensavetimeout ) {
-        SystemParametersInfo(SPI_SETSCREENSAVETIMEOUT,
-            p_vout->p_sys->i_spi_screensavetimeout, NULL, 0);
-    }
+    RestoreScreensaver( p_vout );
 
     free( p_vout->p_sys );
     p_vout->p_sys = NULL;
@@ -1196,11 +1103,11 @@ static int DirectXCreateSurface( vout_thread_t *p_vout,
     if( !b_overlay )
     {
         bool b_rgb_surface =
-            ( i_chroma == VLC_FOURCC('R','G','B','2') )
-          || ( i_chroma == VLC_FOURCC('R','V','1','5') )
-           || ( i_chroma == VLC_FOURCC('R','V','1','6') )
-            || ( i_chroma == VLC_FOURCC('R','V','2','4') )
-             || ( i_chroma == VLC_FOURCC('R','V','3','2') );
+            ( i_chroma == VLC_CODEC_RGB8 )
+          || ( i_chroma == VLC_CODEC_RGB15 )
+           || ( i_chroma == VLC_CODEC_RGB16 )
+            || ( i_chroma == VLC_CODEC_RGB24 )
+             || ( i_chroma == VLC_CODEC_RGB32 );
 
         memset( &ddsd, 0, sizeof( DDSURFACEDESC ) );
         ddsd.dwSize = sizeof(DDSURFACEDESC);
@@ -1551,20 +1458,20 @@ static int NewPictureVec( vout_thread_t *p_vout, picture_t *p_pic,
                 switch( ddpfPixelFormat.dwRGBBitCount )
                 {
                 case 8:
-                    p_vout->output.i_chroma = VLC_FOURCC('R','G','B','2');
+                    p_vout->output.i_chroma = VLC_CODEC_RGB8;
                     p_vout->output.pf_setpalette = SetPalette;
                     break;
                 case 15:
-                    p_vout->output.i_chroma = VLC_FOURCC('R','V','1','5');
+                    p_vout->output.i_chroma = VLC_CODEC_RGB15;
                     break;
                 case 16:
-                    p_vout->output.i_chroma = VLC_FOURCC('R','V','1','6');
+                    p_vout->output.i_chroma = VLC_CODEC_RGB16;
                     break;
                 case 24:
-                    p_vout->output.i_chroma = VLC_FOURCC('R','V','2','4');
+                    p_vout->output.i_chroma = VLC_CODEC_RGB24;
                     break;
                 case 32:
-                    p_vout->output.i_chroma = VLC_FOURCC('R','V','3','2');
+                    p_vout->output.i_chroma = VLC_CODEC_RGB32;
                     break;
                 default:
                     msg_Err( p_vout, "unknown screen depth" );
@@ -1678,28 +1585,28 @@ static int UpdatePictureStruct( vout_thread_t *p_vout, picture_t *p_pic,
 {
     switch( p_vout->output.i_chroma )
     {
-        case VLC_FOURCC('R','G','B','2'):
-        case VLC_FOURCC('R','V','1','5'):
-        case VLC_FOURCC('R','V','1','6'):
-        case VLC_FOURCC('R','V','2','4'):
-        case VLC_FOURCC('R','V','3','2'):
+        case VLC_CODEC_RGB8:
+        case VLC_CODEC_RGB15:
+        case VLC_CODEC_RGB16:
+        case VLC_CODEC_RGB24:
+        case VLC_CODEC_RGB32:
             p_pic->p->p_pixels = p_pic->p_sys->ddsd.lpSurface;
             p_pic->p->i_lines = p_vout->output.i_height;
             p_pic->p->i_visible_lines = p_vout->output.i_height;
             p_pic->p->i_pitch = p_pic->p_sys->ddsd.lPitch;
             switch( p_vout->output.i_chroma )
             {
-                case VLC_FOURCC('R','G','B','2'):
+                case VLC_CODEC_RGB8:
                     p_pic->p->i_pixel_pitch = 1;
                     break;
-                case VLC_FOURCC('R','V','1','5'):
-                case VLC_FOURCC('R','V','1','6'):
+                case VLC_CODEC_RGB15:
+                case VLC_CODEC_RGB16:
                     p_pic->p->i_pixel_pitch = 2;
                     break;
-                case VLC_FOURCC('R','V','2','4'):
+                case VLC_CODEC_RGB24:
                     p_pic->p->i_pixel_pitch = 3;
                     break;
-                case VLC_FOURCC('R','V','3','2'):
+                case VLC_CODEC_RGB32:
                     p_pic->p->i_pixel_pitch = 4;
                     break;
                 default:
@@ -1710,12 +1617,11 @@ static int UpdatePictureStruct( vout_thread_t *p_vout, picture_t *p_pic,
             p_pic->i_planes = 1;
             break;
 
-        case VLC_FOURCC('Y','V','1','2'):
-        case VLC_FOURCC('I','4','2','0'):
+        case VLC_CODEC_YV12:
 
             /* U and V inverted compared to I420
              * Fixme: this should be handled by the vout core */
-            p_vout->output.i_chroma = VLC_FOURCC('I','4','2','0');
+            p_vout->output.i_chroma = VLC_CODEC_I420;
 
             p_pic->Y_PIXELS = p_pic->p_sys->ddsd.lpSurface;
             p_pic->p[Y_PLANE].i_lines = p_vout->output.i_height;
@@ -1746,7 +1652,7 @@ static int UpdatePictureStruct( vout_thread_t *p_vout, picture_t *p_pic,
             p_pic->i_planes = 3;
             break;
 
-        case VLC_FOURCC('I','Y','U','V'):
+        case VLC_CODEC_I420:
 
             p_pic->Y_PIXELS = p_pic->p_sys->ddsd.lpSurface;
             p_pic->p[Y_PLANE].i_lines = p_vout->output.i_height;
@@ -1777,8 +1683,8 @@ static int UpdatePictureStruct( vout_thread_t *p_vout, picture_t *p_pic,
             p_pic->i_planes = 3;
             break;
 
-        case VLC_FOURCC('U','Y','V','Y'):
-        case VLC_FOURCC('Y','U','Y','2'):
+        case VLC_CODEC_UYVY:
+        case VLC_CODEC_YUYV:
 
             p_pic->p->p_pixels = p_pic->p_sys->ddsd.lpSurface;
             p_pic->p->i_lines = p_vout->output.i_height;

@@ -35,7 +35,6 @@
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
 #include <vlc_sout.h>
-#include <vlc_vout.h>
 
 #include <schroedinger/schro.h>
 
@@ -88,7 +87,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     decoder_sys_t *p_sys;
     SchroDecoder *p_schro;
 
-    if( p_dec->fmt_in.i_codec != VLC_FOURCC('d','r','a','c') )
+    if( p_dec->fmt_in.i_codec != VLC_CODEC_DIRAC )
     {
         return VLC_EGENERIC;
     }
@@ -117,7 +116,7 @@ static int OpenDecoder( vlc_object_t *p_this )
 
     /* Set output properties */
     p_dec->fmt_out.i_cat = VIDEO_ES;
-    p_dec->fmt_out.i_codec = VLC_FOURCC('I','4','2','0');
+    p_dec->fmt_out.i_codec = VLC_CODEC_I420;
 
     /* Set callbacks */
     p_dec->pf_decode_video = DecodeBlock;
@@ -142,9 +141,9 @@ static void SetVideoFormat( decoder_t *p_dec )
 
     switch( p_sys->p_format->chroma_format )
     {
-    case SCHRO_CHROMA_420: p_dec->fmt_out.i_codec = VLC_FOURCC('I','4','2','0'); break;
-    case SCHRO_CHROMA_422: p_dec->fmt_out.i_codec = VLC_FOURCC('I','4','2','2'); break;
-    case SCHRO_CHROMA_444: p_dec->fmt_out.i_codec = VLC_FOURCC('I','4','4','4'); break;
+    case SCHRO_CHROMA_420: p_dec->fmt_out.i_codec = VLC_CODEC_I420; break;
+    case SCHRO_CHROMA_422: p_dec->fmt_out.i_codec = VLC_CODEC_I422; break;
+    case SCHRO_CHROMA_444: p_dec->fmt_out.i_codec = VLC_CODEC_I444; break;
     default:
         p_dec->fmt_out.i_codec = 0;
         break;

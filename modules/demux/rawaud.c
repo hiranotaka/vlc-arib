@@ -48,10 +48,16 @@ static void Close( vlc_object_t * );
 
 #define FOURCC_TEXT N_("FOURCC code of raw input format")
 #define FOURCC_LONGTEXT N_( \
-    "FOURCC code of the raw input format. This is a four character string. Default is s16l." )
+    "FOURCC code of the raw input format. This is a four character string." )
 
 #define LANG_TEXT N_("Forces the audio language.")
 #define LANG_LONGTEXT N_("Forces the audio language for the output mux. Three letter ISO639 code. Default is 'eng'. ")
+
+#ifdef WORDS_BIGENDIAN
+# define FOURCC_DEFAULT "s16b"
+#else
+# define FOURCC_DEFAULT "s16l"
+#endif
 
 vlc_module_begin();
     set_shortname( "Raw Audio" );
@@ -63,7 +69,8 @@ vlc_module_begin();
     add_shortcut( "rawaud" );
     add_integer( "rawaud-channels", 2, 0, CHANNELS_TEXT, CHANNELS_LONGTEXT, false );
     add_integer( "rawaud-samplerate", 48000, 0, SAMPLERATE_TEXT, SAMPLERATE_LONGTEXT, false );
-    add_string( "rawaud-fourcc", "s16l", NULL, FOURCC_TEXT, FOURCC_LONGTEXT, false );
+    add_string( "rawaud-fourcc", FOURCC_DEFAULT, NULL,
+                FOURCC_TEXT, FOURCC_LONGTEXT, false );
     add_string( "rawaud-lang", "eng", NULL, LANG_TEXT, LANG_LONGTEXT, false);
 vlc_module_end();
 
@@ -106,49 +113,43 @@ static int Open( vlc_object_t * p_this )
     es_format_Init( &p_sys->fmt, AUDIO_ES, 0 );
 
     char *psz_fourcc = var_CreateGetString( p_demux, "rawaud-fourcc" );
+    p_sys->fmt.i_codec = vlc_fourcc_GetCodecFromString( AUDIO_ES, psz_fourcc );
+    free( psz_fourcc );
 
-    if( ( psz_fourcc == NULL ?  0 : strlen( psz_fourcc ) ) != 4  )
+    if( !p_sys->fmt.i_codec )
     {
         msg_Err( p_demux, "rawaud-fourcc must be a 4 character string");
-        free( psz_fourcc );
         es_format_Clean( &p_sys->fmt );
         free( p_sys );
         return VLC_EGENERIC;
     }
 
-    p_sys->fmt.i_codec = VLC_FOURCC( psz_fourcc[0], psz_fourcc[1],
-                                     psz_fourcc[2], psz_fourcc[3] );
-
-    free( psz_fourcc );
     // get the bits per sample ratio based on codec
     switch( p_sys->fmt.i_codec )
     {
 
-        case VLC_FOURCC( 'f', 'l', '6', '4' ):
+        case VLC_CODEC_FL64:
             p_sys->fmt.audio.i_bitspersample = 64;
             break;
 
-        case VLC_FOURCC( 'f', 'l', '3', '2' ):
-        case VLC_FOURCC( 's', '3', '2', 'l' ):
-        case VLC_FOURCC( 's', '3', '2', 'b' ):
-        case VLC_FOURCC( 'i', 'n', '3', '2' ):
+        case VLC_CODEC_FL32:
+        case VLC_CODEC_S32L:
+        case VLC_CODEC_S32B:
             p_sys->fmt.audio.i_bitspersample = 32;
             break;
 
-        case VLC_FOURCC( 's', '2', '4', 'l' ):
-        case VLC_FOURCC( 's', '2', '4', 'b' ):
-        case VLC_FOURCC( 'i', 'n', '2', '4' ):
-        case VLC_FOURCC( '4', '2', 'n', 'i' ):
+        case VLC_CODEC_S24L:
+        case VLC_CODEC_S24B:
             p_sys->fmt.audio.i_bitspersample = 24;
             break;
 
-        case VLC_FOURCC( 's', '1', '6', 'l' ):
-        case VLC_FOURCC( 's', '1', '6', 'b' ):
+        case VLC_CODEC_S16L:
+        case VLC_CODEC_S16B:
             p_sys->fmt.audio.i_bitspersample = 16;
             break;
 
-        case VLC_FOURCC( 's', '8', ' ', ' ' ):
-        case VLC_FOURCC( 'u', '8', ' ', ' ' ):
+        case VLC_CODEC_S8:
+        case VLC_CODEC_U8:
             p_sys->fmt.audio.i_bitspersample = 8;
             break;
 

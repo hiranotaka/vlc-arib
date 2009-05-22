@@ -334,12 +334,14 @@ QMenu *QVLCMenu::FileMenu( intf_thread_t *p_intf, QWidget *parent )
         "Ctrl+Y" );
     menu->addSeparator();
 
+#ifdef ENABLE_SOUT
     addDPStaticEntry( menu, qtr( "Conve&rt / Save..." ), "",
         SLOT( openAndTranscodingDialogs() ), "Ctrl+R" );
     addDPStaticEntry( menu, qtr( "&Streaming..." ),
         ":/stream", SLOT( openAndStreamingDialogs() ),
         "Ctrl+S" );
     menu->addSeparator();
+#endif
 
     addDPStaticEntry( menu, qtr( "&Quit" ) ,
         ":/quit", SLOT( quit() ), "Ctrl+Q" );
@@ -347,7 +349,7 @@ QMenu *QVLCMenu::FileMenu( intf_thread_t *p_intf, QWidget *parent )
 }
 
 /**
- * Tools, like Media Information, Preferences or Messages 
+ * Tools, like Media Information, Preferences or Messages
  **/
 QMenu *QVLCMenu::ToolsMenu( QMenu *menu )
 {
@@ -1127,7 +1129,7 @@ static bool IsMenuEmpty( const char *psz_var,
     }
 
     /* clean up everything */
-    var_Change( p_object, psz_var, VLC_VAR_FREELIST, &val_list, NULL );
+    var_FreeList( &val_list, NULL );
 
     return i_result;
 }
@@ -1342,7 +1344,7 @@ int QVLCMenu::CreateChoicesMenu( QMenu *submenu, const char *psz_var,
     currentGroup = NULL;
 
     /* clean up everything */
-    var_Change( p_object, psz_var, VLC_VAR_FREELIST, &val_list, &text_list );
+    var_FreeList( &val_list, &text_list );
 
 #undef CURVAL
 #undef CURTEXT

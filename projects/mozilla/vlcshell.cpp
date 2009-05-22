@@ -167,8 +167,7 @@ int16 NPP_HandleEvent( NPP instance, void * event )
         return false;
     }
 
-    VlcPlugin *p_plugin = (VlcPlugin*)instance->pdata;
-
+    VlcPlugin* p_plugin = reinterpret_cast<VlcPlugin*>(instance->pdata);
     if( p_plugin == NULL )
     {
         return false;
@@ -388,14 +387,6 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
     {
         /* check if plugin has a new parent window */
         CGrafPtr drawable = (((NP_Port*) (window->window))->port);
-        if( !curwin.window || drawable != (((NP_Port*) (curwin.window))->port) )
-        {
-            /* set/change parent window */
-            libvlc_video_set_parent(p_vlc, (libvlc_drawable_t)drawable, &ex);
-            if( libvlc_exception_raised(&ex) )
-                fprintf( stderr, "Exception: %s\n", libvlc_exception_get_message(&ex) );
-            libvlc_exception_clear(&ex);
-        }
 
         /* as MacOS X video output is windowless, set viewport */
         libvlc_rectangle_t view, clip;
@@ -417,8 +408,6 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
         clip.right   = window->clipRect.right;
 
         libvlc_video_set_viewport(p_vlc, p_plugin->getMD(&ex), &view, &clip, &ex);
-        if( libvlc_exception_raised(&ex) )
-            fprintf( stderr, "Exception: %s\n", libvlc_exception_get_message(&ex) );
         libvlc_exception_clear(&ex);
 
         /* remember new window */
@@ -427,11 +416,6 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
     else if( curwin.window )
     {
         /* change/set parent */
-        libvlc_video_set_parent(p_vlc, 0, &ex);
-        if( libvlc_exception_raised(&ex) )
-            fprintf( stderr, "Exception: %s\n", libvlc_exception_get_message(&ex) );
-        libvlc_exception_clear(&ex);
-
         curwin.window = NULL;
     }
 #endif /* XP_MACOSX */
@@ -464,12 +448,6 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
             style |= WS_CLIPCHILDREN|WS_CLIPSIBLINGS;
             SetWindowLong((HWND)drawable, GWL_STYLE, style);
 
-            /* change/set parent */
-            libvlc_video_set_parent(p_vlc, (libvlc_drawable_t)drawable, &ex);
-            if( libvlc_exception_raised(&ex) )
-                fprintf( stderr, "Exception: %s\n", libvlc_exception_get_message(&ex) );
-            libvlc_exception_clear(&ex);
-
             /* remember new window */
             p_plugin->setWindow(*window);
 
@@ -484,12 +462,6 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
         HWND oldwin = (HWND)curwin.window;
         SetWindowLong( oldwin, GWL_WNDPROC, (LONG)(p_plugin->getWindowProc()) );
         p_plugin->setWindowProc(NULL);
-
-        /* change/set parent */
-        libvlc_video_set_parent(p_vlc, 0, &ex);
-        if( libvlc_exception_raised(&ex) )
-            fprintf( stderr, "Exception: %s\n", libvlc_exception_get_message(&ex) );
-        libvlc_exception_clear(&ex);
 
         curwin.window = NULL;
     }
@@ -540,12 +512,6 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
             XtAddEventHandler( w, ButtonReleaseMask, FALSE,
                                (XtEventHandler)ControlHandler, p_plugin );
 
-            /* set/change parent window */
-            libvlc_video_set_parent( p_vlc, (libvlc_drawable_t) video, &ex );
-            if( libvlc_exception_raised(&ex) )
-                fprintf( stderr, "Exception: %s\n", libvlc_exception_get_message(&ex) );
-            libvlc_exception_clear(&ex);
-
             /* remember window */
             p_plugin->setWindow( *window );
             p_plugin->setVideoWindow( video );
@@ -566,11 +532,6 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
     }
     else if( curwin.window )
     {
-        /* change/set parent */
-        libvlc_video_set_parent(p_vlc, 0, &ex);
-        if( libvlc_exception_raised(&ex) )
-            fprintf( stderr, "Exception: %s\n", libvlc_exception_get_message(&ex) );
-        libvlc_exception_clear(&ex);
         curwin.window = NULL;
     }
 #endif /* XP_UNIX */
@@ -838,13 +799,9 @@ static void ControlHandler( Widget w, XtPointer closure, XEvent *event )
 
         libvlc_exception_init( &ex );
         libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
-        if( libvlc_exception_raised(&ex) )
-            fprintf( stderr, "%s\n", libvlc_exception_get_message(&ex));
         libvlc_exception_clear( &ex );
 
         i_playing = p_plugin->playlist_isplaying( &ex );
-        if( libvlc_exception_raised(&ex) )
-            fprintf( stderr, "%s\n", libvlc_exception_get_message(&ex));
         libvlc_exception_clear( &ex );
 
         vlc_toolbar_clicked_t clicked;
@@ -859,8 +816,6 @@ static void ControlHandler( Widget w, XtPointer closure, XEvent *event )
                 else
                     p_plugin->playlist_play( &ex );
 
-                if( libvlc_exception_raised(&ex) )
-                    fprintf( stderr, "%s\n", libvlc_exception_get_message(&ex));
                 libvlc_exception_clear( &ex );
             }
             break;
@@ -868,8 +823,6 @@ static void ControlHandler( Widget w, XtPointer closure, XEvent *event )
             case clicked_Stop:
             {
                 p_plugin->playlist_stop(&ex);
-                if( libvlc_exception_raised(&ex) )
-                    fprintf( stderr, "%s\n", libvlc_exception_get_message(&ex));
                 libvlc_exception_clear( &ex );
             }
             break;
@@ -877,8 +830,6 @@ static void ControlHandler( Widget w, XtPointer closure, XEvent *event )
             case clicked_Fullscreen:
             {
                 p_plugin->set_fullscreen( 1, &ex );
-                if( libvlc_exception_raised(&ex) )
-                    fprintf( stderr, "%s\n", libvlc_exception_get_message(&ex));
                 libvlc_exception_clear( &ex );
             }
             break;
@@ -887,8 +838,6 @@ static void ControlHandler( Widget w, XtPointer closure, XEvent *event )
             case clicked_Unmute:
             {
                 libvlc_audio_toggle_mute( p_plugin->getVLC(), &ex );
-                if( libvlc_exception_raised(&ex) )
-                    fprintf( stderr, "%s\n", libvlc_exception_get_message(&ex));
                 libvlc_exception_clear( &ex );
             }
             break;
@@ -906,8 +855,6 @@ static void ControlHandler( Widget w, XtPointer closure, XEvent *event )
                             ( ((float)i_xPos-4.0 ) / ( ((float)i_width-8.0)/100) );
 
                     libvlc_media_player_set_time( p_md, f_length, &ex );
-                    if( libvlc_exception_raised(&ex) )
-                        fprintf( stderr, "%s\n", libvlc_exception_get_message(&ex));
                     libvlc_exception_clear( &ex );
                 }
             }

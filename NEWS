@@ -1,6 +1,9 @@
 Changes between 1.0.0-rc1 and 1.1.0-git:
 ----------------------------------------
 
+Mac OS X Interface:
+ * Completely reworked user interface (based upon works from GSoC 2008)
+
 
 Changes between 0.9.9a and 1.0.0-rc1:
 ------------------------------------
@@ -9,6 +12,7 @@ Important notes:
 ----------------
  * Alsa and OSS audio capture has been removed from the v4l and v4l2 accesses.
    See 'Access:' for more info.
+ * Support for Mac OS X 10.4.x was dropped due to its technical limitations
 
 Playback:
  * Instantaneous pausing
@@ -53,7 +57,7 @@ Access:
    OSS or Alsa audio input. Use --input-slave alsa:// or oss:// if needed.
  * DVB scanning on linux
  * EXPERIMENTAL Blu-Ray Disc and AVCHD Folders support
- * On-the-fly zip file decompression and browsing (MRL of the form zip://file.zip|file.avi to specify the file)
+ * On-the-fly zip file decompression and browsing (MRL of the form zip://file.zip!/file.avi to specify the file - the development form of zip://file.zip|file.avi is not supported anymore)
  * Opening of any file descriptor using 'fd://'
  * MTP device access on Unix
  * CD-Text support on the cdda module (CD-Audio)
@@ -105,8 +109,8 @@ Windows CE Port:
  EXPERIMENTAL work for the winCE port has been done.
 
 Mac OS X Port:
- * Support for Mac OS X 10.4.x was dropped due to its technical limitations
  * Speed improvements by using llvm-gcc
+ * New Document icons by Dominic Spitaler
 
 Audio output:
  * Removed obsolete Esound and aRts plugins

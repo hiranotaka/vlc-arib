@@ -90,6 +90,7 @@ struct libvlc_media_list_t
     libvlc_instance_t *         p_libvlc_instance;
     int                         i_refcount;
     vlc_mutex_t                 object_lock;
+    vlc_mutex_t                 refcount_lock;
     libvlc_media_t * p_md; /* The media from which the
                                        * mlist comes, if any. */
     vlc_array_t                items;
@@ -161,15 +162,13 @@ struct libvlc_media_player_t
         uint32_t xid;
         uint32_t agl;
     } drawable;
-
-    bool        b_own_its_input_thread;
 };
 
 struct libvlc_media_list_player_t
 {
     libvlc_event_manager_t *    p_event_manager;
     libvlc_instance_t *         p_libvlc_instance;
-    int                         i_refcount;
+    unsigned                    i_refcount;
     vlc_mutex_t                 object_lock;
     libvlc_media_list_path_t    current_playing_item_path;
     libvlc_media_t *            p_current_playing_item;
@@ -264,15 +263,6 @@ typedef struct libvlc_event_manager_t
 input_thread_t *libvlc_get_input_thread(
      libvlc_media_player_t *,
     libvlc_exception_t * );
-
-/* Media instance */
-libvlc_media_player_t *
-libvlc_media_player_new_from_input_thread( libvlc_instance_t *,
-                                           input_thread_t *,
-                                           libvlc_exception_t * );
-
-void libvlc_media_player_destroy(
-        libvlc_media_player_t * );
 
 /* Media Descriptor */
 libvlc_media_t * libvlc_media_new_from_input_item(

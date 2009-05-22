@@ -223,7 +223,7 @@ vlc_module_begin ()
                  UPDATER_DAYS_TEXT, false )
 #endif
     add_string( "qt-slider-colours",
-                "255;255;255;20;226;20;255;176;15;235;30;20",
+                "255;255;255;20;210;20;255;199;15;245;39;29",
                 NULL, SLIDERCOL_TEXT, SLIDERCOL_LONGTEXT, false )
 
     add_bool( "qt-privacy-ask", true, NULL, PRIVACY_TEXT, PRIVACY_TEXT,
@@ -349,17 +349,6 @@ static void *Thread( void *obj )
     int argc = 1;
 
     Q_INIT_RESOURCE( vlc );
-
-#if !defined(WIN32) && !defined(__APPLE__)
-    /* KLUDGE:
-     * disables icon theme use because that makes Cleanlooks style bug
-     * because it asks gconf for some settings that timeout because of threads
-     * see commits 21610 21622 21654 for reference */
-
-    /* If you don't have a gconftool-2 binary, you should comment this line */
-    if( strcmp( qVersion(), "4.4.0" ) < 0 ) /* fixed in Qt 4.4.0 */
-        QApplication::setDesktopSettingsAware( false );
-#endif
 
     /* Start the QApplication here */
 #ifdef Q_WS_X11

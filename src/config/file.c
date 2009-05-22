@@ -16,19 +16,14 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
-
-#include <vlc_common.h>
-#include "../libvlc.h"
-#include "vlc_charset.h"
-#include "vlc_keys.h"
 
 #include <errno.h>                                                  /* errno */
 #include <assert.h>
@@ -40,6 +35,11 @@
 #else
 #include <locale.h>
 #endif
+
+#include <vlc_common.h>
+#include "../libvlc.h"
+#include "vlc_charset.h"
+#include "vlc_keys.h"
 
 #include "configuration.h"
 #include "modules/modules.h"
@@ -744,11 +744,11 @@ int __config_SaveConfigFile( vlc_object_t *p_this, const char *psz_module_name )
 int ConfigStringToKey( const char *psz_key )
 {
     int i_key = 0;
-    unsigned int i;
+    size_t i;
     const char *psz_parser = strchr( psz_key, '-' );
     while( psz_parser && psz_parser != psz_key )
     {
-        for( i = 0; i < sizeof(vlc_modifiers) / sizeof(key_descriptor_t); i++ )
+        for( i = 0; i < vlc_num_modifiers; ++i )
         {
             if( !strncasecmp( vlc_modifiers[i].psz_key_string, psz_key,
                               strlen( vlc_modifiers[i].psz_key_string ) ) )
@@ -759,7 +759,7 @@ int ConfigStringToKey( const char *psz_key )
         psz_key = psz_parser + 1;
         psz_parser = strchr( psz_key, '-' );
     }
-    for( i = 0; i < sizeof(vlc_keys) / sizeof( key_descriptor_t ); i++ )
+    for( i = 0; i < vlc_num_keys; ++i )
     {
         if( !strcasecmp( vlc_keys[i].psz_key_string, psz_key ) )
         {
@@ -772,7 +772,10 @@ int ConfigStringToKey( const char *psz_key )
 
 char *ConfigKeyToString( int i_key )
 {
-    char *psz_key = malloc( 100 );
+    // Worst case appears to be 45 characters:
+    // "Command-Meta-Ctrl-Shift-Alt-Browser Favorites"
+    enum { keylen=64 };
+    char *psz_key = malloc( keylen );
     char *p;
     size_t index;
 
@@ -783,20 +786,20 @@ char *ConfigKeyToString( int i_key )
     *psz_key = '\0';
     p = psz_key;
 
-    for( index = 0; index < (sizeof(vlc_modifiers) / sizeof(key_descriptor_t));
-         index++ )
+    for( index = 0; index < vlc_num_modifiers; ++index )
     {
         if( i_key & vlc_modifiers[index].i_key_code )
         {
-            p += sprintf( p, "%s-", vlc_modifiers[index].psz_key_string );
+            p += snprintf( p, keylen-(psz_key-p), "%s-",
+                           vlc_modifiers[index].psz_key_string );
         }
     }
-    for( index = 0; index < (sizeof(vlc_keys) / sizeof( key_descriptor_t));
-         index++)
+    for( index = 0; index < vlc_num_keys; ++index )
     {
         if( (int)( i_key & ~KEY_MODIFIER ) == vlc_keys[index].i_key_code )
         {
-            p += sprintf( p, "%s", vlc_keys[index].psz_key_string );
+            p += snprintf( p, keylen-(psz_key-p), "%s",
+                           vlc_keys[index].psz_key_string );
             break;
         }
     }

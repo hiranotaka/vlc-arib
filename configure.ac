@@ -265,6 +265,8 @@ case "${host_os}" in
         echo "  Assuming --disable-skins2"
         enable_x11="no"
         echo "  Assuming --disable-x11"
+        enable_xcb="no"
+        echo "  Assuming --disable-xcb"
         enable_glx="no"
         echo "  Assuming --disable-glx"
         enable_xvideo="no"
@@ -471,7 +473,7 @@ VLC_ADD_CFLAGS([libvlccore],[${INCICONV}])
 VLC_ADD_LIBS([libvlccore],[${LTLIBICONV}])
 
 dnl Check for broken versions of mingw-runtime compatability library
-AS_IF([test "${SYS}" = "mingw32"], [
+AS_IF([test "${SYS}" = "mingw32" -o "${SYS}" = "mingwce"], [
     AC_MSG_CHECKING(for broken mingw-runtime)
     AC_PREPROC_IFELSE([
 #include <_mingw.h>
@@ -578,7 +580,7 @@ dnl Check for usual libc functions
 AC_CHECK_FUNCS([gettimeofday isatty sigrelse getpwuid_r memalign posix_memalign if_nametoindex getenv putenv setenv ctime_r lrintf daemon fork lstat posix_fadvise posix_madvise uselocale])
 AC_FUNC_ALLOCA
 AC_CHECK_FUNCS(fcntl)
-AC_REPLACE_FUNCS([asprintf atof atoll gmtime_r lldiv localtime_r rewind strcasecmp strcasestr strdup strlcpy strncasecmp strndup strnlen strsep strtof strtoll vasprintf swab])
+AC_REPLACE_FUNCS([asprintf atof atoll getcwd gmtime_r lldiv localtime_r rewind strcasecmp strcasestr strdup strlcpy strncasecmp strndup strnlen strsep strtof strtoll vasprintf swab])
 AC_CHECK_FUNCS([stricmp strnicmp])
 AC_CHECK_FUNCS(fdatasync,,
   [AC_DEFINE(fdatasync, fsync, [Alias fdatasync() to fsync() if missing.])
@@ -2024,28 +2026,28 @@ AC_ARG_ENABLE(dc1394,
   [  --enable-dc1394         dc1394 access module (default disabled)])
 if test "${enable_dc1394}" = "yes"
 then
-  AC_CHECK_HEADERS(libraw1394/raw1394.h, [
-    AC_CHECK_LIB( raw1394, raw1394_get_nodecount, [
-        AC_CHECK_HEADERS(libdc1394/dc1394_control.h , [
-dnl         AC_CHECK_LIB( dc1394_control, dc1394_setup_capture, [
-              VLC_ADD_PLUGIN([dc1394])
-              VLC_ADD_LIBS([dc1394],[-ldc1394_control -lraw1394])
-dnl         ],
-dnl         [
-dnl           AC_MSG_ERROR([libdc1394 is mandatory for the dc1394 input module. try --disable-dc1394 or install this library])
-dnl         ])
-      ],
-      [
-        AC_MSG_ERROR([libdc1394 is mandatory for the dc1394 input module. try --disable-dc1394 or install this library])
-      ])
-    ],
+  dnl
+  dnl Check for libraw1394
+  dnl
+  PKG_CHECK_MODULES(LIBRAW1394, libraw1394 >= 2.0.1,
     [
-      AC_MSG_ERROR([libraw1394 is mandatory for the dc1394 input module. try --disable-dc1394 or install this library])
-    ])
-  ],
-  [
-    AC_MSG_ERROR([libraw1394 is mandatory for the dc1394 input module. try --disable-dc1394 or install this library])
-  ])
+      VLC_ADD_LIBS([dc1394],[`${PKG_CONFIG} --libs libraw1394`])
+      VLC_ADD_CPPFLAGS([dc1394],[`${PKG_CONFIG} --cflags libraw1394`])
+    ],
+    [AC_MSG_ERROR([Couldn't find libraw1394 >= 2.0.1, install libraw1394 development package])]
+  )
+
+  dnl
+  dnl Check for libdc1394
+  dnl
+  PKG_CHECK_MODULES(LIBDC1394, libdc1394-2 >= 2.0.2,
+    [
+      VLC_ADD_PLUGIN([dc1394])
+      VLC_ADD_LIBS([dc1394],[`${PKG_CONFIG} --libs libdc1394-2`])
+      VLC_ADD_CPPFLAGS([access_dv],[`${PKG_CONFIG} --cflags libdc1394-2`])
+    ],
+    [AC_MSG_ERROR([Couldn't find libdc1394 >= 2.0.2, install libdc1394 development package])]
+  )
 fi
 
 dnl
@@ -2055,120 +2057,28 @@ AC_ARG_ENABLE(dv,
 [  --enable-dv             dv input module (default disabled)])
 if test "${enable_dv}" = "yes"
 then
-  AC_ARG_WITH(dv-raw1394,
-  [    --with-dv-raw1394=PATH   libraw1394 headers and libraries])
-  AC_ARG_WITH(dv-raw1394-tree,
-  [    --with-dv-raw1394=PATH   libraw1394 tree for static linking])
-
-  if test -z "${with_dv_raw1394}" -a "${with_dv_raw1394}" != ""
-  then
-    AC_MSG_CHECKING(for raw1394 headers in ${with_dv_raw1394})
-    if test -f ${with_dv_raw1394}/include/libraw1394/raw1394.h
-    then
-      dnl  Use ${with_dv_raw1394}/include/libraw1394/raw1394.h
-      AC_MSG_RESULT(yes)
-      VLC_ADD_PLUGIN([access_dv])
-      VLC_ADD_LIBS([access_dv],[-L${with_dv_raw1394}/lib -lraw1394 -lpthread])
-      VLC_ADD_CPPFLAGS([access_dv],[-I${with_dv_raw1394}/include])
-    else
-      dnl  No libraw1394 could be found, sorry
-      AC_MSG_RESULT(no)
-      AC_MSG_ERROR([cannot find ${with_dv_raw1394}/include/libraw1394/raw1394.h])
-    fi
-  else
-    AC_CHECK_HEADERS(libraw1394/raw1394.h,
-    [ VLC_ADD_PLUGIN([access_dv])
-        VLC_ADD_LIBS([access_dv],[-lraw1394 -lavc1394])
-    ],[
-        if test -n "${enable_dv}"
-        then
-          AC_MSG_ERROR([cannot find libraw1394 headers])
-        fi
-    ])
-  fi
-
-  dnl Check for static linking of libraw1394
-  if test -z "${with_dv_raw1394_tree}" -a "${with_dv_raw1394_tree}" != ""
-  then
-    AC_MSG_CHECKING(for libraw1394.a in ${with_dv_raw1394_tree})
-    real_dv_raw1394_tree="`cd ${with_dv_raw1394_tree} 2>/dev/null && pwd`"
-    if test -z "${real_dv_raw1394_tree}"
-    then
-      dnl  The given directory can't be found
-      AC_MSG_RESULT(no)
-      AC_MSG_ERROR([cannot cd to ${real_dv_raw1394_tree}])
-    fi
-    if test -f "${real_dv_raw1394_tree}/src/.libs/libraw1394.a"
-    then
-      dnl  Use a custom libraw1394
-      AC_MSG_RESULT(${real_dv_raw1394_tree}/src/.libs/libraw1394.a)
-      VLC_ADD_PLUGIN([access_dv])
-      VLC_ADD_LIBS([access_dv],[-L${real_dv_raw1394_tree}/src/.libs -lraw1394])
-      VLC_ADD_CPPFLAGS([access_dv],[-I${real_dv_raw1394_tree}])
-    else
-      dnl  The given libraw1394 wasn't built
-      AC_MSG_RESULT(no)
-      AC_MSG_ERROR([cannot find ${real_dv_raw1394_tree}/src/.libs/libraw1394.a, make sure you compiled libraw1394 in ${with_dv_raw1394_tree}])
-    fi
-  fi
+  dnl
+  dnl Check for libraw1394
+  dnl
+  PKG_CHECK_MODULES(LIBRAW1394, libraw1394 >= 2.0.1,
+    [
+      VLC_ADD_LIBS([access_dv],[`${PKG_CONFIG} --libs libraw1394`])
+      VLC_ADD_CPPFLAGS([access_dv],[`${PKG_CONFIG} --cflags libraw1394`])
+    ],
+    [AC_MSG_ERROR([Couldn't find libraw1394 >= 2.0.1, install libraw1394 development package])]
+  )
 
   dnl
   dnl Check for libavc1394
   dnl
-
-  AC_ARG_WITH(dv-avc1394,
-  [    --with-dv-avc1394=PATH   libavc1394 headers and libraries])
-  AC_ARG_WITH(dv-avc1394-tree,
-  [    --with-dv-avc1394=PATH   libavc1394 tree for static linking])
-
-  if test -z "${with_dv_avc1394}" -a "${with_dv_avc1394}" != ""
-  then
-    AC_MSG_CHECKING(for avc1394 headers in ${with_dv_avc1394})
-    if test -f ${with_dv_avc1394}/include/libavc1394/avc1394.h
-    then
-      dnl  Use ${with_dv_avc1394}/include/libavc1394/avc1394.h
-      AC_MSG_RESULT(yes)
-      VLC_ADD_LIBS([access_dv],[-L${with_dv_avc1394}/lib -lavc1394 -lrom1394 -lpthread])
-      VLC_ADD_CPPFLAGS([access_dv],[-I${with_avc1394}/include])
-    else
-      dnl  No libavc1394 could be found, sorry
-      AC_MSG_RESULT(no)
-      AC_MSG_ERROR([cannot find ${with_dv_avc1394}/include/libavc1394/avc1394.h])
-    fi
-  else
-    AC_CHECK_HEADERS(libavc1394/avc1394.h,
-    [ VLC_ADD_LIBS([access_dv],[-lavc1394 -lrom1394 -lpthread])
-    ],[
-        if test -n "${enable_dv}"
-        then
-          AC_MSG_ERROR([cannot find libavc1394 headers])
-        fi
-    ])
-  fi
-
-  dnl Check for static linking of libavc1394
-  if test -z "${with_dv_avc1394_tree}" -a "${with_dv_avc1394_tree}" != ""
-  then
-    AC_MSG_CHECKING(for libavc1394.a in ${with_dv_avc1394_tree})
-    real_dv_avc1394_tree="`cd ${with_dv_avc1394_tree} 2>/dev/null && pwd`"
-    if test -z "${real_dv_avc1394_tree}"
-    then
-      dnl  The given directory can't be found
-      AC_MSG_RESULT(no)
-      AC_MSG_ERROR([cannot cd to ${real_dv_avc1394_tree}])
-    fi
-    if test -f "${real_dv_avc1394_tree}/src/.libs/libavc1394.a"
-    then
-      dnl  Use a custom libavc1394
-      AC_MSG_RESULT(${real_dv_avc1394_tree}/src/.libs/libavc1394.a)
-      VLC_ADD_LIBS([access_dv],[-L${real_dv_avc1394_tree}/src/.libs -lavc1394 -lrom1394 -lpthread])
-      VLC_ADD_CPPFLAGS([access_dv],[-I${real_dv_avc1394_tree}])
-    else
-      dnl  The given libavc1394 wasn't built
-      AC_MSG_RESULT(no)
-      AC_MSG_ERROR([cannot find ${real_dv_avc1394_tree}/src/.libs/libavc1394.a, make sure you compiled libavc1394 in ${with_dv_avc1394_tree}])
-    fi
-  fi
+  PKG_CHECK_MODULES(LIBAVC1394, libavc1394 >= 0.5.3,
+    [
+      VLC_ADD_PLUGIN([access_dv])
+      VLC_ADD_LIBS([access_dv],[`${PKG_CONFIG} --libs libavc1394`])
+      VLC_ADD_CPPFLAGS([access_dv],[`${PKG_CONFIG} --cflags libavc1394`])
+    ],
+    [AC_MSG_ERROR([Couldn't find libavc1394 >= 0.5.1, install libavc1394 development package])]
+  )
 fi
 
 dnl
@@ -4012,7 +3922,7 @@ dnl
 
 AC_PATH_XTRA()
 AC_ARG_ENABLE(x11,
-  [  --enable-x11            X11 support (default enabled)],, [
+  [  --enable-x11            X11 support with Xlib (default enabled)],, [
   AS_IF([test "${SYS}" != "mingw32" -a "${SYS}" != "mingwce"], [
     enable_x11="yes"
   ], [
@@ -4100,7 +4010,7 @@ dnl  XVMC module
 dnl  (disabled by default except on win32)
 dnl
 AC_ARG_ENABLE(xvmc,
-  [  --enable-xvmc           XVMC support (default disabled)],, [
+  [  --enable-xvmc           XvMC support (default disabled)],, [
   enable_xvmc="no"
 ])
 AS_IF([test "${enable_xvmc}" != "no"], [
@@ -4128,12 +4038,14 @@ AS_IF([test "$enable_xinerama" != "no"], [
       VLC_ADD_LIBS([xvideo],[-lXinerama_pic])
       VLC_ADD_LIBS([x11],[-lXinerama_pic])
       VLC_ADD_LIBS([glx],[-lXinerama_pic])
+      VLC_ADD_LIBS([xvmc],[-lXinerama_pic])
       ac_cv_have_xinerama="yes"
     ],[
       AC_CHECK_LIB(Xinerama, XineramaQueryExtension,[
         VLC_ADD_LIBS([xvideo],[-lXinerama])
         VLC_ADD_LIBS([x11],[-lXinerama])
         VLC_ADD_LIBS([glx],[-lXinerama])
+        VLC_ADD_LIBS([xvmc],[-lXinerama])
         ac_cv_have_xinerama="yes"
       ])
     ])
@@ -4179,17 +4091,23 @@ CPPFLAGS="${CPPFLAGS_save}"
 
 dnl
 dnl  X C Bindings modules
-dnl  (work in progress)
 dnl
 AC_ARG_ENABLE(xcb,
-  [  --enable-xcb            X C Bindings work-in-progress (default disabled)],
-  ,[enable_xcb="no"])
+  [  --enable-xcb            X11 support with XCB (default enabled)],, [
+  AS_IF([test "${SYS}" != "mingw32" -a "${SYS}" != "mingwce"], [
+    enable_xcb="yes"
+  ], [
+    enable_xcb="no"
+  ])
+])
+
 AS_IF([test "${enable_xcb}" != "no"], [
   PKG_CHECK_MODULES(XPROTO, [xproto])
 
   dnl libxcb
   PKG_CHECK_MODULES(XCB, [xcb])
   PKG_CHECK_MODULES(XCB_SHM, [xcb-shm])
+  VLC_ADD_PLUGIN([xcb])
 
   AS_IF([test "${enable_xvideo}" != "no"], [
     PKG_CHECK_MODULES(XCB_XV, [xcb-xv >= 1.1.90.1], [
@@ -4198,12 +4116,14 @@ AS_IF([test "${enable_xcb}" != "no"], [
   ])
 
   dnl xcb-utils
-  PKG_CHECK_MODULES(XCB_AUX, [xcb-aux])
   PKG_CHECK_MODULES(XCB_KEYSYMS, [xcb-keysyms])
 
-  VLC_ADD_PLUGIN([xcb])
   VLC_ADD_PLUGIN([xcb_window])
+  VLC_ADD_PLUGIN([globalhotkeys])
+  VLC_ADD_CFLAGS([globalhotkeys],[${XCB_KEYSYMS_CFLAGS} ${XCB_CFLAGS}] )
+  VLC_ADD_LIBS([globalhotkeys],[${XCB_KEYSYMS_LIBS} ${XCB_LIBS}] )
 ])
+
 
 dnl
 dnl  OpenGL module
@@ -5045,7 +4965,7 @@ then
     VLC_ADD_LIBS([maemo],[${HILDON_LIBS}])
     VLC_ADD_PLUGIN([maemo])
     VLC_ADD_PLUGIN([swscale_maemo])
-    AC_DEFINE([BUILD_MAEMO], 1, [Define if you're using Maemo interfaces])
+    AC_DEFINE([BUILD_MAEMO], 1, [Define if you are using Maemo interfaces])
     ALIASES="${ALIASES} mvlc"
   ], [
     AS_IF([test "${enable_maemo}" = "yes"],[
@@ -5064,7 +4984,7 @@ AC_ARG_ENABLE(qt4,
   AS_IF([test "${SYS}" = "darwin"], [enable_qt4=no])
 ])
 AS_IF([test "${enable_qt4}" != "no"], [
-  PKG_CHECK_MODULES(QT4, [QtCore QtGui >= 4.3.0], [
+  PKG_CHECK_MODULES(QT4, [QtCore QtGui >= 4.4.0], [
     VLC_ADD_PLUGIN([qt4])
     AC_DEFINE([HAVE_QT4], 1, [Define to 1 if you have QT4 library.])
     ALIASES="${ALIASES} qvlc"
@@ -5394,18 +5314,6 @@ then
   fi
 fi
 
-dnl
-dnl Global hotkeys using XCB
-dnl
-PKG_CHECK_MODULES(XCB, [xcb], [
-  PKG_CHECK_MODULES(XCB_KEYSYMS, [xcb-keysyms], [
-    PKG_CHECK_MODULES(XPROTO, [xproto], [
-      VLC_ADD_PLUGIN([globalhotkeys])
-      VLC_ADD_CFLAGS([globalhotkeys],[${XCB_KEYSYMS_CFLAGS} ${XCB_CFLAGS}] )
-      VLC_ADD_LIBS([globalhotkeys],[${XCB_KEYSYMS_LIBS} ${XCB_LIBS}] )
-    ], [ AC_MSG_WARN( [Xproto not found] ) ])
-  ], [ AC_MSG_WARN( [XCB keysyms was not found]) ])
-], [ AC_MSG_WARN( [XCB was not found]) ])
 
 AC_ARG_WITH(,[Misc options:])
 

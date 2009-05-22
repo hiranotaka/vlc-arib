@@ -68,7 +68,10 @@ static int CmpAddress( vlc_value_t v, vlc_value_t w ) { return v.p_address == w.
  * Local duplication functions, and local deallocation functions
  *****************************************************************************/
 static void DupDummy( vlc_value_t *p_val ) { (void)p_val; /* unused */ }
-static void DupString( vlc_value_t *p_val ) { p_val->psz_string = strdup( p_val->psz_string ?: ""); }
+static void DupString( vlc_value_t *p_val )
+{
+    p_val->psz_string = strdup( p_val->psz_string ? p_val->psz_string :  "" );
+}
 
 static void DupList( vlc_value_t *p_val )
 {
@@ -602,24 +605,12 @@ int __var_Change( vlc_object_t *p_this, const char *psz_name,
                 }
             }
             break;
-        case VLC_VAR_FREELIST:
-            FreeList( p_val );
-            if( p_val2 && p_val2->p_list )
-            {
-                for( i = 0; i < p_val2->p_list->i_count; i++ )
-                    free( p_val2->p_list->p_values[i].psz_string );
-                if( p_val2->p_list->i_count )
-                {
-                    free( p_val2->p_list->p_values );
-                    free( p_val2->p_list->pi_types );
-                }
-                free( p_val2->p_list );
-            }
-            break;
         case VLC_VAR_SETTEXT:
             free( p_var->psz_text );
             if( p_val && p_val->psz_string )
                 p_var->psz_text = strdup( p_val->psz_string );
+            else
+                p_var->psz_text = NULL;
             break;
         case VLC_VAR_GETTEXT:
             p_val->psz_string = NULL;
@@ -1407,8 +1398,9 @@ static int InheritValue( vlc_object_t *p_this, const char *psz_name,
             p_var->ops->pf_dup( p_val );
 
             /*msg_Dbg( p_this, "Inherited value for var %s from object %s",
-                     psz_name ? : "(null)",
-                     p_this->psz_object_name ? : "(Unknown)" );*/
+                     psz_name ? psz_name : "(null)",
+                     p_this->psz_object_name
+                         ? p_this->psz_object_name : "(Unknown)" );*/
             return VLC_SUCCESS;
         }
         else if ( p_this->p_parent ) /* We are still not there */
@@ -1528,4 +1520,26 @@ int __var_Command( vlc_object_t *p_this, const char *psz_name,
     }
 
     return i_ret;
+}
+
+
+/**
+ * Free a list and the associated strings
+ * @param p_val: the list variable
+ * @param p_val2: the variable associated or NULL
+ */
+void var_FreeList( vlc_value_t *p_val, vlc_value_t *p_val2 )
+{
+    FreeList( p_val );
+    if( p_val2 && p_val2->p_list )
+    {
+        for( int i = 0; i < p_val2->p_list->i_count; i++ )
+            free( p_val2->p_list->p_values[i].psz_string );
+        if( p_val2->p_list->i_count )
+        {
+            free( p_val2->p_list->p_values );
+            free( p_val2->p_list->pi_types );
+        }
+        free( p_val2->p_list );
+    }
 }

@@ -71,7 +71,7 @@ playlist_item_t* playlist_ItemGetByInput( playlist_t * p_playlist,
     /** \todo Check if this is always incremental and whether we can bsearch */
     for( i =  0 ; i < p_playlist->all_items.i_size; i++ )
     {
-        if( ARRAY_VAL(p_playlist->all_items, i)->p_input->i_id == p_item->i_id )
+        if( ARRAY_VAL(p_playlist->all_items, i)->p_input == p_item )
         {
             return ARRAY_VAL(p_playlist->all_items, i);
         }
@@ -79,38 +79,6 @@ playlist_item_t* playlist_ItemGetByInput( playlist_t * p_playlist,
     return NULL;
 }
 
-
-/**
- * Get input by item id
- *
- * Find the playlist item matching the input id under the given node
- * \param p_playlist the playlist
- * \param i_input_id the id of the input to find
- * \param p_root the root node of the search
- * \return the playlist item or NULL on failure
- */
-playlist_item_t * playlist_ItemGetByInputId( playlist_t *p_playlist,
-                                             int i_input_id,
-                                             playlist_item_t *p_root )
-{
-    int i;
-    PL_ASSERT_LOCKED;
-    assert( p_root != NULL );
-    for( i = 0 ; i< p_root->i_children ; i++ )
-    {
-        if( p_root->pp_children[i]->p_input &&
-            p_root->pp_children[i]->p_input->i_id == i_input_id )
-        {
-            return p_root->pp_children[i];
-        }
-        else if( p_root->pp_children[i]->i_children >= 0 )
-        {
-            return playlist_ItemGetByInputId( p_playlist, i_input_id,
-                                              p_root->pp_children[i] );
-        }
-    }
-    return NULL;
-}
 
 /***************************************************************************
  * Live search handling

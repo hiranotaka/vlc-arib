@@ -101,8 +101,8 @@ playlist_t * playlist_Create( vlc_object_t *p_parent )
 
     pl_priv(p_playlist)->b_doing_ml = false;
 
-    pl_priv(p_playlist)->b_auto_preparse =
-                        var_CreateGetBool( p_playlist, "auto-preparse" ) ;
+    const bool b_auto_preparse = var_CreateGetBool( p_playlist, "auto-preparse" );
+    pl_priv(p_playlist)->b_auto_preparse = b_auto_preparse;
 
     PL_LOCK; /* playlist_NodeCreate will check for it */
     p_playlist->p_root_category = playlist_NodeCreate( p_playlist, NULL, NULL,
@@ -156,7 +156,7 @@ playlist_t * playlist_Create( vlc_object_t *p_parent )
 
     pl_priv(p_playlist)->b_auto_preparse = false;
     playlist_MLLoad( p_playlist );
-    pl_priv(p_playlist)->b_auto_preparse = true;
+    pl_priv(p_playlist)->b_auto_preparse = b_auto_preparse;
 
     vlc_object_set_destructor( p_playlist, playlist_Destructor );
 
@@ -272,16 +272,14 @@ static void VariablesInit( playlist_t *p_playlist )
     var_Create( p_playlist, "intf-change", VLC_VAR_BOOL );
     var_SetBool( p_playlist, "intf-change", true );
 
-    var_Create( p_playlist, "item-change", VLC_VAR_INTEGER );
-    var_SetInteger( p_playlist, "item-change", -1 );
+    var_Create( p_playlist, "item-change", VLC_VAR_ADDRESS );
 
     var_Create( p_playlist, "playlist-item-deleted", VLC_VAR_INTEGER );
     var_SetInteger( p_playlist, "playlist-item-deleted", -1 );
 
     var_Create( p_playlist, "playlist-item-append", VLC_VAR_ADDRESS );
 
-    var_Create( p_playlist, "item-current", VLC_VAR_INTEGER );
-    var_SetInteger( p_playlist, "item-current", -1 );
+    var_Create( p_playlist, "item-current", VLC_VAR_ADDRESS );
 
     var_Create( p_playlist, "activity", VLC_VAR_INTEGER );
     var_SetInteger( p_playlist, "activity", 0 );

@@ -30,7 +30,6 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
 #include <vlc_filter.h>
 
 #include "libswscale_nokia770/arm_jit_swscale.h"
@@ -138,9 +137,8 @@ static int Init( filter_t *p_filter )
         return VLC_SUCCESS;
     }
 
-    if( ( p_filter->fmt_in.video.i_chroma != VLC_FOURCC('I','4','2','0') &&
-          p_filter->fmt_in.video.i_chroma != VLC_FOURCC('I','Y','U','V') &&
-          p_filter->fmt_in.video.i_chroma != VLC_FOURCC('Y','V','1','2') ) ||
+    if( ( p_filter->fmt_in.video.i_chroma != VLC_CODEC_I420 &&
+          p_filter->fmt_in.video.i_chroma != VLC_CODEC_YV12 ) ||
           p_filter->fmt_out.video.i_chroma != VLC_FOURCC('Y','4','2','0') )
     {
         msg_Err( p_filter, "format not supported" );
@@ -188,7 +186,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
         return NULL;
 
     /* Request output picture */
-    p_pic_dst = p_filter->pf_vout_buffer_new( p_filter );
+    p_pic_dst = filter_NewPicture( p_filter );
     if( !p_pic_dst )
     {
         msg_Warn( p_filter, "can't get output picture" );

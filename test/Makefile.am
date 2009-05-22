@@ -12,11 +12,16 @@ check_PROGRAMS = \
 	test_libvlc_events \
 	test_libvlc_media_list \
 	test_libvlc_media_list_player \
-	$(NULL)
-EXTRA_PROGRAMS = \
 	test_libvlc_media_player \
+        $(NULL)
+
+# Disabled test:
+# meta: No suitable test file
+EXTRA_PROGRAMS = \
 	test_libvlc_meta \
+	test_dummy \
 	$(NULL)
+
 #check_DATA = samples/test.sample samples/meta.sample
 EXTRA_DIST = samples/empty.voc
 
@@ -38,30 +43,42 @@ samples/meta.sample:
 	curl $(SAMPLES_SERVER)/metadata/id3tag/Wesh-Bonneville.mp3 > $@
 
 CFLAGS_tests = `$(VLC_CONFIG) --cflags libvlc` -DSRCDIR=\"$(srcdir)\"
+LDFLAGS_tests = -no-install -static
 
 test_libvlc_core_SOURCES = libvlc/core.c
 test_libvlc_core_LDADD = $(top_builddir)/src/libvlc.la
 test_libvlc_core_CFLAGS = $(CFLAGS_tests)
+test_libvlc_core_LDFLAGS = $(LDFLAGS_tests)
 
 test_libvlc_events_SOURCES = libvlc/events.c
 test_libvlc_events_LDADD = $(top_builddir)/src/libvlc.la
 test_libvlc_events_CFLAGS = $(CFLAGS_tests)
+test_libvlc_events_LDFLAGS = $(LDFLAGS_tests)
 
 test_libvlc_media_list_player_SOURCES = libvlc/media_list_player.c
 test_libvlc_media_list_player_LDADD = $(top_builddir)/src/libvlc.la
 test_libvlc_media_list_player_CFLAGS = $(CFLAGS_tests)
+test_libvlc_media_list_player_LDFLAGS = $(LDFLAGS_tests)
 
 test_libvlc_media_list_SOURCES = libvlc/media_list.c
 test_libvlc_media_list_LDADD = $(top_builddir)/src/libvlc.la
 test_libvlc_media_list_CFLAGS = $(CFLAGS_tests)
+test_libvlc_media_list_LDFLAGS = $(LDFLAGS_tests)
 
 test_libvlc_media_player_SOURCES = libvlc/media_player.c
 test_libvlc_media_player_LDADD = $(top_builddir)/src/libvlc.la
 test_libvlc_media_player_CFLAGS = $(CFLAGS_tests)
+test_libvlc_media_player_LDFLAGS = $(LDFLAGS_tests)
 
 test_libvlc_meta_SOURCES = libvlc/meta.c
 test_libvlc_meta_LDADD = $(top_builddir)/src/libvlc.la
 test_libvlc_meta_CFLAGS = $(CFLAGS_tests)
+test_libvlc_meta_LDFLAGS = $(LDFLAGS_tests)
+
+test_dummy_SOURCES = libvlc/test.c
+test_dummy_LDADD = $(top_builddir)/src/libvlc.la
+test_dummy_CFLAGS = $(CFLAGS_tests)
+test_dummy_LDFLAGS = $(LDFLAGS_tests)
 
 checkall:
 	$(MAKE) check_PROGRAMS="$(check_PROGRAMS) $(EXTRA_PROGRAMS)" check

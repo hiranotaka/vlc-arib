@@ -36,7 +36,6 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
 
 #include "vlc_filter.h"
 #include "vlc_block.h"
@@ -272,7 +271,7 @@ static int CreateFilter( vlc_object_t *p_this )
     }
     p_sys->psz_marquee[p_sys->i_length] = '\0';
 
-    p_sys->p_style = malloc( sizeof( text_style_t ));
+    p_sys->p_style = text_style_New();
     if( p_sys->p_style == NULL )
     {
         free( p_sys->psz_marquee );
@@ -282,7 +281,6 @@ static int CreateFilter( vlc_object_t *p_this )
         free( p_sys );
         return VLC_ENOMEM;
     }
-    memcpy( p_sys->p_style, &default_text_style, sizeof( text_style_t ));
 
     p_sys->i_xoff = var_CreateGetInteger( p_filter, CFG_PREFIX "x" );
     p_sys->i_yoff = var_CreateGetInteger( p_filter, CFG_PREFIX "y" );
@@ -299,7 +297,7 @@ static int CreateFilter( vlc_object_t *p_this )
     if( FetchRSS( p_filter ) )
     {
         msg_Err( p_filter, "failed while fetching RSS ... too bad" );
-        free( p_sys->p_style );
+        text_style_Delete( p_sys->p_style );
         free( p_sys->psz_marquee );
         vlc_mutex_unlock( &p_sys->lock );
         vlc_mutex_destroy( &p_sys->lock );
@@ -311,7 +309,7 @@ static int CreateFilter( vlc_object_t *p_this )
 
     if( p_sys->i_feeds == 0 )
     {
-        free( p_sys->p_style );
+        text_style_Delete( p_sys->p_style );
         free( p_sys->psz_marquee );
         vlc_mutex_unlock( &p_sys->lock );
         vlc_mutex_destroy( &p_sys->lock );
@@ -323,7 +321,7 @@ static int CreateFilter( vlc_object_t *p_this )
     {
         if( p_sys->p_feeds[i_feed].i_items == 0 )
         {
-            free( p_sys->p_style );
+            text_style_Delete( p_sys->p_style );
             free( p_sys->psz_marquee );
             FreeRSS( p_filter );
             vlc_mutex_unlock( &p_sys->lock );
@@ -351,7 +349,7 @@ static void DestroyFilter( vlc_object_t *p_this )
 
     vlc_mutex_lock( &p_sys->lock );
 
-    free( p_sys->p_style );
+    text_style_Delete( p_sys->p_style );
     free( p_sys->psz_marquee );
     free( p_sys->psz_urls );
     FreeRSS( p_filter );
@@ -441,7 +439,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
         return NULL;
     }
 
-    fmt.i_chroma = VLC_FOURCC('T','E','X','T');
+    fmt.i_chroma = VLC_CODEC_TEXT;
 
     p_spu->p_region = subpicture_region_New( &fmt );
     if( !p_spu->p_region )
@@ -530,7 +528,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
         p_spu->b_absolute = false;
     }
 
-    p_spu->p_region->p_style = p_sys->p_style;
+    p_spu->p_region->p_style = text_style_Duplicate( p_sys->p_style );
 
     if( p_feed->p_pic )
     {
@@ -540,7 +538,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
 
         memset( &fmt_out, 0, sizeof(video_format_t) );
 
-        fmt_out.i_chroma = VLC_FOURCC('Y','U','V','A');
+        fmt_out.i_chroma = VLC_CODEC_YUVA;
         fmt_out.i_aspect = VOUT_ASPECT_FACTOR;
         fmt_out.i_sar_num = fmt_out.i_sar_den = 1;
         fmt_out.i_width =
@@ -594,7 +592,7 @@ static picture_t *LoadImage( filter_t *p_filter, const char *psz_url )
     memset( &fmt_in, 0, sizeof(video_format_t) );
     memset( &fmt_out, 0, sizeof(video_format_t) );
 
-    fmt_out.i_chroma = VLC_FOURCC('Y','U','V','A');
+    fmt_out.i_chroma = VLC_CODEC_YUVA;
     p_orig = image_ReadUrl( p_handler, psz_url, &fmt_in, &fmt_out );
 
     if( !p_orig )
@@ -604,7 +602,7 @@ static picture_t *LoadImage( filter_t *p_filter, const char *psz_url )
     else if( p_sys->p_style->i_font_size > 0 )
     {
 
-        fmt_in.i_chroma = VLC_FOURCC('Y','U','V','A');
+        fmt_in.i_chroma = VLC_CODEC_YUVA;
         fmt_in.i_height = p_orig->p[Y_PLANE].i_visible_lines;
         fmt_in.i_width = p_orig->p[Y_PLANE].i_visible_pitch;
         fmt_out.i_width = p_orig->p[Y_PLANE].i_visible_pitch

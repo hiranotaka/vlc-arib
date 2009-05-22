@@ -225,12 +225,12 @@ static int Create( vlc_object_t *p_this )
     psz_chroma = var_CreateGetNonEmptyString( p_vout, "fb-chroma" );
     if( psz_chroma )
     {
-        if( strlen( psz_chroma ) == 4 )
+        const vlc_fourcc_t i_chroma =
+            vlc_fourcc_GetCodecFromString( VIDEO_ES, psz_chroma );
+
+        if( i_chroma )
         {
-            p_sys->i_chroma = VLC_FOURCC( psz_chroma[0],
-                                   psz_chroma[1],
-                                   psz_chroma[2],
-                                   psz_chroma[3] );
+            p_sys->i_chroma = i_chroma;
             msg_Dbg( p_vout, "forcing chroma '%s'", psz_chroma );
         }
         else
@@ -415,9 +415,13 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
     }
 
     /* Fill in picture_t fields */
-    vout_InitPicture( VLC_OBJECT(p_vout), p_pic, p_vout->output.i_chroma,
-                      p_vout->output.i_width, p_vout->output.i_height,
-                      p_vout->output.i_aspect );
+    if( picture_Setup( p_pic, p_vout->output.i_chroma,
+                       p_vout->output.i_width, p_vout->output.i_height,
+                       p_vout->output.i_aspect ) )
+    {
+        free( p_pic );
+        return VLC_EGENERIC;
+    }
 
     p_pic->p_sys->p_data = malloc( p_vout->p_sys->i_page_size );
     if( !p_pic->p_sys->p_data )
@@ -487,15 +491,15 @@ static int Init( vout_thread_t *p_vout )
         switch( p_sys->var_info.bits_per_pixel )
         {
         case 8: /* FIXME: set the palette */
-            p_vout->output.i_chroma = VLC_FOURCC('R','G','B','2'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB8; break;
         case 15:
-            p_vout->output.i_chroma = VLC_FOURCC('R','V','1','5'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB15; break;
         case 16:
-            p_vout->output.i_chroma = VLC_FOURCC('R','V','1','6'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB16; break;
         case 24:
-            p_vout->output.i_chroma = VLC_FOURCC('R','V','2','4'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB24; break;
         case 32:
-            p_vout->output.i_chroma = VLC_FOURCC('R','V','3','2'); break;
+            p_vout->output.i_chroma = VLC_CODEC_RGB32; break;
         default:
             msg_Err( p_vout, "unknown screen depth %i",
                      p_vout->p_sys->var_info.bits_per_pixel );
