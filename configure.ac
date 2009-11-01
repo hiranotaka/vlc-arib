@@ -2481,7 +2481,10 @@ then
 
   CPPFLAGS="${CPPFLAGS_save} ${CPPFLAGS_ts}"
   AC_CHECK_HEADERS(dvbpsi/cat.h, [],
-    [ AC_MSG_ERROR([Could not find libdvbpsi on your system: you may get it from www.videolan.org, you'll need at least version 0.1.5]) ])
+    [ AC_MSG_ERROR([Could not find libdvbpsi on your system: you may get it from www.videolan.org, you'll need at least version 0.1.5]) ],
+    [#include <stdint.h>
+     #include <dvbpsi/dvbpsi.h>
+     #include <dvbpsi/descriptor.h>])
   AC_CHECK_HEADERS(winscard.h, [],
     [ AC_MSG_ERROR([Could not find libpcsclite on your system]) ])
   CPPFLAGS="${CPPFLAGS_save}"
