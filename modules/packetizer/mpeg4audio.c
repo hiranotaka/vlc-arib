@@ -350,7 +350,7 @@ static int ADTSSyncInfo( decoder_t * p_dec, const uint8_t * p_buf,
     //uint16_t buffer_fullness = ((p_buf[5] & 0x1f) << 6) | (p_buf[6] >> 2);
     unsigned short i_raw_blocks_in_frame = p_buf[6] & 0x03;
 
-    if( !*pi_sample_rate || !*pi_channels || !i_frame_size )
+    if( !*pi_sample_rate || !i_frame_size )
     {
         msg_Warn( p_dec, "Invalid ADTS header" );
         return 0;
