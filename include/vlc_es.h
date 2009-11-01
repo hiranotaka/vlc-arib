@@ -122,7 +122,7 @@ struct video_format_t
     unsigned int i_frame_rate;                     /**< frame rate numerator */
     unsigned int i_frame_rate_base;              /**< frame rate denominator */
 
-    int i_rmask, i_gmask, i_bmask;          /**< color masks for RGB chroma */
+    uint32_t i_rmask, i_gmask, i_bmask;          /**< color masks for RGB chroma */
     int i_rrshift, i_lrshift;
     int i_rgshift, i_lgshift;
     int i_rbshift, i_lbshift;
@@ -147,15 +147,15 @@ static inline void video_format_Init( video_format_t *p_src, vlc_fourcc_t i_chro
  * \param p_dst video_format_t to copy to
  * \param p_src video_format_t to copy from
  */
-static inline int video_format_Copy( video_format_t *p_dst, video_format_t *p_src )
+static inline int video_format_Copy( video_format_t *p_dst, const video_format_t *p_src )
 {
-    memcpy( p_dst, p_src, sizeof( video_format_t ) );
+    memcpy( p_dst, p_src, sizeof( *p_dst ) );
     if( p_src->p_palette )
     {
         p_dst->p_palette = (video_palette_t *) malloc( sizeof( video_palette_t ) );
         if( !p_dst->p_palette )
             return VLC_ENOMEM;
-        memcpy( p_dst->p_palette, p_src->p_palette, sizeof( video_palette_t ) );
+        memcpy( p_dst->p_palette, p_src->p_palette, sizeof( *p_dst->p_palette ) );
     }
     return VLC_SUCCESS;
 };
@@ -176,6 +176,12 @@ static inline void video_format_Clean( video_format_t *p_src )
  * Becarefull that the video_format_t must already be initialized.
  */
 VLC_EXPORT( void, video_format_Setup, ( video_format_t *, vlc_fourcc_t i_chroma, int i_width, int i_height, int i_aspect ) );
+
+/**
+ * This function will check if the first video format is similar
+ * to the second one.
+ */
+VLC_EXPORT( bool, video_format_IsSimilar, ( const video_format_t *, const video_format_t * ) );
 
 /**
  * subtitles format description
@@ -277,9 +283,14 @@ enum es_format_category_e
 VLC_EXPORT( void, video_format_FixRgb, ( video_format_t * ) );
 
 /**
- * This funtion will initialize a es_format_t structure.
+ * This function will initialize a es_format_t structure.
  */
 VLC_EXPORT( void, es_format_Init, ( es_format_t *, int i_cat, vlc_fourcc_t i_codec ) );
+
+/**
+ * This function will initialize a es_format_t structure from a video_format_t.
+ */
+VLC_EXPORT( void, es_format_InitFromVideo, ( es_format_t *, const video_format_t * ) );
 
 /**
  * This functions will copy a es_format_t.
@@ -292,5 +303,13 @@ VLC_EXPORT( int, es_format_Copy, ( es_format_t *p_dst, const es_format_t *p_src 
  * You can call it multiple times on the same structure.
  */
 VLC_EXPORT( void, es_format_Clean, ( es_format_t *fmt ) );
+
+/**
+ * This function will check if the first ES format is similar
+ * to the second one.
+ *
+ * All descriptive fields are ignored.
+ */
+VLC_EXPORT( bool, es_format_IsSimilar, ( const es_format_t *, const es_format_t * ) );
 
 #endif

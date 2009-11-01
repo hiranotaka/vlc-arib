@@ -107,13 +107,28 @@
 #define VLC_VAR_CLEARCHOICES        0x0022
 #define VLC_VAR_SETDEFAULT          0x0023
 #define VLC_VAR_GETCHOICES          0x0024
-#define VLC_VAR_FREECHOICES         0x0025
-#define VLC_VAR_GETLIST             0x0026
-#define VLC_VAR_CHOICESCOUNT        0x0027
+#define VLC_VAR_GETLIST             0x0025
+#define VLC_VAR_CHOICESCOUNT        0x0026
 
 #define VLC_VAR_INHERITVALUE        0x0030
 
 #define VLC_VAR_SETISCOMMAND        0x0040
+/**@}*/
+
+/** \defgroup var_GetAndSet Variable actions
+ * These are the different actions that can be used with __var_GetAndSet()
+ * @{
+ */
+/**
+ * Toggle the value of this boolean
+ * \param val Unused
+ */
+#define VLC_VAR_TOGGLE_BOOL         0x0010
+/**
+ * Increment or decrement an integer of a given value
+ * \param val the value
+ */
+#define VLC_VAR_INTEGER_INCDEC      0x0020
 /**@}*/
 
 /*****************************************************************************
@@ -129,6 +144,7 @@ VLC_EXPORT( int, __var_Set, ( vlc_object_t *, const char *, vlc_value_t ) );
 VLC_EXPORT( int, __var_Get, ( vlc_object_t *, const char *, vlc_value_t * ) );
 VLC_EXPORT( int, var_SetChecked, ( vlc_object_t *, const char *, int, vlc_value_t ) );
 VLC_EXPORT( int, var_GetChecked, ( vlc_object_t *, const char *, int, vlc_value_t * ) );
+VLC_EXPORT( int, __var_GetAndSet, ( vlc_object_t *, const char *, int, vlc_value_t ) );
 
 #define var_Command(a,b,c,d,e) __var_Command( VLC_OBJECT( a ), b, c, d, e )
 VLC_EXPORT( int, __var_Command, ( vlc_object_t *, const char *, const char *, const char *, char ** ) );
@@ -161,6 +177,10 @@ VLC_EXPORT( void, var_FreeList, ( vlc_value_t *, vlc_value_t * ) );
  * __var_Get() with automatic casting
  */
 #define var_Get(a,b,c) __var_Get( VLC_OBJECT(a), b, c )
+/**
+ * __var_GetAndSet() with automatic casting
+ */
+#define var_GetAndSet(a,b,c,d) __var_GetAndSet(VLC_OBJECT(a), b, c, d)
 
 /*****************************************************************************
  * Variable callbacks
@@ -179,12 +199,10 @@ VLC_EXPORT( int, __var_TriggerCallback, ( vlc_object_t *, const char * ) );
  * __var_AddCallback() with automatic casting
  */
 #define var_AddCallback(a,b,c,d) __var_AddCallback( VLC_OBJECT(a), b, c, d )
-
 /**
  * __var_DelCallback() with automatic casting
  */
 #define var_DelCallback(a,b,c,d) __var_DelCallback( VLC_OBJECT(a), b, c, d )
-
 /**
  * __var_TriggerCallback() with automatic casting
  */
@@ -207,7 +225,7 @@ static inline int __var_SetInteger( vlc_object_t *p_obj, const char *psz_name, i
     val.i_int = i;
     return var_SetChecked( p_obj, psz_name, VLC_VAR_INTEGER, val );
 }
-#define var_SetInteger(a,b,c)   __var_SetInteger( VLC_OBJECT(a),b,c)
+
 /**
  * Set the value of an boolean variable
  *
@@ -265,20 +283,6 @@ static inline int __var_SetString( vlc_object_t *p_obj, const char *psz_name, co
 }
 
 /**
- * Trigger the callbacks on a void variable
- *
- * \param p_obj The object that holds the variable
- * \param psz_name The name of the variable
- */
-static inline int __var_SetVoid( vlc_object_t *p_obj, const char *psz_name )
-{
-    vlc_value_t val;
-    val.b_bool = true;
-    return var_SetChecked( p_obj, psz_name, VLC_VAR_VOID, val );
-}
-#define var_SetVoid(a,b)        __var_SetVoid( VLC_OBJECT(a),b)
-
-/**
  * Set the value of a pointer variable
  *
  * \param p_obj The object that holds the variable
@@ -286,20 +290,21 @@ static inline int __var_SetVoid( vlc_object_t *p_obj, const char *psz_name )
  * \param ptr The new pointer value of this variable
  */
 static inline
-int var_SetAddress( vlc_object_t *p_obj, const char *psz_name, void *ptr )
+int __var_SetAddress( vlc_object_t *p_obj, const char *psz_name, void *ptr )
 {
     vlc_value_t val;
     val.p_address = ptr;
     return var_SetChecked( p_obj, psz_name, VLC_VAR_ADDRESS, val );
 }
-#define var_SetAddress(o, n, p) var_SetAddress(VLC_OBJECT(o), n, p)
 
-
+/**
+ * __var_SetInteger() with automatic casting
+ */
+#define var_SetInteger(a,b,c)   __var_SetInteger( VLC_OBJECT(a),b,c)
 /**
  * __var_SetBool() with automatic casting
  */
-#define var_SetBool(a,b,c)   __var_SetBool( VLC_OBJECT(a),b,c)
-
+#define var_SetBool(a,b,c)      __var_SetBool( VLC_OBJECT(a),b,c)
 /**
  * __var_SetTime() with automatic casting
  */
@@ -311,7 +316,12 @@ int var_SetAddress( vlc_object_t *p_obj, const char *psz_name, void *ptr )
 /**
  * __var_SetString() with automatic casting
  */
-#define var_SetString(a,b,c)     __var_SetString( VLC_OBJECT(a),b,c)
+#define var_SetString(a,b,c)    __var_SetString( VLC_OBJECT(a),b,c)
+/**
+ * __var_SetAddress() with automatic casting
+ */
+#define var_SetAddress(o, n, p) __var_SetAddress(VLC_OBJECT(o), n, p)
+
 
 /**
  * Get an integer value
@@ -406,6 +416,15 @@ static inline char *__var_GetNonEmptyString( vlc_object_t *p_obj, const char *ps
     return NULL;
 }
 
+LIBVLC_USED
+static inline void *__var_GetAddress( vlc_object_t *p_obj, const char *psz_name )
+{
+    vlc_value_t val;
+    if( var_GetChecked( p_obj, psz_name, VLC_VAR_ADDRESS, &val ) )
+        return NULL;
+    else
+        return val.p_address;
+}
 
 /**
  * __var_GetInteger() with automatic casting
@@ -428,6 +447,10 @@ static inline char *__var_GetNonEmptyString( vlc_object_t *p_obj, const char *ps
  */
 #define var_GetString(a,b)   __var_GetString( VLC_OBJECT(a),b)
 #define var_GetNonEmptyString(a,b)   __var_GetNonEmptyString( VLC_OBJECT(a),b)
+/**
+ * __var_GetAddress() with automatic casting
+ */
+#define var_GetAddress(a,b)  __var_GetAddress( VLC_OBJECT(a),b)
 
 
 
@@ -438,8 +461,9 @@ static inline char *__var_GetNonEmptyString( vlc_object_t *p_obj, const char *ps
  */
 static inline void __var_IncInteger( vlc_object_t *p_obj, const char *psz_name )
 {
-    int i_val = __var_GetInteger( p_obj, psz_name );
-    __var_SetInteger( p_obj, psz_name, ++i_val );
+    vlc_value_t val;
+    val.i_int = 1;
+    __var_GetAndSet( p_obj, psz_name, VLC_VAR_INTEGER_INCDEC, val );
 }
 #define var_IncInteger(a,b) __var_IncInteger( VLC_OBJECT(a), b )
 
@@ -450,8 +474,9 @@ static inline void __var_IncInteger( vlc_object_t *p_obj, const char *psz_name )
  */
 static inline void __var_DecInteger( vlc_object_t *p_obj, const char *psz_name )
 {
-    int i_val = __var_GetInteger( p_obj, psz_name );
-    __var_SetInteger( p_obj, psz_name, --i_val );
+    vlc_value_t val;
+    val.i_int = -1;
+    __var_GetAndSet( p_obj, psz_name, VLC_VAR_INTEGER_INCDEC, val );
 }
 #define var_DecInteger(a,b) __var_DecInteger( VLC_OBJECT(a), b )
 
@@ -530,6 +555,20 @@ static inline char *__var_CreateGetNonEmptyString( vlc_object_t *p_obj,
 }
 
 /**
+ * Create an address variable with inherit and get its value.
+ *
+ * \param p_obj The object that holds the variable
+ * \param psz_name The name of the variable
+ */
+LIBVLC_USED
+static inline void *__var_CreateGetAddress( vlc_object_t *p_obj,
+                                           const char *psz_name )
+{
+    __var_Create( p_obj, psz_name, VLC_VAR_ADDRESS | VLC_VAR_DOINHERIT );
+    return __var_GetAddress( p_obj, psz_name );
+}
+
+/**
  * __var_CreateGetInteger() with automatic casting
  */
 #define var_CreateGetInteger(a,b)   __var_CreateGetInteger( VLC_OBJECT(a),b)
@@ -550,6 +589,10 @@ static inline char *__var_CreateGetNonEmptyString( vlc_object_t *p_obj,
  */
 #define var_CreateGetString(a,b)   __var_CreateGetString( VLC_OBJECT(a),b)
 #define var_CreateGetNonEmptyString(a,b)   __var_CreateGetNonEmptyString( VLC_OBJECT(a),b)
+/**
+ * __var_CreateGetString() with automatic casting
+ */
+#define var_CreateGetAddress(a,b)  __var_CreateGetAddress( VLC_OBJECT(a),b)
 
 /**
  * Create a integer command variable with inherit and get its value.
@@ -653,6 +696,7 @@ static inline char *__var_CreateGetNonEmptyStringCommand( vlc_object_t *p_obj,
 #define var_CreateGetStringCommand(a,b)   __var_CreateGetStringCommand( VLC_OBJECT(a),b)
 #define var_CreateGetNonEmptyStringCommand(a,b)   __var_CreateGetNonEmptyStringCommand( VLC_OBJECT(a),b)
 
+LIBVLC_USED
 static inline int __var_CountChoices( vlc_object_t *p_obj, const char *psz_name )
 {
     vlc_value_t count;
@@ -665,6 +709,16 @@ static inline int __var_CountChoices( vlc_object_t *p_obj, const char *psz_name 
  */
 #define var_CountChoices(a,b) __var_CountChoices( VLC_OBJECT(a),b)
 
+
+static inline int __var_ToggleBool( vlc_object_t *p_obj, const char *psz_name )
+{
+    vlc_value_t val;
+    return __var_GetAndSet( p_obj, psz_name, VLC_VAR_TOGGLE_BOOL, val );
+}
+/**
+ * __var_ToggleBool() with automatic casting
+ */
+#define var_ToggleBool(a,b) __var_ToggleBool( VLC_OBJECT(a),b )
 /**
  * @}
  */

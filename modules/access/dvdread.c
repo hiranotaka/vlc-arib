@@ -201,7 +201,6 @@ static int Open( vlc_object_t *p_this )
     char         *psz_dvdcss_env;
     dvd_reader_t *p_dvdread;
     ifo_handle_t *p_vmg_file;
-    vlc_value_t  val;
 
     if( !p_demux->psz_path || !*p_demux->psz_path )
     {
@@ -280,9 +279,8 @@ static int Open( vlc_object_t *p_this )
     p_sys->i_title = p_sys->i_chapter = -1;
     p_sys->i_mux_rate = 0;
 
-    var_Create( p_demux, "dvdread-angle", VLC_VAR_INTEGER|VLC_VAR_DOINHERIT );
-    var_Get( p_demux, "dvdread-angle", &val );
-    p_sys->i_angle = val.i_int > 0 ? val.i_int : 1;
+    p_sys->i_angle = var_CreateGetInteger( p_demux, "dvdread-angle" );
+    if( p_sys->i_angle <= 0 ) p_sys->i_angle = 1;
 
     DemuxTitles( p_demux, &p_sys->i_angle );
     if( DvdReadSetArea( p_demux, 0, 0, p_sys->i_angle ) != VLC_SUCCESS )
@@ -772,6 +770,8 @@ static void ESNew( demux_t *p_demux, int i_id, int i_lang )
 static int DvdReadSetArea( demux_t *p_demux, int i_title, int i_chapter,
                            int i_angle )
 {
+    VLC_UNUSED( i_angle );
+
     demux_sys_t *p_sys = p_demux->p_sys;
     int pgc_id = 0, pgn = 0;
     int i;
@@ -1323,19 +1323,19 @@ static void DvdReadFindCell( demux_t *p_demux )
  *****************************************************************************/
 static void DemuxTitles( demux_t *p_demux, int *pi_angle )
 {
+    VLC_UNUSED( pi_angle );
+
     demux_sys_t *p_sys = p_demux->p_sys;
     input_title_t *t;
     seekpoint_t *s;
-    int32_t i_titles;
-    int i;
 
     /* Find out number of titles/chapters */
 #define tt_srpt p_sys->p_vmg_file->tt_srpt
 
-    i_titles = tt_srpt->nr_of_srpts;
+    int32_t i_titles = tt_srpt->nr_of_srpts;
     msg_Dbg( p_demux, "number of titles: %d", i_titles );
 
-    for( i = 0; i < i_titles; i++ )
+    for( int i = 0; i < i_titles; i++ )
     {
         int32_t i_chapters = 0;
         int j;

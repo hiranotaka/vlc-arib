@@ -30,8 +30,6 @@
 #endif
 
 #include <vlc_input.h>
-#include <vlc_vout.h>
-#include <vlc_aout.h>
 
 #include "qt4.hpp"
 
@@ -137,7 +135,7 @@ private:
     void UpdateArt();
     void UpdateInfo();
     void UpdateMeta();
-    void UpdateMeta(int);
+    void UpdateMeta(input_item_t *);
     void UpdateVout();
     void UpdateAout();
     void UpdateStats();
@@ -178,7 +176,7 @@ signals:
     /// Send new position, new time and new length
     void positionUpdated( float , int, int );
     void rateChanged( int );
-    void nameChanged( QString );
+    void nameChanged( const QString& );
     /// Used to signal whether we should show navigation buttons
     void titleChanged( bool );
     void chapterChanged( bool );
@@ -186,7 +184,7 @@ signals:
     void statisticsUpdated( input_item_t* );
     void infoChanged( input_item_t* );
     void currentMetaChanged( input_item_t* );
-    void metaChanged( int );
+    void metaChanged( input_item_t *);
     void artChanged( QString );
     /// Play/pause status
     void statusChanged( int );

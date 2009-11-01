@@ -52,6 +52,11 @@ typedef struct plane_t
 } plane_t;
 
 /**
+ * Maximum number of plane for a picture
+ */
+#define PICTURE_PLANE_MAX (VOUT_MAX_PLANES)
+
+/**
  * A private definition to help overloading picture release
  */
 typedef struct picture_release_sys_t picture_release_sys_t;
@@ -76,7 +81,7 @@ struct picture_t
      * wishes, it can even swap p_pixels buffers. */
     uint8_t        *p_data;
     void           *p_data_orig;                /**< pointer before memalign */
-    plane_t         p[ VOUT_MAX_PLANES ];     /**< description of the planes */
+    plane_t         p[PICTURE_PLANE_MAX];     /**< description of the planes */
     int             i_planes;                /**< number of allocated planes */
 
     /** \name Type and flags
@@ -103,7 +108,7 @@ struct picture_t
     bool            b_progressive;          /**< is it a progressive frame ? */
     unsigned int    i_nb_fields;                  /**< # of displayed fields */
     bool            b_top_field_first;             /**< which field is first */
-    uint8_t        *p_q;                           /**< quantification table */
+    int8_t         *p_q;                           /**< quantification table */
     int             i_qstride;                    /**< quantification stride */
     int             i_qtype;                       /**< quantification style */
     /**@}*/
@@ -133,6 +138,40 @@ struct picture_t
 VLC_EXPORT( picture_t *, picture_New, ( vlc_fourcc_t i_chroma, int i_width, int i_height, int i_aspect ) );
 
 /**
+ * This function will create a new picture using the given format.
+ *
+ * When possible, it is prefered to use this function over picture_New
+ * as more information about the format is kept.
+ */
+VLC_EXPORT( picture_t *, picture_NewFromFormat, ( const video_format_t *p_fmt ) );
+
+/**
+ * Resource for a picture.
+ */
+typedef struct
+{
+    picture_sys_t *p_sys;
+
+    /* Plane resources
+     * XXX all fields MUST be set to the right value.
+     */
+    struct
+    {
+        uint8_t *p_pixels;  /**< Start of the plane's data */
+        int i_lines;        /**< Number of lines, including margins */
+        int i_pitch;        /**< Number of bytes in a line, including margins */
+    } p[PICTURE_PLANE_MAX];
+
+} picture_resource_t;
+
+/**
+ * This function will create a new picture using the provided resource.
+ *
+ * If the resource is NULL then a plain picture_NewFromFormat is returned.
+ */
+VLC_EXPORT( picture_t *, picture_NewFromResource, ( const video_format_t *, const picture_resource_t * ) );
+
+/**
  * This function will force the destruction a picture.
  * The value of the picture reference count should be 0 before entering this
  * function.
@@ -144,11 +183,14 @@ VLC_EXPORT( void, picture_Delete, ( picture_t * ) );
 /**
  * This function will increase the picture reference count.
  * It will not have any effect on picture obtained from vout
+ *
+ * It returns the given picture for convenience.
  */
-static inline void picture_Hold( picture_t *p_picture )
+static inline picture_t *picture_Hold( picture_t *p_picture )
 {
     if( p_picture->pf_release )
         p_picture->i_refcount++;
+    return p_picture;
 }
 /**
  * This function will release a picture.
@@ -199,6 +241,12 @@ static inline void picture_CopyProperties( picture_t *p_dst, const picture_t *p_
 }
 
 /**
+ * This function will reset a picture informations (properties and quantizers).
+ * It is sometimes usefull for reusing pictures (like from a pool).
+ */
+VLC_EXPORT( void, picture_Reset, ( picture_t * ) );
+
+/**
  * This function will copy the picture pixels.
  * You can safely copy between pictures that do not have the same size,
  * only the compatible(smaller) part will be copied.
@@ -230,8 +278,12 @@ static inline void picture_Copy( picture_t *p_dst, const picture_t *p_src )
  * picture before encoding.
  *
  * i_override_width/height allow to override the width and/or the height of the
- * picture to be encoded. If at most one of them is > 0 then the picture aspect
- * ratio will be kept.
+ * picture to be encoded:
+ *  - if strictly lower than 0, the original dimension will be used.
+ *  - if equal to 0, it will be deduced from the other dimension which must be
+ *  different to 0.
+ *  - if strictly higher than 0, it will override the dimension.
+ * If at most one of them is > 0 then the picture aspect ratio will be kept.
  */
 VLC_EXPORT( int, picture_Export, ( vlc_object_t *p_obj, block_t **pp_image, video_format_t *p_fmt, picture_t *p_picture, vlc_fourcc_t i_format, int i_override_width, int i_override_height ) );
 

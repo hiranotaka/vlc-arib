@@ -77,11 +77,12 @@ static int GetOrientation( intf_thread_t *p_intf );
 vlc_module_begin ()
     set_shortname( N_("motion"))
     set_category( CAT_INTERFACE )
+    set_subcategory( SUBCAT_INTERFACE_CONTROL )
     set_description( N_("motion control interface") )
     set_help( N_("Use HDAPS, AMS, APPLESMC or UNIMOTION motion sensors " \
                  "to rotate the video") )
 
-    add_bool( "motion-use-rotate", 0, NULL,
+    add_bool( "motion-use-rotate", false, NULL,
               USE_ROTATE_TEXT, USE_ROTATE_TEXT, false )
 
     set_capability( "interface", 0 )
@@ -144,7 +145,7 @@ int Open ( vlc_object_t *p_this )
         }
     }
 #ifdef __APPLE__
-    else if( p_intf->p_sys->unimotion_hw = detect_sms() )
+    else if((p_intf->p_sys->unimotion_hw = detect_sms()))
         p_intf->p_sys->sensor = UNIMOTION_SENSOR;
 #endif
     else

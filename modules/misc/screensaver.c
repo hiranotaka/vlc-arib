@@ -1,7 +1,7 @@
 /*****************************************************************************
  * screensaver.c : disable screen savers when VLC is playing
  *****************************************************************************
- * Copyright (C) 2006 the VideoLAN team
+ * Copyright (C) 2006-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Sam Hocevar <sam@zoy.org>
@@ -32,27 +32,12 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_input.h>
-#include <vlc_interface.h>
+#include <vlc_inhibit.h>
 
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <signal.h>
-
-#ifdef HAVE_DBUS
-
-#include <dbus/dbus.h>
-
-#define GS_SERVICE   "org.gnome.ScreenSaver"
-#define GS_PATH      "/org/gnome/ScreenSaver"
-#define GS_INTERFACE "org.gnome.ScreenSaver"
-
-#define FDS_SERVICE   "org.freedesktop.ScreenSaver"
-#define FDS_PATH      "/ScreenSaver"
-#define FDS_INTERFACE "org.freedesktop.ScreenSaver"
-
-#endif
 
 /*****************************************************************************
  * Local prototypes
@@ -60,35 +45,21 @@
 static int  Activate     ( vlc_object_t * );
 static void  Deactivate   ( vlc_object_t * );
 
-static void Run          ( intf_thread_t *p_intf );
+static void Timer( void * );
+static void Inhibit( vlc_inhibit_t *, bool );
 
-#ifdef HAVE_DBUS
-
-static DBusConnection * dbus_init( intf_thread_t *p_intf );
-static void poke_screensaver( intf_thread_t *p_intf,
-                              DBusConnection *p_connection );
-static void screensaver_send_message_void ( intf_thread_t *p_intf,
-                                       DBusConnection *p_connection,
-                                       const char *psz_service,
-                                       const char *psz_path,
-                                       const char *psz_interface,
-                                       const char *psz_name );
-static bool screensaver_is_running( DBusConnection *p_connection, const char *psz_service );
-
-
-struct intf_sys_t
+struct vlc_inhibit_sys
 {
-    DBusConnection *p_connection;
+    vlc_timer_t timer;
 };
 
-#endif
 
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
 vlc_module_begin ()
     set_description( N_("X Screensaver disabler") )
-    set_capability( "interface", 0 )
+    set_capability( "inhibit", 5 )
     set_callbacks( Activate, Deactivate )
 vlc_module_end ()
 
@@ -97,14 +68,19 @@ vlc_module_end ()
  *****************************************************************************/
 static int Activate( vlc_object_t *p_this )
 {
-    intf_thread_t *p_intf = (intf_thread_t*)p_this;
+    vlc_inhibit_t *p_ih = (vlc_inhibit_t*)p_this;
+    vlc_inhibit_sys_t *p_sys;
 
-    p_intf->pf_run = Run;
+    p_sys = p_ih->p_sys = malloc( sizeof( *p_sys ) );
+    if( !p_sys )
+        return VLC_ENOMEM;
 
-#ifdef HAVE_DBUS
-    p_intf->p_sys = (intf_sys_t *)malloc( sizeof( intf_sys_t ) );
-    if( !p_intf->p_sys ) return VLC_ENOMEM;
-#endif
+    if( vlc_timer_create( &p_sys->timer, Timer, p_ih ) )
+    {
+        free( p_sys );
+        return VLC_ENOMEM;
+    }
+    p_ih->inhibit = Inhibit;
 
     return VLC_SUCCESS;
 }
@@ -114,23 +90,24 @@ static int Activate( vlc_object_t *p_this )
  *****************************************************************************/
 static void Deactivate( vlc_object_t *p_this )
 {
-#ifdef HAVE_DBUS
-    intf_thread_t *p_intf = (intf_thread_t*)p_this;
+    vlc_inhibit_t *p_ih = (vlc_inhibit_t*)p_this;
+    vlc_inhibit_sys_t *p_sys = p_ih->p_sys;
 
-    if( p_intf->p_sys->p_connection )
-    {
-        dbus_connection_unref( p_intf->p_sys->p_connection );
-    }
+    vlc_timer_destroy( p_sys->timer );
 
-    free( p_intf->p_sys );
-    p_intf->p_sys = NULL;
-#endif
+    free( p_sys );
+}
+
+static void Inhibit( vlc_inhibit_t *p_ih, bool suspend )
+{
+    mtime_t d = suspend ? 30*CLOCK_FREQ : 0;
+    vlc_timer_schedule( p_ih->p_sys->timer, false, d, d );
 }
 
 /*****************************************************************************
  * Execute: Spawns a process using execv()
  *****************************************************************************/
-static void Execute( intf_thread_t *p_this, const char *const *ppsz_args )
+static void Execute( vlc_object_t *p_this, const char *const *ppsz_args )
 {
     pid_t pid = fork();
     switch( pid )
@@ -166,150 +143,17 @@ static void Execute( intf_thread_t *p_this, const char *const *ppsz_args )
  * This part of the module is in a separate thread so that we do not have
  * too much system() overhead.
  *****************************************************************************/
-static void Run( intf_thread_t *p_intf )
+static void Timer( void *data )
 {
-    int canc = vlc_savecancel();
-#ifdef HAVE_DBUS
-    p_intf->p_sys->p_connection = dbus_init( p_intf );
-#endif
+    vlc_inhibit_t *p_ih = data;
 
-    for( ;; )
-    {
-        vlc_object_t *p_vout;
+    /* If there is a playing video output, disable xscreensaver */
+    /* http://www.jwz.org/xscreensaver/faq.html#dvd */
+    const char *const ppsz_xsargs[] = { "/bin/sh", "-c",
+        "xscreensaver-command -deactivate &", (char*)NULL };
+    Execute( VLC_OBJECT(p_ih), ppsz_xsargs );
 
-        p_vout = vlc_object_find( p_intf, VLC_OBJECT_VOUT, FIND_ANYWHERE );
-
-        /* If there is a video output, disable xscreensaver */
-        if( p_vout )
-        {
-            input_thread_t *p_input;
-            p_input = vlc_object_find( p_vout, VLC_OBJECT_INPUT, FIND_PARENT );
-            vlc_object_release( p_vout );
-            if( p_input )
-            {
-                if( PLAYING_S == var_GetInteger( p_input, "state" ) )
-                {
-                    /* http://www.jwz.org/xscreensaver/faq.html#dvd */
-                    const char *const ppsz_xsargs[] = { "/bin/sh", "-c",
-                            "xscreensaver-command -deactivate &", (char*)NULL };
-                    Execute( p_intf, ppsz_xsargs );
-
-                    /* If we have dbus support, let's communicate directly
-                       with gnome-screensave else, run
-                       gnome-screensaver-command */
-#ifdef HAVE_DBUS
-                    poke_screensaver( p_intf, p_intf->p_sys->p_connection );
-#else
-                    const char *const ppsz_gsargs[] = { "/bin/sh", "-c",
-                            "gnome-screensaver-command --poke &", (char*)NULL };
-                    Execute( p_intf, ppsz_gsargs );
-#endif
-                    /* FIXME: add support for other screensavers */
-                }
-                vlc_object_release( p_input );
-            }
-        }
-
-        vlc_restorecancel( canc );
-        /* Check screensaver every 30 seconds */
-        msleep( 30 * CLOCK_FREQ );
-        canc = vlc_savecancel( );
-    }
+    const char *const ppsz_gsargs[] = { "/bin/sh", "-c",
+        "gnome-screensaver-command --poke &", (char*)NULL };
+    Execute( VLC_OBJECT(p_ih), ppsz_gsargs );
 }
-
-#ifdef HAVE_DBUS
-
-static DBusConnection * dbus_init( intf_thread_t *p_intf )
-{
-    DBusError dbus_error;
-
-    dbus_error_init (&dbus_error);
-    DBusConnection * p_connection = dbus_bus_get( DBUS_BUS_SESSION, &dbus_error );
-
-    if ( !p_connection )
-    {
-        msg_Warn( p_intf, "failed to connect to the D-BUS daemon: %s",
-                          dbus_error.message);
-        dbus_error_free( &dbus_error );
-        return NULL;
-    }
-
-    return p_connection;
-}
-
-static void poke_screensaver( intf_thread_t *p_intf,
-                              DBusConnection *p_connection )
-{
-    if( screensaver_is_running( p_connection, GS_SERVICE ) )
-    {
-#   ifdef SCREENSAVER_DEBUG
-        msg_Dbg( p_intf, "found a running gnome-screensaver instance" );
-#   endif
-        /* gnome-screensaver changed it's D-Bus interface, so we need both */
-        screensaver_send_message_void( p_intf, p_connection, GS_SERVICE, GS_PATH,
-                                       GS_INTERFACE, "Poke" );
-        screensaver_send_message_void( p_intf, p_connection, GS_SERVICE, GS_PATH,
-                                       GS_INTERFACE, "SimulateUserActivity" );
-    }
-    else if( screensaver_is_running( p_connection, FDS_SERVICE ) )
-    {
-#   ifdef SCREENSAVER_DEBUG
-        msg_Dbg( p_intf, "found a running freedesktop-screensaver instance" );
-#   endif
-        screensaver_send_message_void( p_intf, p_connection, FDS_SERVICE, FDS_PATH,
-                                       FDS_INTERFACE, "SimulateUserActivity" );
-    }
-#   ifdef SCREENSAVER_DEBUG
-    else
-    {
-        msg_Dbg( p_intf, "found no running (gnome|freedesktop)-screensaver instance" );
-    }
-#   endif
-
-}
-
-static void screensaver_send_message_void ( intf_thread_t *p_intf,
-                                       DBusConnection *p_connection,
-                                       const char *psz_service,
-                                       const char *psz_path,
-                                       const char *psz_interface,
-                                       const char *psz_name )
-{
-    DBusMessage *p_message;
-
-    if( !p_connection || !psz_name ) return;
-
-    p_message = dbus_message_new_method_call( psz_service, psz_path,
-                                              psz_interface, psz_name );
-    if( p_message == NULL )
-    {
-        msg_Err( p_intf, "DBUS initialization failed: message initialization" );
-        return;
-    }
-
-    if( !dbus_connection_send( p_connection, p_message, NULL ) )
-    {
-        msg_Err( p_intf, "DBUS communication failed" );
-    }
-
-    dbus_connection_flush( p_connection );
-
-    dbus_message_unref( p_message );
-}
-
-static bool screensaver_is_running( DBusConnection *p_connection, const char *psz_service )
-{
-    DBusError error;
-    bool b_return;
-
-    if( !p_connection ) return false;
-
-    dbus_error_init( &error );
-    b_return = dbus_bus_name_has_owner( p_connection, psz_service, &error );
-    if( dbus_error_is_set( &error ) ) dbus_error_free (&error);
-
-    return b_return;
-}
-
-#endif
-

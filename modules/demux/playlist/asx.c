@@ -37,7 +37,7 @@
 #include <ctype.h>
 #include <vlc_charset.h>
 #include "playlist.h"
-#include "vlc_meta.h"
+#include <vlc_meta.h>
 
 struct demux_sys_t
 {
@@ -89,7 +89,9 @@ static int StoreString( demux_t *p_demux, char **ppsz_string,
         }
         *buf++ = '\0';
 
-        buf = *ppsz_string = realloc (*ppsz_string, buf - *ppsz_string);
+        buf = realloc (*ppsz_string, buf - *ppsz_string);
+        if( buf )
+            *ppsz_string = buf;
     }
     return VLC_SUCCESS;
 }
@@ -232,14 +234,14 @@ static int Demux( demux_t *p_demux )
     char        *psz_parse = NULL;
     char        *psz_backup = NULL;
     bool  b_entry = false;
-    INIT_PLAYLIST_STUFF;
+    input_item_t *p_current_input = GetCurrentItem(p_demux);
 
     /* init txt */
     if( p_sys->i_data_len < 0 )
     {
         int64_t i_pos = 0;
-        p_sys->i_data_len = stream_Size( p_demux->s ) +1; /* This is a cheat to prevent unnecessary realloc */
-        if( p_sys->i_data_len <= 0 && p_sys->i_data_len < 16384 ) p_sys->i_data_len = 1024;
+        p_sys->i_data_len = stream_Size( p_demux->s ) + 1; /* This is a cheat to prevent unnecessary realloc */
+        if( p_sys->i_data_len <= 0 || p_sys->i_data_len > 16384 ) p_sys->i_data_len = 1024;
         p_sys->psz_data = malloc( p_sys->i_data_len +1);
 
         /* load the complete file */
@@ -251,8 +253,8 @@ static int Demux( demux_t *p_demux )
             if( i_read < p_sys->i_data_len - i_pos ) break; /* Done */
 
             i_pos += i_read;
-            p_sys->i_data_len += 1024;
-            p_sys->psz_data = realloc( p_sys->psz_data, p_sys->i_data_len * sizeof( char * ) +1 );
+            p_sys->i_data_len <<= 1 ;
+            p_sys->psz_data = realloc( p_sys->psz_data, p_sys->i_data_len * sizeof( char * ) + 1 );
         }
         if( p_sys->i_data_len <= 0 ) return -1;
     }
@@ -431,6 +433,8 @@ static int Demux( demux_t *p_demux )
                 }
                 if( ( psz_parse = strcasestr( psz_parse, "/>" ) ) )
                     psz_parse += 2;
+                else if( ( psz_parse = strcasestr( psz_parse, "</MoreInfo>") ) )
+                    psz_parse += 11;
                 else continue;
             }
             else if( !strncasecmp( psz_parse, "<ABSTRACT>", 10 ) )
@@ -528,9 +532,11 @@ static int Demux( demux_t *p_demux )
                     char *psz_current_input_name = input_item_GetName( p_current_input );
                     if( asprintf( &psz_name, "%d %s", i_entry_count, ( psz_title_entry ? psz_title_entry : psz_current_input_name ) ) != -1 )
                     {
-                        p_entry = input_item_NewExt( p_demux, psz_href, psz_name,
+                        char *psz_mrl = ProcessMRL( psz_href, p_demux->p_sys->psz_prefix );
+                        p_entry = input_item_NewExt( p_demux, psz_mrl, psz_name,
                                                      i_options, (const char * const *)ppsz_options, VLC_INPUT_OPTION_TRUSTED, -1 );
                         free( psz_name );
+                        free( psz_mrl );
                         input_item_CopyOptions( p_current_input, p_entry );
                         while( i_options )
                         {
@@ -602,6 +608,27 @@ static int Demux( demux_t *p_demux )
                             char *psz_tmp;
                             i_strlen = psz_parse-psz_backup;
                             if( i_strlen < 1 ) continue;
+
+                            if( psz_href )
+                            {
+                                /* we have allready one href in this entry, lets make new input from it and
+                                continue with new href, don't free meta/options*/
+                                input_item_t *p_entry = NULL;
+                                char *psz_name = input_item_GetName( p_current_input );
+
+                                char *psz_mrl = ProcessMRL( psz_href, p_demux->p_sys->psz_prefix );
+                                p_entry = input_item_NewExt( p_demux, psz_mrl, psz_name,
+                                                     0, NULL, VLC_INPUT_OPTION_TRUSTED, -1 );
+                                free( psz_mrl );
+                                input_item_CopyOptions( p_current_input, p_entry );
+                                if( psz_title_entry ) input_item_SetTitle( p_entry, psz_title_entry );
+                                if( psz_artist_entry ) input_item_SetArtist( p_entry, psz_artist_entry );
+                                if( psz_copyright_entry ) input_item_SetCopyright( p_entry, psz_copyright_entry );
+                                if( psz_moreinfo_entry ) input_item_SetURL( p_entry, psz_moreinfo_entry );
+                                if( psz_abstract_entry ) input_item_SetDescription( p_entry, psz_abstract_entry );
+                                input_item_AddSubItem( p_current_input, p_entry );
+                                vlc_gc_decref( p_entry );
+                            }
 
                             free( psz_href );
                             psz_href = malloc( i_strlen +1);
@@ -707,7 +734,7 @@ static int Demux( demux_t *p_demux )
             STARTMARK
 #endif
     }
-    HANDLE_PLAY_AND_RELEASE;
+    vlc_gc_decref(p_current_input);
     return 0; /* Needed for correct operation of go back */
 }
 

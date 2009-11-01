@@ -318,16 +318,13 @@ static block_t * CDDAReadBlocks( access_t * p_access )
             }
         }
         else
-        {
             rc = cdio_read_audio_sectors( p_cdda->p_cdio, p_block->p_buffer,
                                           p_cdda->i_lsn, i_blocks );
 #else
 #define DRIVER_OP_SUCCESS 0
-            int rc;
-            rc = cdio_read_audio_sectors( p_cdda->p_cdio, p_block->p_buffer,
+        int rc = cdio_read_audio_sectors( p_cdda->p_cdio, p_block->p_buffer,
                                           p_cdda->i_lsn, i_blocks);
 #endif
-        }
         if( rc != DRIVER_OP_SUCCESS )
         {
             msg_Err( p_access, "could not read %d sectors starting from %lu",
@@ -667,8 +664,7 @@ int CDDAOpen( vlc_object_t *p_this )
             config_GetInt( p_this, MODULE_STRING "-blocks-per-read" );
     p_cdda->last_disc_frame =
             cdio_get_track_lsn( p_cdio, CDIO_CDROM_LEADOUT_TRACK );
-    p_cdda->p_input = vlc_object_find( p_access, VLC_OBJECT_INPUT,
-                                       FIND_PARENT );
+    p_cdda->p_input = access_GetParentInput( p_access );
 
     if( 0 == p_cdda->i_blocks_per_read )
         p_cdda->i_blocks_per_read = DEFAULT_BLOCKS_PER_READ;

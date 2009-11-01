@@ -44,11 +44,14 @@ typedef struct intf_dialog_args_t intf_dialog_args_t;
  * @{
  */
 
+typedef struct intf_sys_t intf_sys_t;
+
 /** Describe all interface-specific data of the interface thread */
-struct intf_thread_t
+typedef struct intf_thread_t
 {
     VLC_COMMON_MEMBERS
 
+    struct intf_thread_t *p_next; /** LibVLC interfaces book keeping */
     /* Thread properties and locks */
 #if defined( __APPLE__ ) || defined( WIN32 )
     bool          b_should_run_on_first_thread;
@@ -60,14 +63,14 @@ struct intf_thread_t
 
     /** Interface module */
     module_t *   p_module;
-    void      ( *pf_run )    ( intf_thread_t * ); /** Run function */
+    void      ( *pf_run )    ( struct intf_thread_t * ); /** Run function */
 
     /** Specific for dialogs providers */
-    void ( *pf_show_dialog ) ( intf_thread_t *, int, int,
+    void ( *pf_show_dialog ) ( struct intf_thread_t *, int, int,
                                intf_dialog_args_t * );
 
     config_chain_t *p_cfg;
-};
+} intf_thread_t;
 
 /** \brief Arguments passed to a dialogs provider
  *  This describes the arguments passed to the dialogs provider. They are
@@ -96,10 +99,8 @@ struct intf_dialog_args_t
 /*****************************************************************************
  * Prototypes
  *****************************************************************************/
-#define intf_Create(a,b) __intf_Create(VLC_OBJECT(a),b)
-VLC_EXPORT( intf_thread_t *, __intf_Create,     ( vlc_object_t *, const char * ) );
-VLC_EXPORT( int,               intf_RunThread,  ( intf_thread_t * ) );
-VLC_EXPORT( void,              intf_StopThread, ( intf_thread_t * ) );
+VLC_EXPORT( int, intf_Create, ( vlc_object_t *, const char * ) );
+#define intf_Create(a,b) intf_Create(VLC_OBJECT(a),b)
 
 #define intf_Eject(a,b) __intf_Eject(VLC_OBJECT(a),b)
 VLC_EXPORT( int, __intf_Eject, ( vlc_object_t *, const char * ) );
@@ -166,18 +167,19 @@ typedef enum vlc_dialog {
 /* Useful text messages shared by interfaces */
 #define INTF_ABOUT_MSG LICENSE_MSG
 
-#define EXTENSIONS_AUDIO "*.a52;*.aac;*.ac3;*.ape;*.dts;*.flac;*.it;" \
-                         "*.m4a;*.m4p;*.mka;*.mlp;*.mod;*.mp1;*.mp2;*.mp3;" \
+#define EXTENSIONS_AUDIO "*.a52;*.aac;*.ac3;*.aiff;*.aob;*.ape;" \
+                         "*.dts;*.flac;*.it;" \
+                         "*.m4a;*.m4p;*.mka;*.mlp;*.mod;*.mp1;*.mp2;*.mp3;*.mpc" \
                          "*.oga;*.ogg;*.oma;*.s3m;*.spx;" \
-                         "*.wav;*.wma;*.wv;*.xm"
+                         "*.vqf;*.w64;*.wav;*.wma;*.wv;*.xm"
 
 #define EXTENSIONS_VIDEO "*.asf;*.avi;*.divx;*.dv;*.flv;*.gxf;*.iso;*.m1v;*.m2v;" \
                          "*.m2t;*.m2ts;*.m4v;*.mkv;*.mov;*.mp2;*.mp4;*.mpeg;*.mpeg1;" \
                          "*.mpeg2;*.mpeg4;*.mpg;*.mts;*.mxf;*.nuv;" \
                          "*.ogg;*.ogm;*.ogv;*.ogx;*.ps;" \
-                         "*.rec;*.rm;*.rmvb;*.ts;*.vob;*.wmv"
+                         "*.rec;*.rm;*.rmvb;*.tod;*.ts;*.vob;*.wmv"
 
-#define EXTENSIONS_PLAYLIST "*.asx;*.b4s;*.m3u;*.pls;*.ram;*.vlc;*.xspf"
+#define EXTENSIONS_PLAYLIST "*.asx;*.b4s;*.ifo;*.m3u;*.m3u8;*.pls;*.ram;*.rar;*.sdp;*.vlc;*.xspf;*.zip"
 
 #define EXTENSIONS_MEDIA EXTENSIONS_VIDEO ";" EXTENSIONS_AUDIO ";" \
                           EXTENSIONS_PLAYLIST

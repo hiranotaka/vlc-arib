@@ -285,7 +285,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             if( ( i64 = stream_Size( p_demux->s ) ) > 0 )
             {
                 pf = (double*) va_arg( args, double* );
-                *pf = (double)stream_Tell( p_demux->s ) / (double)i64;
+                double current = stream_Tell( p_demux->s );
+                *pf = current / (double)i64;
                 return VLC_SUCCESS;
             }
             return VLC_EGENERIC;
@@ -378,7 +379,7 @@ static void ParsePES( demux_t *p_demux )
     uint8_t     hdr[30];
     int         i_pes_size;
 
-    int         i_skip;
+    unsigned    i_skip;
     mtime_t     i_dts = -1;
     mtime_t     i_pts = -1;
 

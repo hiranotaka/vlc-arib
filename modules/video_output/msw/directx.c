@@ -1,5 +1,5 @@
 /*****************************************************************************
- * vout.c: Windows DirectX video output display method
+ * directx.c: Windows DirectDraw video output
  *****************************************************************************
  * Copyright (C) 2001-2009 the VideoLAN team
  * $Id$
@@ -34,6 +34,7 @@
  * display video in window mode.
  *
  *****************************************************************************/
+
 #include <errno.h>                                                 /* ENOMEM */
 
 #ifdef HAVE_CONFIG_H
@@ -42,14 +43,11 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_interface.h>
-#include <vlc_playlist.h>
 #include <vlc_vout.h>
+#include <vlc_playlist.h>   /* needed for wallpaper */
 
-#include <windows.h>
-#include <tchar.h>
 #include <ddraw.h>
-#include <commctrl.h>
+#include <commctrl.h>       /* ListView_(Get|Set)* */
 
 #ifndef UNDER_CE
 #   include <multimon.h>
@@ -99,9 +97,9 @@ static void Display   ( vout_thread_t *, picture_t * );
 static void FirstDisplay( vout_thread_t *, picture_t * );
 static void SetPalette( vout_thread_t *, uint16_t *, uint16_t *, uint16_t * );
 
-static int  NewPictureVec  ( vout_thread_t *, picture_t *, int );
+static int  NewPictureVec  ( vout_thread_t *, picture_t * );
 static void FreePictureVec ( vout_thread_t *, picture_t *, int );
-static int  UpdatePictureStruct( vout_thread_t *, picture_t *, int );
+static int  UpdatePictureStruct( vout_thread_t *, picture_t * );
 
 static int  DirectXInitDDraw      ( vout_thread_t *p_vout );
 static void DirectXCloseDDraw     ( vout_thread_t *p_vout );
@@ -126,6 +124,14 @@ static int FindDevicesCallback( vlc_object_t *, char const *,
 static int WallpaperCallback( vlc_object_t *, char const *,
                               vlc_value_t, vlc_value_t, void * );
 
+BOOL WINAPI DirectXEnumCallback( GUID* p_guid, LPTSTR psz_desc,
+                                 LPTSTR psz_drivername, VOID* p_context,
+                                 HMONITOR hmon );
+                                 
+BOOL WINAPI DirectXEnumCallback2( GUID* p_guid, LPTSTR psz_desc,
+                                  LPTSTR psz_drivername, VOID* p_context,
+                                  HMONITOR hmon );
+                                  
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -165,11 +171,11 @@ vlc_module_begin ()
     set_shortname( "DirectX" )
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VOUT )
-    add_bool( "directx-hw-yuv", 1, NULL, HW_YUV_TEXT, HW_YUV_LONGTEXT,
+    add_bool( "directx-hw-yuv", true, NULL, HW_YUV_TEXT, HW_YUV_LONGTEXT,
               true )
-    add_bool( "directx-use-sysmem", 0, NULL, SYSMEM_TEXT, SYSMEM_LONGTEXT,
+    add_bool( "directx-use-sysmem", false, NULL, SYSMEM_TEXT, SYSMEM_LONGTEXT,
               true )
-    add_bool( "directx-3buffering", 1, NULL, TRIPLEBUF_TEXT,
+    add_bool( "directx-3buffering", true, NULL, TRIPLEBUF_TEXT,
               TRIPLEBUF_LONGTEXT, true )
 
     add_string( "directx-device", "", NULL, DEVICE_TEXT, DEVICE_LONGTEXT,
@@ -177,10 +183,10 @@ vlc_module_begin ()
         change_string_list( ppsz_dev, ppsz_dev_text, FindDevicesCallback )
         change_action_add( FindDevicesCallback, N_("Refresh list") )
 
-    add_bool( "directx-wallpaper", 0, NULL, WALLPAPER_TEXT, WALLPAPER_LONGTEXT,
+    add_bool( "directx-wallpaper", false, NULL, WALLPAPER_TEXT, WALLPAPER_LONGTEXT,
               true )
 
-    set_description( N_("DirectX video output") )
+    set_description( N_("DirectX (DirectDraw) video output") )
     set_capability( "video output", 100 )
     add_shortcut( "directx" )
     set_callbacks( OpenVideo, CloseVideo )
@@ -212,6 +218,7 @@ static int OpenVideo( vlc_object_t *p_this )
     p_vout->p_sys = calloc( 1, sizeof( vout_sys_t ) );
     if( p_vout->p_sys == NULL )
         return VLC_ENOMEM;
+    vlc_mutex_init( &p_vout->p_sys->lock );
 
     /* Initialisations */
     p_vout->pf_init = Init;
@@ -219,18 +226,17 @@ static int OpenVideo( vlc_object_t *p_this )
     p_vout->pf_manage = Manage;
     p_vout->pf_render = NULL;
     p_vout->pf_display = FirstDisplay;
+    p_vout->pf_control = Control;
 
+    if( CommonInit( p_vout ) )
+        goto error;
+
+    /* */
     p_vout->p_sys->p_ddobject = NULL;
     p_vout->p_sys->p_display = NULL;
     p_vout->p_sys->p_current_surface = NULL;
     p_vout->p_sys->p_clipper = NULL;
-    p_vout->p_sys->hwnd = p_vout->p_sys->hvideownd = NULL;
-    p_vout->p_sys->hparent = p_vout->p_sys->hfswnd = NULL;
-    p_vout->p_sys->i_changes = 0;
     p_vout->p_sys->b_wallpaper = 0;
-    vlc_mutex_init( &p_vout->p_sys->lock );
-    SetRectEmpty( &p_vout->p_sys->rect_display );
-    SetRectEmpty( &p_vout->p_sys->rect_parent );
 
     /* Multimonitor stuff */
     p_vout->p_sys->hmonitor = NULL;
@@ -242,11 +248,7 @@ static int OpenVideo( vlc_object_t *p_this )
         p_vout->p_sys->MonitorFromWindow = (HMONITOR (WINAPI *)( HWND, DWORD ))
             GetProcAddress( huser32, _T("MonitorFromWindow") );
         p_vout->p_sys->GetMonitorInfo =
-#ifndef UNICODE
-            GetProcAddress( huser32, "GetMonitorInfoA" );
-#else
             GetProcAddress( huser32, _T("GetMonitorInfoW") );
-#endif
     }
 
     var_Create( p_vout, "overlay", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
@@ -254,20 +256,6 @@ static int OpenVideo( vlc_object_t *p_this )
     var_Create( p_vout, "directx-hw-yuv", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
     var_Create( p_vout, "directx-3buffering", VLC_VAR_BOOL|VLC_VAR_DOINHERIT );
     var_Create( p_vout, "directx-device", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
-    var_Create( p_vout, "video-title", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
-    var_Create( p_vout, "disable-screensaver", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
-
-    p_vout->p_sys->b_cursor_hidden = 0;
-    p_vout->p_sys->i_lastmoved = mdate();
-    p_vout->p_sys->i_mouse_hide_timeout =
-        var_GetInteger(p_vout, "mouse-hide-timeout") * 1000;
-
-    /* Set main window's size */
-    p_vout->p_sys->i_window_width = p_vout->i_window_width;
-    p_vout->p_sys->i_window_height = p_vout->i_window_height;
-
-    if ( !CreateEventThread( p_vout ) )
-        goto error;
 
     /* Initialise DirectDraw */
     if( DirectXInitDDraw( p_vout ) )
@@ -285,17 +273,11 @@ static int OpenVideo( vlc_object_t *p_this )
 
     /* Variable to indicate if the window should be on top of others */
     /* Trigger a callback right now */
-    var_TriggerCallback( p_vout, "video-on-top" );
-
-    /* Variable to indicate if the window should be on top of others */
-    /* Trigger a callback right now */
     var_Create( p_vout, "directx-wallpaper", VLC_VAR_BOOL|VLC_VAR_DOINHERIT );
     val.psz_string = _("Wallpaper");
     var_Change( p_vout, "directx-wallpaper", VLC_VAR_SETTEXT, &val, NULL );
     var_AddCallback( p_vout, "directx-wallpaper", WallpaperCallback, NULL );
     var_TriggerCallback( p_vout, "directx-wallpaper" );
-
-    DisableScreensaver ( p_vout );
 
     return VLC_SUCCESS;
 
@@ -364,12 +346,18 @@ static int Init( vout_thread_t *p_vout )
         case VLC_CODEC_YVYU:
             p_vout->output.i_chroma = VLC_CODEC_YVYU;
             break;
+        case VLC_CODEC_I420:
+            p_vout->output.i_chroma = VLC_CODEC_I420;
+            break;
         default:
+            msg_Dbg( p_vout, "use default chroma YV12 for render " \
+                             "chroma (%4.4s)",
+                             (char *)&p_vout->render.i_chroma);
             p_vout->output.i_chroma = VLC_CODEC_YV12;
             break;
     }
 
-    NewPictureVec( p_vout, p_vout->p_picture, MAX_DIRECTBUFFERS );
+    NewPictureVec( p_vout, p_vout->p_picture );
 
     i_chroma_backup = p_vout->output.i_chroma;
 
@@ -379,13 +367,13 @@ static int Init( vout_thread_t *p_vout )
         if( p_vout->output.i_chroma != VLC_CODEC_I420 )
         {
             p_vout->output.i_chroma = VLC_CODEC_YV12;
-            NewPictureVec( p_vout, p_vout->p_picture, MAX_DIRECTBUFFERS );
+            NewPictureVec( p_vout, p_vout->p_picture );
         }
         if( !I_OUTPUTPICTURES )
         {
             /* hmmm, it still didn't work! Let's try another one */
             p_vout->output.i_chroma = VLC_CODEC_YUYV;
-            NewPictureVec( p_vout, p_vout->p_picture, MAX_DIRECTBUFFERS );
+            NewPictureVec( p_vout, p_vout->p_picture );
         }
     }
 
@@ -393,15 +381,24 @@ static int Init( vout_thread_t *p_vout )
     {
         /* If it still didn't work then don't try to use an overlay */
         p_vout->output.i_chroma = i_chroma_backup;
-        p_vout->p_sys->b_using_overlay = 0;
+        p_vout->p_sys->b_using_overlay = false;
         msg_Warn( p_vout, "Could not initialize directx overlay" ) ;
-        NewPictureVec( p_vout, p_vout->p_picture, MAX_DIRECTBUFFERS );
+        NewPictureVec( p_vout, p_vout->p_picture );
     }
 
-    /* Change the window title bar text */
-    PostMessage( p_vout->p_sys->hwnd, WM_VLC_CHANGE_TEXT, 0, 0 );
-
     p_vout->fmt_out.i_chroma = p_vout->output.i_chroma;
+
+    /* Change the window title bar text */
+    const char *psz_fallback;
+    if( p_vout->p_sys->b_using_overlay )
+        psz_fallback = VOUT_TITLE " (hardware YUV overlay DirectX output)";
+    else if( p_vout->p_sys->b_hw_yuv )
+        psz_fallback = VOUT_TITLE " (hardware YUV DirectX output)";
+    else
+        psz_fallback = VOUT_TITLE " (software RGB DirectX output)";
+    EventThreadUpdateTitle( p_vout->p_sys->p_event, psz_fallback );
+    EventThreadUseOverlay( p_vout->p_sys->p_event, p_vout->p_sys->b_using_overlay );
+
     return VLC_SUCCESS;
 }
 
@@ -430,15 +427,14 @@ static void CloseVideo( vlc_object_t *p_this )
 {
     vout_thread_t * p_vout = (vout_thread_t *)p_this;
 
-    StopEventThread( p_vout );
-
     /* Make sure the wallpaper is restored */
+    var_DelCallback( p_vout, "directx-wallpaper", WallpaperCallback, NULL );
     SwitchWallpaperMode( p_vout, false );
 
-    RestoreScreensaver( p_vout );
+    CommonClean( p_vout );
 
+    vlc_mutex_destroy( &p_vout->p_sys->lock );
     free( p_vout->p_sys );
-    p_vout->p_sys = NULL;
 }
 
 /*****************************************************************************
@@ -449,40 +445,7 @@ static void CloseVideo( vlc_object_t *p_this )
  *****************************************************************************/
 static int Manage( vout_thread_t *p_vout )
 {
-    /* If we do not control our window, we check for geometry changes
-     * ourselves because the parent might not send us its events. */
-    vlc_mutex_lock( &p_vout->p_sys->lock );
-    if( p_vout->p_sys->hparent && !p_vout->b_fullscreen )
-    {
-        RECT rect_parent;
-        POINT point;
-
-        vlc_mutex_unlock( &p_vout->p_sys->lock );
-
-        GetClientRect( p_vout->p_sys->hparent, &rect_parent );
-        point.x = point.y = 0;
-        ClientToScreen( p_vout->p_sys->hparent, &point );
-        OffsetRect( &rect_parent, point.x, point.y );
-
-        if( !EqualRect( &rect_parent, &p_vout->p_sys->rect_parent ) )
-        {
-            p_vout->p_sys->rect_parent = rect_parent;
-
-            /* This one is to force the update even if only
-             * the position has changed */
-            SetWindowPos( p_vout->p_sys->hwnd, 0, 1, 1,
-                          rect_parent.right - rect_parent.left,
-                          rect_parent.bottom - rect_parent.top, 0 );
-
-            SetWindowPos( p_vout->p_sys->hwnd, 0, 0, 0,
-                          rect_parent.right - rect_parent.left,
-                          rect_parent.bottom - rect_parent.top, 0 );
-        }
-    }
-    else
-    {
-        vlc_mutex_unlock( &p_vout->p_sys->lock );
-    }
+    CommonManage( p_vout );
 
     /*
      * Position Change
@@ -502,130 +465,11 @@ static int Manage( vout_thread_t *p_vout )
         }
     }
 
-    /* autoscale toggle */
-    if( p_vout->i_changes & VOUT_SCALE_CHANGE )
-    {
-        p_vout->i_changes &= ~VOUT_SCALE_CHANGE;
-
-        p_vout->b_autoscale = var_GetBool( p_vout, "autoscale" );
-        p_vout->i_zoom = (int) ZOOM_FP_FACTOR;
-
-        UpdateRects( p_vout, true );
-    }
-
-    /* scaling factor */
-    if( p_vout->i_changes & VOUT_ZOOM_CHANGE )
-    {
-        p_vout->i_changes &= ~VOUT_ZOOM_CHANGE;
-
-        p_vout->b_autoscale = false;
-        p_vout->i_zoom =
-            (int)( ZOOM_FP_FACTOR * var_GetFloat( p_vout, "scale" ) );
-        UpdateRects( p_vout, true );
-    }
-
-    /* Check for cropping / aspect changes */
-    if( p_vout->i_changes & VOUT_CROP_CHANGE ||
-        p_vout->i_changes & VOUT_ASPECT_CHANGE )
-    {
-        p_vout->i_changes &= ~VOUT_CROP_CHANGE;
-        p_vout->i_changes &= ~VOUT_ASPECT_CHANGE;
-
-        p_vout->fmt_out.i_x_offset = p_vout->fmt_in.i_x_offset;
-        p_vout->fmt_out.i_y_offset = p_vout->fmt_in.i_y_offset;
-        p_vout->fmt_out.i_visible_width = p_vout->fmt_in.i_visible_width;
-        p_vout->fmt_out.i_visible_height = p_vout->fmt_in.i_visible_height;
-        p_vout->fmt_out.i_aspect = p_vout->fmt_in.i_aspect;
-        p_vout->fmt_out.i_sar_num = p_vout->fmt_in.i_sar_num;
-        p_vout->fmt_out.i_sar_den = p_vout->fmt_in.i_sar_den;
-        p_vout->output.i_aspect = p_vout->fmt_in.i_aspect;
-        UpdateRects( p_vout, true );
-    }
-
-    /* We used to call the Win32 PeekMessage function here to read the window
-     * messages. But since window can stay blocked into this function for a
-     * long time (for example when you move your window on the screen), I
-     * decided to isolate PeekMessage in another thread. */
-
     if( p_vout->p_sys->i_changes & DX_WALLPAPER_CHANGE )
     {
         SwitchWallpaperMode( p_vout, !p_vout->p_sys->b_wallpaper );
         p_vout->p_sys->i_changes &= ~DX_WALLPAPER_CHANGE;
         DirectDrawUpdateOverlay( p_vout );
-    }
-
-    /*
-     * Fullscreen change
-     */
-    if( p_vout->i_changes & VOUT_FULLSCREEN_CHANGE
-        || p_vout->p_sys->i_changes & VOUT_FULLSCREEN_CHANGE )
-    {
-        Win32ToggleFullscreen( p_vout );
-
-        p_vout->i_changes &= ~VOUT_FULLSCREEN_CHANGE;
-        p_vout->p_sys->i_changes &= ~VOUT_FULLSCREEN_CHANGE;
-    }
-
-    /*
-     * Pointer change
-     */
-    if( p_vout->b_fullscreen && !p_vout->p_sys->b_cursor_hidden &&
-        (mdate() - p_vout->p_sys->i_lastmoved) >
-            p_vout->p_sys->i_mouse_hide_timeout )
-    {
-        POINT point;
-        HWND hwnd;
-
-        /* Hide the cursor only if it is inside our window */
-        GetCursorPos( &point );
-        hwnd = WindowFromPoint(point);
-        if( hwnd == p_vout->p_sys->hwnd || hwnd == p_vout->p_sys->hvideownd )
-        {
-            PostMessage( p_vout->p_sys->hwnd, WM_VLC_HIDE_MOUSE, 0, 0 );
-        }
-        else
-        {
-            p_vout->p_sys->i_lastmoved = mdate();
-        }
-    }
-
-    /*
-     * "Always on top" status change
-     */
-    if( p_vout->p_sys->b_on_top_change )
-    {
-        vlc_value_t val;
-        HMENU hMenu = GetSystemMenu( p_vout->p_sys->hwnd, FALSE );
-
-        var_Get( p_vout, "video-on-top", &val );
-
-        /* Set the window on top if necessary */
-        if( val.b_bool && !( GetWindowLong( p_vout->p_sys->hwnd, GWL_EXSTYLE )
-                           & WS_EX_TOPMOST ) )
-        {
-            CheckMenuItem( hMenu, IDM_TOGGLE_ON_TOP,
-                           MF_BYCOMMAND | MFS_CHECKED );
-            SetWindowPos( p_vout->p_sys->hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                          SWP_NOSIZE | SWP_NOMOVE );
-        }
-        else
-        /* The window shouldn't be on top */
-        if( !val.b_bool && ( GetWindowLong( p_vout->p_sys->hwnd, GWL_EXSTYLE )
-                           & WS_EX_TOPMOST ) )
-        {
-            CheckMenuItem( hMenu, IDM_TOGGLE_ON_TOP,
-                           MF_BYCOMMAND | MFS_UNCHECKED );
-            SetWindowPos( p_vout->p_sys->hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
-                          SWP_NOSIZE | SWP_NOMOVE );
-        }
-
-        p_vout->p_sys->b_on_top_change = false;
-    }
-
-    /* Check if the event thread is still running */
-    if( !vlc_object_alive (p_vout->p_sys->p_event) )
-    {
-        return VLC_EGENERIC; /* exit */
     }
 
     return VLC_SUCCESS;
@@ -723,9 +567,9 @@ static void FirstDisplay( vout_thread_t *p_vout, picture_t *p_pic )
 
     if( p_vout->p_sys->b_using_overlay )
     {
+        HBRUSH brush = CreateSolidBrush( p_vout->p_sys->i_rgb_colorkey );
         /* set the colorkey as the backgound brush for the video window */
-        SetClassLong( p_vout->p_sys->hvideownd, GCL_HBRBACKGROUND,
-                      (LONG)CreateSolidBrush( p_vout->p_sys->i_rgb_colorkey ) );
+        SetClassLongPtr( p_vout->p_sys->hvideownd, GCLP_HBRBACKGROUND, (LONG_PTR)brush );
     }
     /*
     ** Video window is initially hidden, show it now since we got a
@@ -756,20 +600,20 @@ BOOL WINAPI DirectXEnumCallback( GUID* p_guid, LPTSTR psz_desc,
                                  HMONITOR hmon )
 {
     vout_thread_t *p_vout = (vout_thread_t *)p_context;
-    vlc_value_t device;
+    char *psz_device;
 
     msg_Dbg( p_vout, "DirectXEnumCallback: %s, %s", psz_desc, psz_drivername );
 
     if( hmon )
     {
-        var_Get( p_vout, "directx-device", &device );
+        psz_device = var_GetString( p_vout, "directx-device" );
 
-        if( ( !device.psz_string || !*device.psz_string ) &&
+        if( ( !psz_device || !*psz_device ) &&
             hmon == p_vout->p_sys->hmonitor )
         {
-            free( device.psz_string );
+            free( psz_device );
         }
-        else if( strcmp( psz_drivername, device.psz_string ) == 0 )
+        else if( strcmp( psz_drivername, psz_device ) == 0 )
         {
             MONITORINFO monitor_info;
             monitor_info.cbSize = sizeof( MONITORINFO );
@@ -793,11 +637,11 @@ BOOL WINAPI DirectXEnumCallback( GUID* p_guid, LPTSTR psz_desc,
             }
 
             p_vout->p_sys->hmonitor = hmon;
-            free( device.psz_string );
+            free( psz_device );
         }
         else
         {
-            free( device.psz_string );
+            free( psz_device );
             return TRUE; /* Keep enumerating */
         }
 
@@ -844,21 +688,17 @@ static int DirectXInitDDraw( vout_thread_t *p_vout )
 
     OurDirectDrawEnumerateEx =
       (void *)GetProcAddress( p_vout->p_sys->hddraw_dll,
-#ifndef UNICODE
-                              "DirectDrawEnumerateExA" );
-#else
                               _T("DirectDrawEnumerateExW") );
-#endif
 
     if( OurDirectDrawEnumerateEx && p_vout->p_sys->MonitorFromWindow )
     {
-        vlc_value_t device;
+        char *psz_device;
 
-        var_Get( p_vout, "directx-device", &device );
-        if( device.psz_string )
+        psz_device = var_GetString( p_vout, "directx-device" );
+        if( psz_device )
         {
-            msg_Dbg( p_vout, "directx-device: %s", device.psz_string );
-            free( device.psz_string );
+            msg_Dbg( p_vout, "directx-device: %s", psz_device );
+            free( psz_device );
         }
 
         p_vout->p_sys->hmonitor =
@@ -881,7 +721,7 @@ static int DirectXInitDDraw( vout_thread_t *p_vout )
 
     /* Get the IDirectDraw2 interface */
     dxresult = IDirectDraw_QueryInterface( p_ddobject, &IID_IDirectDraw2,
-                                        (LPVOID *)&p_vout->p_sys->p_ddobject );
+                                        &p_vout->p_sys->p_ddobject );
     /* Release the unused interface */
     IDirectDraw_Release( p_ddobject );
     if( dxresult != DD_OK )
@@ -970,7 +810,7 @@ static int DirectXCreateDisplay( vout_thread_t *p_vout )
 
     dxresult = IDirectDrawSurface_QueryInterface( p_display,
                                          &IID_IDirectDrawSurface2,
-                                         (LPVOID *)&p_vout->p_sys->p_display );
+                                         &p_vout->p_sys->p_display );
     /* Release the old interface */
     IDirectDrawSurface_Release( p_display );
     if ( dxresult != DD_OK )
@@ -1187,7 +1027,7 @@ int DirectDrawUpdateOverlay( vout_thread_t *p_vout )
 
     if( p_vout->p_sys->b_wallpaper )
     {
-        int i_x, i_y, i_width, i_height;
+        unsigned i_x, i_y, i_width, i_height;
 
         rect_src.left = p_vout->fmt_out.i_x_offset;
         rect_src.top = p_vout->fmt_out.i_y_offset;
@@ -1304,12 +1144,12 @@ static void DirectXCloseSurface( vout_thread_t *p_vout,
 }
 
 /*****************************************************************************
- * NewPictureVec: allocate a vector of identical pictures
+ * NewPictureVec: allocate a picture
+ * FIXME? make it work for i_num_pic pictures...
  *****************************************************************************
  * Returns 0 on success, -1 otherwise
  *****************************************************************************/
-static int NewPictureVec( vout_thread_t *p_vout, picture_t *p_pic,
-                          int i_num_pics )
+static int NewPictureVec( vout_thread_t *p_vout, picture_t *p_pic )
 {
     int i;
     int i_ret = VLC_SUCCESS;
@@ -1433,6 +1273,7 @@ static int NewPictureVec( vout_thread_t *p_vout, picture_t *p_pic,
                         }
                     }
                 }
+                free( pi_codes );
             }
 
             if( b_result )
@@ -1580,8 +1421,7 @@ static void FreePictureVec( vout_thread_t *p_vout, picture_t *p_pic,
  *****************************************************************************
  * This will setup stuff for use by the video_output thread
  *****************************************************************************/
-static int UpdatePictureStruct( vout_thread_t *p_vout, picture_t *p_pic,
-                                int i_chroma )
+static int UpdatePictureStruct( vout_thread_t *p_vout, picture_t *p_pic )
 {
     switch( p_vout->output.i_chroma )
     {
@@ -1621,6 +1461,7 @@ static int UpdatePictureStruct( vout_thread_t *p_vout, picture_t *p_pic,
 
             /* U and V inverted compared to I420
              * Fixme: this should be handled by the vout core */
+            /* could this be right? */
             p_vout->output.i_chroma = VLC_CODEC_I420;
 
             p_pic->Y_PIXELS = p_pic->p_sys->ddsd.lpSurface;
@@ -1756,7 +1597,7 @@ static void DirectXGetDDrawCaps( vout_thread_t *p_vout )
         bAlignSizeSrc = (ddcaps.dwCaps & DDCAPS_ALIGNSIZESRC) ? 1 : 0;
         /* Determine overlay destination size alignment */
         bAlignSizeDest = (ddcaps.dwCaps & DDCAPS_ALIGNSIZEDEST) ? 1 : 0;
- 
+
         msg_Dbg( p_vout, "DirectDraw Capabilities: overlay=%i yuvoverlay=%i "
                          "can_deinterlace_overlay=%i colorkey=%i stretch=%i "
                          "bltfourcc=%i",
@@ -1831,7 +1672,7 @@ static int DirectXLockSurface( vout_thread_t *p_vout, picture_t *p_pic )
             dxresult = IDirectDrawSurface2_Lock( p_pic->p_sys->p_surface, NULL,
                                                  &p_pic->p_sys->ddsd,
                                                  DDLOCK_WAIT, NULL);
-#if 0
+#ifndef NDEBUG
             if( dxresult == DDERR_SURFACELOST )
                 msg_Dbg( p_vout, "DirectXLockSurface: DDERR_SURFACELOST" );
 #endif
@@ -1844,7 +1685,7 @@ static int DirectXLockSurface( vout_thread_t *p_vout, picture_t *p_pic )
 
     /* Now we have a pointer to the surface memory, we can update our picture
      * structure. */
-    if( UpdatePictureStruct( p_vout, p_pic, p_vout->output.i_chroma )
+    if( UpdatePictureStruct( p_vout, p_pic )
         != VLC_SUCCESS )
     {
         DirectXUnlockSurface( p_vout, p_pic );
@@ -1859,6 +1700,8 @@ static int DirectXLockSurface( vout_thread_t *p_vout, picture_t *p_pic )
  *****************************************************************************/
 static int DirectXUnlockSurface( vout_thread_t *p_vout, picture_t *p_pic )
 {
+    VLC_UNUSED( p_vout );
+
     /* Unlock the Surface */
     if( IDirectDrawSurface2_Unlock( p_pic->p_sys->p_surface, NULL ) == DD_OK )
         return VLC_SUCCESS;
@@ -1973,6 +1816,8 @@ BOOL WINAPI DirectXEnumCallback2( GUID* p_guid, LPTSTR psz_desc,
                                   LPTSTR psz_drivername, VOID* p_context,
                                   HMONITOR hmon )
 {
+    VLC_UNUSED( p_guid ); VLC_UNUSED( psz_desc ); VLC_UNUSED( hmon );
+
     module_config_t *p_item = (module_config_t *)p_context;
 
     p_item->ppsz_list =
@@ -1994,6 +1839,8 @@ BOOL WINAPI DirectXEnumCallback2( GUID* p_guid, LPTSTR psz_desc,
 static int FindDevicesCallback( vlc_object_t *p_this, char const *psz_name,
                                vlc_value_t newval, vlc_value_t oldval, void *d)
 {
+    VLC_UNUSED( newval ); VLC_UNUSED( oldval ); VLC_UNUSED( d );
+
     HRESULT (WINAPI *OurDirectDrawEnumerateEx)( LPDDENUMCALLBACKEXA, LPVOID,
                                                 DWORD );
     HINSTANCE hddraw_dll;
@@ -2024,11 +1871,7 @@ static int FindDevicesCallback( vlc_object_t *p_this, char const *psz_name,
     if( hddraw_dll == NULL ) return VLC_SUCCESS;
 
     OurDirectDrawEnumerateEx =
-#ifndef UNICODE
-      (void *)GetProcAddress( hddraw_dll, "DirectDrawEnumerateExA" );
-#else
       (void *)GetProcAddress( hddraw_dll, _T("DirectDrawEnumerateExW") );
-#endif
 
     if( OurDirectDrawEnumerateEx )
     {
@@ -2049,6 +1892,7 @@ static int WallpaperCallback( vlc_object_t *p_this, char const *psz_cmd,
                               vlc_value_t oldval, vlc_value_t newval,
                               void *p_data )
 {
+    VLC_UNUSED( psz_cmd ); VLC_UNUSED( oldval ); VLC_UNUSED( p_data );
     vout_thread_t *p_vout = (vout_thread_t *)p_this;
 
     if( (newval.b_bool && !p_vout->p_sys->b_wallpaper) ||
@@ -2077,5 +1921,6 @@ static int WallpaperCallback( vlc_object_t *p_this, char const *psz_cmd,
 static void SetPalette( vout_thread_t *p_vout,
                         uint16_t *red, uint16_t *green, uint16_t *blue )
 {
+    VLC_UNUSED( red ); VLC_UNUSED( green );VLC_UNUSED( blue );
     msg_Err( p_vout, "FIXME: SetPalette unimplemented" );
 }

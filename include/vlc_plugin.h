@@ -119,8 +119,8 @@ enum vlc_module_properties
 /**
  * Current plugin ABI version
  */
-# define MODULE_SYMBOL 1_0_0e
-# define MODULE_SUFFIX "__1_0_0e"
+# define MODULE_SYMBOL 1_1_0c
+# define MODULE_SUFFIX "__1_1_0c"
 
 /*****************************************************************************
  * Add a few defines. You do not want to read this section. Really.
@@ -315,6 +315,10 @@ enum vlc_module_properties
     add_string_inner( CONFIG_ITEM_DIRECTORY, name, text, longtext, advc, \
                       p_callback, value )
 
+#define add_font( name, value, p_callback, text, longtext, advc )\
+    add_string_inner( CONFIG_ITEM_FONT, name, text, longtext, advc, \
+                      p_callback, value )
+
 #define add_module( name, psz_caps, value, p_callback, text, longtext, advc ) \
     add_string_inner( CONFIG_ITEM_MODULE, name, text, longtext, advc, \
                       p_callback, value ) \
@@ -452,7 +456,7 @@ enum vlc_module_properties
     "\x43\x6f\x70\x79\x72\x69\x67\x68\x74\x20\x28\x43\x29\x20\x74\x68" \
     "\x65\x20\x56\x69\x64\x65\x6f\x4c\x41\x4e\x20\x56\x4c\x43\x20\x6d" \
     "\x65\x64\x69\x61\x20\x70\x6c\x61\x79\x65\x72\x20\x64\x65\x76\x65" \
-    "\x6c\x6f\x70\x70\x65\x72\x73" )
+    "\x6c\x6f\x70\x65\x72\x73" )
 #elif !defined (VLC_COPYRIGHT_EXPORT)
 # define VLC_COPYRIGHT_EXPORT
 #endif

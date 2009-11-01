@@ -25,14 +25,7 @@
 /*****************************************************************************
  * event_thread_t: event thread
  *****************************************************************************/
-typedef struct event_thread_t
-{
-    VLC_COMMON_MEMBERS
-
-    vout_thread_t * p_vout;
-    HANDLE window_ready;
-
-} event_thread_t;
+#include "events.h"
 
 #ifdef MODULE_NAME_IS_wingapi
     typedef struct GXDisplayProperties {
@@ -83,7 +76,6 @@ struct vout_sys_t
     struct vout_window_t *parent_window;         /* Parent window VLC object */
     HWND                 hparent;             /* Handle of the parent window */
     HWND                 hfswnd;          /* Handle of the fullscreen window */
-    WNDPROC              pf_wndproc;             /* Window handling callback */
 
     /* Multi-monitor support */
     HMONITOR             hmonitor;          /* handle of the current monitor */
@@ -98,19 +90,7 @@ struct vout_sys_t
     /* size of the overall window (including black bands) */
     RECT         rect_parent;
 
-    /* Window position and size */
-    int          i_window_x;
-    int          i_window_y;
-    int          i_window_width;
-    int          i_window_height;
-    int          i_window_style;
-
     volatile uint16_t i_changes;        /* changes made to the video display */
-
-    /* Mouse */
-    volatile bool b_cursor_hidden;
-    volatile mtime_t    i_lastmoved;
-    mtime_t             i_mouse_hide_timeout;
 
     /* Misc */
     bool      b_on_top_change;
@@ -133,7 +113,7 @@ struct vout_sys_t
     bool   b_hw_yuv;    /* Should we use hardware YUV->RGB conversions */
 
 
-#ifdef MODULE_NAME_IS_vout_directx
+#ifdef MODULE_NAME_IS_directx
     /* Overlay alignment restrictions */
     int          i_align_src_boundary;
     int          i_align_src_size;
@@ -149,8 +129,8 @@ struct vout_sys_t
     /* DDraw capabilities */
     int          b_caps_overlay_clipping;
 
-    int          i_rgb_colorkey;      /* colorkey in RGB used by the overlay */
-    int          i_colorkey;                 /* colorkey used by the overlay */
+    unsigned int    i_rgb_colorkey;      /* colorkey in RGB used by the overlay */
+    unsigned int    i_colorkey;                 /* colorkey used by the overlay */
 
     COLORREF        color_bkg;
     COLORREF        color_bkgtxt;
@@ -160,6 +140,7 @@ struct vout_sys_t
     LPDIRECTDRAWSURFACE2 p_current_surface;   /* surface currently displayed */
     LPDIRECTDRAWCLIPPER  p_clipper;             /* clipper used for blitting */
     HINSTANCE            hddraw_dll;       /* handle of the opened ddraw dll */
+    vlc_mutex_t    lock;
 #endif
 
 #ifdef MODULE_NAME_IS_glwin32
@@ -168,11 +149,14 @@ struct vout_sys_t
 #endif
 
 #ifdef MODULE_NAME_IS_direct3d
+    /* show video on desktop window ? */
+    bool      b_desktop;
+
     // core objects
     HINSTANCE               hd3d9_dll;       /* handle of the opened d3d9 dll */
     LPDIRECT3D9             p_d3dobj;
     LPDIRECT3DDEVICE9       p_d3ddev;
-    D3DFORMAT               bbFormat;
+    D3DPRESENT_PARAMETERS   d3dpp;
     // scene objects
     LPDIRECT3DTEXTURE9      p_d3dtex;
     LPDIRECT3DVERTEXBUFFER9 p_d3dvtc;
@@ -211,9 +195,6 @@ struct vout_sys_t
     RGBQUAD    green;
     RGBQUAD    blue;
 
-    bool b_focus;
-    bool b_parent_focus;
-
     HINSTANCE  gapi_dll;                   /* handle of the opened gapi dll */
 
     /* GAPI functions */
@@ -226,13 +207,7 @@ struct vout_sys_t
     int (*GXResume)();
 #endif
 
-#ifndef UNDER_CE
-    /* suspend display */
-    bool   b_suspend_display;
-#endif
-
     event_thread_t *p_event;
-    vlc_mutex_t    lock;
 };
 
 #ifdef MODULE_NAME_IS_wingapi
@@ -251,25 +226,29 @@ struct vout_sys_t
 int DirectDrawUpdateOverlay( vout_thread_t *p_vout );
 
 /*****************************************************************************
- * Prototypes from events.c
+ * Prototypes from common.c
  *****************************************************************************/
-void* EventThread ( vlc_object_t *p_this );
+int  CommonInit( vout_thread_t * );
+void CommonClean( vout_thread_t * );
+void CommonManage( vout_thread_t * );
+
+int Control( vout_thread_t *p_vout, int i_query, va_list args );
+
 void UpdateRects ( vout_thread_t *p_vout, bool b_force );
 void Win32ToggleFullscreen ( vout_thread_t *p_vout );
+void ExitFullscreen( vout_thread_t *p_vout );
+#ifndef UNDER_CE
 void DisableScreensaver ( vout_thread_t *p_vout );
 void RestoreScreensaver ( vout_thread_t *p_vout );
-int CreateEventThread( vout_thread_t *p_vout );
-void StopEventThread ( vout_thread_t *p_vout );
+#endif
 
 /*****************************************************************************
  * Constants
  *****************************************************************************/
-#define WM_VLC_HIDE_MOUSE WM_APP
-#define WM_VLC_SHOW_MOUSE WM_APP + 1
-#define WM_VLC_CHANGE_TEXT WM_APP + 2
 #define IDM_TOGGLE_ON_TOP WM_USER + 1
 #define DX_POSITION_CHANGE 0x1000
 #define DX_WALLPAPER_CHANGE 0x2000
+#define DX_DESKTOP_CHANGE 0x4000
 
 /*****************************************************************************
  * WinCE helpers

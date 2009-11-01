@@ -2,6 +2,12 @@
 # Automake targets and declarations
 ###############################################################################
 
+# Pass --quiet to make when we are not verbose.
+AM_MAKEFLAGS = $(makesilentflags_$(V))
+makesilentflags_ = $(makesilentflags__$(AM_DEFAULT_VERBOSITY))
+makesilentflags_0 = --quiet
+makesilentflags__0 = $(makesilentflags_0)
+
 # SUBDIRS stores the directories where a "make" is required when building
 # something. DIST_SUBDIRS stores the directories where nothing is built but
 # which have makefiles with distribution information.
@@ -17,7 +23,7 @@ SUBDIRS = po compat src
 if LOADER
 SUBDIRS += libs/loader
 endif
-if HAVE_LIBGCRYPT
+if HAVE_GCRYPT
 SUBDIRS += libs/srtp
 endif
 if HAVE_ZLIB
@@ -70,7 +76,7 @@ DISTCHECK_CONFIGURE_FLAGS = \
 	--enable-fast-install \
 	--disable-dbus \
 	--disable-dvd --disable-mad --disable-libmpeg2 \
-	--disable-ffmpeg --disable-faad --disable-wxwidgets --disable-skins2 \
+	--disable-ffmpeg --disable-faad --disable-skins2 \
 	--disable-live555 \
 	--disable-fribidi --disable-glx
 
@@ -95,37 +101,26 @@ ChangeLog: Makefile.am
 EXTRA_DIST += \
 	extras/package/macosx/Resources/English.lproj/MainMenu.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/MainMenu.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/MediaInfo.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/MediaInfo.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/MediaInfo.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/MediaInfo.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/About.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/About.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/About.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/About.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/Open.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/Open.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/Open.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/Open.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/Preferences.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/Preferences.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/Preferences.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/Preferences.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/Wizard.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/Wizard.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/Wizard.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/Wizard.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/Bookmarks.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/Bookmarks.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/Bookmarks.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/Bookmarks.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/Extended.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/Extended.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/Extended.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/Extended.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/Update.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/Update.nib/info.nib \
-	extras/package/macosx/Resources/English.lproj/Update.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/CoreDialogs.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/CoreDialogs.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/CoreDialogs.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/CoreDialogs.nib/keyedobjects.nib \
-	extras/package/macosx/Resources/English.lproj/ErrorPanel.nib/classes.nib \
-	extras/package/macosx/Resources/English.lproj/ErrorPanel.nib/info.nib \
+	extras/package/macosx/Resources/English.lproj/ErrorPanel.nib/designable.nib \
 	extras/package/macosx/Resources/English.lproj/ErrorPanel.nib/keyedobjects.nib \
 	extras/package/macosx/Resources/English.lproj/InfoPlist.strings.in \
+	extras/package/macosx/Resources/dsa_pub.pem \
 	extras/package/macosx/Resources/aiff.icns \
 	extras/package/macosx/Resources/audio.icns \
 	extras/package/macosx/Resources/avi.icns \
@@ -329,10 +324,13 @@ CLEANFILES = $(BUILT_SOURCES_clean)
 DISTCLEANFILES = $(BUILT_SOURCES_distclean) vlc-config.in compile
 MAINTAINERCLEANFILES = ChangeLog
 
-# Shortcut for developpers to rebuild the core (libvlc + vlc)
+# Shortcut for developers to rebuild the core (libvlc + vlc)
 # Don't use it if you don't know what it is about.
 # Don't complain if it doesn't work. -- Courmisch
-libvlc:
+libcompat:
+	cd compat && $(MAKE) $(AM_MAKEFLAGS)
+
+libvlc: libcompat
 	cd src && $(MAKE) $(AM_MAKEFLAGS) libvlc.la
 
 core: libvlc
@@ -377,7 +375,7 @@ endif
 # Building aliases
 ###############################################################################
 
-ALL_ALIASES = cvlc rvlc svlc wxvlc qvlc nvlc mvlc
+ALL_ALIASES = cvlc rvlc svlc qvlc nvlc mvlc
 bin_SCRIPTS = $(ALIASES)
 CLEANFILES += $(ALIASES) $(noinst_SCRIPTS)
 EXTRA_SCRIPTS = $(ALL_ALIASES)
@@ -394,9 +392,6 @@ rvlc: make-alias Makefile
 
 svlc: make-alias Makefile
 	$(MKALIAS) skins2
-
-wxvlc: make-alias Makefile
-	$(MKALIAS) wx
 
 qvlc: make-alias Makefile
 	$(MKALIAS) qt4
@@ -421,23 +416,31 @@ noinst_DATA = VLC.app
 endif
 endif
 
+silentstd = $(silentstd_$(V))
+silentstd_ = $(silentstd__$(AM_DEFAULT_VERBOSITY))
+silentstd_0 = 2>&1 >/dev/null
+# '__' prefix trick for old automake version.
+silentstd__0 = $(silentstd_0)
+
 # VLC-release.app for packaging and giving it to your friends
 # use package-macosx to get a nice dmg
 VLC-release.app: vlc
-	( cd src && make install )
+	( cd src && $(MAKE) $(AM_MAKEFLAGS) install $(silentstd) )
 	rm -Rf "$(top_builddir)/tmp"
 	mkdir -p "$(top_builddir)/tmp/extras/package/macosx"
 	rm -Rf $(top_builddir)/VLC-release.app
 	for i in vlc.xcodeproj Resources README.MacOSX.rtf ; do \
 	  cp -R $(srcdir)/extras/package/macosx/$$i $(top_builddir)/tmp/extras/package/macosx/; \
 	done
-	REVISION=`git describe --always` && \
+	REVISION=`(git describe --always || echo exported)` && \
 	cat $(top_builddir)/extras/package/macosx/Info.plist | \
 	sed "s/#REVISION#/$$REVISION/g" > $(top_builddir)/tmp/extras/package/macosx/Info.plist
 	cp -R $(top_builddir)/extras/package/macosx/Resources $(top_builddir)/tmp/extras/package/macosx/
 	for i in AUTHORS COPYING THANKS; do \
 	  cp "$(srcdir)/$$i" $(top_builddir)/tmp; \
 	done
+	mkdir -p $(top_builddir)/tmp/extras/contrib/Sparkle
+	cp -R $(top_srcdir)/extras/contrib/Sparkle/Sparkle.framework $(top_builddir)/tmp/extras/contrib/Sparkle
 	mkdir -p $(top_builddir)/tmp/modules/audio_output
 	mkdir -p $(top_builddir)/tmp/modules/gui/macosx
 	for i in \
@@ -478,8 +481,6 @@ VLC-release.app: vlc
 	    extended.m \
 	    bookmarks.h \
 	    bookmarks.m \
-	    update.h \
-	    update.m \
 	    coredialogs.h \
 	    coredialogs.m \
 	    embeddedwindow.h \
@@ -490,10 +491,10 @@ VLC-release.app: vlc
 	  cp "$(srcdir)/modules/gui/macosx/$$i" \
              $(top_builddir)/tmp/modules/gui/macosx; \
 	done
-	cd $(top_builddir)/tmp/extras/package/macosx && xcodebuild -target vlc | grep -v '^\([ \t]\|$$\)' && \
-	    cd ../../../../ && \
-	    cp -R $(top_builddir)/tmp/extras/package/macosx/build/Default/VLC.bundle \
-	          $(top_builddir)/VLC-release.app; \
+	$(AM_V_GEN)cd $(top_builddir)/tmp/extras/package/macosx && \
+        xcodebuild -target vlc $(silentstd) && \
+	cd ../../../../ && \
+	cp -R $(top_builddir)/tmp/extras/package/macosx/build/Default/VLC.bundle $(top_builddir)/VLC-release.app; \
 	rm -Rf $(top_builddir)/tmp
 	$(INSTALL) -d $(top_builddir)/VLC-release.app/Contents/MacOS
 	PRODUCT="VLC-release.app" ACTION="release-makefile" src_dir=$(srcdir) build_dir=$(top_builddir) sh $(srcdir)/projects/macosx/framework/Pre-Compile.sh
@@ -540,13 +541,9 @@ VLC-release.app: vlc
 	$(INSTALL) -m 644 $(srcdir)/share/lua/http/requests/readme $(top_builddir)/VLC-release.app/Contents/MacOS/share/lua/http/requests/readme.txt
 	$(INSTALL) -d $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/dialogs
 	$(INSTALL) -d $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/js
-	$(INSTALL) -d $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/old
-	$(INSTALL) -d $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/old/admin
-	$(INSTALL) -d $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/old/vlm
 	$(INSTALL) -d $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/images
 	$(INSTALL) -d $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/requests
 	$(INSTALL) -m 644 $(srcdir)/share/http/.hosts $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/.hosts
-	$(INSTALL) -m 644 $(srcdir)/share/http/old/.hosts $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/old/.hosts
 	for i in $(srcdir)/share/http/*.* ; do \
 	  $(INSTALL) -m 644 $${i} $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/`basename $${i}` ; \
 	done
@@ -555,15 +552,6 @@ VLC-release.app: vlc
 	done
 	for i in $(srcdir)/share/http/js/*.* ; do \
 	  $(INSTALL) -m 644 $${i} $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/js/`basename $${i}` ; \
-	done
-	for i in $(srcdir)/share/http/old/*.* ; do \
-	  $(INSTALL) -m 644 $${i} $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/old/`basename $${i}` ; \
-	done
-	for i in $(srcdir)/share/http/old/admin/*.* ; do \
-	  $(INSTALL) -m 644 $${i} $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/old/admin/`basename $${i}` ; \
-	done
-	for i in $(srcdir)/share/http/old/vlm/*.* ; do \
-	  $(INSTALL) -m 644 $${i} $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/old/vlm/`basename $${i}` ; \
 	done
 	for i in $(srcdir)/share/http/images/*.* ; do \
 	  $(INSTALL) -m 644 $${i} $(top_builddir)/VLC-release.app/Contents/MacOS/share/http/images/`basename $${i}` ; \
@@ -583,28 +571,29 @@ VLC-release.app: vlc
 	      $(top_builddir)/VLC-release.app/Contents/Resources/$${i}.lproj ; \
 	done
 	printf "APPLVLC#" >| $(top_builddir)/VLC-release.app/Contents/PkgInfo
-	find $(top_builddir)/VLC-release.app/Contents/Resources/English.lproj -name classes.nib -delete;
-	find $(top_builddir)/VLC-release.app/Contents/Resources/English.lproj -name info.nib -delete;
+	find $(top_builddir)/VLC-release.app/Contents/Resources/English.lproj -name designable.nib -delete;
 	find $(top_builddir)/VLC-release.app -type d -exec chmod ugo+rx '{}' \;
 	find $(top_builddir)/VLC-release.app -type f -exec chmod ugo+r '{}' \;
 
 # This is just for development purposes. 
 # The resulting VLC.app will only run in this tree.
 VLC.app: vlc $(top_builddir)/src/.libs/libvlccore.dylib $(top_builddir)/src/.libs/libvlc.dylib
-	(cd src && make install)
+	$(AM_V_GEN)(cd src && make install $(silentstd))
 	rm -Rf $(top_builddir)/tmp
 	mkdir -p "$(top_builddir)/tmp/extras/package/macosx"
 	rm -Rf $(top_builddir)/VLC.app
 	for i in vlc.xcodeproj Resources README.MacOSX.rtf; do \
 	  cp -R $(srcdir)/extras/package/macosx/$$i $(top_builddir)/tmp/extras/package/macosx/; \
 	done
-	REVISION=`git describe --always` && \
+	REVISION=`(git describe --always || echo exported)` && \
 	cat $(top_builddir)/extras/package/macosx/Info.plist | \
 	sed "s/#REVISION#/$$REVISION/g" > $(top_builddir)/tmp/extras/package/macosx/Info.plist
 	cp -R $(top_builddir)/extras/package/macosx/Resources $(top_builddir)/tmp/extras/package/macosx/
 	for i in AUTHORS COPYING THANKS; do \
 	  cp "$(srcdir)/$$i" $(top_builddir)/tmp; \
 	done
+	mkdir -p $(top_builddir)/tmp/extras/contrib/Sparkle
+	cp -R $(top_srcdir)/extras/contrib/Sparkle/Sparkle.framework $(top_builddir)/tmp/extras/contrib/Sparkle
 	mkdir -p $(top_builddir)/tmp/modules/audio_output
 	mkdir -p $(top_builddir)/tmp/modules/gui/macosx
 	for i in \
@@ -645,8 +634,6 @@ VLC.app: vlc $(top_builddir)/src/.libs/libvlccore.dylib $(top_builddir)/src/.lib
 	    extended.m \
 	    bookmarks.h \
 	    bookmarks.m \
-	    update.h \
-	    update.m \
 	    coredialogs.h \
 	    coredialogs.m \
 	    embeddedwindow.h \
@@ -657,10 +644,10 @@ VLC.app: vlc $(top_builddir)/src/.libs/libvlccore.dylib $(top_builddir)/src/.lib
 	  cp "$(srcdir)/modules/gui/macosx/$$i" \
              $(top_builddir)/tmp/modules/gui/macosx; \
 	done
-	cd $(top_builddir)/tmp/extras/package/macosx && xcodebuild -target vlc | grep -v '^\([ \t]\|$$\)' && \
-	    cd ../../../../ && \
-	    cp -R $(top_builddir)/tmp/extras/package/macosx/build/Default/VLC.bundle \
-	          $(top_builddir)/VLC.app
+	$(AM_V_GEN)cd $(top_builddir)/tmp/extras/package/macosx && \
+	xcodebuild -target vlc $(silentstd) && \
+	cd ../../../../ && \
+	cp -R $(top_builddir)/tmp/extras/package/macosx/build/Default/VLC.bundle $(top_builddir)/VLC.app
 	$(INSTALL) -d $(top_builddir)/VLC.app/Contents/MacOS
 	touch $(top_builddir)/VLC.app/Contents/MacOS/VLC
 	chmod +x $(top_builddir)/VLC.app/Contents/MacOS/VLC
@@ -779,6 +766,13 @@ package-win32-base-debug: package-win-common
 # Contrib *.dll's
 	cp $(srcdir)/extras/contrib/lib/*.dll "vlc-$(VERSION)/" || true
 
+#Enable DEP and ASLR for all the binaries
+if USE_PEFLAGS
+	find $(win32_destdir) -type f -name '*.dll' -print -o -name '*.exe' -print | while read i; do \
+	$(PEFLAGS) --dynamicbase=true --nxcompat=true "$$i" ; \
+	done
+endif
+
 # Copy the lua scripts (HTTP)
 if BUILD_LUA
 	mkdir -p "$(win32_lua_destdir)/http/images"
@@ -835,9 +829,6 @@ if BUILD_HTTPD
 	mkdir -p "$(win32_http_destdir)/requests"
 	mkdir -p "$(win32_http_destdir)/js"
 	mkdir -p "$(win32_http_destdir)/dialogs"
-	mkdir -p "$(win32_http_destdir)/old"
-	mkdir -p "$(win32_http_destdir)/old/vlm"
-	mkdir -p "$(win32_http_destdir)/old/admin"
 	cp $(srcdir)/share/http/*.html $(win32_http_destdir)/
 	unix2dos $(win32_http_destdir)/*.html
 	cp $(srcdir)/share/http/.hosts $(win32_http_destdir)/
@@ -857,16 +848,6 @@ if BUILD_HTTPD
 	cp $(srcdir)/share/http/requests/readme $(win32_http_destdir)/requests/readme.txt
 	unix2dos $(win32_http_destdir)/requests/readme.txt
 
-	cp $(srcdir)/share/http/old/*.html $(win32_http_destdir)/old/
-	unix2dos $(win32_http_destdir)/old/*.html
-	cp $(srcdir)/share/http/old/*.css $(win32_http_destdir)/old/
-	cp $(srcdir)/share/http/old/.hosts $(win32_http_destdir)/old/
-	cp $(srcdir)/share/http/old/*.png $(win32_http_destdir)/old/
-	cp $(srcdir)/share/http/old/vlm/*.html $(win32_http_destdir)/old/vlm/
-	unix2dos $(win32_http_destdir)/old/vlm/*.html
-	cp $(srcdir)/share/http/old/admin/*.html $(win32_http_destdir)/old/admin/
-	unix2dos $(win32_http_destdir)/old/admin/*.html
-	cp $(srcdir)/share/http/old/admin/.access $(win32_http_destdir)/old/admin/
 endif
 
 if BUILD_SKINS
@@ -921,30 +902,17 @@ package-win-common-strip: package-win32-base-debug
 	for i in "" vlc-$(VERSION)/*$(LIBEXT) ; \
       do if test -n "$$i" ; then \
       $(OBJCOPY) --only-keep-debug "$$i" "$$i.dbg"; \
-      $(OBJCOPY) --strip-debug "$$i" ; \
+      $(OBJCOPY) --strip-all "$$i" ; \
       $(OBJCOPY) --add-gnu-debuglink="$$i.dbg" "$$i" ; \
 	  mv "$$i.dbg" "$(win32_debugdir)"; \
     fi; done
-
-if BUILD_MOZILLA
-	$(OBJCOPY) --only-keep-debug "$(npvlc)" "$(npvlc).dbg"
-	$(OBJCOPY) --strip-debug "$(npvlc)"
-	$(OBJCOPY) --add-gnu-debuglink="$(npvlc).dbg" "$(npvlc)"
-	mv "$(npvlc).dbg" "$(win32_debugdir)"
-endif
-if BUILD_ACTIVEX
-	$(OBJCOPY) --only-keep-debug "$(axvlc)" "$(axvlc).dbg"
-	$(OBJCOPY) --strip-debug "$(axvlc)"
-	$(OBJCOPY) --add-gnu-debuglink="$(axvlc).dbg" "$(axvlc)"
-	mv "$(axvlc).dbg" "$(win32_debugdir)"
-endif
 
 #strip all plugins dll
 package-win32-base: package-win-common-strip
 	for i in "" $(win32_destdir)/plugins/*$(LIBEXT) ; \
 	  do if test -n "$$i" ; then \
 	  $(OBJCOPY) --only-keep-debug "$$i" "$$i.dbg"; \
-	  $(OBJCOPY) --strip-debug "$$i" ; \
+	  $(OBJCOPY) --strip-all "$$i" ; \
 	  $(OBJCOPY) --add-gnu-debuglink="$$i.dbg" "$$i" ; \
 	  mv "$$i.dbg" "$(win32_debugdir)"; \
 	fi ; done
@@ -1080,12 +1048,13 @@ package-macosx: VLC-release.app ChangeLog
 	else \
 	  cp -R "$(top_builddir)/VLC.app" "$(top_builddir)/vlc-$(VERSION)/VLC.app"; \
 	fi
-	cd "$(srcdir)" && mkdir -p $(top_builddir)/vlc-$(VERSION)/Goodies/ && \
+	mkdir -p $(top_builddir)/vlc-$(VERSION)/Goodies/ && \
           mkdir -p $(top_builddir)/vlc-$(VERSION)/.background/ && \
-          cp AUTHORS COPYING ChangeLog README THANKS NEWS $(top_builddir)/vlc-$(VERSION)/Goodies/ && \
-          cp -R  extras/package/macosx/Delete_Preferences.app $(top_builddir)/vlc-$(VERSION)/Goodies/Delete\ VLC\ Preferences.app && \
-	  cp extras/package/macosx/README.MacOSX.rtf $(top_builddir)/vlc-$(VERSION)/Read\ Me.rtf && \
-	  cp extras/package/macosx/Resources/about_bg.png $(top_builddir)/vlc-$(VERSION)/.background/background.png
+          cp $(srcdir)/AUTHORS $(srcdir)/COPYING $(srcdir)/README $(srcdir)/THANKS $(srcdir)/NEWS $(top_builddir)/vlc-$(VERSION)/Goodies/ && \
+          cp -R  $(srcdir)/extras/package/macosx/Delete_Preferences.app $(top_builddir)/vlc-$(VERSION)/Goodies/Delete\ VLC\ Preferences.app && \
+	  cp $(srcdir)/extras/package/macosx/README.MacOSX.rtf $(top_builddir)/vlc-$(VERSION)/Read\ Me.rtf && \
+	  cp $(srcdir)/extras/package/macosx/Resources/about_bg.png $(top_builddir)/vlc-$(VERSION)/.background/background.png
+	cp -L $(top_builddir)/ChangeLog $(top_builddir)/vlc-$(VERSION)/Goodies/
 
 # Place a link to the application folder
 	ln -s /Applications $(top_builddir)/vlc-$(VERSION)/Applications
@@ -1123,7 +1092,7 @@ package-macosx: VLC-release.app ChangeLog
 # Note: We can't directly create a read only dmg as we do the bless stuff
 	echo "Make the disk image read-only"
 	mv "$(top_builddir)/vlc-$(VERSION).dmg" "$(top_builddir)/vlc-$(VERSION)-rw.dmg"
-	hdiutil convert "$(top_builddir)/vlc-$(VERSION)-rw.dmg" -format UDZO -o "$(top_builddir)/vlc-$(VERSION).dmg"
+	hdiutil convert "$(top_builddir)/vlc-$(VERSION)-rw.dmg" -format UDBZ -o "$(top_builddir)/vlc-$(VERSION).dmg"
 	rm "$(top_builddir)/vlc-$(VERSION)-rw.dmg"
 
 # We are done
@@ -1165,6 +1134,7 @@ if BUILD_MOZILLA
 # Create Installer
 	rm -rf "$(top_builddir)/macosx-plugin-instdata/"; true
 	mkdir -p "$(top_builddir)/macosx-plugin-instdata"
+	rm -f "$(top_builddir)/projects/mozilla/VLC Plugin.plugin/Contents/MacOS/modules/libmacosx_plugin.dylib" 
 	cp -R "$(top_builddir)/projects/mozilla/VLC Plugin.plugin" "$(top_builddir)/macosx-plugin-instdata"
 	rm -rf "$(top_builddir)/VLC Internet Plug-In.pkg"
 	export PACKAGEMAKER=
@@ -1176,8 +1146,8 @@ if BUILD_MOZILLA
 	fi; \
 	$${PACKAGEMAKER} -build -ds -p "$(top_builddir)/VLC Internet Plug-In.pkg" \
 	-f "$(top_builddir)/macosx-plugin-instdata" \
-	-i "$(srcdir)/extras/package/macosx/plugin/InstallerInfo.plist" \
-	-d "$(srcdir)/extras/package/macosx/plugin/InstallerDescription.plist"; true
+	-i "$(top_builddir)/extras/package/macosx/plugin/InstallerInfo.plist" \
+	-d "$(top_srcdir)/extras/package/macosx/plugin/InstallerDescription.plist"; true
 	rm -rf "$(top_builddir)/macosx-plugin-instdata/"
 
 # Create disk image 
@@ -1186,7 +1156,7 @@ if BUILD_MOZILLA
 	mkdir -p "$(top_builddir)/vlc-plugin-$(VERSION)/"
 	mv "$(top_builddir)/VLC Internet Plug-In.pkg" "$(top_builddir)/vlc-plugin-$(VERSION)/"
 	hdiutil create -srcfolder "$(top_builddir)/vlc-plugin-$(VERSION)" \
-	  "$(top_builddir)/vlc-plugin-$(VERSION).dmg" -format UDZO \
+	  "$(top_builddir)/vlc-plugin-$(VERSION).dmg" -format UDBZ \
 	  -scrub -imagekey zlib-level=9
 	echo "Disk image creation completed:"
 	rm -rf "$(top_builddir)/vlc-plugin-$(VERSION)"

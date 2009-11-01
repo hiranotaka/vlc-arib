@@ -95,8 +95,6 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 #define TITLE_LONGTEXT N_( "Show the name of the song or video in the " \
                            "controler window title." )
 
-#define FILEDIALOG_PATH_TEXT N_( "Path to use in openfile dialog" )
-
 #define NOTIFICATION_TEXT N_( "Show notification popup on track change" )
 #define NOTIFICATION_LONGTEXT N_( \
     "Show a notification popup with the artist and track name when " \
@@ -111,6 +109,13 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
                              "for main interface, playlist and extended panel."\
                              " This option only works with Windows and " \
                              "X11 with composite extensions." )
+
+#define OPACITY_FS_TEXT N_( "Fullscreen controller opacity opacity between 0.1 and 1." )
+#define OPACITY_FS_LONGTEXT N_( "Sets the fullscreen controller opacity between 0.1 and 1 " \
+                             "for main interface, playlist and extended panel."\
+                             " This option only works with Windows and " \
+                             "X11 with composite extensions." )
+
 
 #define ERROR_TEXT N_( "Show unimportant error and warnings dialogs" )
 
@@ -149,12 +154,16 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
                                   "as lyrics, album arts...\n" \
                              " - minimal mode with limited controls" )
 
-#define QT_NORMAL_MODE_TEXT N_( "Classic look" )
-#define QT_ALWAYS_VIDEO_MODE_TEXT N_( "Complete look with information area" )
-#define QT_MINIMAL_MODE_TEXT N_( "Minimal look with no menus" )
+#define QT_NORMAL_MODE_TEXT N_( "Classic" )
+#define QT_ALWAYS_VIDEO_MODE_TEXT N_( "Complete (with information area)" )
+#define QT_MINIMAL_MODE_TEXT N_( "Minimal (without menu)" )
 
 #define QT_FULLSCREEN_TEXT N_( "Show a controller in fullscreen mode" )
 #define QT_NATIVEOPEN_TEXT N_( "Embed the file browser in open dialog" )
+
+#define FULLSCREEN_NUMBER_TEXT N_( "Define which screen fullscreen goes" )
+#define FULLSCREEN_NUMBER_LONGTEXT N_( "Screennumber of fullscreen, instead of" \
+                                       "same screen where interface is" )
 
 /* Various modes definition */
 static const int i_mode_list[] =
@@ -182,6 +191,8 @@ vlc_module_begin ()
 
     add_float_with_range( "qt-opacity", 1., 0.1, 1., NULL, OPACITY_TEXT,
                           OPACITY_LONGTEXT, false )
+    add_float_with_range( "qt-fs-opacity", 0.8, 0.1, 1., NULL, OPACITY_FS_TEXT,
+                          OPACITY_FS_LONGTEXT, false )
 
     add_bool( "qt-system-tray", true, NULL, SYSTRAY_TEXT,
               SYSTRAY_LONGTEXT, false)
@@ -198,10 +209,6 @@ vlc_module_begin ()
               COMPLETEVOL_LONGTEXT, true )
     add_bool( "qt-autosave-volume", false, NULL, SAVEVOL_TEXT,
               SAVEVOL_TEXT, true )
-    add_string( "qt-filedialog-path", NULL, NULL, FILEDIALOG_PATH_TEXT,
-                FILEDIALOG_PATH_TEXT, true )
-        change_autosave ()
-        change_internal ()
 
     add_bool( "qt-embedded-open", false, NULL, QT_NATIVEOPEN_TEXT,
                QT_NATIVEOPEN_TEXT, false )
@@ -230,6 +237,9 @@ vlc_module_begin ()
               false )
         change_internal ()
 
+    add_integer( "qt-fullscreen-screennumber", -1, NULL, FULLSCREEN_NUMBER_TEXT,
+               FULLSCREEN_NUMBER_LONGTEXT, false );
+
     add_obsolete_bool( "qt-blingbling" ) /* Suppressed since 1.0.0 */
 
     add_submodule ()
@@ -238,14 +248,13 @@ vlc_module_begin ()
 
         set_callbacks( OpenDialogs, Close )
 
-#if defined (Q_WS_X11)
-# define WID_CAPABILITY "xwindow"
-#elif defined (WIN32)
-# define WID_CAPABILITY "hwnd"
-#endif
-#ifdef WID_CAPABILITY
+#if defined(Q_WS_X11) || defined(WIN32)
     add_submodule ()
-        set_capability( WID_CAPABILITY, 50 )
+#if defined(Q_WS_X11)
+        set_capability( "vout window xid", 50 )
+#elif defined(WIN32)
+        set_capability( "vout window hwnd", 50 )
+#endif
         set_callbacks( WindowOpen, WindowClose )
 #endif
 
@@ -254,11 +263,7 @@ vlc_module_end ()
 /*****************************************/
 
 /* Ugly, but the Qt4 interface assumes single instance anyway */
-static struct
-{
-    QMutex lock;
-    QWaitCondition ready;
-} iface;
+static vlc_sem_t ready;
 
 /*****************************************************************************
  * Module callbacks
@@ -289,6 +294,7 @@ static int Open( vlc_object_t *p_this )
     p_sys->p_playlist = pl_Hold( p_intf );
 
     /* */
+    vlc_sem_init (&ready, 0);
     if( vlc_clone( &p_sys->thread, Thread, p_intf, VLC_THREAD_PRIORITY_LOW ) )
     {
         pl_Release (p_sys->p_playlist);
@@ -297,13 +303,12 @@ static int Open( vlc_object_t *p_this )
     }
 
     /* */
-    QMutexLocker locker (&iface.lock);
-    vlc_value_t val;
+    vlc_sem_wait (&ready);
+    vlc_sem_destroy (&ready);
 
-    while( p_sys->p_mi == NULL && !p_sys->b_isDialogProvider )
-        iface.ready.wait( &iface.lock );
     if( !p_sys->b_isDialogProvider )
     {
+        vlc_value_t val;
         var_Create (p_this->p_libvlc, "qt4-iface", VLC_VAR_ADDRESS);
         val.p_address = p_this;
         var_Set (p_this->p_libvlc, "qt4-iface", val);
@@ -337,9 +342,6 @@ static void Close( vlc_object_t *p_this )
     delete p_sys;
 }
 
-static QMutex windowLock;
-static QWaitCondition windowWait;
-
 static void *Thread( void *obj )
 {
     intf_thread_t *p_intf = (intf_thread_t *)obj;
@@ -360,7 +362,11 @@ static void *Thread( void *obj )
         argv[argc] = NULL;
     }
 #endif
+#ifdef WIN32
+    QVLCApp app( p_intf, argc, argv );
+#else
     QVLCApp app( argc, argv );
+#endif
     p_intf->p_sys->p_app = &app;
 
 
@@ -409,52 +415,24 @@ static void *Thread( void *obj )
         p_mi = NULL;
 
     /* */
-    iface.lock.lock();
     p_intf->p_sys->p_mi = p_mi;
     p_intf->p_sys->b_isDialogProvider = p_mi == NULL;
-    iface.ready.wakeAll();
-    iface.lock.unlock();
+    vlc_sem_post (&ready);
 
     /* Explain to the core how to show a dialog :D */
     p_intf->pf_show_dialog = ShowDialog;
-
-#ifdef ENABLE_NLS
-    // Translation - get locale
-#   if defined (WIN32) || defined (__APPLE__)
-    char* psz_tmp = config_GetPsz( p_intf, "language" );
-    QString lang = qfu( psz_tmp );
-    free( psz_tmp);
-    if (lang == "auto")
-        lang = QLocale::system().name();
-#   else
-    QString lang = QLocale::system().name();
-#   endif
-    // Translations for qt's own dialogs
-    QTranslator qtTranslator( 0 );
-    // Let's find the right path for the translation file
-#if !defined( WIN32 )
-    QString path =  QString( QT4LOCALEDIR );
-#else
-    QString path = QString( QString(config_GetDataDir()) + DIR_SEP +
-                            "locale" + DIR_SEP + "qt4" + DIR_SEP );
-#endif
-    // files depending on locale
-    bool b_loaded = qtTranslator.load( path + "qt_" + lang );
-    if (!b_loaded)
-        msg_Dbg( p_intf, "Error while initializing qt-specific localization" );
-    app.installTranslator( &qtTranslator );
-#endif  //ENABLE_NLS
 
     /* Last settings */
     app.setQuitOnLastWindowClosed( false );
 
     /* Retrieve last known path used in file browsing */
-    {
-        char *psz_path = config_GetPsz( p_intf, "qt-filedialog-path" );
-        p_intf->p_sys->filepath =
-            EMPTY_STR(psz_path) ? config_GetHomeDir() : qfu(psz_path);
-        free( psz_path );
-    }
+    p_intf->p_sys->filepath =
+         getSettings()->value( "filedialog-path", QVLCUserDir( VLC_HOME_DIR ) ).toString();
+
+    /* Loads and tries to apply the preferred QStyle */
+    QString s_style = getSettings()->value( "MainWindow/QtStyle", "" ).toString();
+    if( s_style.compare("") != 0 )
+        QApplication::setStyle( s_style );
 
     /* Launch */
     app.exec();
@@ -466,7 +444,7 @@ static void *Thread( void *obj )
 
     if (p_mi != NULL)
     {
-        QMutexLocker locker (&iface.lock);
+        /* FIXME: are we sure that video window is already destroyed? */
 
         msg_Dbg (p_intf, "destroying the main Qt4 interface");
         p_intf->p_sys->p_mi = NULL;
@@ -485,6 +463,9 @@ static void *Thread( void *obj )
     /* Delete the recentsMRL object before the configuration */
     RecentsMRL::killInstance();
 
+    /* Save the path */
+    getSettings()->setValue( "filedialog-path", p_intf->p_sys->filepath );
+
     /* Delete the configuration. Application has to be deleted after that. */
     delete p_intf->p_sys->mainSettings;
 
@@ -492,9 +473,6 @@ static void *Thread( void *obj )
     MainInputManager::killInstance();
 
 
-    /* Save the path */
-    config_PutPsz( p_intf, "qt-filedialog-path",
-                   qtu(p_intf->p_sys->filepath) );
 
     /* Delete the application automatically */
 #ifdef Q_WS_X11
@@ -516,68 +494,69 @@ static void ShowDialog( intf_thread_t *p_intf, int i_dialog_event, int i_arg,
 
 /**
  * Video output window provider
+ *
+ * TODO move it out of here ?
  */
-#include <vlc_window.h>
+#include <vlc_vout_window.h>
 
-static int WindowControl (vout_window_t *, int, va_list);
+static int WindowControl( vout_window_t *, int i_query, va_list );
 
-static int WindowOpen (vlc_object_t *obj)
+static int WindowOpen( vlc_object_t *p_obj )
 {
-    vout_window_t *wnd = (vout_window_t *)obj;
-    intf_thread_t *intf = NULL;
-    vlc_value_t val;
+    vout_window_t *p_wnd = (vout_window_t*)p_obj;
 
-    if (config_GetInt (obj, "embedded-video") <= 0)
+    /* */
+    if( p_wnd->cfg->is_standalone )
         return VLC_EGENERIC;
 
-    QMutexLocker (&iface.lock);
-    if (var_Get (obj->p_libvlc, "qt4-iface", &val) == 0)
-        intf = (intf_thread_t *)val.p_address;
-    if (intf == NULL)
+    vlc_value_t val;
+
+    if( var_Get( p_obj->p_libvlc, "qt4-iface", &val ) )
+        val.p_address = NULL;
+
+    intf_thread_t *p_intf = (intf_thread_t *)val.p_address;
+
+    if( !p_intf )
     {   /* If another interface is used, this plugin cannot work */
-        msg_Dbg (obj, "Qt4 interface not found");
+        msg_Dbg( p_obj, "Qt4 interface not found" );
         return VLC_EGENERIC;
     }
 
-    MainInterface *p_mi = intf->p_sys->p_mi;
-    msg_Dbg (obj, "requesting video...");
+    MainInterface *p_mi = p_intf->p_sys->p_mi;
+    msg_Dbg( p_obj, "requesting video..." );
+
+    int i_x = p_wnd->cfg->x;
+    int i_y = p_wnd->cfg->y;
+    unsigned i_width = p_wnd->cfg->width;
+    unsigned i_height = p_wnd->cfg->height;
 
 #if defined (Q_WS_X11)
-    wnd->handle.xid = p_mi->requestVideo (wnd->vout, &wnd->pos_x, &wnd->pos_y,
-                                          &wnd->width, &wnd->height);
-    if (!wnd->handle.xid)
+    p_wnd->handle.xid = p_mi->getVideo( &i_x, &i_y, &i_width, &i_height );
+    if( !p_wnd->handle.xid )
         return VLC_EGENERIC;
 
 #elif defined (WIN32)
-    wnd->handle.hwnd = p_mi->requestVideo (wnd->vout, &wnd->pos_x, &wnd->pos_y,
-                                           &wnd->width, &wnd->height);
-    if (!wnd->handle.hwnd)
+    p_wnd->handle.hwnd = p_mi->getVideo( &i_x, &i_y, &i_width, &i_height );
+    if( !p_wnd->handle.hwnd )
         return VLC_EGENERIC;
-
-#else
-    return VLC_EGENERIC;
-
 #endif
 
-    wnd->control = WindowControl;
-    wnd->p_private = p_mi;
+    p_wnd->control = WindowControl;
+    p_wnd->sys = (vout_window_sys_t*)p_mi;
     return VLC_SUCCESS;
 }
 
-static int WindowControl (vout_window_t *wnd, int query, va_list args)
+static int WindowControl( vout_window_t *p_wnd, int i_query, va_list args )
 {
-    MainInterface *p_mi = (MainInterface *)wnd->p_private;
-    QMutexLocker locker (&iface.lock);
-
-    return p_mi->controlVideo (query, args);
+    MainInterface *p_mi = (MainInterface *)p_wnd->sys;
+    return p_mi->controlVideo( i_query, args );
 }
 
-static void WindowClose (vlc_object_t *obj)
+static void WindowClose( vlc_object_t *p_obj )
 {
-    vout_window_t *wnd = (vout_window_t *)obj;
-    MainInterface *p_mi = (MainInterface *)wnd->p_private;
-    QMutexLocker locker (&iface.lock);
+    vout_window_t *p_wnd = (vout_window_t*)p_obj;
+    MainInterface *p_mi = (MainInterface *)p_wnd->sys;
 
-    msg_Dbg (obj, "releasing video...");
-    p_mi->releaseVideo ();
+    msg_Dbg( p_obj, "releasing video..." );
+    p_mi->releaseVideo();
 }

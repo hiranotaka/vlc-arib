@@ -29,6 +29,7 @@
 #endif
 
 #include <vlc_common.h>
+#include <vlc_url.h>
 
 #include "util/qvlcframe.hpp"
 #include "ui/open.h"
@@ -101,7 +102,7 @@ private:
     QStringList SeparateEntries( const QString& );
 
     QPushButton *cancelButton, *selectButton;
-    QPushButton *playButton;
+    QToolButton *playButton;
 
     void finish( bool );
 

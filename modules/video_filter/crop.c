@@ -109,7 +109,7 @@ vlc_module_begin ()
 
     add_string( "crop-geometry", NULL, NULL, GEOMETRY_TEXT,
                                              GEOMETRY_LONGTEXT, false )
-    add_bool( "autocrop", 0, NULL, AUTOCROP_TEXT,
+    add_bool( "autocrop", false, NULL, AUTOCROP_TEXT,
                                    AUTOCROP_LONGTEXT, false )
 
 #ifdef BEST_AUTOCROP
@@ -371,13 +371,13 @@ static int Init( vout_thread_t *p_vout )
     if( p_vout->p_sys->p_vout == NULL )
     {
         msg_Err( p_vout, "failed to create vout" );
-        dialog_Fatal( p_vout, _("Cropping failed"),
+        dialog_Fatal( p_vout, _("Cropping failed"), "%s",
                         _("VLC could not open the video output module.") );
         return VLC_EGENERIC;
     }
 
-#ifdef BEST_AUTOCROP
     vlc_mutex_init( &p_vout->p_sys->lock );
+#ifdef BEST_AUTOCROP
     var_AddCallback( p_vout, "ratio-crop", FilterCallback, NULL );
 #endif
 
@@ -463,7 +463,7 @@ static int Manage( vout_thread_t *p_vout )
     if( p_vout->p_sys->p_vout == NULL )
     {
         msg_Err( p_vout, "failed to create vout" );
-        dialog_Fatal( p_vout, _("Cropping failed"),
+        dialog_Fatal( p_vout, _("Cropping failed"), "%s",
                         _("VLC could not open the video output module.") );
         return VLC_EGENERIC;
     }

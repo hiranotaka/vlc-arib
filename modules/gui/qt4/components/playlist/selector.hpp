@@ -1,10 +1,11 @@
 /*****************************************************************************
  * selector.hpp : Playlist source selector
  ****************************************************************************
- * Copyright (C) 2000-2005 the VideoLAN team
+ * Copyright (C) 2000-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Clément Stenac <zorglub@videolan.org>
+ *          Jean-Baptiste Kempf
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,30 +29,59 @@
 # include "config.h"
 #endif
 
-#include "components/playlist/playlist_model.hpp"
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QStyledItemDelegate>
 
-#include <QWidget>
+#include <vlc_playlist.h>
 
-class QTreeView;
+#include "qt4.hpp"
+
 class PlaylistWidget;
 
-class PLSelector: public QWidget
+enum {
+    PL_TYPE,
+    ML_TYPE,
+    SD_TYPE,
+};
+
+enum {
+    TYPE_ROLE = Qt::UserRole,
+    PPL_ITEM_ROLE,
+    NAME_ROLE,
+    LONGNAME_ROLE,
+};
+
+class PLSelectorDelegate : public QStyledItemDelegate
+{
+  private:
+    QSize sizeHint ( const QStyleOptionViewItem& option, const QModelIndex& index ) const
+    {
+      QSize sz = QStyledItemDelegate::sizeHint( option, index );
+      if( sz.height() < 25 ) sz.setHeight(25);
+      return sz;
+    }
+};
+
+Q_DECLARE_METATYPE( playlist_item_t *);
+class PLSelector: public QTreeWidget
 {
     Q_OBJECT;
 public:
     PLSelector( QWidget *p, intf_thread_t *_p_intf );
     virtual ~PLSelector();
 protected:
-    PLModel *model;
     friend class PlaylistWidget;
 private:
+    QStringList mimeTypes () const;
+    void makeStandardItem( QTreeWidgetItem*, const QString& );
+    bool dropMimeData ( QTreeWidgetItem * parent, int index, const QMimeData * data, Qt::DropAction action );
+    void createItems();
     intf_thread_t *p_intf;
-    QTreeView *view;
 private slots:
-    void setSource( const QModelIndex& );
+    void setSource( QTreeWidgetItem *item );
 signals:
-    void activated( int );
-    void shouldRemove( int );
+    void activated( playlist_item_t * );
 };
 
 #endif

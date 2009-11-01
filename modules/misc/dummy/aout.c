@@ -1,5 +1,5 @@
 /*****************************************************************************
- * aout_dummy.c : dummy audio output plugin
+ * aout.c : dummy audio output plugin
  *****************************************************************************
  * Copyright (C) 2002 the VideoLAN team
  * $Id$
@@ -62,7 +62,11 @@ int OpenAudio ( vlc_object_t * p_this )
     {
         p_aout->output.i_nb_samples = FRAME_SIZE;
     }
-    return 0;
+
+    /* Create the variable for the audio-device */
+    var_Create( p_aout, "audio-device", VLC_VAR_INTEGER | VLC_VAR_HASCHOICE );
+
+    return VLC_SUCCESS;
 }
 
 /*****************************************************************************

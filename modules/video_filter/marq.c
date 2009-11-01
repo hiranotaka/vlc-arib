@@ -34,11 +34,11 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 
-#include "vlc_filter.h"
-#include "vlc_block.h"
-#include "vlc_osd.h"
+#include <vlc_filter.h>
+#include <vlc_block.h>
+#include <vlc_osd.h>
 
-#include "vlc_strings.h"
+#include <vlc_strings.h>
 
 /*****************************************************************************
  * Local prototypes
@@ -111,7 +111,7 @@ struct filter_sys_t
                             "0 (remains forever).")
 #define REFRESH_TEXT N_("Refresh period in ms")
 #define REFRESH_LONGTEXT N_("Number of milliseconds between string updates. " \
-                            "This is mainly usefull when using meta data " \
+                            "This is mainly useful when using meta data " \
                             "or time format string sequences.")
 #define OPACITY_TEXT N_("Opacity")
 #define OPACITY_LONGTEXT N_("Opacity (inverse of transparency) of " \
@@ -222,9 +222,8 @@ static int CreateFilter( vlc_object_t *p_this )
     var_AddCallback( p_filter, "marq-refresh", MarqueeCallback, p_sys );
     CREATE_VAR( i_pos, Integer, "marq-position" );
     CREATE_VAR( psz_marquee, String, "marq-marquee" );
-    CREATE_VAR( p_style->i_font_alpha, Integer, "marq-opacity" );
-    p_sys->p_style->i_font_alpha =
-         255 - var_CreateGetIntegerCommand( p_filter, "marq-opacity" );
+    p_sys->p_style->i_font_alpha = 255 - var_CreateGetIntegerCommand( p_filter,
+                                                            "marq-opacity" );
     var_AddCallback( p_filter, "marq-opacity", MarqueeCallback, p_sys );
     CREATE_VAR( p_style->i_font_color, Integer, "marq-color" );
     CREATE_VAR( p_style->i_font_size, Integer, "marq-size" );
@@ -249,11 +248,12 @@ static void DestroyFilter( vlc_object_t *p_this )
     var_Destroy( p_filter, var );
     DEL_VAR( "marq-x" );
     DEL_VAR( "marq-y" );
-    DEL_VAR( "marq-marquee" );
     DEL_VAR( "marq-timeout" );
+    DEL_VAR( "marq-refresh" );
     DEL_VAR( "marq-position" );
-    DEL_VAR( "marq-color" );
+    DEL_VAR( "marq-marquee" );
     DEL_VAR( "marq-opacity" );
+    DEL_VAR( "marq-color" );
     DEL_VAR( "marq-size" );
 
     vlc_mutex_destroy( &p_sys->lock );

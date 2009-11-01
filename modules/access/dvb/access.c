@@ -18,9 +18,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 
@@ -70,7 +70,7 @@
 #endif
 
 #ifdef ENABLE_HTTPD
-#   include "vlc_httpd.h"
+#   include <vlc_httpd.h>
 #endif
 
 #include "dvb.h"
@@ -207,15 +207,15 @@ vlc_module_begin ()
                  false )
     add_integer( "dvb-inversion", 2, NULL, INVERSION_TEXT, INVERSION_LONGTEXT,
                  true )
-    add_bool( "dvb-probe", 1, NULL, PROBE_TEXT, PROBE_LONGTEXT, true )
-    add_bool( "dvb-budget-mode", 0, NULL, BUDGET_TEXT, BUDGET_LONGTEXT,
+    add_bool( "dvb-probe", true, NULL, PROBE_TEXT, PROBE_LONGTEXT, true )
+    add_bool( "dvb-budget-mode", false, NULL, BUDGET_TEXT, BUDGET_LONGTEXT,
               true )
     /* DVB-S (satellite) */
     add_integer( "dvb-satno", 0, NULL, SATNO_TEXT, SATNO_LONGTEXT,
                  true )
     add_integer( "dvb-voltage", 13, NULL, VOLTAGE_TEXT, VOLTAGE_LONGTEXT,
                  true )
-    add_bool( "dvb-high-voltage", 0, NULL, HIGH_VOLTAGE_TEXT,
+    add_bool( "dvb-high-voltage", false, NULL, HIGH_VOLTAGE_TEXT,
               HIGH_VOLTAGE_LONGTEXT, true )
     add_integer( "dvb-tone", -1, NULL, TONE_TEXT, TONE_LONGTEXT,
                  true )
@@ -250,8 +250,8 @@ vlc_module_begin ()
                 true )
     add_string( "dvb-http-user", NULL, NULL, USER_TEXT, USER_LONGTEXT,
                 true )
-    add_string( "dvb-http-password", NULL, NULL, PASSWORD_TEXT,
-                PASSWORD_LONGTEXT, true )
+    add_password( "dvb-http-password", NULL, NULL, PASSWORD_TEXT,
+                  PASSWORD_LONGTEXT, true )
     add_string( "dvb-http-acl", NULL, NULL, ACL_TEXT, ACL_LONGTEXT,
                 true )
     add_string( "dvb-http-intf-cert", NULL, NULL, CERT_TEXT, CERT_LONGTEXT,
@@ -421,6 +421,8 @@ static int Open( vlc_object_t *p_this )
     else
         p_sys->i_read_once = DVB_READ_ONCE_START;
 
+    free( p_access->psz_demux );
+    p_access->psz_demux = strdup( p_sys->b_scan_mode ? "m3u8" : "ts" );
     return VLC_SUCCESS;
 }
 
@@ -733,7 +735,7 @@ static int Control( access_t *p_access, int i_query, va_list args )
         /* */
         case ACCESS_GET_PTS_DELAY:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = var_GetInteger( p_access, "dvb-caching" ) * 1000;
+            *pi_64 = (int64_t)var_GetInteger( p_access, "dvb-caching" ) * 1000;
             break;
 
         /* */
@@ -937,7 +939,7 @@ static int ParseMRL( access_t *p_access )
     {
         msg_Err( p_access, "the DVB input old syntax is deprecated, use vlc "
                           "-p dvb to see an explanation of the new syntax" );
-        dialog_FatalWait( p_access, _("Input syntax is deprecated"),
+        dialog_FatalWait( p_access, _("Input syntax is deprecated"), "%s",
             _("The given syntax is deprecated. Run \"vlc -p dvb\" to see an " \
                 "explanation of the new syntax.") );
         free( psz_dup );

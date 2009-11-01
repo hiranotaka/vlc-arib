@@ -38,6 +38,11 @@ typedef struct
 } lldiv_t;
 #endif
 
+#if !defined(HAVE_GETENV) || \
+    !defined(HAVE_USELOCALE)
+# include <stddef.h> /* NULL */
+#endif
+
 #ifndef HAVE_REWIND
 # include <stdio.h> /* FILE */
 #endif
@@ -51,6 +56,10 @@ typedef struct
 
 #ifndef HAVE_VASPRINTF
 # include <stdarg.h> /* va_list */
+#endif
+
+#ifndef HAVE_GETPID
+# include <sys/types.h> /* pid_t */
 #endif
 
 #ifdef __cplusplus
@@ -133,6 +142,10 @@ void rewind (FILE *);
 char *getcwd (char *buf, size_t size);
 #endif
 
+#ifndef HAVE_GETPID
+pid_t getpid (void);
+#endif
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
@@ -153,10 +166,22 @@ static inline char *getenv (const char *name)
 #endif
 
 #ifndef HAVE_USELOCALE
+#define LC_NUMERIC_MASK 0
 typedef void *locale_t;
-# define newlocale( a, b, c ) ((locale_t)0)
-# define uselocale( a ) ((locale_t)0)
-# define freelocale( a ) (void)0
+static inline locale_t uselocale(locale_t loc)
+{
+    (void)loc;
+    return NULL;
+}
+static inline void freelocale(locale_t loc)
+{
+    (void)loc;
+}
+static inline locale_t newlocale(int mask, const char * locale, locale_t base)
+{
+    (void)mask; (void)locale; (void)base;
+    return NULL;
+}
 #endif
 
 #ifdef WIN32

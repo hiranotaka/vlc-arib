@@ -29,6 +29,7 @@
 
 #include "input_manager.hpp"
 #include <vlc_keys.h>
+#include <vlc_url.h>
 
 #include <QApplication>
 
@@ -149,15 +150,11 @@ void InputManager::customEvent( QEvent *event )
     int i_type = event->type();
     IMEvent *ple = static_cast<IMEvent *>(event);
 
+    if( i_type == ItemChanged_Type )
+        UpdateMeta( ple->p_item );
+
     if( !hasInput() )
         return;
-
-#ifndef NDEBUG
-    if( i_type != PositionUpdate_Type &&
-        i_type != StatisticsUpdate_Type &&
-        i_type != ItemChanged_Type )
-        msg_Dbg( p_intf, "New Event: type %i", i_type );
-#endif
 
     /* Actions */
     switch( i_type )
@@ -177,7 +174,6 @@ void InputManager::customEvent( QEvent *event )
             UpdateArt();
             /* Update duration of file */
         }
-        UpdateMeta( ple->p_item->i_id );
         break;
     case ItemStateChanged_Type:
         // TODO: Fusion with above state
@@ -590,12 +586,20 @@ void InputManager::UpdateArt()
     if( hasInput() )
     {
         char *psz_art = input_item_GetArtURL( input_GetItem( p_input ) );
-        url = qfu( psz_art );
+        if( psz_art && !strncmp( psz_art, "file://", 7 ) &&
+                decode_URI( psz_art + 7 ) )
+#ifdef WIN32
+            url = qfu( psz_art + 8 ); // Remove extra / starting on Win32.
+#else
+            url = qfu( psz_art + 7 );
+#endif
         free( psz_art );
+
+        url = url.replace( "file://", "" );
+        /* Taglib seems to define a attachment://, It won't work yet */
+        url = url.replace( "attachment://", "" );
     }
-    url = url.replace( "file://", QString("" ) );
-    /* Taglib seems to define a attachment://, It won't work yet */
-    url = url.replace( "attachment://", QString("" ) );
+
     /* Update Art meta */
     emit artChanged( url );
 }
@@ -605,9 +609,9 @@ inline void InputManager::UpdateStats()
     emit statisticsUpdated( input_GetItem( p_input ) );
 }
 
-inline void InputManager::UpdateMeta( int id )
+inline void InputManager::UpdateMeta( input_item_t *p_item )
 {
-    emit metaChanged( id );
+    emit metaChanged( p_item );
 }
 
 inline void InputManager::UpdateMeta()
@@ -661,8 +665,8 @@ void InputManager::sectionPrev()
     if( hasInput() )
     {
         int i_type = var_Type( p_input, "next-chapter" );
-        var_SetVoid( p_input, (i_type & VLC_VAR_TYPE) != 0 ?
-                            "prev-chapter":"prev-title" );
+        var_TriggerCallback( p_input, (i_type & VLC_VAR_TYPE) != 0 ?
+                             "prev-chapter":"prev-title" );
     }
 }
 
@@ -671,8 +675,8 @@ void InputManager::sectionNext()
     if( hasInput() )
     {
         int i_type = var_Type( p_input, "next-chapter" );
-        var_SetVoid( p_input, (i_type & VLC_VAR_TYPE) != 0 ?
-                            "next-chapter":"next-title" );
+        var_TriggerCallback( p_input, (i_type & VLC_VAR_TYPE) != 0 ?
+                             "next-chapter":"next-title" );
     }
 }
 
@@ -776,13 +780,13 @@ void InputManager::reverse()
 void InputManager::slower()
 {
     if( hasInput() )
-        var_SetVoid( p_input, "rate-slower" );
+        var_TriggerCallback( p_input, "rate-slower" );
 }
 
 void InputManager::faster()
 {
     if( hasInput() )
-        var_SetVoid( p_input, "rate-faster" );
+        var_TriggerCallback( p_input, "rate-faster" );
 }
 
 void InputManager::littlefaster()

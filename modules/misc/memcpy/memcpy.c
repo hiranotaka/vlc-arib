@@ -31,6 +31,7 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
+#include <vlc_cpu.h>
 
 #undef HAVE_MMX
 #undef HAVE_MMX2
@@ -65,6 +66,7 @@
  *****************************************************************************/
 static int Activate ( vlc_object_t *p_this )
 {
+    VLC_UNUSED(p_this);
 #ifndef MODULE_NAME_IS_memcpy
     vlc_fastmem_register( fast_memcpy, NULL );
 #endif

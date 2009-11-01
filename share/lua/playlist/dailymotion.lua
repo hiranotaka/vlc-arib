@@ -24,7 +24,7 @@
 -- Probe function.
 function probe()
     return vlc.access == "http"
-        and string.match( vlc.path, "dailymotion.com" ) 
+        and string.match( vlc.path, "dailymotion." ) 
         and string.match( vlc.peek( 2048 ), "<!DOCTYPE.*video_type" )
 end
 
@@ -41,7 +41,7 @@ function parse()
         if not line then break end
         if string.match( line, "param name=\"flashvars\" value=\".*video=" )
         then
-            arturl = vlc.strings.decode_uri( find( line, "param name=\"flashvars\" value=\".*preview=([^&]*)" ) )
+            arturl = find( line, "param name=\"flashvars\" value=\".*preview=([^&]*)" )
             videos = vlc.strings.decode_uri( find( line, "param name=\"flashvars\" value=\".*video=([^&]*)" ) )
        --[[ we get a list of different streams available, at various codecs
             and resolutions:
@@ -85,7 +85,7 @@ function parse()
         end
         if string.match( line, "<meta name=\"description\"" )
         then
-            description = vlc.strings.resolve_xml_special_chars( find( line, "name=\"description\" content=\"(.-)\"" ) )
+            description = vlc.strings.resolve_xml_special_chars( vlc.strings.resolve_xml_special_chars( find( line, "name=\"description\" lang=\".-\" content=\"(.-)\"" ) ) )
         end
         if path and name and description and arturl then break end
     end

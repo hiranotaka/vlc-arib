@@ -1,5 +1,5 @@
 /*****************************************************************************
- * input_interface.h: Input functions usable ouside input code.
+ * input_interface.h: Input functions usable outside input code.
  *****************************************************************************
  * Copyright (C) 1998-2008 the VideoLAN team
  * $Id$
@@ -37,19 +37,14 @@
 void input_item_SetPreparsed( input_item_t *p_i, bool b_preparsed );
 void input_item_SetArtNotFound( input_item_t *p_i, bool b_not_found );
 void input_item_SetArtFetched( input_item_t *p_i, bool b_art_fetched );
-void input_item_SetEpg( input_item_t *p_item,
-                        const char *psz_epg, const vlc_epg_t *p_epg );
+void input_item_SetEpg( input_item_t *p_item, const vlc_epg_t *p_epg );
+void input_item_SetEpgOffline( input_item_t * );
 
 int input_Preparse( vlc_object_t *, input_item_t * );
 
 /* misc/stats.c
  * FIXME it should NOT be defined here or not coded in misc/stats.c */
 input_stats_t *stats_NewInputStats( input_thread_t *p_input );
-
-/**
- * This function releases an input_resource_t and all associated resources.
- */
-void input_resource_Delete( input_resource_t * );
 
 /**
  * This function deletes the current sout in the resources.
@@ -69,15 +64,6 @@ void input_resource_TerminateVout( input_resource_t *p_resource );
 bool input_resource_HasVout( input_resource_t *p_resource );
 
 /* input.c */
-
-/**
- * This function detaches resources from a dead input.
- *
- * It MUST be called on a dead input (p_input->b_dead true) otherwise
- * it will assert.
- * It does not support concurrent calls.
- */
-input_resource_t *input_DetachResource( input_thread_t * );
 
 /* */
 typedef enum

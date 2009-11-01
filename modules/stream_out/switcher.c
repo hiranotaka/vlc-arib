@@ -34,6 +34,8 @@
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
 #include <vlc_avcodec.h>
+#include <vlc_filter.h>
+#include <vlc_cpu.h>
 
 #include <vlc_block.h>
 
@@ -130,7 +132,7 @@ vlc_module_begin ()
                  GOP_TEXT, GOP_LONGTEXT, true )
     add_integer( SOUT_CFG_PREFIX "qscale", 5, NULL,
                  QSCALE_TEXT, QSCALE_LONGTEXT, true )
-    add_bool( SOUT_CFG_PREFIX "mute-audio", 1, NULL,
+    add_bool( SOUT_CFG_PREFIX "mute-audio", true, NULL,
               AUDIO_TEXT, AUDIO_LONGTEXT, true )
 vlc_module_end ()
 
@@ -265,7 +267,7 @@ static int Open( vlc_object_t *p_this )
     }
 
     var_Get( p_stream, SOUT_CFG_PREFIX "port", &val );
-    p_sys->i_fd = net_ListenUDP1( p_stream, NULL, val.i_int );
+    p_sys->i_fd = net_ListenUDP1( VLC_OBJECT(p_stream), NULL, val.i_int );
     if ( p_sys->i_fd < 0 )
     {
         free( p_sys );
@@ -387,13 +389,13 @@ static sout_stream_id_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
         vlc_avcodec_lock();
         if( avcodec_open( id->ff_enc_c, id->ff_enc ) )
         {
-            avcodec_unlock();
+            vlc_avcodec_unlock();
             msg_Err( p_stream, "cannot open encoder" );
             av_free( id->ff_enc_c );
             free( id );
             return NULL;
         }
-        avcodec_unlock();
+        vlc_avcodec_unlock();
 
         id->p_buffer_out = malloc( AVCODEC_MAX_AUDIO_FRAME_SIZE * 2 );
         id->p_samples = calloc( id->ff_enc_c->frame_size * p_fmt->audio.i_channels,
@@ -798,14 +800,14 @@ static mtime_t VideoCommand( sout_stream_t *p_stream, sout_stream_id_t *id )
         id->ff_enc_c->mb_decision = FF_MB_DECISION_SIMPLE;
         id->ff_enc_c->pix_fmt = PIX_FMT_YUV420P;
 
-        avcodec_lock();
+        vlc_avcodec_lock();
         if( avcodec_open( id->ff_enc_c, id->ff_enc ) )
         {
-            avcodec_unlock();
+            vlc_avcodec_unlock();
             msg_Err( p_stream, "cannot open encoder" );
             return 0;
         }
-        avcodec_unlock();
+        vlc_avcodec_unlock();
 
         id->p_buffer_out = malloc( id->ff_enc_c->width * id->ff_enc_c->height * 3 );
         id->p_frame = avcodec_alloc_frame();
@@ -950,6 +952,7 @@ static block_t *AudioGetBuffer( sout_stream_t *p_stream, sout_stream_id_t *id,
     int i_out;
     block_t *p_out;
 
+    (void)p_stream;
     i_out = avcodec_encode_audio( id->ff_enc_c, id->p_buffer_out,
                                   2 * AVCODEC_MAX_AUDIO_FRAME_SIZE,
                                   id->p_samples );

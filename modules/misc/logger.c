@@ -16,9 +16,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -36,10 +36,6 @@
 #include <vlc_charset.h>
 
 #include <assert.h>
-
-#ifdef UNDER_CE
-#   define _IONBF 0x0004
-#endif
 
 #define MODE_TEXT 0
 #define MODE_HTML 1
@@ -72,7 +68,7 @@
     "  </body>\n" \
     "</html>\n"
 
-#if HAVE_SYSLOG_H
+#ifdef HAVE_SYSLOG_H
 #include <syslog.h>
 #endif
 
@@ -120,13 +116,42 @@ static const char *const mode_list_text[] = { N_("Text"), "HTML"
 };
 
 #define LOGMODE_TEXT N_("Log format")
-#ifdef HAVE_SYSLOG_H
+#ifndef HAVE_SYSLOG_H
+#define LOGMODE_LONGTEXT N_("Specify the log format. Available choices are " \
+  "\"text\" (default) and \"html\".")
+#else
+
 #define LOGMODE_LONGTEXT N_("Specify the log format. Available choices are " \
   "\"text\" (default), \"html\", and \"syslog\" (special mode to send to " \
   "syslog instead of file.")
-#else
-#define LOGMODE_LONGTEXT N_("Specify the log format. Available choices are " \
-  "\"text\" (default) and \"html\".")
+
+#define SYSLOG_FACILITY_TEXT N_("Syslog facility")
+#define SYSLOG_FACILITY_LONGTEXT N_("Select the syslog facility where logs " \
+  "will be forwarded. Available choices are \"user\" (default), \"daemon\", " \
+  "and \"local0\" through \"local7\".")
+
+/* First in list is the default facility used. */
+#define DEFINE_SYSLOG_FACILITY \
+  DEF( "user",   LOG_USER ), \
+  DEF( "daemon", LOG_DAEMON ), \
+  DEF( "local0", LOG_LOCAL0 ), \
+  DEF( "local1", LOG_LOCAL1 ), \
+  DEF( "local2", LOG_LOCAL2 ), \
+  DEF( "local3", LOG_LOCAL3 ), \
+  DEF( "local4", LOG_LOCAL4 ), \
+  DEF( "local5", LOG_LOCAL5 ), \
+  DEF( "local6", LOG_LOCAL6 ), \
+  DEF( "local7", LOG_LOCAL7 )
+
+#define DEF( a, b ) a
+static const char *const fac_name[]   = { DEFINE_SYSLOG_FACILITY };
+#undef  DEF
+#define DEF( a, b ) b
+static const int         fac_number[] = { DEFINE_SYSLOG_FACILITY };
+#undef  DEF
+enum                   { fac_entries = sizeof(fac_name)/sizeof(fac_name[0]) };
+#undef  DEFINE_SYSLOG_FACILITY
+
 #endif
 
 vlc_module_begin ()
@@ -141,6 +166,11 @@ vlc_module_begin ()
     add_string( "logmode", "text", NULL, LOGMODE_TEXT, LOGMODE_LONGTEXT,
                 false )
         change_string_list( mode_list, mode_list_text, 0 )
+#ifdef HAVE_SYSLOG_H
+    add_string( "syslog-facility", fac_name[0], NULL, SYSLOG_FACILITY_TEXT,
+                SYSLOG_FACILITY_LONGTEXT, true )
+        change_string_list( fac_name, fac_name, 0 )
+#endif
 
     add_obsolete_string( "rrd-file" )
 
@@ -158,7 +188,7 @@ static int Open( vlc_object_t *p_this )
     char *psz_mode;
 
     CONSOLE_INTRO_MSG;
-    msg_Info( p_intf, "using logger..." );
+    msg_Info( p_intf, "using logger." );
 
     /* Allocate instance and initialize some members */
     p_sys = p_intf->p_sys = (intf_sys_t *)malloc( sizeof( intf_sys_t ) );
@@ -200,10 +230,13 @@ static int Open( vlc_object_t *p_this )
         if( !psz_file )
         {
 #ifdef __APPLE__
-            if( asprintf( &psz_file, "%s/"LOG_DIR"/%s", config_GetHomeDir(),
+            char *home = config_GetUserDir(VLC_DOCUMENTS_DIR);
+            if( home == NULL
+             || asprintf( &psz_file, "%s/"LOG_DIR"/%s", home,
                 (p_sys->msg.i_mode == MODE_HTML) ? LOG_FILE_HTML
                                              : LOG_FILE_TEXT ) == -1 )
                 psz_file = NULL;
+            free(home);
 #else
             switch( p_sys->msg.i_mode )
             {
@@ -250,7 +283,36 @@ static int Open( vlc_object_t *p_this )
     {
         p_sys->msg.p_file = NULL;
 #ifdef HAVE_SYSLOG_H
-        openlog( "vlc", LOG_PID|LOG_NDELAY, LOG_DAEMON );
+        int i_facility;
+        char *psz_facility = var_CreateGetString( p_intf, "syslog-facility" );
+        if( psz_facility )
+        {
+            bool b_valid = 0;
+            for( size_t i = 0; i < fac_entries; ++i )
+            {
+                if( !strcmp( psz_facility, fac_name[i] ) )
+                {
+                    i_facility = fac_number[i];
+                    b_valid = 1;
+                    break;
+                }
+            }
+            if( !b_valid )
+            {
+                msg_Warn( p_intf, "invalid syslog facility `%s', using `%s'",
+                          psz_facility, fac_name[0] );
+                i_facility = fac_number[0];
+            }
+            free( psz_facility );
+        }
+        else
+        {
+            msg_Warn( p_intf, "no syslog facility specified, using `%s'",
+                      fac_name[0] );
+            i_facility = fac_number[0];
+        }
+
+        openlog( "vlc", LOG_PID|LOG_NDELAY, i_facility );
 #endif
     }
 
@@ -300,6 +362,7 @@ static void Close( vlc_object_t *p_this )
  */
 static void Overflow (msg_cb_data_t *p_sys, msg_item_t *p_item, unsigned overruns)
 {
+    VLC_UNUSED(overruns);
     int verbosity = var_CreateGetInteger( p_sys->p_intf, "verbose" );
     int priority = 0;
 
@@ -310,6 +373,8 @@ static void Overflow (msg_cb_data_t *p_sys, msg_item_t *p_item, unsigned overrun
     }
     if (verbosity < priority)
         return;
+
+    int canc = vlc_savecancel();
 
     switch( p_sys->i_mode )
     {
@@ -326,6 +391,8 @@ static void Overflow (msg_cb_data_t *p_sys, msg_item_t *p_item, unsigned overrun
             TextPrint( p_item, p_sys->p_file );
             break;
     }
+
+    vlc_restorecancel( canc );
 }
 
 static const char ppsz_type[4][11] = {
@@ -348,11 +415,10 @@ static void SyslogPrint( const msg_item_t *p_msg )
     int i_priority = i_prio[p_msg->i_type];
 
     if( p_msg->psz_header )
-        syslog( i_priority, "%s%s %s: %s", p_msg->psz_header,
-                ppsz_type[p_msg->i_type],
-                p_msg->psz_module, p_msg->psz_msg );
+        syslog( i_priority, "%s %s%s%s", p_msg->psz_header, p_msg->psz_module,
+                ppsz_type[p_msg->i_type], p_msg->psz_msg );
     else
-        syslog( i_priority, "%s%s: %s", p_msg->psz_module, 
+        syslog( i_priority, "%s%s%s", p_msg->psz_module, 
                 ppsz_type[p_msg->i_type], p_msg->psz_msg );
  
 }

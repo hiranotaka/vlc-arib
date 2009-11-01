@@ -25,6 +25,8 @@
 #define QVLC_PLUGIN_DIALOG_H_ 1
 
 #include "util/qvlcframe.hpp"
+#include <QTreeWidget>
+#include <QStringList>
 
 class QTreeWidget;
 class QLineEdit;
@@ -34,15 +36,35 @@ class PluginDialog : public QVLCFrame
 {
     Q_OBJECT;
 public:
-    PluginDialog( intf_thread_t * );
+    static PluginDialog * getInstance( intf_thread_t *p_intf )
+    {
+        if( !instance)
+            instance = new PluginDialog( p_intf );
+        return instance;
+    }
+    static void killInstance()
+    {
+        delete instance;
+        instance = NULL;
+    }
 private:
-    void FillTree();
+    PluginDialog( intf_thread_t * );
     virtual ~PluginDialog();
+    static PluginDialog *instance;
 
+    void FillTree();
     QTreeWidget *treePlugins;
     SearchLineEdit *edit;
 private slots:
     void search( const QString& );
+};
+
+class PluginTreeItem : public QTreeWidgetItem
+{
+public:
+    PluginTreeItem(QStringList &qs_item, int Type = QTreeWidgetItem::Type) : QTreeWidgetItem (qs_item, Type)
+    { }
+    virtual bool operator< ( const QTreeWidgetItem & other ) const;
 };
 
 #endif

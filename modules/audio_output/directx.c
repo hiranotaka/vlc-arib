@@ -1,7 +1,7 @@
 /*****************************************************************************
  * directx.c: Windows DirectX audio output method
  *****************************************************************************
- * Copyright (C) 2001 the VideoLAN team
+ * Copyright (C) 2001-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
@@ -210,7 +210,7 @@ static void Play       ( aout_instance_t * );
 static void Probe             ( aout_instance_t * );
 static int  InitDirectSound   ( aout_instance_t * );
 static int  CreateDSBuffer    ( aout_instance_t *, int, int, int, int, int, bool );
-static int  CreateDSBufferPCM ( aout_instance_t *, int*, int, int, int, bool );
+static int  CreateDSBufferPCM ( aout_instance_t *, vlc_fourcc_t*, int, int, int, bool );
 static void DestroyDSBuffer   ( aout_instance_t * );
 static void* DirectSoundThread( vlc_object_t * );
 static int  FillBuffer        ( aout_instance_t *, int, aout_buffer_t * );
@@ -230,7 +230,7 @@ static const char *const speaker_list[] = { "Windows default", "Mono", "Stereo",
 #define FLOAT_LONGTEXT N_( \
     "The option allows you to enable or disable the high-quality float32 " \
     "audio output mode (which is not well supported by some soundcards)." )
-#define SPEAKER_TEXT N_("Select speaker configuration")
+#define SPEAKER_TEXT N_("Speaker configuration")
 #define SPEAKER_LONGTEXT N_("Select speaker configuration you want to use. " \
     "This option doesn't upmix! So NO e.g. Stereo -> 5.1 conversion." )
 
@@ -243,7 +243,7 @@ vlc_module_begin ()
     add_shortcut( "directx" )
     add_integer( "directx-audio-device", 0, NULL, DEVICE_TEXT,
                  DEVICE_LONGTEXT, true )
-    add_bool( "directx-audio-float32", 0, 0, FLOAT_TEXT,
+    add_bool( "directx-audio-float32", false, NULL, FLOAT_TEXT,
               FLOAT_LONGTEXT, true )
     add_string( "directx-audio-speaker", "Windows default", NULL,
                  SPEAKER_TEXT, SPEAKER_LONGTEXT, true )
@@ -448,7 +448,7 @@ static int OpenAudio( vlc_object_t *p_this )
 static void Probe( aout_instance_t * p_aout )
 {
     vlc_value_t val, text;
-    int i_format;
+    vlc_fourcc_t i_format;
     unsigned int i_physical_channels;
     DWORD ui_speaker_config;
     bool is_default_output_set = false;
@@ -482,21 +482,21 @@ static void Probe( aout_instance_t * p_aout )
                              AOUT_CHAN_CENTER | AOUT_CHAN_REARLEFT |
                              AOUT_CHAN_MIDDLELEFT | AOUT_CHAN_MIDDLERIGHT |
                              AOUT_CHAN_REARRIGHT | AOUT_CHAN_LFE;
-       if( p_aout->output.output.i_physical_channels == i_physical_channels )
-       {
-           if( CreateDSBufferPCM( p_aout, &i_format, i_physical_channels, 8,
+    if( p_aout->output.output.i_physical_channels == i_physical_channels )
+    {
+        if( CreateDSBufferPCM( p_aout, &i_format, i_physical_channels, 8,
                                   p_aout->output.output.i_rate, true )
-               == VLC_SUCCESS )
-           {
-               val.i_int = AOUT_VAR_7_1;
-               text.psz_string = (char*) "7.1";
-               var_Change( p_aout, "audio-device",
-                           VLC_VAR_ADDCHOICE, &val, &text );
-               var_Change( p_aout, "audio-device", VLC_VAR_SETDEFAULT, &val, NULL );
-               is_default_output_set = true;
-               msg_Dbg( p_aout, "device supports 7.1 channels" );
-           }
-       }
+            == VLC_SUCCESS )
+        {
+            val.i_int = AOUT_VAR_7_1;
+            text.psz_string = (char*) "7.1";
+            var_Change( p_aout, "audio-device",
+                        VLC_VAR_ADDCHOICE, &val, &text );
+            var_Change( p_aout, "audio-device", VLC_VAR_SETDEFAULT, &val, NULL );
+            is_default_output_set = true;
+            msg_Dbg( p_aout, "device supports 7.1 channels" );
+        }
+    }
 
     /* Test for 3 Front 2 Rear support */
     i_physical_channels = AOUT_CHAN_LEFT | AOUT_CHAN_RIGHT |
@@ -748,6 +748,8 @@ static void CloseAudio( vlc_object_t *p_this )
 static int CALLBACK CallBackDirectSoundEnum( LPGUID p_guid, LPCSTR psz_desc,
                                              LPCSTR psz_mod, LPVOID _p_aout )
 {
+    VLC_UNUSED( psz_mod );
+
     aout_instance_t *p_aout = (aout_instance_t *)_p_aout;
 
     msg_Dbg( p_aout, "found device: %s", psz_desc );
@@ -984,7 +986,7 @@ static int CreateDSBuffer( aout_instance_t *p_aout, int i_format,
  * We first try to create a WAVE_FORMAT_IEEE_FLOAT buffer if supported by
  * the hardware, otherwise we create a WAVE_FORMAT_PCM buffer.
  ****************************************************************************/
-static int CreateDSBufferPCM( aout_instance_t *p_aout, int *i_format,
+static int CreateDSBufferPCM( aout_instance_t *p_aout, vlc_fourcc_t *i_format,
                               int i_channels, int i_nb_channels, int i_rate,
                               bool b_probe )
 {
@@ -1041,7 +1043,7 @@ static int FillBuffer( aout_instance_t *p_aout, int i_frame,
     notification_thread_t *p_notif = p_aout->output.p_sys->p_notif;
     aout_sys_t *p_sys = p_aout->output.p_sys;
     void *p_write_position, *p_wrap_around;
-    long l_bytes1, l_bytes2;
+    unsigned long l_bytes1, l_bytes2;
     HRESULT dsresult;
 
     /* Before copying anything, we have to lock the buffer */
@@ -1083,7 +1085,7 @@ static int FillBuffer( aout_instance_t *p_aout, int i_frame,
         if( p_sys->b_chan_reorder )
         {
             /* Do the channel reordering here */
-            aout_ChannelReorder( p_buffer->p_buffer, p_buffer->i_nb_bytes,
+            aout_ChannelReorder( p_buffer->p_buffer, p_buffer->i_buffer,
                                  p_sys->i_channels, p_sys->pi_chan_table,
                                  p_sys->i_bits_per_sample );
         }

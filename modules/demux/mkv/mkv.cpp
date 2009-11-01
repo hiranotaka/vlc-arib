@@ -42,28 +42,28 @@ static void Close( vlc_object_t * );
 vlc_module_begin ()
     set_shortname( "Matroska" )
     set_description( N_("Matroska stream demuxer" ) )
-    set_capability( "demux", 0 )
+    set_capability( "demux", 50 )
     set_callbacks( Open, Close )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_DEMUX )
 
-    add_bool( "mkv-use-ordered-chapters", 1, NULL,
+    add_bool( "mkv-use-ordered-chapters", true, NULL,
             N_("Ordered chapters"),
             N_("Play ordered chapters as specified in the segment."), true );
 
-    add_bool( "mkv-use-chapter-codec", 1, NULL,
+    add_bool( "mkv-use-chapter-codec", true, NULL,
             N_("Chapter codecs"),
             N_("Use chapter codecs found in the segment."), true );
 
-    add_bool( "mkv-preload-local-dir", 0, NULL,
+    add_bool( "mkv-preload-local-dir", false, NULL,
             N_("Preload Directory"),
             N_("Preload matroska files from the same family in the same directory (not good for broken files)."), true );
 
-    add_bool( "mkv-seek-percent", 0, NULL,
+    add_bool( "mkv-seek-percent", false, NULL,
             N_("Seek based on percent not time"),
             N_("Seek based on percent not time."), true );
 
-    add_bool( "mkv-use-dummy", 0, NULL,
+    add_bool( "mkv-use-dummy", false, NULL,
             N_("Dummy Elements"),
             N_("Read and discard unknown EBML elements (not good for broken files)."), true );
 
@@ -145,15 +145,15 @@ static int Open( vlc_object_t * p_this )
             // assume it's a regular file
             // get the directory path
             s_path = p_demux->psz_path;
-            if (s_path.at(s_path.length() - 1) == DIRECTORY_SEPARATOR)
+            if (s_path.at(s_path.length() - 1) == DIR_SEP_CHAR)
             {
                 s_path = s_path.substr(0,s_path.length()-1);
             }
             else
             {
-                if (s_path.find_last_of(DIRECTORY_SEPARATOR) > 0)
+                if (s_path.find_last_of(DIR_SEP_CHAR) > 0)
                 {
-                    s_path = s_path.substr(0,s_path.find_last_of(DIRECTORY_SEPARATOR));
+                    s_path = s_path.substr(0,s_path.find_last_of(DIR_SEP_CHAR));
                 }
             }
 
@@ -166,7 +166,7 @@ static int Open( vlc_object_t * p_this )
                 {
                     if (strlen(psz_file) > 4)
                     {
-                        s_filename = s_path + DIRECTORY_SEPARATOR + psz_file;
+                        s_filename = s_path + DIR_SEP_CHAR + psz_file;
 
 #ifdef WIN32
                         if (!strcasecmp(s_filename.c_str(), p_demux->psz_path))
@@ -603,6 +603,12 @@ msg_Dbg( p_demux, "block i_dts: %"PRId64" / i_pts: %"PRId64, p_block->i_dts, p_b
             p_block->i_length = i_duration * 1000;
         }
 
+        /* FIXME remove when VLC_TS_INVALID work is done */
+        if( i == 0 || p_block->i_dts > 0 )
+            p_block->i_dts++;
+        if( !tk->b_dts_only && ( i == 0 || p_block->i_pts ) )
+            p_block->i_pts++;
+
         es_out_Send( p_demux->out, tk->p_es, p_block );
 
         /* use time stamp only for first block */
@@ -859,7 +865,8 @@ static int Demux( demux_t *p_demux)
         else
             p_sys->i_pts = (p_sys->i_chapter_time + block->GlobalTimecode()) / (mtime_t) 1000;
 
-        es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_pts );
+        /* FIXME remove the +1 when VLC_TS_INVALID work is done */
+        es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_pts+1 );
 
         if( p_sys->i_pts >= p_sys->i_start_pts  )
         {

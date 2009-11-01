@@ -26,11 +26,13 @@
 #endif
 #include "mediacontrol_internal.h"
 #include "libvlc_internal.h"
+#include "media_player_internal.h"
 
 #include <vlc/mediacontrol.h>
 #include <vlc/libvlc.h>
 
 #include <vlc_vout.h>
+#include <vlc_input.h>
 #include <vlc_osd.h>
 #include <vlc_block.h>
 
@@ -83,6 +85,7 @@ mediacontrol_snapshot( mediacontrol_Instance *self,
 
     if( vout_GetSnapshot( p_vout, &p_image, NULL, &fmt, "png", 500*1000 ) )
     {
+        vlc_object_release( p_vout );
         RAISE_NULL( mediacontrol_InternalException, "Snapshot exception" );
         return NULL;
     }
@@ -107,6 +110,8 @@ mediacontrol_snapshot( mediacontrol_Instance *self,
 
     if( !p_pic )
         RAISE_NULL( mediacontrol_InternalException, "Out of memory" );
+
+    vlc_object_release( p_vout );
     return p_pic;
 }
 
@@ -116,7 +121,7 @@ int mediacontrol_showtext( vout_thread_t *p_vout, int i_channel,
                            int i_flags, int i_hmargin, int i_vmargin,
                            mtime_t i_start, mtime_t i_stop )
 {
-    return osd_ShowTextAbsolute( p_vout->p_spu, i_channel,
+    return osd_ShowTextAbsolute( vout_GetSpu( p_vout ), i_channel,
                                  psz_string, p_style,
                                  i_flags, i_hmargin, i_vmargin,
                                  i_start, i_stop );
@@ -148,6 +153,9 @@ mediacontrol_display_text( mediacontrol_Instance *self,
         RAISE_VOID( mediacontrol_InternalException, "No input" );
     }
     p_vout = input_GetVout( p_input );
+    /*FIXME: take care of the next fixme that can use p_input */
+    vlc_object_release( p_input );
+
     if( ! p_vout )
     {
         RAISE_VOID( mediacontrol_InternalException, "No video output" );
@@ -198,14 +206,11 @@ unsigned short
 mediacontrol_sound_get_volume( mediacontrol_Instance *self,
                                mediacontrol_Exception *exception )
 {
-    libvlc_exception_t ex;
     int i_ret = 0;
 
     mediacontrol_exception_init( exception );
-    libvlc_exception_init( &ex );
 
-    i_ret = libvlc_audio_get_volume( self->p_instance, &ex );
-    HANDLE_LIBVLC_EXCEPTION_ZERO( &ex );
+    i_ret = libvlc_audio_get_volume( self->p_instance );
     /* FIXME: Normalize in [0..100] */
     return (unsigned short)i_ret;
 }
@@ -233,8 +238,11 @@ int mediacontrol_set_visual( mediacontrol_Instance *self,
 
     mediacontrol_exception_init( exception );
     libvlc_exception_init( &ex );
-
-    libvlc_media_player_set_drawable( self->p_media_player, (libvlc_drawable_t)visual_id, &ex );
+#ifdef WIN32
+    libvlc_media_player_set_hwnd( self->p_media_player, visual_id, &ex );
+#else
+    libvlc_media_player_set_xwindow( self->p_media_player, visual_id, &ex );
+#endif
     HANDLE_LIBVLC_EXCEPTION_ZERO( &ex );
     return true;
 }

@@ -44,15 +44,11 @@
 #include <tremor/ivorbiscodec.h>
 
 #else
-#include <vorbis/codec.h>
+#include <vorbis/vorbisenc.h>
 
-/* vorbis header */
-#ifdef HAVE_VORBIS_VORBISENC_H
-#   include <vorbis/vorbisenc.h>
-#   ifndef OV_ECTL_RATEMANAGE_AVG
-#       define OV_ECTL_RATEMANAGE_AVG 0x0
-#   endif
-#endif
+# ifndef OV_ECTL_RATEMANAGE_AVG
+#   define OV_ECTL_RATEMANAGE_AVG 0x0
+# endif
 
 #endif
 
@@ -83,7 +79,7 @@ struct decoder_sys_t
     /*
      * Common properties
      */
-    audio_date_t end_date;
+    date_t       end_date;
     int          i_last_block_size;
 
     /*
@@ -198,9 +194,7 @@ vlc_module_begin ()
     add_submodule ()
     set_description( N_("Vorbis audio encoder") )
     set_capability( "encoder", 100 )
-#if defined(HAVE_VORBIS_VORBISENC_H)
     set_callbacks( OpenEncoder, CloseEncoder )
-#endif
 
     add_integer( ENC_CFG_PREFIX "quality", 0, NULL, ENC_QUALITY_TEXT,
                  ENC_QUALITY_LONGTEXT, false )
@@ -209,7 +203,7 @@ vlc_module_begin ()
                  ENC_MAXBR_LONGTEXT, false )
     add_integer( ENC_CFG_PREFIX "min-bitrate", 0, NULL, ENC_MINBR_TEXT,
                  ENC_MINBR_LONGTEXT, false )
-    add_bool( ENC_CFG_PREFIX "cbr", 0, NULL, ENC_CBR_TEXT,
+    add_bool( ENC_CFG_PREFIX "cbr", false, NULL, ENC_CBR_TEXT,
                  ENC_CBR_LONGTEXT, false )
 #endif
 
@@ -239,7 +233,7 @@ static int OpenDecoder( vlc_object_t *p_this )
         return VLC_ENOMEM;
 
     /* Misc init */
-    aout_DateSet( &p_sys->end_date, 0 );
+    date_Set( &p_sys->end_date, 0 );
     p_sys->i_last_block_size = 0;
     p_sys->b_packetizer = false;
     p_sys->i_headers = 0;
@@ -407,7 +401,7 @@ static int ProcessHeaders( decoder_t *p_dec )
             pi_channels_maps[p_sys->vi.channels];
     p_dec->fmt_out.i_bitrate = p_sys->vi.bitrate_nominal;
 
-    aout_DateInit( &p_sys->end_date, p_sys->vi.rate );
+    date_Init( &p_sys->end_date, p_sys->vi.rate, 1 );
 
     msg_Dbg( p_dec, "channels:%d samplerate:%ld bitrate:%ld",
              p_sys->vi.channels, p_sys->vi.rate, p_sys->vi.bitrate_nominal );
@@ -483,12 +477,12 @@ static void *ProcessPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
 
     /* Date management */
     if( p_block && p_block->i_pts > 0 &&
-        p_block->i_pts != aout_DateGet( &p_sys->end_date ) )
+        p_block->i_pts != date_Get( &p_sys->end_date ) )
     {
-        aout_DateSet( &p_sys->end_date, p_block->i_pts );
+        date_Set( &p_sys->end_date, p_block->i_pts );
     }
 
-    if( !aout_DateGet( &p_sys->end_date ) )
+    if( !date_Get( &p_sys->end_date ) )
     {
         /* We've just started the stream, wait for the first PTS. */
         if( p_block ) block_Release( p_block );
@@ -565,8 +559,9 @@ static aout_buffer_t *DecodePacket( decoder_t *p_dec, ogg_packet *p_oggpacket )
         vorbis_synthesis_read( &p_sys->vd, i_samples );
 
         /* Date management */
-        p_aout_buffer->start_date = aout_DateGet( &p_sys->end_date );
-        p_aout_buffer->end_date = aout_DateIncrement( &p_sys->end_date, i_samples );
+        p_aout_buffer->i_pts = date_Get( &p_sys->end_date );
+        p_aout_buffer->i_length = date_Increment( &p_sys->end_date,
+                                           i_samples ) - p_aout_buffer->i_pts;
         return p_aout_buffer;
     }
     else
@@ -590,10 +585,10 @@ static block_t *SendPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
     p_sys->i_last_block_size = i_block_size;
 
     /* Date management */
-    p_block->i_dts = p_block->i_pts = aout_DateGet( &p_sys->end_date );
+    p_block->i_dts = p_block->i_pts = date_Get( &p_sys->end_date );
 
     if( p_sys->i_headers >= 3 )
-        p_block->i_length = aout_DateIncrement( &p_sys->end_date, i_samples ) - p_block->i_pts;
+        p_block->i_length = date_Increment( &p_sys->end_date, i_samples ) - p_block->i_pts;
     else
         p_block->i_length = 0;
 
@@ -748,7 +743,7 @@ static void CloseDecoder( vlc_object_t *p_this )
     free( p_sys );
 }
 
-#if defined(HAVE_VORBIS_VORBISENC_H) && !defined(MODULE_NAME_IS_tremor)
+#ifndef MODULE_NAME_IS_tremor
 
 /*****************************************************************************
  * encoder_sys_t : vorbis encoder descriptor
@@ -791,7 +786,6 @@ static int OpenEncoder( vlc_object_t *p_this )
     encoder_sys_t *p_sys;
     int i_quality, i_min_bitrate, i_max_bitrate, i;
     ogg_packet header[3];
-    vlc_value_t val;
     uint8_t *p_extra;
 
     if( p_enc->fmt_out.i_codec != VLC_CODEC_VORBIS &&
@@ -811,16 +805,13 @@ static int OpenEncoder( vlc_object_t *p_this )
 
     config_ChainParse( p_enc, ENC_CFG_PREFIX, ppsz_enc_options, p_enc->p_cfg );
 
-    var_Get( p_enc, ENC_CFG_PREFIX "quality", &val );
-    i_quality = val.i_int;
+    i_quality = var_GetInteger( p_enc, ENC_CFG_PREFIX "quality" );
     if( i_quality > 10 ) i_quality = 10;
     if( i_quality < 0 ) i_quality = 0;
-    var_Get( p_enc, ENC_CFG_PREFIX "cbr", &val );
-    if( val.b_bool ) i_quality = 0;
-    var_Get( p_enc, ENC_CFG_PREFIX "max-bitrate", &val );
-    i_max_bitrate = val.i_int;
-    var_Get( p_enc, ENC_CFG_PREFIX "min-bitrate", &val );
-    i_min_bitrate = val.i_int;
+
+    if( var_GetBool( p_enc, ENC_CFG_PREFIX "cbr" ) ) i_quality = 0;
+    i_max_bitrate = var_GetInteger( p_enc, ENC_CFG_PREFIX "max-bitrate" );
+    i_min_bitrate = var_GetInteger( p_enc, ENC_CFG_PREFIX "min-bitrate" );
 
     /* Initialize vorbis encoder */
     vorbis_info_init( &p_sys->vi );
@@ -921,7 +912,7 @@ static block_t *Encode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
     int i;
     unsigned int j;
 
-    p_sys->i_pts = p_aout_buf->start_date -
+    p_sys->i_pts = p_aout_buf->i_pts -
                 (mtime_t)1000000 * (mtime_t)p_sys->i_samples_delay /
                 (mtime_t)p_enc->fmt_in.audio.i_rate;
 

@@ -42,7 +42,7 @@
 #include "../events/evt_scroll.hpp"
 #include "../commands/async_queue.hpp"
 #include "../utils/var_bool.hpp"
-#include "vlc_keys.h"
+#include <vlc_keys.h>
 
 
 // Maximum interval between clicks for a double-click (in microsec)
@@ -67,7 +67,6 @@ X11Loop::X11Loop( intf_thread_t *pIntf, X11Display &rDisplay ):
     keysymToVlcKey[XK_F11] = KEY_F11;
     keysymToVlcKey[XK_F12] = KEY_F12;
     keysymToVlcKey[XK_Return] = KEY_ENTER;
-    keysymToVlcKey[XK_space] = KEY_SPACE;
     keysymToVlcKey[XK_Escape] = KEY_ESC;
     keysymToVlcKey[XK_Left] = KEY_LEFT;
     keysymToVlcKey[XK_Right] = KEY_RIGHT;
@@ -100,11 +99,8 @@ OSLoop *X11Loop::instance( intf_thread_t *pIntf, X11Display &rDisplay )
 
 void X11Loop::destroy( intf_thread_t *pIntf )
 {
-    if( pIntf->p_sys->p_osLoop )
-    {
-        delete pIntf->p_sys->p_osLoop;
-        pIntf->p_sys->p_osLoop = NULL;
-    }
+    delete pIntf->p_sys->p_osLoop;
+    pIntf->p_sys->p_osLoop = NULL;
 }
 
 
@@ -163,7 +159,9 @@ void X11Loop::handleX11Event()
             Theme *pTheme = getIntf()->p_sys->p_theme;
             if( pTheme )
             {
-                pTheme->getWindowManager().synchVisibility();
+                // Commented out as it really doesn't seem useful
+                // but rather brings visible problems
+                // pTheme->getWindowManager().synchVisibility();
             }
         }
         return;

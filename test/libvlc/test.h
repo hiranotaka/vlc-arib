@@ -84,23 +84,22 @@ static inline bool have_exception (void)
         return false;
 }
 
-static inline void catch (void)
+#define catch() catch_with_info(__FILE__, __FUNCTION__, __LINE__)
+
+static inline void catch_with_info (const char * file, const char * func, unsigned line)
 {
     if (libvlc_exception_raised (&ex))
     {
-         fprintf (stderr, "Exception: %s\n",
-                  libvlc_exception_get_message (&ex));
+         fprintf (stderr, "%s:%s():%d Exception: %s\n", file, func, line, libvlc_errmsg ());
          abort ();
     }
-
-    assert (libvlc_exception_get_message (&ex) == NULL);
     libvlc_exception_clear (&ex);
 }
 
 static inline void test_init (void)
 {
     (void)test_default_sample; /* This one may not be used */
-    alarm (50); /* Make sure "make check" does not get stuck */
+    alarm (10); /* Make sure "make check" does not get stuck */
 }
 
 #endif /* TEST_H */

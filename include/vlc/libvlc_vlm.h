@@ -232,14 +232,23 @@ VLC_PUBLIC_API void libvlc_vlm_seek_media( libvlc_instance_t *, const char *,
                                            float, libvlc_exception_t * );
 
 /**
- * Return information about the named broadcast.
- * \bug will always return NULL
+ * Return information about the named media as a JSON
+ * string representation.
+ *
+ * This function is mainly intended for debugging use,
+ * if you want programmatic access to the state of
+ * a vlm_media_instance_t, please use the corresponding
+ * libvlc_vlm_get_media_instance_xxx -functions.
+ * Currently there are no such functions available for
+ * vlm_media_t though.
+ *
  * \param p_instance the instance
- * \param psz_name the name of the broadcast
+ * \param psz_name the name of the media,
+ *      if the name is an empty string, all media is described
  * \param p_e an initialized exception pointer
  * \return string with information about named media
  */
-VLC_PUBLIC_API char* libvlc_vlm_show_media( libvlc_instance_t *, const char *,
+VLC_PUBLIC_API const char* libvlc_vlm_show_media( libvlc_instance_t *, const char *,
                                             libvlc_exception_t * );
 
 /**
@@ -332,6 +341,18 @@ VLC_PUBLIC_API int libvlc_vlm_get_media_instance_chapter( libvlc_instance_t *,
 VLC_PUBLIC_API int libvlc_vlm_get_media_instance_seekable( libvlc_instance_t *,
                                                            const char *, int,
                                                            libvlc_exception_t * );
+
+/**
+ * Get libvlc_event_manager from a vlm media.
+ * The p_event_manager is immutable, so you don't have to hold the lock
+ *
+ * \param p_instance a libvlc instance
+ * \param p_exception an initialized exception pointer
+ * \return libvlc_event_manager
+ */
+VLC_PUBLIC_API libvlc_event_manager_t *
+    libvlc_vlm_get_event_manager( libvlc_instance_t *,
+                                  libvlc_exception_t * );
 
 /** @} */
 

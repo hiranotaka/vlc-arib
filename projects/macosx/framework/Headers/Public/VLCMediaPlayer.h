@@ -112,6 +112,26 @@ extern NSString * VLCMediaPlayerStateToString(VLCMediaPlayerState state);
 - (void)setVideoTeleText:(int)value;
 - (int)videoTeleText;
 
+/**
+ * Take a snapshot of the current video.
+ *
+ * If width AND height is 0, original size is used.
+ * If width OR height is 0, original aspect-ratio is preserved.
+ *
+ * \param path the path where to save the screenshot to
+ * \param width the snapshot's width
+ * \param height the snapshot's height
+ */
+- (void)saveVideoSnapshotAt: (NSString *)path withWidth:(NSUInteger)width andHeight:(NSUInteger)height;
+
+/**
+ * Enable or disable deinterlace filter
+ *
+ * \param name of deinterlace filter to use (availability depends on underlying VLC version)
+ * \param enable boolean to enable or disable deinterlace filter
+ */
+- (void)setDeinterlaceFilter: (NSString *)name enabled: (BOOL)enabled;
+
 @property float rate;
 
 @property (readonly) VLCAudio * audio;
@@ -189,6 +209,58 @@ extern NSString * VLCMediaPlayerStateToString(VLCMediaPlayerState state);
  * \param rate Rate at which the feed should be fast rewound.
  */
 - (void)rewindAtRate:(float)rate;
+
+/**
+ * Jumps shortly backward in current stream if seeking is supported.
+ * \param interval to skip, in sec.
+ */
+- (void)jumpBackward:(NSInteger)interval;
+
+/**
+ * Jumps shortly forward in current stream if seeking is supported.
+ * \param interval to skip, in sec.
+ */
+- (void)jumpForward:(NSInteger)interval;
+
+/**
+ * Jumps shortly backward in current stream if seeking is supported.
+ */
+- (void)extraShortJumpBackward;
+
+/**
+ * Jumps shortly forward in current stream if seeking is supported.
+ */
+- (void)extraShortJumpForward;
+
+/**
+ * Jumps shortly backward in current stream if seeking is supported.
+ */
+- (void)shortJumpBackward;
+
+/**
+ * Jumps shortly forward in current stream if seeking is supported.
+ */
+- (void)shortJumpForward;
+
+/**
+ * Jumps shortly backward in current stream if seeking is supported.
+ */
+- (void)mediumJumpBackward;
+
+/**
+ * Jumps shortly forward in current stream if seeking is supported.
+ */
+- (void)mediumJumpForward;
+
+/**
+ * Jumps shortly backward in current stream if seeking is supported.
+ */
+- (void)longJumpBackward;
+
+/**
+ * Jumps shortly forward in current stream if seeking is supported.
+ */
+- (void)longJumpForward;
 
 /* Playback Information */
 /**

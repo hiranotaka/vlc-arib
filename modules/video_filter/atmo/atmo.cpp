@@ -39,7 +39,7 @@
 #include <vlc_vout.h>
 
 #include <vlc_playlist.h>
-#include "vlc_filter.h"
+#include <vlc_filter.h>
 
 #include "AtmoDefs.h"
 #include "AtmoDynData.h"
@@ -805,8 +805,7 @@ static void AtmoCreateTransferBuffers(filter_t *p_filter,
         we need a buffer where the image is stored (only for transfer
         to the processing thread)
         */
-        if(p_sys->p_atmo_transfer_buffer)
-            free(p_sys->p_atmo_transfer_buffer);
+        free( p_sys->p_atmo_transfer_buffer );
 
         p_sys->p_atmo_transfer_buffer = (uint8_t *)malloc(bytePerPixel *
                                                           width *  height);

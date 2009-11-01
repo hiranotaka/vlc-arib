@@ -461,9 +461,14 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             {
                 i64 = stream_Size( p_demux->s );
                 if( i64 > 0 )
-                    *pf = (double)stream_Tell( p_demux->s ) / (double)i64;
+                {
+                    const double f_current = stream_Tell( p_demux->s );
+                    *pf = f_current / (double)i64;
+                }
                 else
+                {
                     *pf = 0.0;
+                }
             }
             return VLC_SUCCESS;
 
@@ -723,9 +728,6 @@ static int SeekTableLoad( demux_t *p_demux, demux_sys_t *p_sys )
 {
     frame_header_t fh;
     int64_t i_original_pos;
-    uint8_t* p_seek_table;
-    uint8_t* p_kfa_table;
-    int32_t i_seek_elements = 0, i_kfa_elements = 0, j;
     int64_t i_time, i_offset;
     int keyframe, last_keyframe = 0, frame = 0, kfa_entry_id = 0;
 
@@ -745,29 +747,29 @@ static int SeekTableLoad( demux_t *p_demux, demux_sys_t *p_sys )
     if( FrameHeaderLoad( p_demux, &fh ) )
         return VLC_EGENERIC;
 
-    if( fh.i_type == 'Q' )
-    {
-        p_seek_table = malloc( fh.i_length );
-        if( p_seek_table == NULL )
-            return VLC_ENOMEM;
-
-        if( stream_Read( p_demux->s, p_seek_table, fh.i_length ) != fh.i_length )
-        {
-            free( p_seek_table );
-            return VLC_EGENERIC;
-        }
-
-        i_seek_elements = fh.i_length / 12;
-    }
-    else
+    if( fh.i_type != 'Q' )
     {
         msg_Warn( p_demux, "invalid seektable, frame type=%c", fh.i_type );
         stream_Seek( p_demux->s, i_original_pos );
         return VLC_EGENERIC;
     }
 
+    /* */
+    uint8_t *p_seek_table = malloc( fh.i_length );
+    if( p_seek_table == NULL )
+        return VLC_ENOMEM;
+
+    if( stream_Read( p_demux->s, p_seek_table, fh.i_length ) != fh.i_length )
+    {
+        free( p_seek_table );
+        return VLC_EGENERIC;
+    }
+    const int32_t i_seek_elements = fh.i_length / 12;
 
     /* Get keyframe adjust offsets */
+    int32_t i_kfa_elements;
+    uint8_t *p_kfa_table;
+
     if( p_sys->exh.i_keyframe_adjust_offset > 0 )
     {
         msg_Dbg( p_demux, "seeking in stream to %"PRIi64, p_sys->exh.i_keyframe_adjust_offset );
@@ -803,12 +805,16 @@ static int SeekTableLoad( demux_t *p_demux, demux_sys_t *p_sys )
             i_kfa_elements = fh.i_length / 8;
         }
     }
+    else
+    {
+        i_kfa_elements = 0;
+    }
 
 
     if( i_kfa_elements > 0 )
         msg_Warn( p_demux, "untested keyframe adjust support, upload samples" );
 
-    for(j=0; j < i_seek_elements; j++)
+    for( int32_t j = 0; j < i_seek_elements; j++)
     {
 #if 0
         uint8_t* p = p_seek_table + j * 12;

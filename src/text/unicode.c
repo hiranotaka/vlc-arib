@@ -41,7 +41,7 @@
 #  include <tchar.h>
 #endif
 
-#ifdef __APPLE__
+#if defined (__APPLE__) || defined (HAVE_MAEMO)
 /* Define this if the OS always use UTF-8 internally */
 # define ASSUME_UTF8 1
 #endif
@@ -118,17 +118,18 @@ static char *locale_fast (const char *string, bool from)
 
     len = 1 + MultiByteToWideChar (from ? CP_ACP : CP_UTF8,
                                    0, string, -1, NULL, 0);
-    wchar_t wide[len];
+    wchar_t *wide = malloc (len * sizeof (wchar_t));
+    if (wide == NULL)
+        return NULL;
 
     MultiByteToWideChar (from ? CP_ACP : CP_UTF8, 0, string, -1, wide, len);
     len = 1 + WideCharToMultiByte (from ? CP_UTF8 : CP_ACP, 0, wide, -1,
                                    NULL, 0, NULL, NULL);
     out = malloc (len);
-    if (out == NULL)
-        return NULL;
-
-    WideCharToMultiByte (from ? CP_UTF8 : CP_ACP, 0, wide, -1, out, len,
-                         NULL, NULL);
+    if (out != NULL)
+        WideCharToMultiByte (from ? CP_UTF8 : CP_ACP, 0, wide, -1, out, len,
+                             NULL, NULL);
+    free (wide);
     return out;
 #else
     (void)from;

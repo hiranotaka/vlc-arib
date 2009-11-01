@@ -26,7 +26,7 @@
 
 include ./config.mak
 
-BUILDDIRS = bin doc etc include info lib man sbin share tmp gecko-sdk
+BUILDDIRS = bin doc etc include info lib man sbin share tmp gecko-sdk Sparkle
 
 ifdef HAVE_DARWIN_OS
 TARGETALL=using-bin
@@ -38,15 +38,19 @@ all: $(TARGETALL)
 
 using-src:
 	$(MAKE) -C src
+ifdef HAVE_DARWIN_10
+	(cd $(PREFIX)/lib && sed -e 's%/usr/lib/libiconv.la%$(PREFIX)/lib/libiconv.la%g' -i.orig *.la && rm -f *.la.orig)
+endif
 
 # shortcut
 src: using-src
 
 ifdef HAVE_DARWIN_OS
 
-CONTRIBREV=6
+CONTRIBREV=20
+
 contrib-macosx-$(ARCH)-$(CONTRIBREV).tar.bz2:
-	$(WGET) ftp://ftp.videolan.org/pub/videolan/testing/contrib/$@
+	$(WGET) http://downloads.videolan.org/pub/videolan/testing/contrib/$@
 
 using-bin: contrib-macosx-$(ARCH)-$(CONTRIBREV).tar.bz2
 	@if test -d tmp; then \
@@ -56,9 +60,15 @@ using-bin: contrib-macosx-$(ARCH)-$(CONTRIBREV).tar.bz2
 	mkdir tmp
 	(cd tmp && tar jxvf ../$<)
 	./change_prefix.sh tmp @@CONTRIB_PREFIX@@  $(PREFIX)
-	for dir in `(cd tmp && find . -type d)`; do mkdir -p -- $$dir; done
-	for i in `(cd tmp && find . -not -type d)`; do mv -f tmp/$$i $$i; done
+	(cd tmp && find . -type d) | while read dir; do mkdir -p -- "$$dir"; done
+	(cd tmp && find . -not -type d) | while read i; do mv -f -- tmp/"$$i" "$$i"; done
 	rm -rf tmp
+    # libiconv.la is no longer present on Snow Leopard, so fix possible references to it, which would
+    # result in linking issues
+ifdef HAVE_DARWIN_10
+	(cd $(PREFIX)/lib && sed -e 's%/usr/lib/libiconv.la%$(PREFIX)/lib/libiconv.la%g' -i.orig *.la && rm -f *.la.orig)
+	(cd $(PREFIX)/src && $(MAKE) .iconv)
+endif
 endif
 
 clean-src:
@@ -82,11 +92,13 @@ package-macosx:
 	fi
 	mkdir tmp
 	tar cf - bin sbin include lib share/aclocal* share/autoconf* \
-		share/automake* share/gettext* share/libtool* gecko-sdk \
+		share/automake* share/gettext* share/libtool* gecko-sdk Sparkle \
 		| (cd tmp; tar xf -)
 	./change_prefix.sh tmp $(PREFIX) @@CONTRIB_PREFIX@@
 	(cd tmp; tar cf - .) | bzip2 -c > contrib-macosx.tar.bz2
 	rm -rf tmp
+	rm -f contrib-macosx-$(ARCH)-$(CONTRIBREV).tar.bz2
+	mv contrib-macosx.tar.bz2 contrib-macosx-$(ARCH)-$(CONTRIBREV).tar.bz2
 
 DISTDIR = usr/win32
 

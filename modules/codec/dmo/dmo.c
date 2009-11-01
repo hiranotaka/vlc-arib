@@ -781,7 +781,7 @@ loader:
     }
 
     i_err = GetClass( codecs_table[i_codec].p_guid, &IID_IClassFactory,
-                      (void**)&cFactory );
+                      &cFactory );
     if( i_err || cFactory == NULL )
     {
         msg_Dbg( p_this, "no such class object" );
@@ -790,7 +790,7 @@ loader:
     }
 
     i_err = cFactory->vt->CreateInstance( cFactory, 0, &IID_IUnknown,
-                                          (void**)&cObject );
+                                          &cObject );
     cFactory->vt->Release( (IUnknown*)cFactory );
     if( i_err || !cObject )
     {
@@ -799,7 +799,7 @@ loader:
         return VLC_EGENERIC;
     }
     i_err = cObject->vt->QueryInterface( cObject, &IID_IMediaObject,
-                                        (void**)pp_dmo );
+                                        pp_dmo );
     cObject->vt->Release( (IUnknown*)cObject );
     if( i_err || !*pp_dmo )
     {
@@ -981,9 +981,10 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
             memcpy( p_aout_buffer->p_buffer,
                     block_out.p_buffer, block_out.i_buffer );
             /* Date management */
-            p_aout_buffer->start_date = date_Get( &p_sys->end_date );
-            p_aout_buffer->end_date =
-                date_Increment( &p_sys->end_date, i_samples );
+            p_aout_buffer->i_pts = date_Get( &p_sys->end_date );
+            p_aout_buffer->i_length =
+                date_Increment( &p_sys->end_date, i_samples )
+                - p_aout_buffer->i_pts;
         }
         p_out->vt->Release( (IUnknown *)p_out );
 
@@ -1200,7 +1201,7 @@ static int EncoderSetVideoType( encoder_t *p_enc, IMediaObject *p_dmo )
 
         i_err = p_dmo->vt->QueryInterface( (IUnknown *)p_dmo,
                                            &IID_IWMCodecPrivateData,
-                                           (void **)&p_privdata );
+                                           &p_privdata );
         if( i_err ) break;
 
         i_err = p_privdata->vt->SetPartialOutputType( p_privdata, &dmo_type );
@@ -1534,11 +1535,11 @@ static block_t *EncodeBlock( encoder_t *p_enc, void *p_data )
     else
     {
         aout_buffer_t *p_aout_buffer = (aout_buffer_t *)p_data;
-        p_block_in = block_New( p_enc, p_aout_buffer->i_nb_bytes );
+        p_block_in = block_New( p_enc, p_aout_buffer->i_buffer );
         memcpy( p_block_in->p_buffer, p_aout_buffer->p_buffer,
                 p_block_in->i_buffer );
 
-        i_pts = p_aout_buffer->start_date;
+        i_pts = p_aout_buffer->i_pts;
     }
 
     /* Feed input to the DMO */

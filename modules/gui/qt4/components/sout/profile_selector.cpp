@@ -45,12 +45,12 @@ VLCProfileSelector::VLCProfileSelector( QWidget *_parent ): QWidget( _parent )
     layout->addWidget( profileBox );
 
     QToolButton *editButton = new QToolButton( this );
-    editButton->setIcon( QIcon( ":/preferences" ) );
+    editButton->setIcon( QIcon( ":/menu/preferences" ) );
     editButton->setToolTip( qtr( "Edit selected profile" ) );
     layout->addWidget( editButton );
 
     QToolButton *deleteButton = new QToolButton( this );
-    deleteButton->setIcon( QIcon( ":/clear" ) );
+    deleteButton->setIcon( QIcon( ":/toolbar/clear" ) );
     deleteButton->setToolTip( qtr( "Delete selected profile" ) );
     layout->addWidget( deleteButton );
 
@@ -285,7 +285,7 @@ inline void VLCProfileEditor::registerCodecs()
     ADD_ACODEC( "Flac", "flac" )
     ADD_ACODEC( "Speex", "spx" )
     ADD_ACODEC( "WAV", "s16l" )
-    ADD_ACODEC( "WMA", "wma" )
+    ADD_ACODEC( "WMA2", "wma2" )
 #undef ADD_ACODEC
 
 #define ADD_SCALING( factor ) ui.vScaleBox->addItem( factor );
@@ -300,8 +300,9 @@ inline void VLCProfileEditor::registerCodecs()
 #undef ADD_SCALING
 
 #define ADD_SAMPLERATE( sample ) ui.aSampleBox->addItem( sample );
-    ADD_SAMPLERATE( "11250" )
-    ADD_SAMPLERATE( "22500" )
+    ADD_SAMPLERATE( "8000" )
+    ADD_SAMPLERATE( "11025" )
+    ADD_SAMPLERATE( "22050" )
     ADD_SAMPLERATE( "44100" )
     ADD_SAMPLERATE( "48000" )
 #undef ADD_SAMPLERATE
@@ -331,7 +332,7 @@ void VLCProfileEditor::fillProfile( const QString& qs )
     CHECKMUX( FLVMux, "flv" )
     CHECKMUX( MKVMux, "mkv" )
     CHECKMUX( AVIMux, "avi" )
-    CHECKMUX( MJPEGMux, "mjpg" ){}
+    CHECKMUX( MJPEGMux, "mpjpeg" ){}
 #undef CHECKMUX
 
     ui.keepVideo->setChecked( !options[1].toInt() );
@@ -420,7 +421,7 @@ QString VLCProfileEditor::transcodeValue()
     SMUX( FLVMux, "flv" )
     SMUX( MKVMux, "mkv" )
     SMUX( AVIMux, "avi" )
-    SMUX( MJPEGMux, "mjpg" ){}
+    SMUX( MJPEGMux, "mpjpeg" ){}
 #undef SMUX
 
 #define currentData( box ) box->itemData( box->currentIndex() )

@@ -50,9 +50,7 @@ static void xspf_extension_item( playlist_item_t *, FILE *, int * );
  */
 int xspf_export_playlist( vlc_object_t *p_this )
 {
-    const playlist_t *p_playlist = (playlist_t *)p_this;
-    const playlist_export_t *p_export =
-        (playlist_export_t *)p_playlist->p_private;
+    const playlist_export_t *p_export = (playlist_export_t *)p_this;
     int               i, i_count;
     char             *psz_temp;
     playlist_item_t  *p_node = p_export->p_root;
@@ -141,11 +139,7 @@ static void xspf_export_item( playlist_item_t *p_item, FILE *p_file,
     char *psz_uri = input_item_GetURI( p_item->p_input );
 
     if( psz_uri && *psz_uri )
-    {
-        psz = make_URI( psz_uri );
-        fprintf( p_file, "\t\t\t<location>%s</location>\n", psz );
-        free( psz );
-    }
+        fprintf( p_file, "\t\t\t<location>%s</location>\n", psz_uri );
 
     /* -> the name/title (only if different from uri)*/
     char *psz_name = input_item_GetTitle( p_item->p_input );
@@ -212,9 +206,7 @@ static void xspf_export_item( playlist_item_t *p_item, FILE *p_file,
     if( psz == NULL ) psz = strdup( "" );
     if( !EMPTY_STR( psz ) )
     {
-        psz_uri = make_URI( psz );
-        fprintf( p_file, "\t\t\t<image>%s</image>\n", psz_uri );
-        free( psz_uri );
+        fprintf( p_file, "\t\t\t<image>%s</image>\n", psz );
     }
     free( psz );
 
@@ -265,10 +257,11 @@ static void xspf_extension_item( playlist_item_t *p_item, FILE *p_file,
     if( p_item->i_children >= 0 )
     {
         int i;
-        char *psz_temp;
-        psz_temp = convert_xml_special_chars( p_item->p_input->psz_name );
+        char *psz_temp = NULL;
+        if( p_item->p_input->psz_name )
+            psz_temp = convert_xml_special_chars( p_item->p_input->psz_name );
         fprintf( p_file, "\t\t<vlc:node title=\"%s\">\n",
-                 *psz_temp ? psz_temp : "" );
+                 psz_temp ? psz_temp : "" );
         free( psz_temp );
 
         for( i = 0; i < p_item->i_children; i++ )

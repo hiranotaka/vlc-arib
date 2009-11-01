@@ -28,7 +28,7 @@
 
 #include "http.h"
 #include "macros.h"
-#include "vlc_url.h"
+#include <vlc_url.h>
 
 static int MacroParse( macro_t *m, char *psz_src )
 {
@@ -235,7 +235,7 @@ static void MacroDo( httpd_file_sys_t *p_args,
                         p_vout = input_GetVout( p_sys->p_input );
                         if( p_vout )
                         {
-                            p_vout->i_changes |= VOUT_FULLSCREEN_CHANGE;
+                            var_ToggleBool( p_vout, "fullscreen" );
                             vlc_object_release( p_vout );
                             msg_Dbg( p_intf, "requested fullscreen toggle" );
                         }
@@ -256,7 +256,7 @@ static void MacroDo( httpd_file_sys_t *p_args,
                     int i_value;
 
                     ExtractURIValue( p_request, "value", vol, 8 );
-                    aout_VolumeGet( p_intf, &i_volume );
+                    aout_VolumeGet( p_sys->p_playlist, &i_volume );
                     decode_URI( vol );
 
                     if( vol[0] == '+' )
@@ -264,12 +264,12 @@ static void MacroDo( httpd_file_sys_t *p_args,
                         i_value = atoi( vol + 1 );
                         if( (i_volume + i_value) > AOUT_VOLUME_MAX )
                         {
-                            aout_VolumeSet( p_intf , AOUT_VOLUME_MAX );
+                            aout_VolumeSet( p_sys->p_playlist, AOUT_VOLUME_MAX );
                             msg_Dbg( p_intf, "requested volume set: max" );
                         }
                         else
                         {
-                            aout_VolumeSet( p_intf , (i_volume + i_value) );
+                            aout_VolumeSet( p_sys->p_playlist, (i_volume + i_value) );
                             msg_Dbg( p_intf, "requested volume set: +%i", (i_volume + i_value) );
                         }
                     }
@@ -278,12 +278,12 @@ static void MacroDo( httpd_file_sys_t *p_args,
                         i_value = atoi( vol + 1 );
                         if( (i_volume - i_value) < AOUT_VOLUME_MIN )
                         {
-                            aout_VolumeSet( p_intf , AOUT_VOLUME_MIN );
+                            aout_VolumeSet( p_sys->p_playlist, AOUT_VOLUME_MIN );
                             msg_Dbg( p_intf, "requested volume set: min" );
                         }
                         else
                         {
-                            aout_VolumeSet( p_intf , (i_volume - i_value) );
+                            aout_VolumeSet( p_sys->p_playlist, (i_volume - i_value) );
                             msg_Dbg( p_intf, "requested volume set: -%i", (i_volume - i_value) );
                         }
                     }
@@ -291,7 +291,7 @@ static void MacroDo( httpd_file_sys_t *p_args,
                     {
                         i_value = atoi( vol );
                         if( (i_value <= 400) && (i_value>=0) ){
-                            aout_VolumeSet( p_intf, (i_value * (AOUT_VOLUME_MAX - AOUT_VOLUME_MIN))/400+AOUT_VOLUME_MIN);
+                            aout_VolumeSet( p_sys->p_playlist, (i_value * (AOUT_VOLUME_MAX - AOUT_VOLUME_MIN))/400+AOUT_VOLUME_MIN);
                             msg_Dbg( p_intf, "requested volume set: %i%%", atoi( vol ));
                         }
                     }
@@ -300,7 +300,7 @@ static void MacroDo( httpd_file_sys_t *p_args,
                         i_value = atoi( vol );
                         if( ( i_value <= AOUT_VOLUME_MAX ) && ( i_value >= AOUT_VOLUME_MIN ) )
                         {
-                            aout_VolumeSet( p_intf , atoi( vol ) );
+                            aout_VolumeSet( p_sys->p_playlist, atoi( vol ) );
                             msg_Dbg( p_intf, "requested volume set: %i", atoi( vol ) );
                         }
                     }
@@ -408,7 +408,8 @@ static void MacroDo( httpd_file_sys_t *p_args,
                         i_nb_items++;
                     }
 
-                    for( i = 0; i < p_sys->p_playlist->items.i_size; i++ )
+                    size_t size = p_sys->p_playlist->items.i_size;
+                    for( i = 0; i < size; i++ )
                     {
                         size_t j;
 

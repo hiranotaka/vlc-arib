@@ -126,6 +126,8 @@ static int paCallback( const void *inputBuffer, void *outputBuffer,
                        const PaStreamCallbackTimeInfo *paDate,
                        PaStreamCallbackFlags statusFlags, void *p_cookie )
 {
+    VLC_UNUSED( inputBuffer ); VLC_UNUSED( statusFlags );
+
     struct aout_sys_t *p_sys = (struct aout_sys_t*) p_cookie;
     aout_instance_t   *p_aout = p_sys->p_aout;
     aout_buffer_t     *p_buffer;
@@ -140,7 +142,7 @@ static int paCallback( const void *inputBuffer, void *outputBuffer,
         if( p_sys->b_chan_reorder )
         {
             /* Do the channel reordering here */
-            aout_ChannelReorder( p_buffer->p_buffer, p_buffer->i_nb_bytes,
+            aout_ChannelReorder( p_buffer->p_buffer, p_buffer->i_buffer,
                                  p_sys->i_channels, p_sys->pi_chan_table,
                                  p_sys->i_bits_per_sample );
         }
@@ -169,7 +171,6 @@ static int Open( vlc_object_t * p_this )
 {
     aout_instance_t *p_aout = (aout_instance_t *)p_this;
     struct aout_sys_t * p_sys;
-    int i_err;
 
     msg_Dbg( p_aout, "entering Open()");
 
@@ -188,6 +189,8 @@ static int Open( vlc_object_t * p_this )
 #ifdef PORTAUDIO_IS_SERIOUSLY_BROKEN
     if( !b_init )
     {
+        int i_err;
+
         /* Test device */
         if( PAOpenDevice( p_aout ) != VLC_SUCCESS )
         {
@@ -423,7 +426,7 @@ static int PAOpenDevice( aout_instance_t *p_aout )
         if( p_sys->deviceInfo->maxOutputChannels >= 6 )
         {
             val.i_int = AOUT_VAR_5_1;
-            text.psz_string = "5.1";
+            text.psz_string = _("5.1");
             var_Change( p_aout, "audio-device", VLC_VAR_ADDCHOICE,
                         &val, &text );
             msg_Dbg( p_aout, "device supports 5.1 channels" );

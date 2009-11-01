@@ -1,7 +1,7 @@
 /*****************************************************************************
  * postproc.c: video postprocessing using libpostproc
  *****************************************************************************
- * Copyright (C) 1999-2008 the VideoLAN team
+ * Copyright (C) 1999-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
@@ -30,6 +30,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_cpu.h>
 
 #include "filter_picture.h"
 
@@ -100,12 +101,18 @@ static const char *const ppsz_filter_options[] = {
  *****************************************************************************/
 struct filter_sys_t
 {
-    pp_context_t *pp_context; /* Never changes after init */
-    pp_mode_t    *pp_mode; /* Set to NULL if post processing is disabled */
+    /* Never changes after init */
+    pp_context_t *pp_context;
 
-    bool b_had_matrix; /* Set to true if previous pic had a quant matrix (used to prevent spamming warning messages */
+    /* Set to NULL if post processing is disabled */
+    pp_mode_t    *pp_mode;
 
-    vlc_mutex_t lock; /* Lock when using or changing pp_mode */
+    /* Set to true if previous pic had a quant matrix
+       (used to prevent spamming warning messages) */
+    bool b_had_matrix;
+
+    /* Lock when using or changing pp_mode */
+    vlc_mutex_t lock;
 };
 
 
@@ -142,7 +149,10 @@ static int OpenPostproc( vlc_object_t *p_this )
     {
         case VLC_CODEC_I444:
         case VLC_CODEC_J444:
-        /* case VLC_CODEC_YUVA: FIXME Should work but alpha plane needs to be copied manually and I'm kind of feeling too lazy to write the code to do that ATM (i_pitch vs i_visible_pitch...). */
+        /* case VLC_CODEC_YUVA:
+           FIXME: Should work but alpha plane needs to be copied manually and
+                  I'm kind of feeling too lazy to write the code to do that ATM
+                  (i_pitch vs i_visible_pitch...). */
             i_flags |= PP_FORMAT_444;
             break;
         case VLC_CODEC_I422:
@@ -180,20 +190,16 @@ static int OpenPostproc( vlc_object_t *p_this )
     config_ChainParse( p_filter, FILTER_PREFIX, ppsz_filter_options,
                        p_filter->p_cfg );
 
-    var_Create( p_filter, FILTER_PREFIX "q",
-                VLC_VAR_INTEGER | VLC_VAR_HASCHOICE | VLC_VAR_DOINHERIT |
-                VLC_VAR_ISCOMMAND );
-    var_Change( p_filter, FILTER_PREFIX "q", VLC_VAR_SETISCOMMAND, NULL, NULL ); /* For some obscure reason the VLC_VAR_ISCOMMAND isn't taken into account in during var_Create */
-    var_AddCallback( p_filter, FILTER_PREFIX "q", PPQCallback, NULL );
+    var_Create( p_filter, FILTER_PREFIX "q", VLC_VAR_INTEGER |
+                VLC_VAR_HASCHOICE | VLC_VAR_DOINHERIT | VLC_VAR_ISCOMMAND );
+
     text.psz_string = _("Post processing");
     var_Change( p_filter, FILTER_PREFIX "q", VLC_VAR_SETTEXT, &text, NULL );
 
     var_Get( p_filter, FILTER_PREFIX "q", &val_orig );
     var_Change( p_filter, FILTER_PREFIX "q", VLC_VAR_DELCHOICE, &val_orig, NULL );
 
-    val.psz_string = var_CreateGetNonEmptyStringCommand(
-                                            p_filter, FILTER_PREFIX "name" );
-    var_AddCallback( p_filter, FILTER_PREFIX "name", PPNameCallback, NULL );
+    val.psz_string = var_GetNonEmptyString( p_filter, FILTER_PREFIX "name" );
     if( val_orig.i_int )
     {
         p_sys->pp_mode = pp_get_mode_by_name_and_quality( val.psz_string ?
@@ -205,7 +211,6 @@ static int OpenPostproc( vlc_object_t *p_this )
         {
             msg_Err( p_filter, "Error while creating post processing mode." );
             free( val.psz_string );
-            var_Destroy( p_filter, FILTER_PREFIX "q" );
             pp_free_context( p_sys->pp_context );
             free( p_sys );
             return VLC_EGENERIC;
@@ -238,7 +243,11 @@ static int OpenPostproc( vlc_object_t *p_this )
                     &val, text.psz_string?&text:NULL );
     }
 
-    vlc_mutex_init( &p_sys->lock ); /* FIXME: too late w.r.t. callback */
+    vlc_mutex_init( &p_sys->lock );
+
+    /* Add the callback at the end to prevent crashes */
+    var_AddCallback( p_filter, FILTER_PREFIX "q", PPQCallback, NULL );
+    var_AddCallback( p_filter, FILTER_PREFIX "name", PPNameCallback, NULL );
 
     p_filter->pf_video_filter = PostprocPict;
     p_sys->b_had_matrix = true;
@@ -254,7 +263,11 @@ static void ClosePostproc( vlc_object_t *p_this )
     filter_t *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys = p_filter->p_sys;
 
-    /* FIXME: delete callbacks before mutex */
+    /* delete the callback before destroying the mutex */
+    var_DelCallback( p_filter, FILTER_PREFIX "q", PPQCallback, NULL );
+    var_DelCallback( p_filter, FILTER_PREFIX "name", PPNameCallback, NULL );
+
+    /* Destroy the resources */
     vlc_mutex_destroy( &p_sys->lock );
     pp_free_context( p_sys->pp_context );
     if( p_sys->pp_mode ) pp_free_mode( p_sys->pp_mode );
@@ -273,20 +286,22 @@ static picture_t *PostprocPict( filter_t *p_filter, picture_t *p_pic )
     int i_plane;
     int i_src_stride[3], i_dst_stride[3];
 
-    vlc_mutex_lock( &p_sys->lock ); /* Lock to prevent issues if pp_mode is changed */
-    if( !p_sys->pp_mode )
-    {
-        vlc_mutex_unlock( &p_sys->lock );
-        return p_pic;
-    }
-
     picture_t *p_outpic = filter_NewPicture( p_filter );
     if( !p_outpic )
     {
         picture_Release( p_pic );
-        vlc_mutex_unlock( &p_sys->lock );
         return NULL;
     }
+
+    /* Lock to prevent issues if pp_mode is changed */
+    vlc_mutex_lock( &p_sys->lock );
+    if( !p_sys->pp_mode )
+    {
+        vlc_mutex_unlock( &p_sys->lock );
+        picture_CopyPixels( p_outpic, p_pic );
+        return CopyInfoAndRelease( p_outpic, p_pic );
+    }
+
 
     for( i_plane = 0; i_plane < p_pic->i_planes; i_plane++ )
     {
@@ -321,7 +336,7 @@ static picture_t *PostprocPict( filter_t *p_filter, picture_t *p_pic )
 }
 
 /*****************************************************************************
- *
+ * PPChangeMode: change the current mode and quality
  *****************************************************************************/
 static void PPChangeMode( filter_t *p_filter, const char *psz_name,
                           int i_quality )
@@ -370,6 +385,7 @@ static int PPNameCallback( vlc_object_t *p_this, const char *psz_var,
     filter_t *p_filter = (filter_t *)p_this;
 
     int i_quality = var_GetInteger( p_filter, FILTER_PREFIX "q" );
-    PPChangeMode( p_filter, *newval.psz_string?newval.psz_string:NULL, i_quality );
+    PPChangeMode( p_filter, *newval.psz_string ? newval.psz_string : NULL,
+                  i_quality );
     return VLC_SUCCESS;
 }

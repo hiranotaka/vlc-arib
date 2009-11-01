@@ -54,9 +54,9 @@ static void DStreamDelete ( stream_t * );
 static void* DStreamThread ( vlc_object_t * );
 
 
-stream_t *__stream_DemuxNew( vlc_object_t *p_obj, const char *psz_demux,
-                             es_out_t *out )
+stream_t *stream_DemuxNew( demux_t *p_demux, const char *psz_demux, es_out_t *out )
 {
+    vlc_object_t *p_obj = VLC_OBJECT(p_demux);
     /* We create a stream reader, and launch a thread */
     stream_t     *s;
     stream_sys_t *p_sys;
@@ -64,6 +64,7 @@ stream_t *__stream_DemuxNew( vlc_object_t *p_obj, const char *psz_demux,
     s = stream_CommonNew( p_obj );
     if( s == NULL )
         return NULL;
+    s->p_input = p_demux->p_input;
     s->psz_path  = strdup(""); /* N/A */
     s->pf_read   = DStreamRead;
     s->pf_peek   = DStreamPeek;
@@ -92,9 +93,12 @@ stream_t *__stream_DemuxNew( vlc_object_t *p_obj, const char *psz_demux,
         return NULL;
     }
 
+    vlc_object_attach( s, p_obj );
+
     if( vlc_thread_create( s, "stream out", DStreamThread,
                            VLC_THREAD_PRIORITY_INPUT ) )
     {
+        vlc_object_detach( s );
         stream_CommonDelete( s );
         free( p_sys->psz_name );
         free( p_sys );
@@ -131,7 +135,7 @@ static void DStreamDelete( stream_t *s )
     block_FifoRelease( p_sys->p_fifo );
     free( p_sys->psz_name );
     free( p_sys );
-
+    vlc_object_detach( s );
     stream_CommonDelete( s );
 }
 
@@ -161,6 +165,7 @@ static int DStreamRead( stream_t *s, void *p_read, unsigned int i_read )
             i_copy = __MIN( i_read, p_block->i_buffer );
             if( p_out && i_copy ) memcpy( p_out, p_block->p_buffer, i_copy );
             i_read -= i_copy;
+            p_out += i_copy;
             i_out += i_copy;
             p_block->i_buffer -= i_copy;
             p_block->p_buffer += i_copy;
@@ -278,12 +283,15 @@ static void* DStreamThread( vlc_object_t* p_this )
     int canc = vlc_savecancel();
 
     /* Create the demuxer */
-    if( !(p_demux = demux_New( s, "", p_sys->psz_name, "", s, p_sys->out,
+    if( !(p_demux = demux_New( s, s->p_input, "", p_sys->psz_name, "", s, p_sys->out,
                                false )) )
     {
         return NULL;
     }
 
+    /* stream_Demux cannot apply DVB filters.
+     * Get all programs and let the E/S output sort them out. */
+    demux_Control( p_demux, DEMUX_SET_GROUP, -1, NULL );
     p_sys->p_demux = p_demux;
 
     /* Main loop */

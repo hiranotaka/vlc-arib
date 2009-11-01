@@ -1,7 +1,7 @@
 /*****************************************************************************
  * fake.c: decoder reading from a fake stream, outputting a fixed image
  *****************************************************************************
- * Copyright (C) 2005 the VideoLAN team
+ * Copyright (C) 2005-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
@@ -100,11 +100,11 @@ vlc_module_begin ()
                  WIDTH_LONGTEXT, true )
     add_integer( "fake-height", 0, NULL, HEIGHT_TEXT,
                  HEIGHT_LONGTEXT, true )
-    add_bool( "fake-keep-ar", 0, NULL, KEEP_AR_TEXT, KEEP_AR_LONGTEXT,
+    add_bool( "fake-keep-ar", false, NULL, KEEP_AR_TEXT, KEEP_AR_LONGTEXT,
               true )
     add_string( "fake-aspect-ratio", "", NULL,
                 ASPECT_RATIO_TEXT, ASPECT_RATIO_LONGTEXT, true )
-    add_bool( "fake-deinterlace", 0, NULL, DEINTERLACE_TEXT,
+    add_bool( "fake-deinterlace", false, NULL, DEINTERLACE_TEXT,
               DEINTERLACE_LONGTEXT, false )
     add_string( "fake-deinterlace-module", "deinterlace", NULL,
                 DEINTERLACE_MODULE_TEXT, DEINTERLACE_MODULE_LONGTEXT,
@@ -130,13 +130,13 @@ struct decoder_sys_t
 static int OpenDecoder( vlc_object_t *p_this )
 {
     decoder_t *p_dec = (decoder_t*)p_this;
-    vlc_value_t val;
     image_handler_t *p_handler;
     video_format_t fmt_in, fmt_out;
     picture_t *p_image;
-    char *psz_file, *psz_chroma;
+    char *psz_file, *psz_chroma, *psz_string;
     bool b_keep_ar;
     int i_aspect = 0;
+    int i_int;
 
     if( p_dec->fmt_in.i_codec != VLC_FOURCC('f','a','k','e') )
     {
@@ -154,19 +154,17 @@ static int OpenDecoder( vlc_object_t *p_this )
         free( p_dec->p_sys );
         return VLC_EGENERIC;
     }
-    var_AddCallback( p_dec, "fake-file", FakeCallback, p_dec );
 
     memset( &fmt_in, 0, sizeof(fmt_in) );
     memset( &fmt_out, 0, sizeof(fmt_out) );
 
-    val.i_int = var_CreateGetIntegerCommand( p_dec, "fake-file-reload" );
-    if( val.i_int > 0)
+    i_int = var_CreateGetIntegerCommand( p_dec, "fake-file-reload" );
+    if( i_int > 0)
     {
         p_dec->p_sys->b_reload = true;
-        p_dec->p_sys->i_reload = (mtime_t)(val.i_int * 1000000);
+        p_dec->p_sys->i_reload = (mtime_t)(i_int * 1000000);
         p_dec->p_sys->i_next   = (mtime_t)(p_dec->p_sys->i_reload + mdate());
     }
-    var_AddCallback( p_dec, "fake-file-reload", FakeCallback , p_dec );
 
     psz_chroma = var_CreateGetString( p_dec, "fake-chroma" );
     fmt_out.i_chroma = vlc_fourcc_GetCodecFromString( VIDEO_ES, psz_chroma );
@@ -177,35 +175,29 @@ static int OpenDecoder( vlc_object_t *p_this )
     }
     free( psz_chroma );
 
-    var_Create( p_dec, "fake-keep-ar", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
-    var_Get( p_dec, "fake-keep-ar", &val );
-    b_keep_ar = val.b_bool;
-
     var_Create( p_dec, "fake-width", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
     var_Create( p_dec, "fake-height", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
-    var_Create( p_dec, "fake-aspect-ratio",
-                VLC_VAR_STRING | VLC_VAR_DOINHERIT );
+    psz_string = var_CreateGetString( p_dec, "fake-aspect-ratio" );
 
-    var_Get( p_dec, "fake-aspect-ratio", &val );
-    if ( val.psz_string )
+    if( psz_string )
     {
-        char *psz_parser = strchr( val.psz_string, ':' );
+        char *psz_parser = strchr( psz_string, ':' );
 
         if( psz_parser )
         {
             *psz_parser++ = '\0';
-            i_aspect = atoi( val.psz_string )
+            i_aspect = atoi( psz_string )
                                    * VOUT_ASPECT_FACTOR / atoi( psz_parser );
         }
-        free( val.psz_string );
+        free( psz_string );
     }
 
-    if ( !b_keep_ar )
+    b_keep_ar = var_CreateGetBool( p_dec, "fake-keep-ar" );
+
+    if( !b_keep_ar )
     {
-        var_Get( p_dec, "fake-width", &val );
-        fmt_out.i_width = val.i_int;
-        var_Get( p_dec, "fake-height", &val );
-        fmt_out.i_height = val.i_int;
+        fmt_out.i_width = var_GetInteger( p_dec, "fake-width" );
+        fmt_out.i_height = var_GetInteger( p_dec, "fake-height" );
     }
 
     p_handler = image_HandlerCreate( p_dec );
@@ -228,10 +220,8 @@ static int OpenDecoder( vlc_object_t *p_this )
         picture_t *p_old = p_image;
         int i_width, i_height;
 
-        var_Get( p_dec, "fake-width", &val );
-        i_width = val.i_int;
-        var_Get( p_dec, "fake-height", &val );
-        i_height = val.i_int;
+        i_width = var_GetInteger( p_dec, "fake-width" );
+        i_height = var_GetInteger( p_dec, "fake-height" );
 
         if ( i_width && i_height )
         {
@@ -287,20 +277,16 @@ static int OpenDecoder( vlc_object_t *p_this )
                             * VOUT_ASPECT_FACTOR / fmt_out.i_height;
     }
 
-    var_Create( p_dec, "fake-deinterlace", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
-    var_Get( p_dec, "fake-deinterlace", &val );
-    if ( val.b_bool )
+    if( var_CreateGetBool( p_dec, "fake-deinterlace" ) )
     {
         picture_t *p_old = p_image;
 
-        var_Create( p_dec, "fake-deinterlace-module",
-                    VLC_VAR_STRING | VLC_VAR_DOINHERIT );
-        var_Get( p_dec, "fake-deinterlace-module", &val );
+        psz_string = var_CreateGetString( p_dec, "fake-deinterlace-module" );
 
         p_handler = image_HandlerCreate( p_dec );
-        p_image = image_Filter( p_handler, p_old, &fmt_out, val.psz_string );
+        p_image = image_Filter( p_handler, p_old, &fmt_out, psz_string );
         image_HandlerDelete( p_handler );
-        free( val.psz_string );
+        free( psz_string );
 
         if ( p_image == NULL )
         {
@@ -323,6 +309,10 @@ static int OpenDecoder( vlc_object_t *p_this )
 
     p_dec->p_sys->p_image = p_image;
     vlc_mutex_init( &p_dec->p_sys->lock );
+
+    /* Add the callback when every variables are available */
+    var_AddCallback( p_dec, "fake-file", FakeCallback, p_dec );
+    var_AddCallback( p_dec, "fake-file-reload", FakeCallback , p_dec );
 
     return VLC_SUCCESS;
 }
@@ -369,6 +359,9 @@ static void CloseDecoder( vlc_object_t *p_this )
 {
     decoder_t *p_dec = (decoder_t *)p_this;
     picture_t *p_image = p_dec->p_sys->p_image;
+
+    var_DelCallback( p_dec, "fake-file", FakeCallback, p_dec );
+    var_DelCallback( p_dec, "fake-file-reload", FakeCallback , p_dec );
 
     if( p_image != NULL )
         picture_Release( p_image );

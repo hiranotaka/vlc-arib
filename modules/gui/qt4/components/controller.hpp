@@ -98,12 +98,12 @@ typedef enum buttonType_e
 } buttonType_e;
 
 
-static const char* nameL[BUTTON_MAX] = { N_("Play"), N_("Stop"), N_("Open"),
+static const char* const nameL[BUTTON_MAX] = { N_("Play"), N_("Stop"), N_("Open"),
     N_("Previous"), N_("Next"), N_("Slower"), N_("Faster"), N_("Fullscreen"),
    N_("De-Fullscreen"), N_("Extended panel"), N_("Playlist"), N_("Snapshot"),
    N_("Record"), N_("A->B Loop"), N_("Frame By Frame"), N_("Trickplay Reverse"),
    N_("Step backward" ), N_("Step forward"), N_("Quit") };
-static const char* tooltipL[BUTTON_MAX] = { I_PLAY_TOOLTIP,
+static const char* const tooltipL[BUTTON_MAX] = { I_PLAY_TOOLTIP,
     N_("Stop playback"), N_("Open a medium"),
     N_("Previous media in the playlist"),
     N_("Next media in the playlist"), N_("Slower"), N_("Faster"),
@@ -112,11 +112,13 @@ static const char* tooltipL[BUTTON_MAX] = { I_PLAY_TOOLTIP,
     N_( "Take a snapshot" ), N_( "Record" ),
     N_( "Loop from point A to point B continuously." ), N_("Frame by frame"),
     N_("Reverse"), N_("Step backward"), N_("Step forward"), N_("Quit") };
-static const QString iconL[BUTTON_MAX] ={ ":/play_b", ":/stop_b", ":/eject",
-    ":/previous_b", ":/next_b", ":/slower", ":/faster", ":/fullscreen",
-    ":/defullscreen", ":/extended", ":/playlist", ":/snapshot", ":/record",
-    ":/atob_nob", ":/frame", ":/reverse", ":/skip_back", ":/skip_fw",
-    ":/clear" };
+static const QString iconL[BUTTON_MAX] ={ ":/toolbar/play_b", ":/toolbar/stop_b",
+    ":/toolbar/eject", ":/toolbar/previous_b", ":/toolbar/next_b",
+    ":/toolbar/slower", ":/toolbar/faster", ":/toolbar/fullscreen",
+    ":/toolbar/defullscreen", ":/toolbar/extended", ":/toolbar/playlist",
+    ":/toolbar/snapshot", ":/toolbar/record", ":/toolbar/atob_nob",
+    ":/toolbar/frame", ":/toolbar/reverse", ":/toolbar/skip_back",
+    ":/toolbar/skip_fw", ":/toolbar/clear" };
 
 enum
 {
@@ -204,23 +206,14 @@ signals:
     void advancedControlsToggled( bool );
 };
 
-/* on WIN32 hide() for fullscreen controller doesnt work, so it have to be
-   done by trick with setting the opacity of window */
-#ifdef WIN32
-    #define WIN32TRICK
-#endif
 
 /* to trying transparency with fullscreen controller on windows enable that */
 /* it can be enabled on-non windows systems,
    but it will be transparent only with composite manager */
-#ifndef WIN32
-    #define HAVE_TRANSPARENCY 1
-#else
-    #define HAVE_TRANSPARENCY 0
-#endif
+#define HAVE_TRANSPARENCY 1
 
 /* Default value of opacity for FS controller */
-#define DEFAULT_OPACITY 0.75
+#define DEFAULT_OPACITY 0.70
 
 /***********************************
  * Fullscreen controller
@@ -229,12 +222,15 @@ class FullscreenControllerWidget : public AbstractController
 {
     Q_OBJECT
 public:
-    FullscreenControllerWidget( intf_thread_t * );
+    FullscreenControllerWidget( intf_thread_t *, QWidget *_parent = 0  );
     virtual ~FullscreenControllerWidget();
 
     /* Vout */
     void fullscreenChanged( vout_thread_t *, bool b_fs, int i_timeout );
     void mouseChanged( vout_thread_t *, int i_mousex, int i_mousey );
+
+signals:
+    void keyPressed( QKeyEvent * );
 
 public slots:
     void setVoutList( vout_thread_t **, int );
@@ -252,7 +248,7 @@ protected:
 private slots:
     void showFSC();
     void planHideFSC();
-    void hideFSC();
+    void hideFSC() { hide(); }
     void slowHideFSC();
     void centerFSC( int );
 
@@ -270,10 +266,6 @@ private:
     bool b_mouse_over;
     int i_screennumber;
     QRect screenRes;
-
-#ifdef WIN32TRICK
-    bool b_fscHidden;
-#endif
 
     /* List of vouts currently tracked */
     QList<vout_thread_t *> vout;

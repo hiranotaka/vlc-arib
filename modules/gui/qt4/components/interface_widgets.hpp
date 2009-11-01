@@ -36,30 +36,28 @@
 #include "components/controller.hpp"
 #include "components/controller_widget.hpp"
 
-//#include <vlc_aout.h> Visualizer
-
 #include <QWidget>
 #include <QFrame>
 #include <QLabel>
 #include <QMouseEvent>
 
 class ResizeEvent;
-class QPalette;
 class QPixmap;
 class QHBoxLayout;
 class QMenu;
+class ReparentableWidget;
 
 /******************** Video Widget ****************/
 class VideoWidget : public QFrame
 {
     Q_OBJECT
-friend class MainInterface;
+friend class ReparentableWidget;
 
 public:
     VideoWidget( intf_thread_t * );
     virtual ~VideoWidget();
 
-    WId request( vout_thread_t *, int *, int *,
+    WId request( int *, int *,
                  unsigned int *, unsigned int *, bool );
     void  release( void );
     int   control( void *, int, va_list );
@@ -72,17 +70,19 @@ protected:
         return NULL;
     }
 
-    virtual void paintEvent(QPaintEvent *);
-
 private:
     intf_thread_t *p_intf;
-    vout_thread_t *p_vout;
 
     QSize videoSize;
+    QWidget *reparentable;
+    QLayout *layout;
+
+signals:
+    void keyPressed( QKeyEvent * );
 
 public slots:
     void SetSizing( unsigned int, unsigned int );
-
+    void SetFullScreen( bool );
 };
 
 /******************** Background Widget ****************/
@@ -94,7 +94,6 @@ public:
     virtual ~BackgroundWidget();
 
 private:
-    QPalette plt;
     QLabel *label;
     virtual void contextMenuEvent( QContextMenuEvent *event );
     intf_thread_t *p_intf;
@@ -205,10 +204,10 @@ public slots:
     {
         requestUpdate();
     }
+    void showArtUpdate( const QString& );
 
 private slots:
     void askForUpdate();
-    void showArtUpdate( const QString& );
 
 signals:
     void updateRequested();

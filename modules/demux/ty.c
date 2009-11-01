@@ -42,9 +42,9 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_demux.h>
-#include "vlc_codec.h"
-#include "vlc_meta.h"
-#include "vlc_input.h"
+#include <vlc_codec.h>
+#include <vlc_meta.h>
+#include <vlc_input.h>
 #include "../codec/cc.h"
 
 #include <assert.h>
@@ -607,7 +607,7 @@ static int check_sync_pes( demux_t *p_demux, block_t *p_block,
         if( offset < 0 )
         {
             /* no header found, fake some 00's (this works, believe me) */
-            memset( p_sys->pes_buffer, 4, 0 );
+            memset( p_sys->pes_buffer, 0, 4 );
             p_sys->i_pes_buf_cnt = 4;
             if( rec_len > 4 )
                 msg_Err( p_demux, "PES header not found in record of %d bytes!",

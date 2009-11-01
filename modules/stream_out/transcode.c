@@ -171,7 +171,7 @@ vlc_module_begin ()
                 VENC_LONGTEXT, false )
     add_string( SOUT_CFG_PREFIX "vcodec", NULL, NULL, VCODEC_TEXT,
                 VCODEC_LONGTEXT, false )
-    add_integer( SOUT_CFG_PREFIX "vb", 800 * 1000, NULL, VB_TEXT,
+    add_integer( SOUT_CFG_PREFIX "vb", 0, NULL, VB_TEXT,
                  VB_LONGTEXT, false )
     add_float( SOUT_CFG_PREFIX "scale", 1, NULL, SCALE_TEXT,
                SCALE_LONGTEXT, false )
@@ -179,7 +179,7 @@ vlc_module_begin ()
                FPS_LONGTEXT, false )
     add_bool( SOUT_CFG_PREFIX "hurry-up", true, NULL, HURRYUP_TEXT,
                HURRYUP_LONGTEXT, false )
-    add_bool( SOUT_CFG_PREFIX "deinterlace", 0, NULL, DEINTERLACE_TEXT,
+    add_bool( SOUT_CFG_PREFIX "deinterlace", false, NULL, DEINTERLACE_TEXT,
               DEINTERLACE_LONGTEXT, false )
     add_string( SOUT_CFG_PREFIX "deinterlace-module", "deinterlace", NULL,
                 DEINTERLACE_MODULE_TEXT, DEINTERLACE_MODULE_LONGTEXT,
@@ -208,7 +208,7 @@ vlc_module_begin ()
                  ACHANS_LONGTEXT, false )
     add_integer( SOUT_CFG_PREFIX "samplerate", 0, NULL, ARATE_TEXT,
                  ARATE_LONGTEXT, true )
-    add_bool( SOUT_CFG_PREFIX "audio-sync", 0, NULL, ASYNC_TEXT,
+    add_bool( SOUT_CFG_PREFIX "audio-sync", false, NULL, ASYNC_TEXT,
               ASYNC_LONGTEXT, false )
     add_module_list( SOUT_CFG_PREFIX "afilter",  "audio filter2",
                      NULL, NULL,
@@ -219,20 +219,20 @@ vlc_module_begin ()
                 SENC_LONGTEXT, false )
     add_string( SOUT_CFG_PREFIX "scodec", NULL, NULL, SCODEC_TEXT,
                 SCODEC_LONGTEXT, false )
-    add_bool( SOUT_CFG_PREFIX "soverlay", 0, NULL, SCODEC_TEXT,
+    add_bool( SOUT_CFG_PREFIX "soverlay", false, NULL, SCODEC_TEXT,
                SCODEC_LONGTEXT, false )
     add_module_list( SOUT_CFG_PREFIX "sfilter", "video filter",
                      NULL, NULL,
                      SFILTER_TEXT, SFILTER_LONGTEXT, false )
 
     set_section( N_("On Screen Display"), NULL )
-    add_bool( SOUT_CFG_PREFIX "osd", 0, NULL, OSD_TEXT,
+    add_bool( SOUT_CFG_PREFIX "osd", false, NULL, OSD_TEXT,
               OSD_LONGTEXT, false )
 
     set_section( N_("Miscellaneous"), NULL )
     add_integer( SOUT_CFG_PREFIX "threads", 0, NULL, THREADS_TEXT,
                  THREADS_LONGTEXT, true )
-    add_bool( SOUT_CFG_PREFIX "high-priority", 0, NULL, HP_TEXT, HP_LONGTEXT,
+    add_bool( SOUT_CFG_PREFIX "high-priority", false, NULL, HP_TEXT, HP_LONGTEXT,
               true )
 
 vlc_module_end ()
@@ -1284,8 +1284,7 @@ static int transcode_audio_process( sout_stream_t *p_stream,
                                     block_t *in, block_t **out )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
-    aout_buffer_t *p_audio_buf;
-    block_t *p_block, *p_audio_block;
+    block_t *p_block, *p_audio_buf;
     *out = NULL;
 
     while( (p_audio_buf = id->p_decoder->pf_decode_audio( id->p_decoder,
@@ -1295,64 +1294,48 @@ static int transcode_audio_process( sout_stream_t *p_stream,
         if( p_sys->b_master_sync )
         {
             mtime_t i_dts = date_Get( &id->interpolated_pts ) + 1;
-            if ( p_audio_buf->start_date - i_dts > MASTER_SYNC_MAX_DRIFT
-                  || p_audio_buf->start_date - i_dts < -MASTER_SYNC_MAX_DRIFT )
+            if ( p_audio_buf->i_pts - i_dts > MASTER_SYNC_MAX_DRIFT
+                  || p_audio_buf->i_pts - i_dts < -MASTER_SYNC_MAX_DRIFT )
             {
                 msg_Dbg( p_stream, "drift is too high, resetting master sync" );
-                date_Set( &id->interpolated_pts, p_audio_buf->start_date );
-                i_dts = p_audio_buf->start_date + 1;
+                date_Set( &id->interpolated_pts, p_audio_buf->i_pts );
+                i_dts = p_audio_buf->i_pts + 1;
             }
-            p_sys->i_master_drift = p_audio_buf->start_date - i_dts;
+            p_sys->i_master_drift = p_audio_buf->i_pts - i_dts;
             date_Increment( &id->interpolated_pts, p_audio_buf->i_nb_samples );
-            p_audio_buf->start_date -= p_sys->i_master_drift;
-            p_audio_buf->end_date -= p_sys->i_master_drift;
+            p_audio_buf->i_pts -= p_sys->i_master_drift;
         }
 
-        p_audio_block = p_audio_buf->p_sys;
-        p_audio_block->i_buffer = p_audio_buf->i_nb_bytes;
-        p_audio_block->i_dts = p_audio_block->i_pts =
-            p_audio_buf->start_date;
-        p_audio_block->i_length = p_audio_buf->end_date -
-            p_audio_buf->start_date;
-        p_audio_block->i_samples = p_audio_buf->i_nb_samples;
+        p_audio_buf->i_dts = p_audio_buf->i_pts;
 
         /* Run filter chain */
         if( id->p_uf_chain )
         {
-            p_audio_block = filter_chain_AudioFilter( id->p_uf_chain, p_audio_block );
-            assert( p_audio_block );
+            p_audio_buf = filter_chain_AudioFilter( id->p_uf_chain,
+                                                    p_audio_buf );
+            if( !p_audio_buf )
+                abort();
         }
 
-        p_audio_block = filter_chain_AudioFilter( id->p_f_chain, p_audio_block );
-        assert( p_audio_block );
+        p_audio_buf = filter_chain_AudioFilter( id->p_f_chain, p_audio_buf );
+        if( !p_audio_buf )
+            abort();
 
-        p_audio_buf->p_buffer = p_audio_block->p_buffer;
-        p_audio_buf->i_nb_bytes = p_audio_block->i_buffer;
-        p_audio_buf->i_nb_samples = p_audio_block->i_samples;
-        p_audio_buf->start_date = p_audio_block->i_dts;
-        p_audio_buf->end_date = p_audio_block->i_dts + p_audio_block->i_length;
+        p_audio_buf->i_pts = p_audio_buf->i_dts;
 
         audio_timer_start( id->p_encoder );
         p_block = id->p_encoder->pf_encode_audio( id->p_encoder, p_audio_buf );
         audio_timer_stop( id->p_encoder );
 
         block_ChainAppend( out, p_block );
-        block_Release( p_audio_block );
-        free( p_audio_buf );
+        block_Release( p_audio_buf );
     }
 
     return VLC_SUCCESS;
 }
 
-static void audio_release_buffer( aout_buffer_t *p_buffer )
-{
-    if( p_buffer && p_buffer->p_sys ) block_Release( p_buffer->p_sys );
-    free( p_buffer );
-}
-
 static aout_buffer_t *audio_new_buffer( decoder_t *p_dec, int i_samples )
 {
-    aout_buffer_t *p_buffer;
     block_t *p_block;
     int i_size;
 
@@ -1372,25 +1355,15 @@ static aout_buffer_t *audio_new_buffer( decoder_t *p_dec, int i_samples )
         i_size = i_samples * 4 * p_dec->fmt_out.audio.i_channels;
     }
 
-    p_buffer = malloc( sizeof(aout_buffer_t) );
-    if( !p_buffer ) return NULL;
-    p_buffer->b_discontinuity = false;
-    p_buffer->pf_release = audio_release_buffer;
-    p_buffer->p_sys = p_block = block_New( p_dec, i_size );
-
-    p_buffer->p_buffer = p_block->p_buffer;
-    p_buffer->i_size = p_buffer->i_nb_bytes = p_block->i_buffer;
-    p_buffer->i_nb_samples = i_samples;
-    p_block->i_samples = i_samples;
-
-    return p_buffer;
+    p_block = block_New( p_dec, i_size );
+    p_block->i_nb_samples = i_samples;
+    return p_block;
 }
 
 static void audio_del_buffer( decoder_t *p_dec, aout_buffer_t *p_buffer )
 {
     VLC_UNUSED(p_dec);
-    if( p_buffer && p_buffer->p_sys ) block_Release( p_buffer->p_sys );
-    free( p_buffer );
+    block_Release( p_buffer );
 }
 
 /*
@@ -1414,6 +1387,7 @@ static void transcode_video_filter_buffer_del( filter_t *p_filter, picture_t *p_
 static int transcode_video_filter_allocation_init( filter_t *p_filter,
                                                    void *p_data )
 {
+    VLC_UNUSED(p_data);
     p_filter->pf_vout_buffer_new = transcode_video_filter_buffer_new;
     p_filter->pf_vout_buffer_del = transcode_video_filter_buffer_del;
     return VLC_SUCCESS;
@@ -1421,6 +1395,7 @@ static int transcode_video_filter_allocation_init( filter_t *p_filter,
 
 static void transcode_video_filter_allocation_clear( filter_t *p_filter )
 {
+    VLC_UNUSED(p_filter);
 }
 
 static int transcode_video_new( sout_stream_t *p_stream, sout_stream_id_t *id )
@@ -1910,8 +1885,7 @@ static int transcode_video_process( sout_stream_t *p_stream,
         /* Check if we have a subpicture to overlay */
         if( p_sys->p_spu )
         {
-            p_subpic = spu_SortSubpictures( p_sys->p_spu, p_pic->date,
-                       false /* Fixme: check if stream is paused */, false );
+            p_subpic = spu_SortSubpictures( p_sys->p_spu, p_pic->date, false );
             /* TODO: get another pic */
         }
 
@@ -1941,8 +1915,9 @@ static int transcode_video_process( sout_stream_t *p_stream,
             fmt.i_sar_num = fmt.i_aspect * fmt.i_height / fmt.i_width;
             fmt.i_sar_den = VOUT_ASPECT_FACTOR;
 
+            /* FIXME the mdate() seems highly suspicious */
             spu_RenderSubpictures( p_sys->p_spu, p_pic, &fmt,
-                                   p_subpic, &id->p_decoder->fmt_out.video, false );
+                                   p_subpic, &id->p_decoder->fmt_out.video, mdate() );
         }
 
         /* Run user specified filter chain */
@@ -2091,7 +2066,11 @@ static picture_t *video_new_buffer_decoder( decoder_t *p_dec )
         {
             /* Encoder still has stuff to encode, wait to clear-up the list */
             while( p_ssys->i_first_pic == i_first_pic )
-                msleep( 100000 );
+            {
+#warning THERE IS DEFINITELY A BUG! LOCKING IS INSUFFICIENT!
+                msleep( 10000 );
+                barrier ();
+            }
         }
     }
 
@@ -2334,7 +2313,7 @@ static int transcode_osd_process( sout_stream_t *p_stream,
     /* Check if we have a subpicture to send */
     if( p_sys->p_spu && in->i_dts > 0)
     {
-        p_subpic = spu_SortSubpictures( p_sys->p_spu, in->i_dts, false, false );
+        p_subpic = spu_SortSubpictures( p_sys->p_spu, in->i_dts, false );
     }
     else
     {

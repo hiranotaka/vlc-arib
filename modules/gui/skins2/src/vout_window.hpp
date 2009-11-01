@@ -25,6 +25,7 @@
 #define VOUT_WINDOW_HPP
 
 #include "generic_window.hpp"
+#include <vlc_vout_window.h>
 
 class OSGraphics;
 class CtrlVideo;
@@ -35,7 +36,7 @@ class VoutWindow: private GenericWindow
 {
     public:
 
-        VoutWindow( intf_thread_t *pIntf, vout_thread_t* pVout,
+        VoutWindow( intf_thread_t *pIntf, vout_window_t* pWnd,
                     int width, int height, GenericWindow* pParent = NULL );
         virtual ~VoutWindow();
 
@@ -47,38 +48,45 @@ class VoutWindow: private GenericWindow
         using GenericWindow::show;
         using GenericWindow::hide;
         using GenericWindow::move;
+        using GenericWindow::resize;
         using GenericWindow::getOSHandle;
         //@}
-
-        /// Resize the window
-        virtual void resize( int width, int height );
 
         /// get the parent  window
         virtual GenericWindow* getWindow( ) { return m_pParentWindow; }
 
-        /// Refresh an area of the window
-        virtual void refresh( int left, int top, int width, int height );
+        /// hotkeys processing
+        virtual void processEvent( EvtKey &rEvtKey );
 
-        /// set Video Control for VoutWindow
+        /// set and get Video Control for VoutWindow
         virtual void setCtrlVideo( CtrlVideo* pCtrlVideo );
+        virtual CtrlVideo* getCtrlVideo( ) { return m_pCtrlVideo; }
+
+        /// toggle fullscreen mode
+        virtual void setFullscreen( bool b_fullscreen );
+        virtual bool isFullscreen() { return m_bFullscreen; }
 
         /// get original size of vout
         virtual int getOriginalWidth( ) { return original_width; }
         virtual int getOriginalHeight( ) { return original_height; }
 
+        /// set original size of vout
+        virtual void setOriginalWidth( int width ) { original_width = width; }
+        virtual void setOriginalHeight( int height ) { original_height = height; }
+
         virtual string getType() const { return "Vout"; }
 
     private:
 
-        /// Image when there is no video
-        OSGraphics *m_pImage;
-
         /// vout thread
-        vout_thread_t* m_pVout;
+        vout_window_t* m_pWnd;
 
         /// original width and height
         int original_width;
         int original_height;
+
+        /// fulscreen mode indicator
+        bool m_bFullscreen;
 
         /// VideoControl attached to it
         CtrlVideo* m_pCtrlVideo;

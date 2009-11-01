@@ -1,7 +1,7 @@
 /*****************************************************************************
- * libvlc.h: Options for the main (libvlc itself) module
+ * libvlc-module.c: Options for the main (libvlc itself) module
  *****************************************************************************
- * Copyright (C) 1998-2006 the VideoLAN team
+ * Copyright (C) 1998-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Vincent Seguin <seguin@via.ecp.fr>
@@ -36,6 +36,7 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
+#include <vlc_cpu.h>
 #include "libvlc.h"
 
 //#define Nothing here, this is just to prevent update-po from being stupid
@@ -63,12 +64,16 @@ static const char *const ppsz_language[] =
     "ka",
     "de",
     "he",
+    "hr",
     "hu",
     "id",
     "it",
     "ja",
     "ko",
+    "lt",
+    "mn",
     "ms",
+    "kk",
     "km",
     "oc",
     "fa",
@@ -86,6 +91,7 @@ static const char *const ppsz_language[] =
     "sv",
     "tr",
     "uk",
+    "vi",
 };
 
 static const char *const ppsz_language_text[] =
@@ -108,12 +114,16 @@ static const char *const ppsz_language_text[] =
     "ქართული",
     "Deutsch",
     "עברית",
+    "hrvatski",
     "Magyar",
     "Bahasa Indonesia",
     "Italiano",
     "日本語",
     "한국어",
+    "lietuvių",
+    "Монгол хэл",
     "Melayu",
+    "Қазақ тілі",
     "ភាសាខ្មែរ",
     "Occitan",
     "ﻑﺍﺮﺳی",
@@ -131,6 +141,7 @@ static const char *const ppsz_language_text[] =
     "Svenska",
     "Türkçe",
     "украї́нська мо́ва",
+    "tiếng Việt",
 };
 #endif
 
@@ -209,11 +220,6 @@ static const char *const ppsz_snap_formats[] =
     "When this is enabled, the preferences and/or interfaces will " \
     "show all available options, including those that most users should " \
     "never touch.")
-
-#define SHOWINTF_TEXT N_("Show interface with mouse")
-#define SHOWINTF_LONGTEXT N_( \
-    "When this is enabled, the interface is shown when you move the mouse to "\
-    "the edge of the screen in fullscreen mode." )
 
 #define INTERACTION_TEXT N_("Interface interaction")
 #define INTERACTION_LONGTEXT N_( \
@@ -446,6 +452,28 @@ static const char *const ppsz_align_descriptions[] =
     "Hide mouse cursor and fullscreen controller after " \
     "n milliseconds, default is 3000 ms (3 sec.)")
 
+#define DEINTERLACE_TEXT N_("Deinterlace")
+#define DEINTERLACE_LONGTEXT N_(\
+    "Deinterlace")
+static const int pi_deinterlace[] = {
+    0, -1, 1
+};
+static const char * const  ppsz_deinterlace_text[] = {
+    "Off", "Automatic", "On"
+};
+
+#define DEINTERLACE_MODE_TEXT N_("Deinterlace mode")
+#define DEINTERLACE_MODE_LONGTEXT N_( \
+    "Deinterlace method to use for video processing.")
+static const char * const ppsz_deinterlace_mode[] = {
+    "discard", "blend", "mean", "bob",
+    "linear", "x", "yadif", "yadif2x"
+};
+static const char * const ppsz_deinterlace_mode_text[] = {
+    N_("Discard"), N_("Blend"), N_("Mean"), N_("Bob"),
+    N_("Linear"), "X", "Yadif", "Yadif (2x)"
+};
+
 static const int pi_pos_values[] = { 0, 1, 2, 4, 8, 5, 6, 9, 10 };
 static const char *const ppsz_pos_descriptions[] =
 { N_("Center"), N_("Left"), N_("Right"), N_("Top"), N_("Bottom"),
@@ -531,12 +559,12 @@ static const char *const ppsz_pos_descriptions[] =
 
 #define CUSTOM_CROP_RATIOS_TEXT N_("Custom crop ratios list")
 #define CUSTOM_CROP_RATIOS_LONGTEXT N_( \
-    "Comma seperated list of crop ratios which will be added in the " \
+    "Comma separated list of crop ratios which will be added in the " \
     "interface's crop ratios list.")
 
 #define CUSTOM_ASPECT_RATIOS_TEXT N_("Custom aspect ratios list")
 #define CUSTOM_ASPECT_RATIOS_LONGTEXT N_( \
-    "Comma seperated list of aspect ratios which will be added in the " \
+    "Comma separated list of aspect ratios which will be added in the " \
     "interface's aspect ratio list.")
 
 #define HDTV_FIX_TEXT N_("Fix HDTV height")
@@ -567,15 +595,13 @@ static const char *const ppsz_pos_descriptions[] =
     "This avoids flooding the message log with debug output from the " \
     "video output synchronization mechanism.")
 
-#define VOUT_EVENT_TEXT N_("key and mouse event handling at vout level.")
-#define VOUT_EVENT_LONGTEXT N_( \
-    "This parameter accepts values : 1 (full event handling support), " \
-    "2 (event handling only for fullscreen) or 3 (No event handling). "  \
-    "Full event handling support is the default value.")
+#define KEYBOARD_EVENTS_TEXT N_("Key press events")
+#define KEYBOARD_EVENTS_LONGTEXT N_( \
+    "This enables VLC hotkeys from the (non-embedded) video window." )
 
-static const int pi_vout_event_values[] = { 1, 2, 3 };
-static const char *const ppsz_vout_event_descriptions[] =
-     { N_("Full support"), N_("Fullscreen-only"), N_("None") };
+#define MOUSE_EVENTS_TEXT N_("Key press events")
+#define MOUSE_EVENTS_LONGTEXT N_( \
+    "This enables handling of mouse clicks on the video." )
 
 /*****************************************************************************
  * Input
@@ -630,7 +656,7 @@ static const char *const ppsz_clock_descriptions[] =
 
 #define MIFACE_ADDR_TEXT N_("IPv4 multicast output interface address")
 #define MIFACE_ADDR_LONGTEXT N_( \
-    "IPv4 adress for the default multicast interface. This overrides " \
+    "IPv4 address for the default multicast interface. This overrides " \
     "the routing table.")
 
 #define DSCP_TEXT N_("DiffServ Code Point")
@@ -984,11 +1010,6 @@ static const char *const ppsz_clock_descriptions[] =
     "These options allow you to enable special CPU optimizations. " \
     "You should always leave all these enabled." )
 
-#define FPU_TEXT N_("Enable FPU support")
-#define FPU_LONGTEXT N_( \
-    "If your processor has a floating point calculation unit, VLC can take " \
-    "advantage of it.")
-
 #define MMX_TEXT N_("Enable CPU MMX support")
 #define MMX_LONGTEXT N_( \
     "If your processor supports the MMX instructions set, VLC can take " \
@@ -1013,6 +1034,12 @@ static const char *const ppsz_clock_descriptions[] =
 #define SSE2_LONGTEXT N_( \
     "If your processor supports the SSE2 instructions set, VLC can take " \
     "advantage of them.")
+
+#define SSE3_TEXT N_("Enable CPU SSE3 support")
+#define SSE3_LONGTEXT N_( \
+    "If your processor supports the SSE3 instructions set, VLC can take " \
+    "advantage of them.")
+
 
 #define ALTIVEC_TEXT N_("Enable CPU AltiVec support")
 #define ALTIVEC_LONGTEXT N_( \
@@ -1078,9 +1105,9 @@ static const char *const ppsz_clock_descriptions[] =
 #define PLUGINS_CACHE_LONGTEXT N_( \
     "Use a plugins cache which will greatly improve the startup time of VLC.")
 
-#define STATS_TEXT N_("Collect statistics")
+#define STATS_TEXT N_("Locally collect statistics")
 #define STATS_LONGTEXT N_( \
-     "Collect miscellaneous statistics.")
+     "Collect miscellaneous local statistics about the playing media.")
 
 #define DAEMON_TEXT N_("Run as daemon process")
 #define DAEMON_LONGTEXT N_( \
@@ -1190,7 +1217,11 @@ static const char *const ppsz_albumart_descriptions[] =
 
 #define PAE_TEXT N_("Play and exit")
 #define PAE_LONGTEXT N_( \
-                "Exit if there are no more items in the playlist." )
+    "Exit if there are no more items in the playlist." )
+
+#define PAP_TEXT N_("Play and pause")
+#define PAP_LONGTEXT N_( \
+    "Pause each item in the playlist on the last frame." )
 
 #define ML_TEXT N_("Use media library")
 #define ML_LONGTEXT N_( \
@@ -1536,7 +1567,7 @@ vlc_module_begin ()
     add_bool( "audio-replay-gain-peak-protection", true, NULL,
               AUDIO_REPLAY_GAIN_PEAK_PROTECTION_TEXT, AUDIO_REPLAY_GAIN_PEAK_PROTECTION_LONGTEXT, true )
 
-    add_bool( "audio-time-stretch", true, NULL,
+    add_bool( "audio-time-stretch", HAVE_FPU, NULL,
               AUDIO_TIME_STRETCH_TEXT, AUDIO_TIME_STRETCH_LONGTEXT, false )
 
     set_subcategory( SUBCAT_AUDIO_AOUT )
@@ -1560,7 +1591,12 @@ vlc_module_begin ()
         change_safe ()
     add_bool( "grayscale", 0, NULL, GRAYSCALE_TEXT,
               GRAYSCALE_LONGTEXT, true )
-    add_bool( "fullscreen", 0, NULL, FULLSCREEN_TEXT,
+#if defined (HAVE_MAEMO)
+# define FULLSCREEN_DEFAULT true
+#else
+# define FULLSCREEN_DEFAULT false
+#endif
+    add_bool( "fullscreen", FULLSCREEN_DEFAULT, NULL, FULLSCREEN_TEXT,
               FULLSCREEN_LONGTEXT, false )
         change_short('f')
         change_safe ()
@@ -1576,9 +1612,12 @@ vlc_module_begin ()
               SKIP_FRAMES_LONGTEXT, true )
     add_bool( "quiet-synchro", 0, NULL, QUIET_SYNCHRO_TEXT,
               QUIET_SYNCHRO_LONGTEXT, true )
-    add_integer( "vout-event", 1, NULL, VOUT_EVENT_TEXT, VOUT_EVENT_LONGTEXT, true )
-        change_integer_list( pi_vout_event_values, ppsz_vout_event_descriptions, NULL )
-        add_deprecated_alias( "x11-event" ) /* renamed since 1.0.0 */
+    add_bool( "keyboard-events", true, NULL, KEYBOARD_EVENTS_TEXT,
+              KEYBOARD_EVENTS_LONGTEXT, true )
+    add_bool( "mouse-events", true, NULL, MOUSE_EVENTS_TEXT,
+              MOUSE_EVENTS_LONGTEXT, true )
+    add_obsolete_integer( "vout-event" ) /* deprecated since 1.1.0 */
+    add_obsolete_integer( "x11-event" ) /* renamed since 1.0.0 */
 #ifndef __APPLE__
     add_bool( "overlay", 1, NULL, OVERLAY_TEXT, OVERLAY_LONGTEXT, false )
 #endif
@@ -1649,7 +1688,14 @@ vlc_module_begin ()
     add_integer( "align", 0, NULL, ALIGN_TEXT, ALIGN_LONGTEXT, true )
         change_integer_list( pi_align_values, ppsz_align_descriptions, NULL )
     add_float( "zoom", 1, NULL, ZOOM_TEXT, ZOOM_LONGTEXT, true )
-
+    add_integer( "deinterlace", 0, NULL,
+                 DEINTERLACE_TEXT, DEINTERLACE_LONGTEXT, false )
+        change_integer_list( pi_deinterlace, ppsz_deinterlace_text, 0 )
+        change_safe()
+    add_string( "deinterlace-mode", "blend", NULL,
+                DEINTERLACE_MODE_TEXT, DEINTERLACE_MODE_LONGTEXT, false )
+        change_string_list( ppsz_deinterlace_mode, ppsz_deinterlace_mode_text, 0 )
+        change_safe()
 
     set_subcategory( SUBCAT_VIDEO_VOUT )
     add_module( "vout", "video output", NULL, NULL, VOUT_TEXT, VOUT_LONGTEXT,
@@ -1914,8 +1960,7 @@ vlc_module_begin ()
     set_category( CAT_ADVANCED )
     set_subcategory( SUBCAT_ADVANCED_CPU )
     add_category_hint( N_("CPU"), CPU_CAT_LONGTEXT, true )
-    add_bool( "fpu", 1, NULL, FPU_TEXT, FPU_LONGTEXT, true )
-        change_need_restart ()
+    add_obsolete_bool( "fpu" )
 #if defined( __i386__ ) || defined( __x86_64__ )
     add_bool( "mmx", 1, NULL, MMX_TEXT, MMX_LONGTEXT, true )
         change_need_restart ()
@@ -1926,6 +1971,8 @@ vlc_module_begin ()
     add_bool( "sse", 1, NULL, SSE_TEXT, SSE_LONGTEXT, true )
         change_need_restart ()
     add_bool( "sse2", 1, NULL, SSE2_TEXT, SSE2_LONGTEXT, true )
+        change_need_restart ()
+    add_bool( "sse3", 1, NULL, SSE3_TEXT, SSE3_LONGTEXT, true )
         change_need_restart ()
 #endif
 #if defined( __powerpc__ ) || defined( __ppc__ ) || defined( __ppc64__ )
@@ -2010,6 +2057,8 @@ vlc_module_begin ()
     add_bool( "play-and-exit", 0, NULL, PAE_TEXT, PAE_LONGTEXT, false )
     add_bool( "play-and-stop", 0, NULL, PAS_TEXT, PAS_LONGTEXT, false )
         change_safe()
+    add_bool( "play-and-pause", 0, NULL, PAP_TEXT, PAP_LONGTEXT, true )
+        change_safe()
     add_bool( "media-library", 1, NULL, ML_TEXT, ML_LONGTEXT, false )
     add_bool( "playlist-tree", 0, NULL, PLTREE_TEXT, PLTREE_LONGTEXT, false )
 
@@ -2074,9 +2123,7 @@ vlc_module_begin ()
     add_bool( "interact", true, NULL, INTERACTION_TEXT,
               INTERACTION_LONGTEXT, false )
 
-    add_bool( "show-intf", false, NULL, SHOWINTF_TEXT, SHOWINTF_LONGTEXT,
-              false )
-        change_need_restart ()
+    add_obsolete_bool( "show-intf" );
 
     add_bool ( "stats", true, NULL, STATS_TEXT, STATS_LONGTEXT, true )
         change_need_restart ()
@@ -2117,15 +2164,10 @@ vlc_module_begin ()
  *  open network                  KEY_MODIFIER_COMMAND|'n'
  *  open capture                  KEY_MODIFIER_COMMAND|'r'
  *  save playlist                 KEY_MODIFIER_COMMAND|'s'
- *  playlist random               KEY_MODIFIER_COMMAND|'z'
  *  playlist repeat all           KEY_MODIFIER_COMMAND|'l'
  *  playlist repeat               KEY_MODIFIER_COMMAND|'r'
- *  video half size               KEY_MODIFIER_COMMAND|'0'
- *  video normal size             KEY_MODIFIER_COMMAND|'1'
- *  video double size             KEY_MODIFIER_COMMAND|'2'
  *  video fit to screen           KEY_MODIFIER_COMMAND|'3'
  *  minimize window               KEY_MODIFIER_COMMAND|'m'
- *  quit application              KEY_MODIFIER_COMMAND|'q'
  *  close window                  KEY_MODIFIER_COMMAND|'w'
  *  streaming wizard              KEY_MODIFIER_COMMAND|KEY_MODIFIER_SHIFT|'w'
  *  show controller               KEY_MODIFIER_COMMAND|KEY_MODIFIER_SHIFT|'c'
@@ -2193,7 +2235,7 @@ vlc_module_begin ()
 #   define KEY_SNAPSHOT           KEY_MODIFIER_COMMAND|KEY_MODIFIER_ALT|'s'
 #   define KEY_ZOOM               'z'
 #   define KEY_UNZOOM             KEY_MODIFIER_SHIFT|'z'
-#   define KEY_RANDOM             'r'
+#   define KEY_RANDOM             KEY_MODIFIER_COMMAND|'z'
 #   define KEY_LOOP               KEY_MODIFIER_SHIFT|'l'
 
 #   define KEY_CROP_TOP           KEY_MODIFIER_ALT|'i'
@@ -2207,9 +2249,9 @@ vlc_module_begin ()
 
 /* the macosx-interface already has bindings */
 #   define KEY_ZOOM_QUARTER       KEY_UNSET
-#   define KEY_ZOOM_HALF          KEY_UNSET
-#   define KEY_ZOOM_ORIGINAL      KEY_UNSET
-#   define KEY_ZOOM_DOUBLE        KEY_UNSET
+#   define KEY_ZOOM_HALF          KEY_MODIFIER_COMMAND|'0'
+#   define KEY_ZOOM_ORIGINAL      KEY_MODIFIER_COMMAND|'1'
+#   define KEY_ZOOM_DOUBLE        KEY_MODIFIER_COMMAND|'2'
 
 #   define KEY_SET_BOOKMARK1      KEY_MODIFIER_COMMAND|KEY_F1
 #   define KEY_SET_BOOKMARK2      KEY_MODIFIER_COMMAND|KEY_F2
@@ -2256,7 +2298,7 @@ vlc_module_begin ()
      */
 #   define KEY_TOGGLE_FULLSCREEN  'f'
 #   define KEY_LEAVE_FULLSCREEN   KEY_ESC
-#   define KEY_PLAY_PAUSE         KEY_SPACE
+#   define KEY_PLAY_PAUSE         ' '
 #   define KEY_PAUSE              KEY_UNSET
 #   define KEY_PLAY               KEY_UNSET
 #   define KEY_FASTER             '+'
@@ -2672,7 +2714,7 @@ vlc_module_begin ()
         change_short( 'p' )
         change_internal ()
         change_unsaveable ()
-    add_bool( "ignore-config", false, NULL, IGNORE_CONFIG_TEXT, "", false )
+    add_bool( "ignore-config", true, NULL, IGNORE_CONFIG_TEXT, "", false )
         change_internal ()
         change_unsaveable ()
     add_bool( "save-config", false, NULL, SAVE_CONFIG_TEXT, "",

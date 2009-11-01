@@ -38,10 +38,7 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-
-#ifdef HAVE_ALLOCA_H
-#   include <alloca.h>
-#endif
+#include <vlc_charset.h>
 
 #include <vlc_aout.h>
 
@@ -113,7 +110,7 @@ vlc_module_begin ()
     add_file( "oss-audio-device", "/dev/dsp", aout_FindAndRestart,
               N_("OSS DSP device"), NULL, false )
         add_deprecated_alias( "dspdev" )   /* deprecated since 0.9.3 */
-    add_bool( "oss-buggy", 0, NULL, BUGGY_TEXT, BUGGY_LONGTEXT, true )
+    add_bool( "oss-buggy", false, NULL, BUGGY_TEXT, BUGGY_LONGTEXT, true )
 
     set_capability( "audio output", 100 )
     add_shortcut( "oss" )
@@ -294,7 +291,7 @@ static int Open( vlc_object_t *p_this )
      * wait forever until the device is available. Since this breaks the
      * OSS spec, we immediately put it back to blocking mode if the
      * operation was successful. */
-    p_sys->i_fd = open( psz_device, O_WRONLY | O_NDELAY );
+    p_sys->i_fd = utf8_open( psz_device, O_WRONLY | O_NDELAY );
     if( p_sys->i_fd < 0 )
     {
         msg_Err( p_aout, "cannot open audio device (%s)", psz_device );
@@ -522,7 +519,7 @@ static int Open( vlc_object_t *p_this )
         msg_Err( p_aout, "cannot create OSS thread (%m)" );
         close( p_sys->i_fd );
         free( p_sys );
-        return VLC_ETHREAD;
+        return VLC_ENOMEM;
     }
 
     return VLC_SUCCESS;
@@ -652,7 +649,7 @@ static void* OSSThread( vlc_object_t *p_this )
             while( vlc_object_alive (p_aout) && ! ( p_buffer =
                 aout_OutputNextBuffer( p_aout, next_date, true ) ) )
             {
-                msleep( 1000 );
+                msleep( VLC_HARD_MIN_SLEEP );
                 next_date = mdate();
             }
         }
@@ -660,10 +657,10 @@ static void* OSSThread( vlc_object_t *p_this )
         if ( p_buffer != NULL )
         {
             p_bytes = p_buffer->p_buffer;
-            i_size = p_buffer->i_nb_bytes;
+            i_size = p_buffer->i_buffer;
             /* This is theoretical ... we'll see next iteration whether
              * we're drifting */
-            next_date += p_buffer->end_date - p_buffer->start_date;
+            next_date += p_buffer->i_length;
         }
         else
         {

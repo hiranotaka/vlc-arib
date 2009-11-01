@@ -1150,15 +1150,19 @@ void httpd_HostDelete( httpd_host_t *host )
 {
     httpd_t *httpd = host->httpd;
     int i;
+    bool delete = false;
 
     vlc_mutex_lock( &httpd_mutex );
 
     vlc_mutex_lock( &host->lock );
     host->i_ref--;
     if( host->i_ref == 0 )
+    {
         vlc_cond_signal( &host->wait );
+        delete = true;
+    }
     vlc_mutex_unlock( &host->lock );
-    if( host->i_ref > 0 )
+    if( !delete )
     {
         /* still used */
         vlc_mutex_unlock( &httpd_mutex );
@@ -2261,8 +2265,7 @@ static void* httpd_HostThread( void *data )
                                     {
                                         httpd_MsgAdd( answer,
                                                       "WWW-Authenticate",
-                                                      "Basic realm=\"%s\"",
-                                                      url->psz_user );
+                                                      "Basic realm=\"VLC stream\"" );
                                         /* We fail for all url */
                                         b_auth_failed = true;
                                         free( user );

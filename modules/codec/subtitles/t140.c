@@ -32,7 +32,6 @@ static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
 vlc_module_begin ()
-    add_submodule ()
     set_description( N_("T.140 text encoder") )
     set_capability( "encoder", 100 )
     set_callbacks( Open, Close )
@@ -82,6 +81,8 @@ static void Close( vlc_object_t *p_this )
 
 static block_t *Encode( encoder_t *p_enc, subpicture_t *p_spu )
 {
+    VLC_UNUSED( p_enc );
+
     subpicture_region_t *p_region;
     block_t *p_block;
     size_t len;
@@ -99,6 +100,10 @@ static block_t *Encode( encoder_t *p_enc, subpicture_t *p_spu )
     len = strlen( p_region->psz_text );
     p_block = block_New( p_enc, len );
     memcpy( p_block->p_buffer, p_region->psz_text, len );
+
+    p_block->i_pts = p_block->i_dts = p_spu->i_start;
+    if( !p_spu->b_ephemer && ( p_spu->i_stop > p_spu->i_start ) )
+        p_block->i_length = p_spu->i_stop - p_spu->i_start;
 
     return p_block;
 }

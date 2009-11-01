@@ -80,7 +80,9 @@ static int           OpenAudio( decoder_t * );
 static int           OpenVideo( decoder_t * );
 
 static aout_buffer_t *DecodeAudio( decoder_t *, block_t ** );
+#ifndef WIN32
 static picture_t     *DecodeVideo( decoder_t *, block_t ** );
+#endif
 
 #define FCC( a, b , c, d ) \
     ((uint32_t)( ((a)<<24)|((b)<<16)|((c)<<8)|(d)))
@@ -187,7 +189,7 @@ struct decoder_sys_t
     /* Output properties */
     uint8_t *           plane;
     mtime_t             pts;
-    audio_date_t        date;
+    date_t              date;
 
     int                 i_late; /* video */
 
@@ -214,7 +216,9 @@ static const int pi_channels_maps[6] =
 };
 
 static int QTAudioInit( decoder_t * );
+#ifndef WIN32
 static int QTVideoInit( decoder_t * );
+#endif
 
 /*****************************************************************************
  * Open: probe the decoder and return score
@@ -229,7 +233,7 @@ static int Open( vlc_object_t *p_this )
 #ifdef __APPLE__
     OSErr err;
     SInt32 qtVersion, macosversion;
-    
+
     err = Gestalt(gestaltQuickTimeVersion, &qtVersion);
     err = Gestalt(gestaltSystemVersion, &macosversion);
 #ifndef NDEBUG
@@ -492,7 +496,7 @@ static int OpenAudio( decoder_t *p_dec )
     p_dec->fmt_out.audio.i_original_channels =
         pi_channels_maps[p_sys->OutputFormatInfo.numChannels];
 
-    aout_DateInit( &p_sys->date, p_dec->fmt_out.audio.i_rate );
+    date_Init( &p_sys->date, p_dec->fmt_out.audio.i_rate, 1 );
 
     p_sys->i_buffer      = 0;
     p_sys->i_buffer_size = 100*1000;
@@ -615,11 +619,11 @@ static aout_buffer_t *DecodeAudio( decoder_t *p_dec, block_t **pp_block )
             }
 
             if( p_sys->pts != 0 &&
-                p_sys->pts != aout_DateGet( &p_sys->date ) )
+                p_sys->pts != date_Get( &p_sys->date ) )
             {
-                aout_DateSet( &p_sys->date, p_sys->pts );
+                date_Set( &p_sys->date, p_sys->pts );
             }
-            else if( !aout_DateGet( &p_sys->date ) )
+            else if( !date_Get( &p_sys->date ) )
             {
                 return NULL;
             }
@@ -642,12 +646,13 @@ static aout_buffer_t *DecodeAudio( decoder_t *p_dec, block_t **pp_block )
 
         if( p_out )
         {
-            p_out->start_date = aout_DateGet( &p_sys->date );
-            p_out->end_date = aout_DateIncrement( &p_sys->date, i_frames );
+            p_out->i_pts = date_Get( &p_sys->date );
+            p_out->i_length = date_Increment( &p_sys->date, i_frames )
+                              - p_out->i_pts;
 
             memcpy( p_out->p_buffer,
                     &p_sys->out_buffer[2 * p_sys->i_out * p_dec->fmt_out.audio.i_channels],
-                    p_out->i_nb_bytes );
+                    p_out->i_buffer );
 
             p_sys->i_out += i_frames;
         }
@@ -840,7 +845,7 @@ static int OpenVideo( decoder_t *p_dec )
     p_dec->fmt_out.video.i_width = p_dec->fmt_in.video.i_width;
     p_dec->fmt_out.video.i_height= p_dec->fmt_in.video.i_height;
     p_dec->fmt_out.video.i_aspect = VOUT_ASPECT_FACTOR * p_dec->fmt_in.video.i_width / p_dec->fmt_in.video.i_height;
- 
+
     vlc_mutex_unlock( &qt_mutex );
     return VLC_SUCCESS;
 
@@ -850,6 +855,8 @@ exit_error:
 #endif
     vlc_mutex_unlock( &qt_mutex );
 
+#else
+    VLC_UNUSED( p_dec );
 #endif /* !WIN32 */
 
     return VLC_EGENERIC;

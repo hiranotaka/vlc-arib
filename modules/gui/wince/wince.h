@@ -39,7 +39,7 @@
 #   define _off_t long
 #endif
 
-#include "vlc_keys.h"
+#include <vlc_keys.h>
 #include <vlc_messages.h>
 
 #include <stdio.h>
@@ -405,7 +405,7 @@ protected:
     LRESULT ProcessCustomDraw( LPARAM lParam );
     void HandlePopupMenu( HWND hwnd, POINT point);
 
-    void DeleteItem( int item );
+    void DeleteItem( input_item_t * item );
 
     void OnOpen();
     void OnSave();

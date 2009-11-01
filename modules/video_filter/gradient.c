@@ -36,7 +36,7 @@
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
 
-#include "vlc_filter.h"
+#include <vlc_filter.h>
 #include "filter_picture.h"
 
 enum { GRADIENT, EDGE, HOUGH };
@@ -88,7 +88,7 @@ vlc_module_begin ()
 
     add_integer_with_range( FILTER_PREFIX "type", 0, 0, 1, NULL,
                 GRADIENT_TEXT, GRADIENT_LONGTEXT, false )
-    add_bool( FILTER_PREFIX "cartoon", 1, NULL,
+    add_bool( FILTER_PREFIX "cartoon", true, NULL,
                 CARTOON_TEXT, CARTOON_LONGTEXT, false )
 
     add_shortcut( "gradient" )

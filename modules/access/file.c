@@ -47,10 +47,20 @@
 #ifdef HAVE_FCNTL_H
 #   include <fcntl.h>
 #endif
+#if defined (__linux__)
+#   include <sys/vfs.h>
+#ifdef HAVE_LINUX_MAGIC_H
+#   include <linux/magic.h>
+#endif
+#elif defined (HAVE_SYS_MOUNT_H)
+#   include <sys/param.h>
+#   include <sys/mount.h>
+#endif
 
 #if defined( WIN32 )
 #   include <io.h>
 #   include <ctype.h>
+#   include <shlwapi.h>
 #else
 #   include <unistd.h>
 #   include <poll.h>
@@ -64,6 +74,7 @@
 #elif defined( UNDER_CE )
 /* FIXME the commandline on wince is a mess */
 # define dup(a) -1
+# define PathIsNetworkPathW(wpath) (! wcsncmp(wpath, L"\\\\", 2))
 #endif
 
 #include <vlc_charset.h>
@@ -74,17 +85,24 @@
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
-#define CACHING_TEXT N_("Caching value in ms")
+#define CACHING_TEXT N_("Caching value (ms)")
 #define CACHING_LONGTEXT N_( \
-    "Caching value for files. This " \
-    "value should be set in milliseconds." )
+    "Caching value for files, in milliseconds." )
+
+#define NETWORK_CACHING_TEXT N_("Extra network caching value (ms)")
+#define NETWORK_CACHING_LONGTEXT N_( \
+    "Supplementary caching value for remote files, in milliseconds." )
 
 vlc_module_begin ()
     set_description( N_("File input") )
     set_shortname( N_("File") )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
-    add_integer( "file-caching", DEFAULT_PTS_DELAY / 1000, NULL, CACHING_TEXT, CACHING_LONGTEXT, true )
+    add_integer( "file-caching", DEFAULT_PTS_DELAY / 1000, NULL,
+                 CACHING_TEXT, CACHING_LONGTEXT, true )
+        change_safe()
+    add_integer( "network-caching", 3 * DEFAULT_PTS_DELAY / 1000, NULL,
+                 NETWORK_CACHING_TEXT, NETWORK_CACHING_LONGTEXT, true )
         change_safe()
     add_obsolete_string( "file-cat" )
     set_capability( "access", 50 )
@@ -112,8 +130,48 @@ struct access_sys_t
     int fd;
 
     /* */
+    unsigned caching;
     bool b_pace_control;
 };
+
+#ifndef WIN32
+static bool IsRemote (int fd)
+{
+#ifdef HAVE_FSTATFS
+    struct statfs stf;
+
+    if (fstatfs (fd, &stf))
+        return false;
+
+#if defined(MNT_LOCAL)
+    return !(stf.f_flags & MNT_LOCAL);
+
+#else
+#   ifdef HAVE_LINUX_MAGIC_H
+    switch (stf.f_type)
+    {
+        case AFS_SUPER_MAGIC:
+        case CODA_SUPER_MAGIC:
+        case NCP_SUPER_MAGIC:
+        case NFS_SUPER_MAGIC:
+        case SMB_SUPER_MAGIC:
+        case 0xFF534D42 /*CIFS_MAGIC_NUMBER*/:
+            return true;
+    }
+    return false;
+#   endif
+#endif
+#else /* !HAVE_FSTATFS */
+    (void)fd;
+    return false;
+
+#endif
+}
+#endif
+
+#ifndef HAVE_POSIX_FADVISE
+# define posix_fadvise(fd, off, len, adv)
+#endif
 
 /*****************************************************************************
  * Open: open the file
@@ -122,9 +180,10 @@ static int Open( vlc_object_t *p_this )
 {
     access_t     *p_access = (access_t*)p_this;
     access_sys_t *p_sys;
-
-    /* Update default_pts to a suitable value for file access */
-    var_Create( p_access, "file-caching", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
+#ifdef WIN32
+    wchar_t wpath[MAX_PATH+1];
+    bool is_remote = false;
+#endif
 
     STANDARD_READ_ACCESS_INIT;
     p_sys->i_nb_reads = 0;
@@ -141,6 +200,13 @@ static int Open( vlc_object_t *p_this )
     {
         msg_Dbg (p_access, "opening file `%s'", p_access->psz_path);
         fd = open_file (p_access, p_access->psz_path);
+#ifdef WIN32
+        if (MultiByteToWideChar (CP_UTF8, 0, p_access->psz_path, -1,
+                                 wpath, MAX_PATH)
+         && PathIsNetworkPathW (wpath))
+            is_remote = true;
+# define IsRemote( fd ) ((void)fd, is_remote)
+#endif
     }
     if (fd == -1)
         goto error;
@@ -171,7 +237,19 @@ static int Open( vlc_object_t *p_this )
 # warning File size not known!
 #endif
 
+    p_sys->caching = var_CreateGetInteger (p_access, "file-caching");
+    if (IsRemote(fd))
+        p_sys->caching += var_CreateGetInteger (p_access, "network-caching");
+
     p_sys->fd = fd;
+
+    if (p_access->pf_seek != NoSeek)
+    {
+        /* Demuxers will need the beginning of the file for probing. */
+        posix_fadvise (fd, 0, 4096, POSIX_FADV_WILLNEED);
+        /* In most cases, we only read the file once. */
+        posix_fadvise (fd, 0, 0, POSIX_FADV_NOREUSE);
+    }
     return VLC_SUCCESS;
 
 error:
@@ -235,10 +313,10 @@ static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
 
     p_sys->i_nb_reads++;
 
-#ifdef HAVE_SYS_STAT_H
     if ((p_access->info.i_size && !(p_sys->i_nb_reads % INPUT_FSTAT_NB_READS))
      || (p_access->info.i_pos > p_access->info.i_size))
     {
+#ifdef HAVE_SYS_STAT_H
         struct stat st;
 
         if ((fstat (fd, &st) == 0)
@@ -247,8 +325,8 @@ static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
             p_access->info.i_size = st.st_size;
             p_access->info.i_update |= INPUT_UPDATE_SIZE;
         }
-    }
 #endif
+    }
     return i_ret;
 }
 
@@ -299,7 +377,7 @@ static int Control( access_t *p_access, int i_query, va_list args )
         /* */
         case ACCESS_GET_PTS_DELAY:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = var_GetInteger( p_access, "file-caching" ) * INT64_C(1000);
+            *pi_64 = p_sys->caching * INT64_C(1000);
             break;
 
         /* */
@@ -338,7 +416,7 @@ static int open_file (access_t *p_access, const char *path)
         path++;
 #endif
 
-    int fd = utf8_open (path, O_RDONLY | O_NONBLOCK /* O_LARGEFILE*/, 0666);
+    int fd = utf8_open (path, O_RDONLY | O_NONBLOCK);
     if (fd == -1)
     {
         msg_Err (p_access, "cannot open file %s (%m)", path);

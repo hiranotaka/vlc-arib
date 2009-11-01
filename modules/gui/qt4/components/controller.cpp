@@ -467,19 +467,19 @@ QFrame *AbstractController::discFrame()
 
     QToolButton *prevSectionButton = new QToolButton( discFrame );
     setupButton( prevSectionButton );
-    BUTTON_SET_BAR2( prevSectionButton, dvd_prev,
+    BUTTON_SET_BAR2( prevSectionButton, toolbar/dvd_prev,
             qtr("Previous Chapter/Title" ) );
     discLayout->addWidget( prevSectionButton );
 
     QToolButton *menuButton = new QToolButton( discFrame );
     setupButton( menuButton );
     discLayout->addWidget( menuButton );
-    BUTTON_SET_BAR2( menuButton, dvd_menu, qtr( "Menu" ) );
+    BUTTON_SET_BAR2( menuButton, toolbar/dvd_menu, qtr( "Menu" ) );
 
     QToolButton *nextSectionButton = new QToolButton( discFrame );
     setupButton( nextSectionButton );
     discLayout->addWidget( nextSectionButton );
-    BUTTON_SET_BAR2( nextSectionButton, dvd_next,
+    BUTTON_SET_BAR2( nextSectionButton, toolbar/dvd_next,
             qtr("Next Chapter/Title" ) );
 
     /* Change the navigation button display when the IM
@@ -517,7 +517,7 @@ QFrame *AbstractController::telexFrame()
     /* On/Off button */
     QToolButton *telexOn = new QToolButton;
     setupButton( telexOn );
-    BUTTON_SET_BAR2( telexOn, tv, qtr( "Teletext Activation" ) );
+    BUTTON_SET_BAR2( telexOn, toolbar/tv, qtr( "Teletext Activation" ) );
     telexOn->setEnabled( false );
     telexOn->setCheckable( true );
 
@@ -532,7 +532,7 @@ QFrame *AbstractController::telexFrame()
     /* Transparency button */
     QToolButton *telexTransparent = new QToolButton;
     setupButton( telexTransparent );
-    BUTTON_SET_BAR2( telexTransparent, tvtelx,
+    BUTTON_SET_BAR2( telexTransparent, toolbar/tvtelx,
                      qtr( "Toggle Transparency " ) );
     telexTransparent->setEnabled( false );
     telexTransparent->setCheckable( true );
@@ -656,8 +656,8 @@ InputControlsWidget::InputControlsWidget( intf_thread_t *_p_i, QWidget *_parent 
 /**********************************************************************
  * Fullscrenn control widget
  **********************************************************************/
-FullscreenControllerWidget::FullscreenControllerWidget( intf_thread_t *_p_i )
-                           : AbstractController( _p_i )
+FullscreenControllerWidget::FullscreenControllerWidget( intf_thread_t *_p_i, QWidget *_parent )
+                           : AbstractController( _p_i, _parent )
 {
     i_mouse_last_x      = -1;
     i_mouse_last_y      = -1;
@@ -704,24 +704,20 @@ FullscreenControllerWidget::FullscreenControllerWidget( intf_thread_t *_p_i )
     CONNECT( p_slowHideTimer, timeout(), this, slowHideFSC() );
 #endif
 
-    adjustSize ();  /* need to get real width and height for moving */
-
-#ifdef WIN32TRICK
-    setWindowOpacity( 0.0 );
-    b_fscHidden = true;
-    adjustSize();
-    show();
-#endif
-
     vlc_mutex_init_recursive( &lock );
 
     CONNECT( THEMIM->getIM(), voutListChanged( vout_thread_t **, int ),
              this, setVoutList( vout_thread_t **, int ) );
 
     /* First Move */
+    QRect rect1 = getSettings()->value( "FullScreen/screen" ).toRect();
     QPoint pos1 = getSettings()->value( "FullScreen/pos" ).toPoint();
-    int number = QApplication::desktop()->screenNumber( p_intf->p_sys->p_mi );
-    if( QApplication::desktop()->screenGeometry( number ).contains( pos1, true ) )
+    int number =  config_GetInt( p_intf, "qt-fullscreen-screennumber" );
+    if( number == -1 || number > QApplication::desktop()->numScreens() )
+        number = QApplication::desktop()->screenNumber( p_intf->p_sys->p_mi );
+
+    QRect rect = QApplication::desktop()->screenGeometry( number );
+    if( rect == rect1 && rect.contains( pos1, true ) )
     {
         move( pos1 );
         i_screennumber = number;
@@ -736,7 +732,11 @@ FullscreenControllerWidget::FullscreenControllerWidget( intf_thread_t *_p_i )
 
 FullscreenControllerWidget::~FullscreenControllerWidget()
 {
-    getSettings()->setValue( "FullScreen/pos", pos() );
+    QPoint pos1 = pos();
+    QRect rect1 = QApplication::desktop()->screenGeometry( pos1 );
+    getSettings()->setValue( "FullScreen/pos", pos1 );
+    getSettings()->setValue( "FullScreen/screen", rect1 );
+
     setVoutList( NULL, 0 );
     vlc_mutex_destroy( &lock );
 }
@@ -744,10 +744,12 @@ FullscreenControllerWidget::~FullscreenControllerWidget()
 void FullscreenControllerWidget::centerFSC( int number )
 {
     screenRes = QApplication::desktop()->screenGeometry(number);
+
     /* screen has changed, calculate new position */
-    QPoint pos = QPoint( screenRes.x() + (screenRes.width() / 2) - (width() / 2),
-            screenRes.y() + screenRes.height() - height());
+    QPoint pos = QPoint( screenRes.x() + (screenRes.width() / 2) - (sizeHint().width() / 2),
+            screenRes.y() + screenRes.height() - sizeHint().height());
     move( pos );
+
     i_screennumber = number;
 }
 
@@ -764,38 +766,14 @@ void FullscreenControllerWidget::showFSC()
         screenRes != QApplication::desktop()->screenGeometry(number) )
     {
         centerFSC( number );
+        msg_Dbg( p_intf, "Recentering the Fullscreen Controller" );
     }
-#ifdef WIN32TRICK
-    // after quiting and going to fs, we need to call show()
-    if( isHidden() )
-        show();
-    if( b_fscHidden )
-    {
-        b_fscHidden = false;
-        setWindowOpacity( 1.0 );
-    }
-#else
-    show();
-#endif
 
 #if HAVE_TRANSPARENCY
-    setWindowOpacity( DEFAULT_OPACITY );
+    setWindowOpacity( config_GetFloat( p_intf, "qt-fs-opacity" )  );
 #endif
-}
 
-/**
- * Hide fullscreen controller
- * FIXME: under windows it have to be done by moving out of screen
- *        because hide() doesnt work
- */
-void FullscreenControllerWidget::hideFSC()
-{
-#ifdef WIN32TRICK
-    b_fscHidden = true;
-    setWindowOpacity( 0.0 );    // simulate hidding
-#else
-    hide();
-#endif
+    show();
 }
 
 /**
@@ -835,11 +813,7 @@ void FullscreenControllerWidget::slowHideFSC()
     }
     else
     {
-#ifdef WIN32TRICK
-         if ( windowOpacity() > 0.0 && !b_fscHidden )
-#else
          if ( windowOpacity() > 0.0 )
-#endif
          {
              /* we should use 0.01 because of 100 pieces ^^^
                 but than it cannt be done in time */
@@ -862,17 +836,15 @@ void FullscreenControllerWidget::customEvent( QEvent *event )
 
     switch( event->type() )
     {
+        /* This is used when the 'i' hotkey is used, to force quick toggle */
         case FullscreenControlToggle_Type:
             vlc_mutex_lock( &lock );
             b_fs = b_fullscreen;
             vlc_mutex_unlock( &lock );
+
             if( b_fs )
             {
-#ifdef WIN32TRICK
-                if( b_fscHidden )
-#else
                 if( isHidden() )
-#endif
                 {
                     p_hideTimer->stop();
                     showFSC();
@@ -881,24 +853,24 @@ void FullscreenControllerWidget::customEvent( QEvent *event )
                     hideFSC();
             }
             break;
+        /* Event called to Show the FSC on mouseChanged() */
         case FullscreenControlShow_Type:
             vlc_mutex_lock( &lock );
             b_fs = b_fullscreen;
             vlc_mutex_unlock( &lock );
 
-#ifdef WIN32TRICK
-            if( b_fs && b_fscHidden )
-#else
-            if( b_fs && !isVisible() )
-#endif
+            if( b_fs )
                 showFSC();
+
             break;
-        case FullscreenControlHide_Type:
-            hideFSC();
-            break;
+        /* Start the timer to hide later, called usually with above case */
         case FullscreenControlPlanHide_Type:
             if( !b_mouse_over ) // Only if the mouse is not over FSC
                 planHideFSC();
+            break;
+        /* Hide */
+        case FullscreenControlHide_Type:
+            hideFSC();
             break;
         default:
             break;
@@ -934,12 +906,14 @@ void FullscreenControllerWidget::mousePressEvent( QMouseEvent *event )
 {
     i_mouse_last_x = event->globalX();
     i_mouse_last_y = event->globalY();
+    event->accept();
 }
 
 void FullscreenControllerWidget::mouseReleaseEvent( QMouseEvent *event )
 {
     i_mouse_last_x = -1;
     i_mouse_last_y = -1;
+    event->accept();
 }
 
 /**
@@ -952,6 +926,7 @@ void FullscreenControllerWidget::enterEvent( QEvent *event )
     p_hideTimer->stop();
 #if HAVE_TRANSPARENCY
     p_slowHideTimer->stop();
+    setWindowOpacity( DEFAULT_OPACITY );
 #endif
     event->accept();
 }
@@ -969,19 +944,10 @@ void FullscreenControllerWidget::leaveEvent( QEvent *event )
 
 /**
  * When you get pressed key, send it to video output
- * FIXME: clearing focus by clearFocus() to not getting
- * key press events didnt work
  */
 void FullscreenControllerWidget::keyPressEvent( QKeyEvent *event )
 {
-    int i_vlck = qtEventToVLCKey( event );
-    if( i_vlck > 0 )
-    {
-        var_SetInteger( p_intf->p_libvlc, "key-pressed", i_vlck );
-        event->accept();
-    }
-    else
-        event->ignore();
+    emit keyPressed( event );
 }
 
 /* */

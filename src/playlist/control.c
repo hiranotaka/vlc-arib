@@ -104,7 +104,7 @@ static int PlaylistVAControl( playlist_t * p_playlist, int i_query, va_list args
     if( !vlc_object_alive( p_playlist ) )
         return VLC_EGENERIC;
 
-    if( playlist_IsEmpty( p_playlist ) )
+    if( playlist_IsEmpty( p_playlist ) && i_query != PLAYLIST_STOP )
         return VLC_EGENERIC;
 
     switch( i_query )
@@ -151,22 +151,21 @@ static int PlaylistVAControl( playlist_t * p_playlist, int i_query, va_list args
         break;
 
     case PLAYLIST_PAUSE:
-        if( pl_priv(p_playlist)->p_input &&
-            var_GetInteger( pl_priv(p_playlist)->p_input, "state" ) == PAUSE_S )
+        if( !pl_priv(p_playlist)->p_input )
+        {    /* FIXME: is this really useful without input? */
+             pl_priv(p_playlist)->status.i_status = PLAYLIST_PAUSED;
+             break;
+        }
+
+        if( var_GetInteger( pl_priv(p_playlist)->p_input, "state" ) == PAUSE_S )
         {
             pl_priv(p_playlist)->status.i_status = PLAYLIST_RUNNING;
-            if( pl_priv(p_playlist)->p_input )
-            {
-                var_SetInteger( pl_priv(p_playlist)->p_input, "state", PLAYING_S );
-            }
+            var_SetInteger( pl_priv(p_playlist)->p_input, "state", PLAYING_S );
         }
         else
         {
             pl_priv(p_playlist)->status.i_status = PLAYLIST_PAUSED;
-            if( pl_priv(p_playlist)->p_input )
-            {
-                var_SetInteger( pl_priv(p_playlist)->p_input, "state", PAUSE_S );
-            }
+            var_SetInteger( pl_priv(p_playlist)->p_input, "state", PAUSE_S );
         }
         break;
 

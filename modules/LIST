@@ -66,6 +66,7 @@ $Id$
  * cddax: input module to read audio CDs via libcdio
  * cdg: CD-G decoder
  * chain: Video filtering using a chain of video filter modules
+ * chorus_flanger: variable delay audio filter
  * clone: Clone video filter
  * cmml: Continuous Media Markup Language annotations/hyperlinks decoder
  * colorthres:  Theshold color based on similarity to reference color Video filter
@@ -73,7 +74,6 @@ $Id$
  * converter_float: Floating-point audio format conversions
  * crop: Crop video filter
  * croppadd: Crop/Padd image filter
- * csri: common subtitle interface decoder
  * cvdsub: CVD subtitles decoder
  * dbus: D-Bus control interface
  * dc1394: firewire input module
@@ -85,6 +85,7 @@ $Id$
  * direct3d: video output module using the Direct3D API
  * directfb: Direct Framebuffer video output
  * directory : input module to read files in a directory
+ * directx: video output module using the DirectX API
  * dmo: a DirectMediaObject decoder that uses DirectMedia to decode video (WMV3)
  * dolby_surround_decoder: simple decoder for dolby surround encoded streams
  * dshow: DirectShow access plugin for encoding cards under Windows
@@ -115,7 +116,6 @@ $Id$
  * folder: folder meta data and art finder
  * freetype: Utility to put text on video using freetype2
  * ftp : FTP input module
- * galaktos: a visualization module that outputs OpenGL
  * gapi: PocketPC Video output
  * gaussianblur: gaussian blur video filter
  * gestures: mouse gestures control plugin
@@ -124,8 +124,6 @@ $Id$
  * glwin32: a opengl provider using DirectX OpenGL
  * glx: a opengl provider using X11 OpenGL
  * gme: game music files demuxer
- * gnome2_main: Gtk+ wrapper for gtk_main
- * gnome_main: Gtk+ wrapper for gtk_main
  * gnutls: GNU TLS encryption/decryption module
  * goom: visualisation plugin based on goom
  * gradient: Gradient and edge detection video effects filter
@@ -133,8 +131,6 @@ $Id$
  * grey_yuv: grayscale to others conversion module
  * growl: announce currently playing stream to growl
  * growl_udp: growl UDP notification plugin
- * gtk2_main: Gtk+ wrapper for gtk_main
- * gtk_main: Gtk+ wrapper for gtk_main
  * h264: H264 decoder
  * hal: Linux HAL services discovery module
  * hd1000a: audio output module for the Roku HD1000 Set-Top-Box
@@ -178,6 +174,7 @@ $Id$
  * magnify: zoom video filter
  * marq: Overlays a marquee on the video
  * mash: OpenMash based decoder
+ * mediadirs: Picture/Music/Video user directories as service discoveries
  * memcpy3dn: 3D Now! accelerated version of memcpy
  * memcpy: memory chunk copying module
  * memcpyaltivec: Altivec accelerated version of memcpy
@@ -185,6 +182,7 @@ $Id$
  * memcpymmxext: MMX EXT accelerated version of memcpy
  * mga: video output module for Matrox cards using the Linux mga kernel driver
  * minimal_macosx: a minimal Mac OS X GUI, using the FrameWork
+ * mirror: mirror video filter
  * mjpeg: a demuxer for multipart and concatenated JPEG data
  * mkv: Matroska demuxer
  * mod: MOD demuxer
@@ -230,6 +228,7 @@ $Id$
  * osdmenu: video_filter for displaying and streaming a On Screen Display menu
  * oss: audio output module using the OSS /dev/dsp interface
  * packetizer_copy: Simple copy packetizer
+ * packetizer_dirac: Dirac video packetizer
  * packetizer_h264: H264 video packetizer
  * packetizer_mlp: MLP/TrueHD audio packetizer
  * packetizer_mpeg4audio: MPEG4 audio packetizer
@@ -238,13 +237,13 @@ $Id$
  * packetizer_vc1: VC-1 video packetizer
  * panoramix: image wall panoramic video with edge blending filter
  * param_eq: parametric equalizer
- * pda: interface for iPaq using the Gtk2+ widget set
  * playlist: playlist import module
  * png: PNG images decoder
  * podcast: podcast feed parser
  * portaudio: audio output module that uses the portaudio library (www.portaudio.com)
  * postproc: Video post processing filter
  * probe_hal: HAL probing module
+ * projectm: visualisation using libprojectM
  * ps: input module for MPEG PS decapsulation
  * psychedelic: Psychedelic video filter
  * pulse: PulseAudio audio output module
@@ -282,7 +281,6 @@ $Id$
  * sharpen: Sharpen video filter
  * shine: MP3 encoder using Shine, a fixed point implementation
  * shout: Shoutcast services discovery
- * showintf: shows the main interface
  * signals: POSIX signals handling interface
  * simple_channel_mixer: channel mixer
  * skins2: Skinnable interface, new generation
@@ -308,8 +306,7 @@ $Id$
  * stream_out_record: record stream output module
  * stream_out_standard: standard stream output module
  * stream_out_switcher: stream output module to display backgrounds
- * stream_out_transcode: audio & video transcoder using ffmpeg
- * stream_out_transrate: audio & video transrater using ffmpeg
+ * stream_out_transcode: audio & video transcoder using FFmpeg
  * subsdec: a codec to output textual subtitles
  * subsusf: a demuxer for USF subtitles
  * subtitle: a demuxer for subtitle files
@@ -348,13 +345,13 @@ $Id$
  * vc1: VC-1 Video demuxer
  * vcd: input module for accessing Video CDs
  * vcdx: input module for accessing Video CDs with navigation & stills
+ * video_filter_wrapper: a "video filter2/splitter" with mouse to "video filter" wrapper
  * visual: visualisation system
  * vmem: memory video driver
  * vobsub: VobSUB subtitles demuxer
  * voc: VOC demuxer
  * vod_rtsp: RTSP VoD module
  * vorbis: a vorbis audio decoder/packetizer using the libvorbis library
- * vout_directx: video output module using the DirectX API
  * vout_sdl: video output module using the SDL library
  * wall: image wall filter
  * wav: Wav demuxer
@@ -365,15 +362,11 @@ $Id$
  * wingapi: Win CE video output
  * wingdi: WIN 32 / WIN CE GDI video output
  * wma_fixed: wma decoder using integer decoder from Rockbox
- * x11: video output module using the X11 API
- * x11_screen: Screen capture module
  * x264: H264 video decoder using X264
  * xa: XA demuxer
  * xml: LibXML xml parser
  * xosd: X On Screen Display interface
  * xtag: XTAG xml parser
- * xvid: Decoder for the Xvid codec, using libxvidcore
- * xvideo: video output module using the XVideo API
  * xvmc: XVMC video output and decoder
  * yuv: yuv video output
  * yuvp: YUVP to YUVA/RGBA chroma converter

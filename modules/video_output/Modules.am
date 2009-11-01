@@ -19,19 +19,18 @@ SOURCES_opengllayer = opengllayer.m
 SOURCES_directfb = directfb.c
 SOURCES_vmem = vmem.c
 SOURCES_yuv = yuv.c
+SOURCES_vout_wrapper = wrapper.c
 
-libxcb_plugin_la_SOURCES = \
+libxcb_x11_plugin_la_SOURCES = \
 	xcb/xcb_vlc.h \
 	xcb/x11.c \
 	xcb/common.c \
 	xcb/events.c
-libxcb_plugin_la_CFLAGS = $(AM_CFLAGS) \
-	$(XCB_CFLAGS) $(XCB_SHM_CFLAGS) \
-	$(XPROTO_CFLAGS)
-libxcb_plugin_la_LIBADD = $(AM_LIBADD) \
-	$(XCB_LIBS) $(XCB_SHM_LIBS) \
-	$(XPROTO_LIBS)
-libxcb_plugin_la_DEPENDENCIES =
+libxcb_x11_plugin_la_CFLAGS = $(AM_CFLAGS) \
+	$(XCB_CFLAGS) $(XCB_SHM_CFLAGS)
+libxcb_x11_plugin_la_LIBADD = $(AM_LIBADD) \
+	$(XCB_LIBS) $(XCB_SHM_LIBS)
+libxcb_x11_plugin_la_DEPENDENCIES =
 
 libxcb_xv_plugin_la_SOURCES = \
 	xcb/xcb_vlc.h \
@@ -39,28 +38,28 @@ libxcb_xv_plugin_la_SOURCES = \
 	xcb/common.c \
 	xcb/events.c
 libxcb_xv_plugin_la_CFLAGS = $(AM_CFLAGS) \
-	$(XCB_CFLAGS) $(XCB_SHM_CFLAGS) $(XCB_XV_CFLAGS) \
-	$(XPROTO_CFLAGS)
+	$(XCB_CFLAGS) $(XCB_SHM_CFLAGS) $(XCB_XV_CFLAGS)
 libxcb_xv_plugin_la_LIBADD = $(AM_LIBADD) \
-	$(XCB_LIBS) $(XCB_SHM_LIBS) $(XCB_XV_LIBS) \
-	$(XPROTO_LIBS)
+	$(XCB_LIBS) $(XCB_SHM_LIBS) $(XCB_XV_LIBS)
 libxcb_xv_plugin_la_DEPENDENCIES =
 
 libxcb_window_plugin_la_SOURCES = xcb/window.c xcb/keys.c
 libxcb_window_plugin_la_CFLAGS = $(AM_CFLAGS) \
+	$(XPROTO_CFLAGS) \
 	$(XCB_CFLAGS) \
-	$(XCB_AUX_CFLAGS) $(XCB_KEYSYMS_CFLAGS)
+	$(XCB_KEYSYMS_CFLAGS)
 libxcb_window_plugin_la_LIBADD = $(AM_LIBADD) \
+	$(XPROTO_LIBS) \
 	$(XCB_LIBS) \
-	$(XCB_AUX_LIBS) $(XCB_KEYSYMS_LIBS)
+	$(XCB_KEYSYMS_LIBS)
 libxcb_window_plugin_la_DEPENDENCIES =
 
 EXTRA_LTLIBRARIES += \
-	libxcb_plugin.la \
+	libxcb_x11_plugin.la \
 	libxcb_xv_plugin.la \
 	libxcb_window_plugin.la
 libvlc_LTLIBRARIES += \
-	$(LTLIBxcb) \
+	$(LTLIBxcb_x11) \
 	$(LTLIBxcb_xv) \
 	$(LTLIBxcb_window)
 
@@ -69,4 +68,8 @@ libdrawable_plugin_la_SOURCES = drawable.c
 libdrawable_plugin_la_CFLAGS = $(AM_CFLAGS)
 libdrawable_plugin_la_LIBADD = $(AM_LIBADD)
 libdrawable_plugin_la_DEPENDENCIES =
+if HAVE_WIN32
 libvlc_LTLIBRARIES += libdrawable_plugin.la
+endif
+
+libvlc_LTLIBRARIES += libvout_wrapper_plugin.la

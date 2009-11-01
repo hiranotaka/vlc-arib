@@ -26,6 +26,7 @@
  * http://www.audioscrobbler.net/development/protocol/
  *
  * TODO:    "Now Playing" feature (not mandatory)
+ *          Update to new API? http://www.lastfm.fr/api
  */
 /*****************************************************************************
  * Preamble
@@ -295,7 +296,7 @@ static void Run( intf_thread_t *p_intf )
                     /* username not set */
                     dialog_Fatal( p_intf,
                         _("Last.fm username not set"),
-                        _("Please set a username or disable the "
+                        "%s", _("Please set a username or disable the "
                         "audioscrobbler plugin, and restart VLC.\n"
                         "Visit http://www.last.fm/join/ to get an account.")
                     );
@@ -465,6 +466,8 @@ static void Run( intf_thread_t *p_intf )
 static int PlayingChange( vlc_object_t *p_this, const char *psz_var,
                        vlc_value_t oldval, vlc_value_t newval, void *p_data )
 {
+    VLC_UNUSED( oldval );
+
     intf_thread_t   *p_intf = ( intf_thread_t* ) p_data;
     intf_sys_t      *p_sys  = p_intf->p_sys;
     input_thread_t  *p_input = ( input_thread_t* )p_this;
@@ -491,7 +494,10 @@ static int PlayingChange( vlc_object_t *p_this, const char *psz_var,
     else if( state_value.i_int == PAUSE_S )
         p_sys->time_pause = mdate();
     else if( p_sys->time_pause > 0 && state_value.i_int == PLAYING_S )
+    {
         p_sys->time_total_pauses += ( mdate() - p_sys->time_pause );
+        p_sys->time_pause = 0;
+    }
 
     return VLC_SUCCESS;
 }
@@ -535,9 +541,9 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
     }
 
     var_Change( p_input, "video-es", VLC_VAR_CHOICESCOUNT, &video_val, NULL );
-    if( ( video_val.i_int > 0 ) || p_item->i_type == ITEM_TYPE_NET )
+    if( video_val.i_int > 0 )
     {
-        msg_Dbg( p_this, "Not an audio local file, not submitting");
+        msg_Dbg( p_this, "Not an audio-only input, not submitting");
         vlc_object_release( p_input );
         return VLC_SUCCESS;
     }
@@ -832,7 +838,7 @@ static int Handshake( intf_thread_t *p_this )
         /* authentication failed, bad username/password combination */
         dialog_Fatal( p_this,
             _("last.fm: Authentication failed"),
-            _("last.fm username or password is incorrect. "
+            "%s", _("last.fm username or password is incorrect. "
               "Please verify your settings and relaunch VLC." ) );
         return VLC_AUDIOSCROBBLER_EFATAL;
     }

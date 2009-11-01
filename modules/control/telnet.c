@@ -280,8 +280,12 @@ static void Run( intf_thread_t *p_intf )
                 if (net_errno != EINTR)
                 {
                     msg_Err (p_intf, "network poll error");
-                    msleep (1000);
-                    continue;
+#ifndef WIN32
+                    pause ();  /* We are screwed! */
+#else
+                    abort (); /* We are even more screwed! (no pause() in win32) */
+#endif
+                    break;
                 }
             case 0:
                 continue;

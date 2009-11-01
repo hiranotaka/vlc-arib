@@ -175,7 +175,7 @@ static int Demux( demux_t *p_demux )
                 if( DemuxInit( p_demux ) )
                 {
                     msg_Err( p_demux, "failed to load the new header" );
-                    dialog_Fatal( p_demux, _("Could not demux ASF stream"),
+                    dialog_Fatal( p_demux, _("Could not demux ASF stream"), "%s",
                                     _("VLC failed to load the ASF header.") );
                     return 0;
                 }
@@ -360,7 +360,6 @@ static mtime_t GetMoviePTS( demux_sys_t *p_sys )
         {
             if( i_time < 0 ) i_time = tk->i_time;
             else i_time = __MIN( i_time, tk->i_time );
-            break;
         }
     }
 
@@ -595,8 +594,10 @@ static int DemuxPacket( demux_t *p_demux )
                 /* send complete packet to decoder */
                 block_t *p_gather = block_ChainGather( tk->p_frame );
 
+                tk->i_time = p_gather->i_dts;
+
                 if( p_sys->i_time < 0 )
-                    es_out_Control( p_demux->out, ES_OUT_SET_PCR, tk->i_time );
+                    es_out_Control( p_demux->out, ES_OUT_SET_PCR, tk->i_time+1 );
 
                 es_out_Send( p_demux->out, tk->p_es, p_gather );
 
@@ -616,11 +617,7 @@ static int DemuxPacket( demux_t *p_demux )
 
             if( tk->p_frame == NULL )
             {
-                tk->i_time =
-                    ( (mtime_t)i_pts + i_payload * (mtime_t)i_pts_delta );
-
-                p_frag->i_pts = tk->i_time;
-
+                p_frag->i_pts = i_pts + i_payload * (mtime_t)i_pts_delta;
                 if( tk->i_cat != VIDEO_ES )
                     p_frag->i_dts = p_frag->i_pts;
                 else

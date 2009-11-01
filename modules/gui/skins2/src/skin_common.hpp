@@ -31,7 +31,7 @@
 
 #include <vlc_common.h>
 #include <vlc_interface.h>
-#include "vlc_charset.h"
+#include <vlc_charset.h>
 
 #include <string>
 using namespace std;
@@ -140,6 +140,18 @@ struct intf_sys_t
 
     /// Current theme
     Theme *p_theme;
+
+    /// synchronisation at start of interface
+    vlc_thread_t thread;
+    vlc_mutex_t  init_lock;
+    vlc_cond_t   init_wait;
+    bool         b_ready;
+
+    /// handle (vout windows)
+    void*        handle;
+    vlc_mutex_t  vout_lock;
+    vlc_cond_t   vout_wait;
+    bool         b_vout_ready;
 };
 
 

@@ -16,9 +16,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef _VLCCONTROL2_H_
@@ -68,12 +68,15 @@ public:
     STDMETHODIMP put_volume(long);
     STDMETHODIMP get_track(long*);
     STDMETHODIMP put_track(long);
+    STDMETHODIMP get_count(long*);
     STDMETHODIMP get_channel(long*);
     STDMETHODIMP put_channel(long);
     STDMETHODIMP toggleMute();
+    STDMETHODIMP description(long, BSTR*);
 
 protected:
     HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
 
 private:
     VLCPlugin*      _p_instance;
@@ -129,6 +132,7 @@ public:
 
 protected:
     HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
 
 private:
     VLCPlugin*      _p_instance;
@@ -251,6 +255,7 @@ public:
  
 protected:
     HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
 
 private:
     VLCPlugin*      _p_instance;
@@ -305,6 +310,7 @@ public:
 
 protected:
     HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
 
     VLCLog*     _p_vlclog;
 
@@ -363,6 +369,7 @@ public:
 
 protected:
     HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
 
     libvlc_log_t    *_p_log;
 
@@ -371,6 +378,62 @@ private:
     ITypeInfo*      _p_typeinfo;
 
     VLCMessages*    _p_vlcmessages;
+};
+
+class VLCMarquee : public IVLCMarquee
+{
+public:
+    VLCMarquee(VLCPlugin *p_instance) :
+        _p_instance(p_instance), _p_typeinfo(NULL) {};
+    virtual ~VLCMarquee();
+
+    // IUnknown methods
+    STDMETHODIMP QueryInterface(REFIID riid, void **ppv)
+    {
+        if( NULL == ppv )
+          return E_POINTER;
+        if( (IID_IUnknown == riid)
+         || (IID_IDispatch == riid)
+         || (IID_IVLCMarquee == riid) )
+        {
+            AddRef();
+            *ppv = reinterpret_cast<LPVOID>(this);
+           return NOERROR;
+        }
+        // behaves as a standalone object
+        return E_NOINTERFACE;
+    };
+
+    STDMETHODIMP_(ULONG) AddRef(void) { return _p_instance->pUnkOuter->AddRef(); };
+    STDMETHODIMP_(ULONG) Release(void) { return _p_instance->pUnkOuter->Release(); };
+
+    // IDispatch methods
+    STDMETHODIMP GetTypeInfoCount(UINT*);
+    STDMETHODIMP GetTypeInfo(UINT, LCID, LPTYPEINFO*);
+    STDMETHODIMP GetIDsOfNames(REFIID,LPOLESTR*,UINT,LCID,DISPID*);
+    STDMETHODIMP Invoke(DISPID,REFIID,LCID,WORD,DISPPARAMS*,VARIANT*,EXCEPINFO*,UINT*);
+
+    // IVLCMarquee methods
+    STDMETHODIMP enable();
+    STDMETHODIMP disable();
+    STDMETHODIMP text(BSTR);
+    STDMETHODIMP color(long);
+    STDMETHODIMP opacity(long);
+    STDMETHODIMP position(long);
+    STDMETHODIMP refresh(long);
+    STDMETHODIMP size(long);
+    STDMETHODIMP timeout(long);
+    STDMETHODIMP x(long);
+    STDMETHODIMP y(long);
+
+protected:
+    HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
+
+private:
+    VLCPlugin*      _p_instance;
+    ITypeInfo*      _p_typeinfo;
+
 };
 
 class VLCPlaylistItems : public IVLCPlaylistItems
@@ -413,6 +476,7 @@ public:
 
 protected:
     HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
 
 private:
     VLCPlugin*  _p_instance;
@@ -474,6 +538,7 @@ public:
 
 protected:
     HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
 
 private:
     VLCPlugin*  _p_instance;
@@ -482,11 +547,65 @@ private:
     VLCPlaylistItems*    _p_vlcplaylistitems;
 };
 
+class VLCSubtitle : public IVLCSubtitle
+{
+public:
+    VLCSubtitle(VLCPlugin *p_instance) :
+        _p_instance(p_instance), _p_typeinfo(NULL) {};
+    virtual ~VLCSubtitle();
+
+    // IUnknown methods
+    STDMETHODIMP QueryInterface(REFIID riid, void **ppv)
+    {
+        if( NULL == ppv )
+          return E_POINTER;
+        if( (IID_IUnknown == riid)
+         || (IID_IDispatch == riid)
+         || (IID_IVLCSubtitle == riid) )
+        {
+            AddRef();
+            *ppv = reinterpret_cast<LPVOID>(this);
+            return NOERROR;
+        }
+        // behaves as a standalone object
+        return E_NOINTERFACE;
+    };
+
+    STDMETHODIMP_(ULONG) AddRef(void) { return _p_instance->pUnkOuter->AddRef(); };
+    STDMETHODIMP_(ULONG) Release(void) { return _p_instance->pUnkOuter->Release(); };
+
+    // IDispatch methods
+    STDMETHODIMP GetTypeInfoCount(UINT*);
+    STDMETHODIMP GetTypeInfo(UINT, LCID, LPTYPEINFO*);
+    STDMETHODIMP GetIDsOfNames(REFIID,LPOLESTR*,UINT,LCID,DISPID*);
+    STDMETHODIMP Invoke(DISPID,REFIID,LCID,WORD,DISPPARAMS*,VARIANT*,EXCEPINFO*,UINT*);
+
+    // IVLCSubtitle methods
+    STDMETHODIMP get_track(long*);
+    STDMETHODIMP put_track(long);
+    STDMETHODIMP get_count(long*);
+    STDMETHODIMP description(long, BSTR*);
+
+protected:
+    HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
+
+private:
+    VLCPlugin*      _p_instance;
+    ITypeInfo*      _p_typeinfo;
+
+};
+
 class VLCVideo : public IVLCVideo
 {
 public:
     VLCVideo(VLCPlugin *p_instance) :
-        _p_instance(p_instance), _p_typeinfo(NULL) {};
+        _p_instance(p_instance),
+        _p_typeinfo(NULL),
+        _p_vlcmarquee(NULL)
+    {
+        _p_vlcmarquee = new VLCMarquee(p_instance);
+    };
     virtual ~VLCVideo();
 
     // IUnknown methods
@@ -528,16 +647,21 @@ public:
     STDMETHODIMP put_crop(BSTR);
     STDMETHODIMP get_teletext(long*);
     STDMETHODIMP put_teletext(long);
+    STDMETHODIMP get_marquee(IVLCMarquee**);
+    STDMETHODIMP deinterlaceDisable();
+    STDMETHODIMP deinterlaceEnable(BSTR);
     STDMETHODIMP takeSnapshot(LPPICTUREDISP*);
     STDMETHODIMP toggleFullscreen();
     STDMETHODIMP toggleTeletext();
 
 protected:
     HRESULT loadTypeInfo();
+    HRESULT exception_bridge(libvlc_exception_t *ex);
 
 private:
     VLCPlugin*      _p_instance;
     ITypeInfo*      _p_typeinfo;
+    VLCMarquee*     _p_vlcmarquee;
 
 };
 
@@ -598,6 +722,7 @@ public:
     STDMETHODIMP get_input(IVLCInput**);
     STDMETHODIMP get_log(IVLCLog**);
     STDMETHODIMP get_playlist(IVLCPlaylist**);
+    STDMETHODIMP get_subtitle(IVLCSubtitle**);
     STDMETHODIMP get_video(IVLCVideo**);
 
 protected:
@@ -611,6 +736,7 @@ private:
     VLCInput*       _p_vlcinput;
     VLCLog  *       _p_vlclog;
     VLCPlaylist*    _p_vlcplaylist;
+    VLCSubtitle*    _p_vlcsubtitle;
     VLCVideo*       _p_vlcvideo;
 };
 

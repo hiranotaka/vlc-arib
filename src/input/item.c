@@ -33,7 +33,7 @@
 
 #include "item.h"
 
-static void GuessType( input_item_t *p_item );
+static int GuessType( const input_item_t *p_item );
 
 /** Stuff moved out of vlc_input.h -- FIXME: should probably not be inline
  * anyway. */
@@ -47,6 +47,7 @@ static inline void input_item_Init( vlc_object_t *p_o, input_item_t *p_i )
     TAB_INIT( p_i->i_options, p_i->ppsz_options );
     p_i->optflagv = NULL, p_i->optflagc = 0;
     TAB_INIT( p_i->i_categories, p_i->pp_categories );
+    TAB_INIT( p_i->i_epg, p_i->pp_epg );
 
     p_i->i_type = ITEM_TYPE_UNKNOWN;
     p_i->b_fixed_name = true;
@@ -94,6 +95,10 @@ static inline void input_item_Clean( input_item_t *p_i )
         free( p_i->es[i] );
     }
     TAB_CLEAN( p_i->i_es, p_i->es );
+
+    for( i = 0; i < p_i->i_epg; i++ )
+        vlc_epg_Delete( p_i->pp_epg[i] );
+    TAB_CLEAN( p_i->i_epg, p_i->pp_epg );
 
     for( i = 0; i < p_i->i_categories; i++ )
     {
@@ -353,26 +358,37 @@ char *input_item_GetURI( input_item_t *p_i )
 void input_item_SetURI( input_item_t *p_i, const char *psz_uri )
 {
     vlc_mutex_lock( &p_i->lock );
+#ifndef NDEBUG
+    if( !strstr( psz_uri, "://" ) || strstr( psz_uri, " " ) || strstr( psz_uri, "\"" ) )
+        fprintf( stderr, "input_item_SetURI() was likely called with a path. FIXME\n" );
+#endif
 
     free( p_i->psz_uri );
     p_i->psz_uri = strdup( psz_uri );
 
-    GuessType( p_i );
+    p_i->i_type = GuessType( p_i );
 
-    if( !p_i->psz_name && p_i->i_type == ITEM_TYPE_FILE )
+    if( p_i->psz_name )
+        ;
+    else
+    if( p_i->i_type == ITEM_TYPE_FILE || p_i->i_type == ITEM_TYPE_DIRECTORY )
     {
-        const char *psz_filename = strrchr( p_i->psz_uri, DIR_SEP_CHAR );
-        if( psz_filename && *psz_filename == DIR_SEP_CHAR )
+        const char *psz_filename = strrchr( p_i->psz_uri, '/' );
+
+        if( psz_filename && *psz_filename == '/' )
             psz_filename++;
         if( psz_filename && *psz_filename )
             p_i->psz_name = strdup( psz_filename );
-    }
 
-    /* The name is NULL: fill it with everything except login and password */
-    if( !p_i->psz_name )
-    {
+        /* Make the name more readable */
+        if( p_i->psz_name )
+            decode_URI( p_i->psz_name );
+    }
+    else
+    {   /* Strip login and password from title */
         int r;
         vlc_url_t url;
+
         vlc_UrlParse( &url, psz_uri, 0 );
         if( url.psz_protocol )
         {
@@ -699,12 +715,45 @@ int input_item_DelInfo( input_item_t *p_i,
     return VLC_SUCCESS;
 }
 
-void input_item_SetEpg( input_item_t *p_item,
-                        const char *psz_epg, const vlc_epg_t *p_epg )
+#define EPG_DEBUG
+void input_item_SetEpg( input_item_t *p_item, const vlc_epg_t *p_update )
 {
+    vlc_mutex_lock( &p_item->lock );
+
+    /* */
+    vlc_epg_t *p_epg = NULL;
+    for( int i = 0; i < p_item->i_epg; i++ )
+    {
+        vlc_epg_t *p_tmp = p_item->pp_epg[i];
+
+        if( (p_tmp->psz_name == NULL) != (p_update->psz_name == NULL) )
+            continue;
+        if( p_tmp->psz_name && p_update->psz_name && strcmp(p_tmp->psz_name, p_update->psz_name) )
+            continue;
+
+        p_epg = p_tmp;
+        break;
+    }
+
+    /* */
+    if( !p_epg )
+    {
+        p_epg = vlc_epg_New( p_update->psz_name );
+        if( p_epg )
+            TAB_APPEND( p_item->i_epg, p_item->pp_epg, p_epg );
+    }
+    if( p_epg )
+        vlc_epg_Merge( p_epg, p_update );
+
+    vlc_mutex_unlock( &p_item->lock );
+
+#ifdef EPG_DEBUG
+    char *psz_epg;
+    if( asprintf( &psz_epg, "EPG %s", p_epg->psz_name ? p_epg->psz_name : "unknown" ) < 0 )
+        goto signal;
+
     input_item_DelInfo( p_item, psz_epg, NULL );
 
-#ifdef HAVE_LOCALTIME_R
     vlc_mutex_lock( &p_item->lock );
     for( int i = 0; i < p_epg->i_event; i++ )
     {
@@ -719,25 +768,58 @@ void input_item_SetEpg( input_item_t *p_item,
                   1900 + tm_start.tm_year, 1 + tm_start.tm_mon, tm_start.tm_mday,
                   tm_start.tm_hour, tm_start.tm_min, tm_start.tm_sec );
         if( p_evt->psz_short_description || p_evt->psz_description )
-            InputItemAddInfo( p_item, psz_epg, psz_start, "%s (%2.2d:%2.2d) - %s",
+            InputItemAddInfo( p_item, psz_epg, psz_start, "%s (%2.2d:%2.2d) - %s %s",
                               p_evt->psz_name,
                               p_evt->i_duration/60/60, (p_evt->i_duration/60)%60,
-                              p_evt->psz_short_description ? p_evt->psz_short_description : p_evt->psz_description );
+                              p_evt->psz_short_description ? p_evt->psz_short_description : "" ,
+                              p_evt->psz_description ? p_evt->psz_description : "" );
         else
             InputItemAddInfo( p_item, psz_epg, psz_start, "%s (%2.2d:%2.2d)",
                               p_evt->psz_name,
                               p_evt->i_duration/60/60, (p_evt->i_duration/60)%60 );
     }
     vlc_mutex_unlock( &p_item->lock );
+    free( psz_epg );
+signal:
+#endif
 
     if( p_epg->i_event > 0 )
     {
-        vlc_event_t event;
-
-        event.type = vlc_InputItemInfoChanged;
+        vlc_event_t event = { .type = vlc_InputItemInfoChanged, };
         vlc_event_send( &p_item->event_manager, &event );
     }
+}
+
+void input_item_SetEpgOffline( input_item_t *p_item )
+{
+    vlc_mutex_lock( &p_item->lock );
+    for( int i = 0; i < p_item->i_epg; i++ )
+        vlc_epg_SetCurrent( p_item->pp_epg[i], -1 );
+    vlc_mutex_unlock( &p_item->lock );
+
+#ifdef EPG_DEBUG
+    vlc_mutex_lock( &p_item->lock );
+    const int i_epg_info = p_item->i_epg;
+    char *ppsz_epg_info[i_epg_info];
+    for( int i = 0; i < p_item->i_epg; i++ )
+    {
+        const vlc_epg_t *p_epg = p_item->pp_epg[i];
+        if( asprintf( &ppsz_epg_info[i], "EPG %s", p_epg->psz_name ? p_epg->psz_name : "unknown" ) < 0 )
+            ppsz_epg_info[i] = NULL;
+    }
+    vlc_mutex_unlock( &p_item->lock );
+
+    for( int i = 0; i < i_epg_info; i++ )
+    {
+        if( !ppsz_epg_info[i] )
+            continue;
+        input_item_DelInfo( p_item, ppsz_epg_info[i], NULL );
+        free( ppsz_epg_info[i] );
+    }
 #endif
+
+    vlc_event_t event = { .type = vlc_InputItemInfoChanged, };
+    vlc_event_send( &p_item->event_manager, &event );
 }
 
 
@@ -797,45 +879,75 @@ input_item_t *input_item_NewWithType( vlc_object_t *p_obj, const char *psz_uri,
     return p_input;
 }
 
-/* Guess the type of the item using the beginning of the mrl */
-static void GuessType( input_item_t *p_item)
+struct item_type_entry
 {
-    int i;
-    static struct { const char *psz_search; int i_type; }  types_array[] =
-    {
-        { "http", ITEM_TYPE_NET },
-        { "dvd", ITEM_TYPE_DISC },
-        { "cdda", ITEM_TYPE_CDDA },
-        { "mms", ITEM_TYPE_NET },
-        { "rtsp", ITEM_TYPE_NET },
-        { "udp", ITEM_TYPE_NET },
-        { "rtp", ITEM_TYPE_NET },
-        { "vcd", ITEM_TYPE_DISC },
-        { "v4l", ITEM_TYPE_CARD },
-        { "dshow", ITEM_TYPE_CARD },
-        { "pvr", ITEM_TYPE_CARD },
-        { "dvb", ITEM_TYPE_CARD },
-        { "qpsk", ITEM_TYPE_CARD },
-        { "sdp", ITEM_TYPE_NET },
-        { "ftp", ITEM_TYPE_NET },
-        { "smb", ITEM_TYPE_NET },
-        { NULL, 0 }
+    const char psz_scheme[7];
+    uint8_t    i_type;
+};
+
+static int typecmp( const void *key, const void *entry )
+{
+    const struct item_type_entry *type = entry;
+    const char *uri = key, *scheme = type->psz_scheme;
+
+    return strncmp( uri, scheme, strlen( scheme ) );
+}
+
+/* Guess the type of the item using the beginning of the mrl */
+static int GuessType( const input_item_t *p_item )
+{
+    static const struct item_type_entry tab[] =
+    {   /* /!\ Alphabetical order /!\ */
+        /* Short match work, not just exact match */
+        { "alsa",   ITEM_TYPE_CARD },
+        { "atsc",   ITEM_TYPE_CARD },
+        { "bd",     ITEM_TYPE_DISC },
+        { "cable",  ITEM_TYPE_CARD },
+        { "cdda",   ITEM_TYPE_CDDA },
+        { "dc1394", ITEM_TYPE_CARD },
+        { "dccp",   ITEM_TYPE_NET },
+        { "dir",    ITEM_TYPE_DIRECTORY },
+        { "dshow",  ITEM_TYPE_CARD },
+        { "dv",     ITEM_TYPE_CARD },
+        { "dvb",    ITEM_TYPE_CARD },
+        { "dvd",    ITEM_TYPE_DISC },
+        { "ftp",    ITEM_TYPE_NET },
+        { "http",   ITEM_TYPE_NET },
+        { "icyx",   ITEM_TYPE_NET },
+        { "itpc",   ITEM_TYPE_NET },
+        { "jack",   ITEM_TYPE_CARD },
+        { "live",   ITEM_TYPE_NET }, /* livedotcom */
+        { "mms",    ITEM_TYPE_NET },
+        { "mtp",    ITEM_TYPE_DISC },
+        { "ofdm",   ITEM_TYPE_CARD },
+        { "oss",    ITEM_TYPE_CARD },
+        { "pnm",    ITEM_TYPE_NET },
+        { "pvr",    ITEM_TYPE_CARD },
+        { "qam",    ITEM_TYPE_CARD },
+        { "qpsk",   ITEM_TYPE_CARD },
+        { "qtcapt", ITEM_TYPE_CARD }, /* qtcapture */
+        { "raw139", ITEM_TYPE_CARD }, /* raw1394 */
+        { "rt",     ITEM_TYPE_NET }, /* rtp, rtsp, rtmp */
+        { "satell", ITEM_TYPE_CARD }, /* sattelite */
+        { "screen", ITEM_TYPE_CARD },
+        { "sdp",    ITEM_TYPE_NET },
+        { "smb",    ITEM_TYPE_NET },
+        { "svcd",   ITEM_TYPE_DISC },
+        { "tcp",    ITEM_TYPE_NET },
+        { "terres", ITEM_TYPE_CARD }, /* terrestrial */
+        { "udp",    ITEM_TYPE_NET },  /* udplite too */
+        { "unsv",   ITEM_TYPE_NET },
+        { "usdigi", ITEM_TYPE_CARD }, /* usdigital */
+        { "v4l",    ITEM_TYPE_CARD },
+        { "vcd",    ITEM_TYPE_DISC },
+        { "window", ITEM_TYPE_CARD },
     };
+    const struct item_type_entry *e;
 
-    if( !p_item->psz_uri || !strstr( p_item->psz_uri, "://" ) )
-    {
-        p_item->i_type = ITEM_TYPE_FILE;
-        return;
-    }
+    if( !strstr( p_item->psz_uri, "://" ) )
+        return ITEM_TYPE_FILE;
 
-    for( i = 0; types_array[i].psz_search != NULL; i++ )
-    {
-        if( !strncmp( p_item->psz_uri, types_array[i].psz_search,
-                      strlen( types_array[i].psz_search ) ) )
-        {
-            p_item->i_type = types_array[i].i_type;
-            return;
-        }
-    }
-    p_item->i_type = ITEM_TYPE_FILE;
+    e = bsearch( p_item->psz_uri, tab, sizeof( tab ) / sizeof( tab[0] ),
+                 sizeof( tab[0] ), typecmp );
+    return e ? e->i_type : ITEM_TYPE_FILE;
 }

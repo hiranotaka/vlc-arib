@@ -90,7 +90,7 @@ struct decoder_sys_t
     /*
      * Common properties
      */
-    audio_date_t end_date;
+    date_t  end_date;
     mtime_t i_pts;
 
     int i_frame_size, i_frame_length, i_bits_per_sample;
@@ -220,7 +220,7 @@ static int OpenDecoder( vlc_object_t *p_this )
         return VLC_ENOMEM;
 
     /* Misc init */
-    aout_DateSet( &p_sys->end_date, 0 );
+    date_Set( &p_sys->end_date, 0 );
     p_sys->i_state = STATE_NOSYNC;
     p_sys->b_stream_info = false;
     p_sys->p_block=NULL;
@@ -389,7 +389,7 @@ static block_t *PacketizeBlock( decoder_t *p_dec, block_t **pp_block )
             p_sys->i_state = STATE_NOSYNC;
             block_BytestreamEmpty( &p_sys->bytestream );
         }
-        aout_DateSet( &p_sys->end_date, 0 );
+        date_Set( &p_sys->end_date, 0 );
         block_Release( *pp_block );
         return NULL;
     }
@@ -402,18 +402,18 @@ static block_t *PacketizeBlock( decoder_t *p_dec, block_t **pp_block )
         return NULL;
     }
 
-    if( !aout_DateGet( &p_sys->end_date ) && !(*pp_block)->i_pts )
+    if( !date_Get( &p_sys->end_date ) && !(*pp_block)->i_pts )
     {
         /* We've just started the stream, wait for the first PTS. */
         block_Release( *pp_block );
         return NULL;
     }
-    else if( !aout_DateGet( &p_sys->end_date ) )
+    else if( !date_Get( &p_sys->end_date ) )
     {
         /* The first PTS is as good as anything else. */
         p_sys->i_rate = p_dec->fmt_out.audio.i_rate;
-        aout_DateInit( &p_sys->end_date, p_sys->i_rate );
-        aout_DateSet( &p_sys->end_date, (*pp_block)->i_pts );
+        date_Init( &p_sys->end_date, p_sys->i_rate, 1 );
+        date_Set( &p_sys->end_date, (*pp_block)->i_pts );
     }
 
     block_BytestreamPush( &p_sys->bytestream, *pp_block );
@@ -445,9 +445,9 @@ static block_t *PacketizeBlock( decoder_t *p_dec, block_t **pp_block )
             /* New frame, set the Presentation Time Stamp */
             p_sys->i_pts = p_sys->bytestream.p_block->i_pts;
             if( p_sys->i_pts != 0 &&
-                p_sys->i_pts != aout_DateGet( &p_sys->end_date ) )
+                p_sys->i_pts != date_Get( &p_sys->end_date ) )
             {
-                aout_DateSet( &p_sys->end_date, p_sys->i_pts );
+                date_Set( &p_sys->end_date, p_sys->i_pts );
             }
             p_sys->i_state = STATE_HEADER;
 
@@ -476,7 +476,7 @@ static block_t *PacketizeBlock( decoder_t *p_dec, block_t **pp_block )
             if( p_sys->i_rate != p_dec->fmt_out.audio.i_rate )
             {
                 p_dec->fmt_out.audio.i_rate = p_sys->i_rate;
-                aout_DateInit( &p_sys->end_date, p_sys->i_rate );
+                date_Init( &p_sys->end_date, p_sys->i_rate, 1 );
             }
             p_sys->i_state = STATE_NEXT_SYNC;
             p_sys->i_frame_size = 1;
@@ -535,10 +535,10 @@ static block_t *PacketizeBlock( decoder_t *p_dec, block_t **pp_block )
 
             /* Date management */
             p_sout_block->i_pts =
-                p_sout_block->i_dts = aout_DateGet( &p_sys->end_date );
-            aout_DateIncrement( &p_sys->end_date, p_sys->i_frame_length );
+                p_sout_block->i_dts = date_Get( &p_sys->end_date );
+            date_Increment( &p_sys->end_date, p_sys->i_frame_length );
             p_sout_block->i_length =
-                aout_DateGet( &p_sys->end_date ) - p_sout_block->i_pts;
+                date_Get( &p_sys->end_date ) - p_sout_block->i_pts;
 
             return p_sout_block;
         }
@@ -662,9 +662,8 @@ DecoderWriteCallback( const FLAC__StreamDecoder *decoder,
     }
 
     /* Date management (already done by packetizer) */
-    p_sys->p_aout_buffer->start_date = p_sys->p_block->i_pts;
-    p_sys->p_aout_buffer->end_date =
-        p_sys->p_block->i_pts + p_sys->p_block->i_length;
+    p_sys->p_aout_buffer->i_pts = p_sys->p_block->i_pts;
+    p_sys->p_aout_buffer->i_length = p_sys->p_block->i_length;
 
     return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
 }
@@ -710,7 +709,7 @@ static void DecoderMetadataCallback( const FLAC__StreamDecoder *decoder,
     p_dec->fmt_out.audio.i_bitspersample =
         metadata->data.stream_info.bits_per_sample;
 
-    aout_DateInit( &p_sys->end_date, p_dec->fmt_out.audio.i_rate );
+    date_Init( &p_sys->end_date, p_dec->fmt_out.audio.i_rate, 1 );
 
     msg_Dbg( p_dec, "channels:%d samplerate:%d bitspersamples:%d",
              p_dec->fmt_out.audio.i_channels, p_dec->fmt_out.audio.i_rate,
@@ -1359,21 +1358,21 @@ static block_t *Encode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
     block_t *p_chain;
     unsigned int i;
 
-    p_sys->i_pts = p_aout_buf->start_date -
+    p_sys->i_pts = p_aout_buf->i_pts -
                 (mtime_t)1000000 * (mtime_t)p_sys->i_samples_delay /
                 (mtime_t)p_enc->fmt_in.audio.i_rate;
 
     p_sys->i_samples_delay += p_aout_buf->i_nb_samples;
 
     /* Convert samples to FLAC__int32 */
-    if( p_sys->i_buffer < p_aout_buf->i_nb_bytes * 2 )
+    if( p_sys->i_buffer < p_aout_buf->i_buffer * 2 )
     {
         p_sys->p_buffer =
-            realloc( p_sys->p_buffer, p_aout_buf->i_nb_bytes * 2 );
-        p_sys->i_buffer = p_aout_buf->i_nb_bytes * 2;
+            realloc( p_sys->p_buffer, p_aout_buf->i_buffer * 2 );
+        p_sys->i_buffer = p_aout_buf->i_buffer * 2;
     }
 
-    for( i = 0 ; i < p_aout_buf->i_nb_bytes / 2 ; i++ )
+    for( i = 0 ; i < p_aout_buf->i_buffer / 2 ; i++ )
     {
         p_sys->p_buffer[i]= ((int16_t *)p_aout_buf->p_buffer)[i];
     }

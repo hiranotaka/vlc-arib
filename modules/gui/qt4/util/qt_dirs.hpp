@@ -25,18 +25,9 @@
 #define _QT_DIR_H_
 
 #include <QString>
-/* Replace separators on Windows because Qt is always using / */
-static inline QString toNativeSeparators( QString s )
-{
-#ifdef WIN32
-    for (int i=0; i<(int)s.length(); i++)
-    {
-        if (s[i] == QLatin1Char('/'))
-            s[i] = QLatin1Char('\\');
-    }
-#endif
-    return s;
-}
+#include <QDir>
+
+#define toNativeSeparators( s ) QDir::toNativeSeparators ( s )
 
 static inline QString removeTrailingSlash( QString s )
 {
@@ -45,6 +36,7 @@ static inline QString removeTrailingSlash( QString s )
     return s;
 }
 
+#define savedirpathFromFile( a ) p_intf->p_sys->filepath = toNativeSeparators( QFileInfo( a ).path() )
 #define toNativeSepNoSlash( a ) toNativeSeparators( removeTrailingSlash( a ) )
 
 static inline QString colon_escape( QString s )

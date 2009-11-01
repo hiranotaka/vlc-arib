@@ -306,8 +306,7 @@ void matroska_segment_c::ParseTrackEntry( KaxTrackEntry *m )
         {
             KaxTrackLanguage &lang = *(KaxTrackLanguage*)l;
 
-            if ( tk->fmt.psz_language != NULL )
-                free( tk->fmt.psz_language );
+            free( tk->fmt.psz_language );
             tk->fmt.psz_language = strdup( string( lang ).c_str() );
             msg_Dbg( &sys.demuxer,
                      "|   |   |   + Track Language=`%s'", tk->fmt.psz_language );
@@ -835,7 +834,7 @@ void matroska_segment_c::ParseChapterAtom( int i_level, KaxChapterAtom *ca, chap
         if( MKV_IS_ID( l, KaxChapterUID ) )
         {
             chapters.i_uid = uint64_t(*(KaxChapterUID*)l);
-            msg_Dbg( &sys.demuxer, "|   |   |   |   + ChapterUID: %lld", chapters.i_uid );
+            msg_Dbg( &sys.demuxer, "|   |   |   |   + ChapterUID: %"PRId64"", chapters.i_uid );
         }
         else if( MKV_IS_ID( l, KaxChapterFlagHidden ) )
         {
@@ -849,14 +848,14 @@ void matroska_segment_c::ParseChapterAtom( int i_level, KaxChapterAtom *ca, chap
             KaxChapterTimeStart &start =*(KaxChapterTimeStart*)l;
             chapters.i_start_time = uint64( start ) / INT64_C(1000);
 
-            msg_Dbg( &sys.demuxer, "|   |   |   |   + ChapterTimeStart: %lld", chapters.i_start_time );
+            msg_Dbg( &sys.demuxer, "|   |   |   |   + ChapterTimeStart: %"PRId64"", chapters.i_start_time );
         }
         else if( MKV_IS_ID( l, KaxChapterTimeEnd ) )
         {
             KaxChapterTimeEnd &end =*(KaxChapterTimeEnd*)l;
             chapters.i_end_time = uint64( end ) / INT64_C(1000);
 
-            msg_Dbg( &sys.demuxer, "|   |   |   |   + ChapterTimeEnd: %lld", chapters.i_end_time );
+            msg_Dbg( &sys.demuxer, "|   |   |   |   + ChapterTimeEnd: %"PRId64"", chapters.i_end_time );
         }
         else if( MKV_IS_ID( l, KaxChapterDisplay ) )
         {

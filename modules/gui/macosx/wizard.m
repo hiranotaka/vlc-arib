@@ -1,10 +1,10 @@
 /*****************************************************************************
  * wizard.m: MacOS X Streaming Wizard
  *****************************************************************************
- * Copyright (C) 2005-2008 the VideoLAN team
+ * Copyright (C) 2005-2009 the VideoLAN team
  * $Id$
  *
- * Authors: Felix Kühne <fkuehne@users.sf.net>
+ * Authors: Felix Kühne <fkuehne at videolan dot org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -168,7 +168,7 @@ static VLCWizard *_o_sharedInstance = nil;
 
     NSArray * o_mpga;
     NSArray * o_mp3;
-    NSArray * o_mp4a;
+//    NSArray * o_mp4a;
     NSArray * o_a52;
     NSArray * o_vorb;
     NSArray * o_flac;
@@ -184,9 +184,9 @@ static VLCWizard *_o_sharedInstance = nil;
         _NS("MPEG Audio Layer 3 (useable with MPEG PS, MPEG TS, MPEG1, ASF, OGG "
         "and RAW)"), @"MUX_PS", @"MUX_TS", @"MUX_MPEG", @"MUX_ASF", @"MUX_OGG",
         @"MUX_RAW", @"-1", @"-1", @"-1", nil];
-    o_mp4a = [NSArray arrayWithObjects: @"MPEG 4 Audio", @"mp4a",
+/*    o_mp4a = [NSArray arrayWithObjects: @"MPEG 4 Audio", @"mp4a",
         _NS("Audio format for MPEG4 (useable with MPEG TS and MPEG4)"), @"MUX_TS",
-        @"MUX_MP4", @"-1", @"-1", @"-1", @"-1", @"-1", @"-1", @"-1", nil];
+        @"MUX_MP4", @"-1", @"-1", @"-1", @"-1", @"-1", @"-1", @"-1", nil]; */
     o_a52 = [NSArray arrayWithObjects: @"A/52", @"a52",
         _NS("DVD audio format (useable with MPEG PS, MPEG TS, MPEG1, ASF, OGG "
         "and RAW)"), @"MUX_PS", @"MUX_TS", @"MUX_MPEG", @"MUX_ASF", @"MUX_OGG",
@@ -212,7 +212,7 @@ static VLCWizard *_o_sharedInstance = nil;
         _NS("Dummy codec (do not transcode, useable with all encapsulation "
         "formats)"), @"MUX_PS", @"MUX_TS", @"MUX_MPEG", @"MUX_ASF", @"MUX_MP4",
         @"MUX_OGG", @"MUX_RAW", @"MUX_MOV", @"MUX_WAV", nil];
-    o_audioCodecs = [[NSArray alloc] initWithObjects: o_mpga, o_mp3, o_mp4a,
+    o_audioCodecs = [[NSArray alloc] initWithObjects: o_mpga, o_mp3, //o_mp4a,
         o_a52, o_vorb, o_flac, o_spx, o_s16l, o_fl32, o_dummyAud, nil];
 
 
@@ -627,7 +627,6 @@ static VLCWizard *_o_sharedInstance = nil;
             [o_userSelections setObject:@"1" forKey:@"stmgMhd"];
  
             /* disable all codecs which don't support ASF / ASFH */
-            [o_t4_pop_audioCodec removeItemWithTitle:@"MPEG 4 Audio"];
             [o_t4_pop_audioCodec removeItemWithTitle:@"Vorbis"];
             [o_t4_pop_audioCodec removeItemWithTitle:@"FLAC"];
             [o_t4_pop_audioCodec removeItemWithTitle:@"Speex"];

@@ -40,6 +40,7 @@ ExtendedDialog::ExtendedDialog( intf_thread_t *_p_intf ): QVLCFrame( _p_intf )
     setWindowFlags( Qt::Tool );
     setWindowOpacity( config_GetFloat( p_intf, "qt-opacity" ) );
     setWindowTitle( qtr( "Adjustments and Effects" ) );
+    setWindowRole( "vlc-extended" );
 
     QGridLayout *layout = new QGridLayout( this );
     layout->setLayoutMargins( 0, 2, 0, 1, 1 );
@@ -111,6 +112,11 @@ void ExtendedDialog::showTab( int i )
 {
     mainTabW->setCurrentIndex( i );
     show();
+}
+
+int ExtendedDialog::currentTab()
+{
+    return mainTabW->currentIndex();
 }
 
 void ExtendedDialog::changedItem( int i_status )

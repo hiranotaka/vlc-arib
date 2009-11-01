@@ -1,7 +1,7 @@
 /*****************************************************************************
  * visual.c : Visualisation system
  *****************************************************************************
- * Copyright (C) 2002-2006 the VideoLAN team
+ * Copyright (C) 2002-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Clément Stenac <zorglub@via.ecp.fr>
@@ -32,6 +32,7 @@
 #include <vlc_plugin.h>
 #include <vlc_vout.h>
 #include <vlc_aout.h>
+#include <vlc_filter.h>
 
 #include "visual.h"
 
@@ -41,7 +42,8 @@
 #define ELIST_TEXT N_( "Effects list" )
 #define ELIST_LONGTEXT N_( \
       "A list of visual effect, separated by commas.\n"  \
-      "Current effects include: dummy, scope, spectrum." )
+      "Current effects include: dummy, scope, spectrum, "\
+      "spectrometer and vuMeter." )
 
 #define WIDTH_TEXT N_( "Video width" )
 #define WIDTH_LONGTEXT N_( \
@@ -122,7 +124,7 @@ vlc_module_begin ()
              HEIGHT_TEXT, HEIGHT_LONGTEXT, false )
     set_section( N_("Spectrum analyser") , NULL )
     add_obsolete_integer( "visual-nbbands" ) /* Since 1.0.0 */
-    add_bool("visual-80-bands", 1, NULL,
+    add_bool("visual-80-bands", true, NULL,
              NBBANDS_TEXT, NBBANDS_LONGTEXT, true );
     add_obsolete_integer( "visual-separ" ) /* Since 1.0.0 */
     add_obsolete_integer( "visual-amp" ) /* Since 1.0.0 */
@@ -142,7 +144,7 @@ vlc_module_begin ()
     add_bool("spect-show-bands", true, NULL,
              BANDS_TEXT, BANDS_LONGTEXT, true );
     add_obsolete_integer( "spect-nbbands" ) /* Since 1.0.0 */
-    add_bool("spect-80-bands", 1, NULL,
+    add_bool("spect-80-bands", true, NULL,
              NBBANDS_TEXT, SPNBBANDS_LONGTEXT, true )
     add_integer("spect-separ", 1, NULL,
              SEPAR_TEXT, SEPAR_LONGTEXT, true )
@@ -154,7 +156,7 @@ vlc_module_begin ()
              PEAK_WIDTH_TEXT, PEAK_WIDTH_LONGTEXT, true )
     add_integer("spect-peak-height", 1, NULL,
              PEAK_HEIGHT_TEXT, PEAK_HEIGHT_LONGTEXT, true )
-    set_capability( "visualization", 0 )
+    set_capability( "visualization2", 0 )
     set_callbacks( Open, Close )
     add_shortcut( "visualizer")
 vlc_module_end ()
@@ -163,23 +165,22 @@ vlc_module_end ()
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
-static void DoWork( aout_instance_t *, aout_filter_t *,
-                    aout_buffer_t *, aout_buffer_t * );
+static block_t *DoWork( filter_t *, block_t * );
 static int FilterCallback( vlc_object_t *, char const *,
                            vlc_value_t, vlc_value_t, void * );
 static const struct
 {
     const char *psz_name;
-    int  (*pf_run)( visual_effect_t *, aout_instance_t *,
-                    aout_buffer_t *, picture_t *);
+    int  (*pf_run)( visual_effect_t *, vlc_object_t *,
+                    const block_t *, picture_t *);
 } pf_effect_run[]=
 {
-    { "scope",      scope_Run },
-    { "vuMeter",    vuMeter_Run },
-    { "spectrum",   spectrum_Run },
-    { "spectrometer",   spectrometer_Run },
-    { "dummy",      dummy_Run},
-    { NULL,         dummy_Run}
+    { "scope",        scope_Run },
+    { "vuMeter",      vuMeter_Run },
+    { "spectrum",     spectrum_Run },
+    { "spectrometer", spectrometer_Run },
+    { "dummy",        dummy_Run},
+    { NULL,           dummy_Run}
 };
 
 /*****************************************************************************
@@ -187,19 +188,19 @@ static const struct
  *****************************************************************************/
 static int Open( vlc_object_t *p_this )
 {
-    aout_filter_t     *p_filter = (aout_filter_t *)p_this;
-    aout_filter_sys_t *p_sys;
+    filter_t     *p_filter = (filter_t *)p_this;
+    filter_sys_t *p_sys;
 
     char *psz_effects, *psz_parser;
     video_format_t fmt;
 
-    if( ( p_filter->input.i_format != VLC_CODEC_FL32 &&
-          p_filter->input.i_format != VLC_CODEC_FI32 ) )
+    if( ( p_filter->fmt_in.audio.i_format != VLC_CODEC_FL32 &&
+          p_filter->fmt_in.audio.i_format != VLC_CODEC_FI32 ) )
     {
         return VLC_EGENERIC;
     }
 
-    p_sys = p_filter->p_sys = malloc( sizeof( aout_filter_sys_t ) );
+    p_sys = p_filter->p_sys = malloc( sizeof( filter_sys_t ) );
     if( p_sys == NULL )
         return VLC_EGENERIC;
 
@@ -228,7 +229,10 @@ static int Open( vlc_object_t *p_this )
             break;
         p_effect->i_width = p_sys->i_width;
         p_effect->i_height= p_sys->i_height;
-        p_effect->i_nb_chans = aout_FormatNbChannels( &p_filter->input);
+        p_effect->i_nb_chans = aout_FormatNbChannels( &p_filter->fmt_in.audio);
+        p_effect->i_idx_left  = 0;
+        p_effect->i_idx_right = __MIN( 1, p_effect->i_nb_chans-1 );
+
         p_effect->psz_args = NULL;
         p_effect->p_data = NULL;
 
@@ -242,7 +246,7 @@ static int Open( vlc_object_t *p_this )
                               strlen( pf_effect_run[i].psz_name ) ) )
             {
                 p_effect->pf_run = pf_effect_run[i].pf_run;
-                p_effect->psz_name = strdup( pf_effect_run[i].psz_name );
+                p_effect->psz_name = pf_effect_run[i].psz_name;
                 break;
             }
         }
@@ -260,7 +264,6 @@ static int Open( vlc_object_t *p_this )
                 if( ( psz_eoa = strchr( psz_parser, '}') ) == NULL )
                 {
                    msg_Err( p_filter, "unable to parse effect list. Aborting");
-                   free( p_effect->psz_name );
                    free( p_effect );
                    break;
                 }
@@ -313,7 +316,6 @@ static int Open( vlc_object_t *p_this )
         msg_Err( p_filter, "no suitable vout module" );
         for( int i = 0; i < p_sys->i_effect; i++ )
         {
-            free( p_sys->effect[i]->psz_name );
             free( p_sys->effect[i]->psz_args );
             free( p_sys->effect[i] );
         }
@@ -322,8 +324,7 @@ static int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
-    p_filter->pf_do_work = DoWork;
-    p_filter->b_in_place= 1;
+    p_filter->pf_audio_filter = DoWork;
 
     return VLC_SUCCESS;
 }
@@ -333,25 +334,18 @@ static int Open( vlc_object_t *p_this )
  *****************************************************************************
  * Audio part pasted from trivial.c
  ****************************************************************************/
-static void DoWork( aout_instance_t *p_aout, aout_filter_t *p_filter,
-                    aout_buffer_t *p_in_buf, aout_buffer_t *p_out_buf )
+static block_t *DoWork( filter_t *p_filter, block_t *p_in_buf )
 {
-    aout_filter_sys_t *p_sys = p_filter->p_sys;
+    filter_sys_t *p_sys = p_filter->p_sys;
     picture_t *p_outpic;
     int i;
 
-    p_out_buf->i_nb_samples = p_in_buf->i_nb_samples;
-    p_out_buf->i_nb_bytes = p_in_buf->i_nb_bytes *
-                            aout_FormatNbChannels( &p_filter->output ) /
-                            aout_FormatNbChannels( &p_filter->input );
-
     /* First, get a new picture */
     while( ( p_outpic = vout_CreatePicture( p_sys->p_vout, 0, 0, 3 ) ) == NULL)
-    {
-        if( !vlc_object_alive (p_aout) )
-        {
-            return;
-        }
+    {   /* XXX: This looks like a bad idea. Don't run to me for sympathy if it
+         * dead locks... */
+        if( !vlc_object_alive (p_sys->p_vout) )
+            return NULL;
         msleep( VOUT_OUTMEM_SLEEP );
     }
 
@@ -368,14 +362,16 @@ static void DoWork( aout_instance_t *p_aout, aout_filter_t *p_filter,
 #define p_effect p_sys->effect[i]
         if( p_effect->pf_run )
         {
-            p_effect->pf_run( p_effect, p_aout, p_out_buf, p_outpic );
+            p_effect->pf_run( p_effect, VLC_OBJECT(p_filter),
+                              p_in_buf, p_outpic );
         }
 #undef p_effect
     }
 
-    p_outpic->date = ( p_in_buf->start_date + p_in_buf->end_date ) / 2;
+    p_outpic->date = p_in_buf->i_pts + (p_in_buf->i_length / 2);
 
     vout_DisplayPicture( p_sys->p_vout, p_outpic );
+    return p_in_buf;
 }
 
 /*****************************************************************************
@@ -383,8 +379,8 @@ static void DoWork( aout_instance_t *p_aout, aout_filter_t *p_filter,
  *****************************************************************************/
 static void Close( vlc_object_t *p_this )
 {
-    aout_filter_t * p_filter = (aout_filter_t *)p_this;
-    aout_filter_sys_t *p_sys = p_filter->p_sys;
+    filter_t * p_filter = (filter_t *)p_this;
+    filter_sys_t *p_sys = p_filter->p_sys;
 
     int i;
 
@@ -403,7 +399,6 @@ static void Close( vlc_object_t *p_this )
             free( ( ( spectrum_data * )p_effect->p_data )->prev_heights );
         }
         free( p_effect->p_data );
-        free( p_effect->psz_name );
         free( p_effect->psz_args );
         free( p_effect );
 #undef p_effect

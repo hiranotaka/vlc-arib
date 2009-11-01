@@ -27,6 +27,8 @@
 
 #include <set>
 
+#include <vlc_common.h>
+#include <vlc_input.h>
 #include <vlc_vout.h>
 #include "../vars/equalizer.hpp"
 #include "../vars/playtree.hpp"
@@ -85,6 +87,22 @@ class VlcProc: public SkinObject
         /// Indicate whether the embedded video output is currently used
         bool isVoutUsed() const { return m_pVout != NULL; }
 
+        /// update equalizer
+        void update_equalizer( );
+
+        void on_item_current_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+        void on_intf_event_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+        void on_bit_rate_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+        void on_sample_rate_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+        void on_can_record_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+
+        void on_random_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+        void on_loop_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+        void on_repeat_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+
+        void on_volume_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+        void on_audio_filter_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+
     protected:
         // Protected because it is a singleton
         VlcProc( intf_thread_t *pIntf );
@@ -114,6 +132,8 @@ class VlcProc: public SkinObject
         VariablePtr m_cVarStopped;
         VariablePtr m_cVarPaused;
         VariablePtr m_cVarSeekable;
+        VariablePtr m_cVarRecordable;
+        VariablePtr m_cVarRecording;
         /// Variables related to the vout
         VariablePtr m_cVarFullscreen;
         VarBox m_varVoutSize;
@@ -131,6 +151,7 @@ class VlcProc: public SkinObject
         vout_thread_t *m_pVout;
         /// Audio output
         aout_instance_t *m_pAout;
+        bool m_bEqualizer_started;
 
         /**
          * Poll VLC internals to update the status (volume, current time in
@@ -141,15 +162,14 @@ class VlcProc: public SkinObject
          */
         void manage();
 
+        // reset variables when input is over
+        void reset_input();
+
+        // init variables (libvlc and playlist levels)
+        void init_variables();
+
         /// Define the command that calls manage()
         DEFINE_CALLBACK( VlcProc, Manage );
-
-        /// Refresh audio variables
-        void refreshAudio();
-        /// Refresh playlist variables
-        void refreshPlaylist();
-        /// Refresh input variables
-        void refreshInput();
 
         /// Update the stream name variable
         void updateStreamName();
@@ -161,6 +181,11 @@ class VlcProc: public SkinObject
 
         /// Callback for intf-show variable
         static int onIntfShow( vlc_object_t *pObj, const char *pVariable,
+                               vlc_value_t oldVal, vlc_value_t newVal,
+                               void *pParam );
+
+        /// Callback for input-current variable
+        static int onInputNew( vlc_object_t *pObj, const char *pVariable,
                                vlc_value_t oldVal, vlc_value_t newVal,
                                void *pParam );
 
@@ -178,12 +203,6 @@ class VlcProc: public SkinObject
         static int onItemDelete( vlc_object_t *pObj, const char *pVariable,
                                  vlc_value_t oldVal, vlc_value_t newVal,
                                  void *pParam );
-
-
-        /// Callback for playlist-current variable
-        static int onPlaylistChange( vlc_object_t *pObj, const char *pVariable,
-                                     vlc_value_t oldVal, vlc_value_t newVal,
-                                     void *pParam );
 
         /// Callback for skins2-to-load variable
         static int onSkinToLoad( vlc_object_t *pObj, const char *pVariable,
@@ -204,6 +223,12 @@ class VlcProc: public SkinObject
         static int onEqPreampChange( vlc_object_t *pObj, const char *pVariable,
                                      vlc_value_t oldVal, vlc_value_t newVal,
                                      void *pParam );
+
+        /// Generic Callback
+        static int onGenericCallback( vlc_object_t *pObj, const char *pVariable,
+                                      vlc_value_t oldVal, vlc_value_t newVal,
+                                      void *pParam );
+
 };
 
 

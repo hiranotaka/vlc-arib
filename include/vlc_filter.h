@@ -28,6 +28,7 @@
 #include <vlc_es.h>
 #include <vlc_picture.h>
 #include <vlc_subpicture.h>
+#include <vlc_mouse.h>
 
 /**
  * \file
@@ -59,34 +60,49 @@ struct filter_t
     /* Filter configuration */
     config_chain_t *    p_cfg;
 
-    picture_t *         ( * pf_video_filter ) ( filter_t *, picture_t * );
-    block_t *           ( * pf_audio_filter ) ( filter_t *, block_t * );
-    void                ( * pf_video_blend )  ( filter_t *,
-                                                picture_t *, picture_t *,
-                                                int, int, int );
+    union
+    {
+        picture_t *     (*pf_video_filter) ( filter_t *, picture_t * );
+        block_t *       (*pf_audio_filter) ( filter_t *, block_t * );
+        void            (*pf_video_blend)  ( filter_t *,
+                                             picture_t *, const picture_t *,
+                                             int, int, int );
 
-    subpicture_t *      ( *pf_sub_filter ) ( filter_t *, mtime_t );
-    int                 ( *pf_render_text ) ( filter_t *, subpicture_region_t *,
-                                              subpicture_region_t * );
-    int                 ( *pf_render_html ) ( filter_t *, subpicture_region_t *,
-                                              subpicture_region_t * );
+        subpicture_t *  (*pf_sub_filter) ( filter_t *, mtime_t );
+        int             (*pf_render_text) ( filter_t *, subpicture_region_t *,
+                                            subpicture_region_t * );
+    };
+    union
+    {
+        /* Filter mouse state.
+         *
+         * If non-NULL, you must convert from output format to input format:
+         * - If VLC_SUCCESS is returned, the mouse state is then propagated.
+         * - Otherwise, the mouse change is not propagated.
+         * If NULL, the mouse state is considered unchanged and will be
+         * propagated.
+         */
+        int             (*pf_mouse)( filter_t *, vlc_mouse_t *,
+                                     const vlc_mouse_t *p_old,
+                                     const vlc_mouse_t *p_new );
+        int             (*pf_render_html) ( filter_t *, subpicture_region_t *,
+                                            subpicture_region_t * );
+    };
 
     /*
      * Buffers allocation
      */
-
-    /* Audio output callbacks */
-    block_t *       ( * pf_audio_buffer_new) ( filter_t *, int );
-
-    /* Video output callbacks */
-    picture_t     * ( * pf_vout_buffer_new) ( filter_t * );
-    void            ( * pf_vout_buffer_del) ( filter_t *, picture_t * );
-    /* void            ( * pf_picture_link)    ( picture_t * );
-    void            ( * pf_picture_unlink)  ( picture_t * ); */
-
-    /* SPU output callbacks */
-    subpicture_t *  ( * pf_sub_buffer_new) ( filter_t * );
-    void            ( * pf_sub_buffer_del) ( filter_t *, subpicture_t * );
+    union
+    {
+        block_t *      (*pf_audio_buffer_new) ( filter_t *, int );
+        picture_t *    (*pf_vout_buffer_new) ( filter_t * );
+        subpicture_t * (*pf_sub_buffer_new) ( filter_t * );
+    };
+    union
+    {
+        void           (*pf_vout_buffer_del) ( filter_t *, picture_t * );
+        void           (*pf_sub_buffer_del) ( filter_t *, subpicture_t * );
+    };
 
     /* Private structure for the owner of the decoder */
     filter_owner_sys_t *p_owner;
@@ -167,6 +183,32 @@ static inline block_t *filter_NewAudioBuffer( filter_t *p_filter, int i_size )
         msg_Warn( p_filter, "can't get output block" );
     return p_block;
 }
+
+/**
+ * It creates a blend filter.
+ *
+ * Only the chroma properties of the dest format is used (chroma
+ * type, rgb masks and shifts)
+ */
+VLC_EXPORT( filter_t *, filter_NewBlend, ( vlc_object_t *, const video_format_t *p_dst_chroma ) );
+
+/**
+ * It configures blend filter parameters that are allowed to changed
+ * after the creation.
+ */
+VLC_EXPORT( int, filter_ConfigureBlend, ( filter_t *, int i_dst_width, int i_dst_height, const video_format_t *p_src ) );
+
+/**
+ * It blends a picture into another one.
+ *
+ * The input picture is not modified and not released.
+ */
+VLC_EXPORT( int, filter_Blend, ( filter_t *, picture_t *p_dst, int i_dst_x, int i_dst_y, const picture_t *p_src, int i_alpha ) );
+
+/**
+ * It destroys a blend filter created by filter_NewBlend.
+ */
+VLC_EXPORT( void, filter_DeleteBlend, ( filter_t * ) );
 
 /**
  * Create a picture_t *(*)( filter_t *, picture_t * ) compatible wrapper
@@ -261,16 +303,6 @@ VLC_EXPORT( int, filter_chain_AppendFromString, ( filter_chain_t *, const char *
 VLC_EXPORT( int, filter_chain_DeleteFilter, ( filter_chain_t *, filter_t * ) );
 
 /**
- * Get filter by name of position in the filter chain.
- *
- * \param p_chain pointer to filter chain
- * \param i_position position of filter in filter chain
- * \param psz_name name of filter to get
- * \return filter object based on position or name provided
- */
-VLC_EXPORT( filter_t *, filter_chain_GetFilter, ( filter_chain_t *, int, const char * ) );
-
-/**
  * Get the number of filters in the filter chain.
  *
  * \param p_chain pointer to filter chain
@@ -311,6 +343,16 @@ VLC_EXPORT( block_t *, filter_chain_AudioFilter, ( filter_chain_t *, block_t * )
  * \param display_date of subpictures
  */
 VLC_EXPORT( void, filter_chain_SubFilter, ( filter_chain_t *, mtime_t ) );
+
+/**
+ * Apply the filter chain to a mouse state.
+ *
+ * It will be applied from the output to the input. It makes sense only
+ * for a video filter chain.
+ *
+ * The vlc_mouse_t* pointers may be the same.
+ */
+VLC_EXPORT( int, filter_chain_MouseFilter, ( filter_chain_t *, vlc_mouse_t *, const vlc_mouse_t * ) );
 
 #endif /* _VLC_FILTER_H */
 

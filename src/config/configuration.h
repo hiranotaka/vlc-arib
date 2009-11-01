@@ -52,18 +52,10 @@ static inline int IsConfigFloatType (int type)
     return type == CONFIG_ITEM_FLOAT;
 }
 
-int ConfigStringToKey( const char * );
+uint_fast32_t ConfigStringToKey( const char * );
+char *ConfigKeyToString( uint_fast32_t );
 
-/* The configuration file and directory */
-#if defined (SYS_BEOS)
-#  define CONFIG_DIR                    "config/settings/VideoLAN Client"
-#elif defined (__APPLE__)
-#  define CONFIG_DIR                    "Library/Preferences/VLC"
-#elif defined( WIN32 ) || defined( UNDER_CE )
-#  define CONFIG_DIR                    "vlc"
-#else
-#  define CONFIG_DIR                    ".vlc"
-#endif
+/* The configuration file */
 #define CONFIG_FILE                     "vlcrc"
 
 # ifdef __cplusplus

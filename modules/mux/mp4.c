@@ -38,7 +38,7 @@
 #include <time.h>
 
 #include <vlc_iso_lang.h>
-#include "vlc_meta.h"
+#include <vlc_meta.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -60,7 +60,7 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_SOUT_MUX )
     set_shortname( "MP4" )
 
-    add_bool( SOUT_CFG_PREFIX "faststart", 1, NULL,
+    add_bool( SOUT_CFG_PREFIX "faststart", true, NULL,
               FASTSTART_TEXT, FASTSTART_LONGTEXT,
               true )
     set_capability( "sout mux", 5 )

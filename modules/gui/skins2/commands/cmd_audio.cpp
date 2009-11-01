@@ -22,34 +22,16 @@
  *****************************************************************************/
 
 #include "cmd_audio.hpp"
+#include "../src/vlcproc.hpp"
+#include <vlc_playlist.h>
+#include <vlc_input.h>
 #include <vlc_aout.h>
 #include <string>
 
 void CmdSetEqualizer::execute()
 {
-    // Get the audio output
-    aout_instance_t *pAout = (aout_instance_t *)vlc_object_find( getIntf(),
-        VLC_OBJECT_AOUT, FIND_ANYWHERE );
-
-    // XXX
-    string filters;
-    if( m_enable)
-    {
-        filters = "equalizer";
-    }
-
-    if( pAout )
-    {
-        var_SetString( pAout, "audio-filter", (char*)filters.c_str() );
-        for( int i = 0; i < pAout->i_nb_inputs; i++ )
-        {
-            pAout->pp_inputs[i]->b_restart = true;
-        }
-        vlc_object_release( pAout );
-    }
-    else
-    {
-        config_PutPsz( getIntf(), "audio-filter", filters.c_str() );
-    }
+    aout_EnableFilter( getIntf(), "equalizer", m_enable );
+    VlcProc::instance( getIntf() )->update_equalizer();
 }
+
 

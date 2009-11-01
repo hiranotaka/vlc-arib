@@ -49,7 +49,11 @@ extern char *FromLocale (const char *);
  *****************************************************************************/
 int main( int i_argc, const char *ppsz_argv[] )
 {
-    int i_ret;
+#ifdef __APPLE__
+    /* The so-called POSIX-compliant MacOS X is not. 
+     * SIGPIPE fires even when it is blocked in all threads! */
+    signal (SIGPIPE, SIG_IGN);
+#endif
 
 #ifndef ALLOW_RUN_AS_ROOT
     if (geteuid () == 0)
@@ -73,9 +77,6 @@ int main( int i_argc, const char *ppsz_argv[] )
 #   ifndef NDEBUG
     /* Activate malloc checking routines to detect heap corruptions. */
     putenv( (char*)"MALLOC_CHECK_=2" );
-#       ifdef __APPLE__
-    putenv( (char*)"MallocErrorAbort=crash_my_baby_crash" );
-#       endif
 
     /* Disable the ugly Gnome crash dialog so that we properly segfault */
     putenv( (char *)"GNOME_DISABLE_CRASH_DIALOG=1" );
@@ -123,6 +124,7 @@ int main( int i_argc, const char *ppsz_argv[] )
     const char *argv[i_argc + 3];
     int argc = 0;
 
+    argv[argc++] = "--no-ignore-config";
 #ifdef TOP_BUILDDIR
     argv[argc++] = FromLocale ("--plugin-path="TOP_BUILDDIR"/modules");
 #endif
@@ -135,6 +137,7 @@ int main( int i_argc, const char *ppsz_argv[] )
     for (int i = 1; i < i_argc; i++)
         if ((argv[argc++] = FromLocale (ppsz_argv[i])) == NULL)
             return 1; // BOOM!
+    argv[argc] = NULL;
 
     libvlc_exception_t ex, dummy;
     libvlc_exception_init (&ex);
@@ -151,21 +154,21 @@ int main( int i_argc, const char *ppsz_argv[] )
             libvlc_exception_clear (&ex);
             pthread_sigmask (SIG_UNBLOCK, &set, NULL);
         }
+#if !defined (HAVE_MAEMO)
         libvlc_add_intf (vlc, "globalhotkeys,none", &ex);
+#endif
+        libvlc_exception_clear (&ex);
         libvlc_add_intf (vlc, NULL, &ex);
         libvlc_playlist_play (vlc, -1, 0, NULL, &dummy);
         libvlc_wait (vlc);
+
+        if (libvlc_exception_raised (&ex))
+            fprintf( stderr, "%s\n", libvlc_errmsg() );
         libvlc_release (vlc);
     }
-    i_ret = libvlc_exception_raised (&ex);
-    if( i_ret )
-        fprintf( stderr, "%s\n", libvlc_exception_get_message( &ex));
 
-    libvlc_exception_clear (&ex);
-    libvlc_exception_clear (&dummy);
-
-    for (int i = 0; i < argc; i++)
+    for (int i = 1; i < argc; i++)
         LocaleFree (argv[i]);
 
-    return i_ret;
+    return vlc == NULL || libvlc_exception_raised (&ex);
 }

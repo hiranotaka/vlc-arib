@@ -45,6 +45,8 @@
 #import "output.h"
 #import "eyetv.h"
 
+#include <vlc_url.h>
+
 #define setEyeTVUnconnected \
 [o_capture_lbl setStringValue: _NS("No device connected")]; \
 [o_capture_long_lbl setStringValue: _NS("VLC could not detect any EyeTV compatible device.\n\nCheck the device's connection, make sure that the latest EyeTV software is installed and try again.")]; \
@@ -158,6 +160,13 @@ static VLCOpen *_o_sharedMainInstance = nil;
     return _o_sharedMainInstance;
 }
 
+- (void)dealloc
+{
+    if( o_file_slave_path )
+        [o_file_slave_path release];
+    [super dealloc];
+}
+
 - (void)awakeFromNib
 {
     [o_panel setTitle: _NS("Open Source")];
@@ -173,6 +182,9 @@ static VLCOpen *_o_sharedMainInstance = nil;
 
     [o_file_btn_browse setTitle: _NS("Browse...")];
     [o_file_stream setTitle: _NS("Treat as a pipe rather than as a file")];
+    [o_file_slave_ckbox setTitle: _NS("Play another media synchronously")];
+    [o_file_slave_select_btn setTitle: _NS("Choose...")];
+    [o_file_slave_filename_txt setStringValue: @""];
 
     [o_disc_device_lbl setStringValue: _NS("Device name")];
     [o_disc_title_lbl setStringValue: _NS("Title")];
@@ -189,7 +201,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
     [o_net_udpm_addr_lbl setStringValue: _NS("IP Address")];
     [o_net_udpm_port_lbl setStringValue: _NS("Port")];
     [o_net_http_url_lbl setStringValue: _NS("URL")];
-    [o_net_help_lbl setStringValue: _NS("To Open a usual network stream (HTTP, RTSP, MMS, FTP, etc.), just enter the URL in the field above. If you want to open a RTP or UDP stream, press the button below.")];
+    [o_net_help_lbl setStringValue: _NS("To Open a usual network stream (HTTP, RTSP, RTMP, MMS, FTP, etc.), just enter the URL in the field above. If you want to open a RTP or UDP stream, press the button below.")];
     [o_net_help_udp_lbl setStringValue: _NS("If you want to open a multicast stream, enter the respective IP address given by the stream provider. In unicast mode, VLC will use your machine's IP automatically.\n\nTo open a stream using a different protocol, just press Cancel to close this sheet.")];
     [o_net_udp_cancel_btn setTitle: _NS("Cancel")];
     [o_net_udp_ok_btn setTitle: _NS("Open")];
@@ -217,6 +229,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
     [o_screen_top_lbl setStringValue: _NS("Subscreen top:")];
     [o_screen_width_lbl setStringValue: _NS("Subscreen width:")];
     [o_screen_height_lbl setStringValue: _NS("Subscreen height:")];
+    [o_screen_follow_mouse_ckb setTitle: _NS("Follow the mouse")];
     [o_eyetv_currentChannel_lbl setStringValue: _NS("Current channel:")];
     [o_eyetv_previousProgram_btn setTitle: _NS("Previous Channel")];
     [o_eyetv_nextProgram_btn setTitle: _NS("Next Channel")];
@@ -406,6 +419,8 @@ static VLCOpen *_o_sharedMainInstance = nil;
                       [[(VLCOutput *)o_sout_options mrl] objectAtIndex: i]]];
             }
         }
+        if( [o_file_slave_ckbox state] && o_file_slave_path )
+           [o_options addObject: [NSString stringWithFormat: @"input-slave=%@", o_file_slave_path]];
         if( [[[o_tabview selectedTabViewItem] label] isEqualToString: _NS("Capture")] )
         {
             if( [[[o_capture_mode_pop selectedItem] title] isEqualToString: _NS("Screen")] )
@@ -483,6 +498,35 @@ static VLCOpen *_o_sharedMainInstance = nil;
     [o_panel displayIfNeeded];
 }
 
+- (IBAction)inputSlaveAction:(id)sender
+{
+    if( sender == o_file_slave_ckbox )
+        [o_file_slave_select_btn setEnabled: [o_file_slave_ckbox state]];
+    else
+    {
+        NSOpenPanel *o_open_panel;
+        o_open_panel = [NSOpenPanel openPanel];
+        [o_open_panel setCanChooseFiles: YES];
+        [o_open_panel setCanChooseDirectories: NO];
+        if( [o_open_panel runModalForDirectory: nil file: nil types: nil] == NSOKButton )
+        {
+            if( o_file_slave_path )
+                [o_file_slave_path release];
+            o_file_slave_path = [[o_open_panel filenames] objectAtIndex: 0];
+            [o_file_slave_path retain];
+        }
+        else
+            [o_file_slave_filename_txt setStringValue: @""];
+    }
+    if( o_file_slave_path )
+    {
+        NSFileWrapper *o_file_wrapper;
+        o_file_wrapper = [[NSFileWrapper alloc] initWithPath: o_file_slave_path];
+        [o_file_slave_filename_txt setStringValue: [NSString stringWithFormat: @"\"%@\"", [o_file_wrapper preferredFilename]]];
+        [o_file_wrapper release];
+    }
+}
+
 - (void)openFileGeneric
 {
     [self openFilePathChanged: nil];
@@ -510,30 +554,26 @@ static VLCOpen *_o_sharedMainInstance = nil;
 
 - (void)openFilePathChanged:(NSNotification *)o_notification
 {
-    NSString *o_mrl_string;
     NSString *o_filename = [o_file_path stringValue];
-    NSString *o_ext = [o_filename pathExtension];
     bool b_stream = [o_file_stream state];
     BOOL b_dir = NO;
- 
+
     [[NSFileManager defaultManager] fileExistsAtPath:o_filename isDirectory:&b_dir];
+
+    char *psz_uri = make_URI([o_filename UTF8String]);
+    if( !psz_uri ) return;
+
+    NSMutableString *o_mrl_string = [NSMutableString stringWithUTF8String: psz_uri ];
+    NSRange offile = [o_mrl_string rangeOfString:@"file"];
+    free( psz_uri );
 
     if( b_dir )
     {
-        o_mrl_string = [NSString stringWithFormat: @"directory://%@/", o_filename];
+        [o_mrl_string replaceCharactersInRange:offile withString: @"directory"];
     }
-    else if( [o_ext isEqualToString: @"bin"] ||
-        [o_ext isEqualToString: @"cue"] ||
-        [o_ext isEqualToString: @"vob"] ||
-        [o_ext isEqualToString: @"iso"] )
+    else if( b_stream )
     {
-        o_mrl_string = o_filename;
-    }
-    else
-    {
-        o_mrl_string = [NSString stringWithFormat: @"%s://%@",
-                        b_stream ? "stream" : "file",
-                        o_filename];
+        [o_mrl_string replaceCharactersInRange:offile withString: @"stream"];
     }
     [o_mrl setStringValue: o_mrl_string];
 }
@@ -583,7 +623,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
  
     o_type = [[o_disc_type selectedCell] title];
 
-    if ( [o_type isEqualToString: _NS("VIDEO_TS directory")] )
+    if ( [o_type isEqualToString: _NS("VIDEO_TS folder")] )
     {
         b_device = NO; b_no_menus = YES;
     }
@@ -843,7 +883,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
         NSString *o_url = [o_net_http_url stringValue];
 
         if ( ![o_url hasPrefix:@"http:"] && ![o_url hasPrefix:@"ftp:"]
-              && ![o_url hasPrefix:@"mms"] && ![o_url hasPrefix:@"rtsp"] )
+              && ![o_url hasPrefix:@"mms"] && ![o_url hasPrefix:@"rtsp"] && ![o_url hasPrefix:@"rtmp"] )
             o_mrl_string = [NSString stringWithFormat: @"http://%@", o_url];
         else
             o_mrl_string = o_url;

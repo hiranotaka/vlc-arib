@@ -38,10 +38,12 @@ library AXVLC
     interface IVLCAudio;
     interface IVLCInput;
     interface IVLCLog;
+    interface IVLCMarquee;
     interface IVLCMessage;
     interface IVLCMessageIterator;
     interface IVLCMessages;
     interface IVLCPlaylist;
+    interface IVLCSubtitle;
     interface IVLCVideo;
     interface IVLCControl2;
     dispinterface DVLCEvents;
@@ -207,6 +209,11 @@ library AXVLC
         HRESULT track([out, retval] long* track);
         [propput, helpstring("Returns/sets audio track used/to use.")]
         HRESULT track([in] long track);
+
+        [propget, helpstring("Returns the number of audio tracks available.")]
+        HRESULT count([out, retval] long* trackNumber);
+        [helpstring("Returns audio track name.")]
+        HRESULT description([in] long trackID, [out, retval] BSTR* name);
 
         [propget, helpstring("Returns audio channel [1-5] indicating; stereo, reverse stereo, left, right, dolby.")]
         HRESULT channel([out, retval] long* channel);
@@ -402,6 +409,62 @@ library AXVLC
 
     [
       odl,
+      uuid(465E787A-0556-452F-9477-954E4A940003),
+      helpstring("VLC Subtitle APIs"),
+      dual,
+      oleautomation
+    ]
+    interface IVLCSubtitle : IDispatch
+    {
+        [propget, helpstring("Returns video subtitle used.")]
+        HRESULT track([out, retval] long* spu);
+        [propput, helpstring("Sets video subtitle to use.")]
+        HRESULT track([in] long spu);
+
+        [propget, helpstring("Returns the number of video subtitles available.")]
+        HRESULT count([out, retval] long* spuNumber);
+        [helpstring("Returns video subtitle name.")]
+        HRESULT description([in] long nameID, [out, retval] BSTR* name);
+    };
+
+    [
+      odl,
+      uuid(8D076AD6-9B6F-4150-A0FD-5D7E8C8CB02C),
+      helpstring("VLC Marquee Filter"),
+      dual,
+      oleautomation
+    ]
+    interface IVLCMarquee : IDispatch
+    {
+        [helpstring("enable Marquee Filter.")]
+        HRESULT enable();
+
+        [helpstring("disable Marquee Filter.")]
+        HRESULT disable();
+
+        [helpstring("set text to Marquee Filter.")]
+        HRESULT text([in] BSTR text);
+
+        [helpstring("change text color.")]
+        HRESULT color ([in] long val);
+        [helpstring("change  text opacity.")]
+        HRESULT opacity ([in] long val);
+        [helpstring("change text position.")]
+        HRESULT position ([in] long val);
+        [helpstring("change refresh time.")]
+        HRESULT refresh ([in] long val);
+        [helpstring("change text size.")]
+        HRESULT size ([in] long val);
+        [helpstring("change timeout.")]
+        HRESULT timeout ([in] long val);
+        [helpstring("change text abcissa.")]
+        HRESULT x ([in] long val);
+        [helpstring("change text ordinate.")]
+        HRESULT y ([in] long val);
+    };
+
+    [
+      odl,
       uuid(0AAEDF0B-D333-4B27-A0C6-BBF31413A42E),
       helpstring("VLC Video APIs"),
       dual,
@@ -441,6 +504,11 @@ library AXVLC
         [propput, helpstring("Sets teletext page to use.")]
         HRESULT teletext([in] long page);
 
+        [helpstring("Enable deinterlace filter.")]
+        HRESULT deinterlaceEnable([in] BSTR mode);
+        [helpstring("Disable deinterlace filter.")]
+        HRESULT deinterlaceDisable();
+
         [helpstring("toggle fullscreen/windowed state.")]
         HRESULT toggleFullscreen();
 
@@ -449,6 +517,9 @@ library AXVLC
 
         [helpstring("toggle teletext transparent state.")]
         HRESULT toggleTeletext();
+
+        [propget, helpstring("Returns the marquee object.")]
+        HRESULT marquee([out, retval] IVLCMarquee** obj);
     };
 
     [
@@ -524,6 +595,9 @@ library AXVLC
 
         [propget, helpstring("Returns the playlist object.")]
         HRESULT playlist([out, retval] IVLCPlaylist** obj);
+
+        [propget, helpstring("Returns the audio object.")]
+        HRESULT subtitle([out, retval] IVLCSubtitle** obj);
 
         [propget, helpstring("Returns the audio object.")]
         HRESULT video([out, retval] IVLCVideo** obj);

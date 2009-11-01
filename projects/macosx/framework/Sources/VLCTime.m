@@ -39,6 +39,11 @@
     return [[[VLCTime alloc] initWithNumber:aNumber] autorelease];
 }
 
++ (VLCTime *)timeWithInt:(int)aInt
+{
+    return [[[VLCTime alloc] initWithInt:aInt] autorelease];
+}
+
 /* Initializers */
 - (id)initWithNumber:(NSNumber *)aNumber
 {
@@ -52,10 +57,27 @@
     return self;
 }
 
+- (id)initWithInt:(int)aInt
+{
+    if (self = [super init])
+    {
+        if (aInt)
+            value = [[NSNumber numberWithInt: aInt] retain];
+        else
+            value = nil;
+    }
+    return self;
+}
+
 - (void)dealloc
 {
     [value release];
     [super dealloc];
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+    return [[VLCTime alloc] initWithNumber:value];
 }
 
 /* NSObject Overrides */
@@ -75,16 +97,31 @@
     if (value)
     {
         long long duration = [value longLongValue] / 1000000;
-        return [NSString stringWithFormat:@"%01d:%02d:%02d",
-            (long) (duration / 3600),
-            (long)((duration / 60) % 60),
-            (long) (duration % 60)];
+        long long positiveDuration = llabs(duration);
+        if( positiveDuration > 3600 )
+            return [NSString stringWithFormat:@"%s%01d:%02d:%02d",
+                        duration < 0 ? "-" : "",
+                (long) (positiveDuration / 3600),
+                (long)((positiveDuration / 60) % 60),
+                (long) (positiveDuration % 60)];
+        else
+            return [NSString stringWithFormat:@"%s%02d:%02d",
+                            duration < 0 ? "-" : "",
+                    (long)((positiveDuration / 60) % 60),
+                    (long) (positiveDuration % 60)];
     }
     else
     {
         // Return a string that represents an undefined time.
-        return @"-:--:--";
+        return @"--:--";
     }
+}
+
+- (int)intValue
+{
+    if( value )
+        return [value intValue];
+    return 0;
 }
 
 - (NSComparisonResult)compare:(VLCTime *)aTime

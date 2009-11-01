@@ -25,6 +25,8 @@
 # include "config.h"
 #endif
 
+#include <assert.h>
+
 #include <vlc_common.h>
 #include <vlc_es.h>
 #include <vlc_input.h>
@@ -256,6 +258,8 @@ static int PlayItem( playlist_t *p_playlist, playlist_item_t *p_item )
     {
         p_sys->p_input = p_input_thread;
         var_AddCallback( p_input_thread, "intf-event", InputEvent, p_playlist );
+
+        var_SetAddress( p_playlist, "input-current", p_input_thread );
 
         if( input_Start( p_sys->p_input ) )
         {

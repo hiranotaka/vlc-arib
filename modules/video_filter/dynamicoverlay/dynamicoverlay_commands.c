@@ -4,7 +4,7 @@
  * Copyright (C) 2008 the VideoLAN team
  * $Id$
  *
- * Author: Soren Bog <avacore@videolan.org>
+ * Author: Søren Bøg <avacore@videolan.org>
  *         Jean-Paul Saman <jpsaman@videolan.org>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -48,10 +48,9 @@
 
 overlay_t *OverlayCreate( void )
 {
-    overlay_t *p_ovl = malloc( sizeof( overlay_t ) );
+    overlay_t *p_ovl = calloc( 1, sizeof( overlay_t ) );
     if( p_ovl == NULL )
        return NULL;
-    memset( p_ovl, 0, sizeof( overlay_t ) );
 
     p_ovl->i_x = p_ovl->i_y = 0;
     p_ovl->i_alpha = 0xFF;
@@ -66,8 +65,7 @@ overlay_t *OverlayCreate( void )
 
 int OverlayDestroy( overlay_t *p_ovl )
 {
-    if( p_ovl->data.p_text != NULL )
-        free( p_ovl->data.p_text );
+    free( p_ovl->data.p_text );
     text_style_Delete( p_ovl->p_fontstyle );
 
     return VLC_SUCCESS;
@@ -444,7 +442,7 @@ static int exec_DataSharedMem( filter_t *p_filter,
         if( (p_params->i_height != 1) || (p_params->i_width < 1) )
         {
             msg_Err( p_filter,
-                     "Invalid width and/or height. when specifing text height "
+                     "Invalid width and/or height. when specifying text height "
                      "must be 1 and width the number of bytes in the string, "
                      "including the null terminator" );
             return VLC_EGENERIC;
@@ -794,7 +792,7 @@ static int exec_StartAtomic( filter_t *p_filter,
 /*****************************************************************************
  * Command functions
  *****************************************************************************/
-static const commanddesc_t p_commands[] =
+static const commanddesc_static_t p_commands[] =
 {
     {   .psz_command = "DataSharedMem",
         .b_atomic = true,

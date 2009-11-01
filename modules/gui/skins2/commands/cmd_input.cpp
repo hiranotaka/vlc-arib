@@ -79,9 +79,9 @@ void CmdStop::execute()
 
 void CmdSlower::execute()
 {
-    input_thread_t *pInput =
-        (input_thread_t *)vlc_object_find( getIntf(), VLC_OBJECT_INPUT,
-                                           FIND_ANYWHERE );
+    playlist_t *pPlaylist = getIntf()->p_sys->p_playlist;
+    input_thread_t *pInput = playlist_CurrentInput( pPlaylist );
+
     if( pInput )
     {
         vlc_value_t val;
@@ -95,9 +95,9 @@ void CmdSlower::execute()
 
 void CmdFaster::execute()
 {
-    input_thread_t *pInput =
-        (input_thread_t *)vlc_object_find( getIntf(), VLC_OBJECT_INPUT,
-                                           FIND_ANYWHERE );
+    playlist_t *pPlaylist = getIntf()->p_sys->p_playlist;
+    input_thread_t *pInput = playlist_CurrentInput( pPlaylist );
+
     if( pInput )
     {
         vlc_value_t val;
@@ -111,18 +111,24 @@ void CmdFaster::execute()
 
 void CmdMute::execute()
 {
-    aout_VolumeMute( getIntf(), NULL );
+    playlist_t *pPlaylist = getIntf()->p_sys->p_playlist;
+
+    aout_ToggleMute( pPlaylist, NULL );
 }
 
 
 void CmdVolumeUp::execute()
 {
-    aout_VolumeUp( getIntf(), 1, NULL );
+    playlist_t *pPlaylist = getIntf()->p_sys->p_playlist;
+
+    aout_VolumeUp( pPlaylist, 1, NULL );
 }
 
 
 void CmdVolumeDown::execute()
 {
-    aout_VolumeDown( getIntf(), 1, NULL );
+    playlist_t *pPlaylist = getIntf()->p_sys->p_playlist;
+
+    aout_VolumeDown( pPlaylist, 1, NULL );
 }
 

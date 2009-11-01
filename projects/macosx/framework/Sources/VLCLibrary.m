@@ -42,7 +42,7 @@ void __catch_exception( void * e, const char * function, const char * file, int 
         NSException* libvlcException = [NSException
             exceptionWithName:@"LibVLCException"
             reason:[NSString stringWithFormat:@"libvlc has thrown us an error: %s (%s:%d %s)", 
-                libvlc_exception_get_message( ex ), file, line_number, function]
+                libvlc_errmsg(), file, line_number, function]
             userInfo:nil];
         libvlc_exception_clear( ex );
         @throw libvlcException;
@@ -91,10 +91,14 @@ void * DestroySharedLibraryAtExit( void )
         libvlc_exception_init( &ex );
         
         const char * lib_vlc_params[] = { 
-            "-I", "dummy", "--vout=minimal_macosx", 
-            "--no-video-title-show", "--no-sout-keep", "--ignore-config",
-			"--opengl-provider=minimal_macosx",
-			"-verbose=-1"
+            "-I", "dummy",               // No interface 
+            "--no-video-title-show",     // Don't show the title on overlay when starting to play
+            "--no-sout-keep",
+            "--ignore-config",           // Don't read and write VLC config files.
+			"--opengl-provider=minimal_macosx", // Use minimal_macosx
+            "--vout=minimal_macosx",
+			"-verbose=-1",               // Don't polute the log
+            "--play-and-pause"           // When ending a stream pause it instead of stopping it.
             //, "--control=motion", "--motion-use-rotate", "--video-filter=rotate"
         };
         

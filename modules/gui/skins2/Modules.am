@@ -9,6 +9,7 @@ SOURCES_skins2 = \
 	commands/cmd_dvd.cpp \
 	commands/cmd_dvd.hpp \
 	commands/cmd_generic.hpp \
+        commands/cmd_callbacks.hpp \
 	commands/cmd_change_skin.cpp \
 	commands/cmd_change_skin.hpp \
 	commands/cmd_dialogs.hpp \
@@ -32,6 +33,8 @@ SOURCES_skins2 = \
 	commands/cmd_quit.hpp \
 	commands/cmd_resize.cpp \
 	commands/cmd_resize.hpp \
+	commands/cmd_voutwindow.cpp \
+	commands/cmd_voutwindow.hpp \
 	commands/cmd_snapshot.cpp \
 	commands/cmd_snapshot.hpp \
 	commands/cmd_show_window.hpp \

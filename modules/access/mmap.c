@@ -58,8 +58,13 @@ vlc_module_begin ()
     set_capability ("access", 52)
     add_shortcut ("file")
     set_callbacks (Open, Close)
+#ifdef __APPLE__
+    add_bool ("file-mmap", true, NULL,
+              FILE_MMAP_TEXT, FILE_MMAP_LONGTEXT, true)
+#else
     add_bool ("file-mmap", false, NULL,
               FILE_MMAP_TEXT, FILE_MMAP_LONGTEXT, true)
+#endif
 vlc_module_end ()
 
 static block_t *Block (access_t *);
@@ -94,7 +99,7 @@ static int Open (vlc_object_t *p_this)
     else
     {
         msg_Dbg (p_access, "opening file %s", path);
-        fd = utf8_open (path, O_RDONLY | O_NOCTTY, 0666);
+        fd = utf8_open (path, O_RDONLY | O_NOCTTY);
     }
 
     if (fd == -1)
@@ -286,13 +291,13 @@ static int Control (access_t *p_access, int query, va_list args)
         case ACCESS_CAN_FASTSEEK:
         case ACCESS_CAN_PAUSE:
         case ACCESS_CAN_CONTROL_PACE:
-            *((bool *)va_arg (args, bool *)) = true;
+            *va_arg(args, bool *) = true;
             return VLC_SUCCESS;
 
         case ACCESS_GET_PTS_DELAY:
         {
             int delay_ms = var_CreateGetInteger (p_access, "file-caching");
-            *((int64_t *)va_arg (args, int64_t *)) = delay_ms * INT64_C (1000);
+            *va_arg(args, int64_t *) = delay_ms * INT64_C (1000);
             return VLC_SUCCESS;
         }
 

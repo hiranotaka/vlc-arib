@@ -34,14 +34,6 @@
  * @{
  */
 
-enum es_out_mode_e
-{
-    ES_OUT_MODE_NONE,   /* don't select anything */
-    ES_OUT_MODE_ALL,    /* eg for stream output */
-    ES_OUT_MODE_AUTO,   /* best audio/video or for input follow audio-track, sub-track */
-    ES_OUT_MODE_PARTIAL /* select programs given after --programs */
-};
-
 enum es_out_query_e
 {
     /* set ES selected for the es category (audio/video/spu) */
@@ -73,10 +65,10 @@ enum es_out_query_e
 
     /* Allow preroll of data (data with dts/pts < i_pts for all ES will be decoded but not displayed */
     ES_OUT_SET_NEXT_DISPLAY_TIME,       /* arg1=int64_t i_pts(microsecond) */
-    /* Set meta data for group (dynamic) */
-    ES_OUT_SET_GROUP_META,  /* arg1=int i_group arg2=vlc_meta_t */
-    /* Set epg for group (dynamic) */
-    ES_OUT_SET_GROUP_EPG,   /* arg1=int i_group arg2=vlc_epg_t */
+    /* Set meta data for group (dynamic) (The vlc_meta_t is not modified nor released) */
+    ES_OUT_SET_GROUP_META,  /* arg1=int i_group arg2=const vlc_meta_t */
+    /* Set epg for group (dynamic) (The vlc_epg_t is not modified nor released) */
+    ES_OUT_SET_GROUP_EPG,   /* arg1=int i_group arg2=const vlc_epg_t */
     /* */
     ES_OUT_DEL_GROUP,       /* arg1=int i_group */
 
@@ -89,6 +81,9 @@ enum es_out_query_e
      * is for interactive playback (like for DVD menu).
      * XXX You SHALL call ES_OUT_RESET_PCR before any other es_out_Control/Send calls. */
     ES_OUT_GET_EMPTY,       /* arg1=bool*   res=cannot fail */
+
+    /* Set global meta data (The vlc_meta_t is not modified nor released) */
+    ES_OUT_SET_META, /* arg1=const vlc_meta_t * */
 
     /* First value usable for private control */
     ES_OUT_PRIVATE_START = 0x10000,
@@ -143,6 +138,11 @@ static inline int es_out_Control( es_out_t *out, int i_query, ... )
 static inline void es_out_Delete( es_out_t *p_out )
 {
     p_out->pf_destroy( p_out );
+}
+
+static inline int es_out_ControlSetMeta( es_out_t *out, const vlc_meta_t *p_meta )
+{
+    return es_out_Control( out, ES_OUT_SET_META, p_meta );
 }
 
 /**

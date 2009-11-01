@@ -68,7 +68,7 @@ static const char *const ppsz_encodings[] = {
     "ISO-8859-6",
     "Windows-1256",
     "ISO-8859-7",
-    "Windows-1256",
+    "Windows-1253",
     "ISO-8859-8",
     "Windows-1255",
     "ISO-8859-9",
@@ -84,8 +84,8 @@ static const char *const ppsz_encodings[] = {
     "ISO-2022-JP-2",
     "EUC-JP",
     "Shift_JIS",
+    "CP949",
     "ISO-2022-KR",
-    "EUC-KR",
     "Big5",
     "ISO-2022-TW",
     "Big5-HKSCS",
@@ -121,7 +121,7 @@ static const char *const ppsz_encoding_names[] = {
     N_("Arabic (Windows-1256)"),
     /* 7 */
     N_("Greek (ISO 8859-7)"),
-    N_("Greek (Windows-1256)"),
+    N_("Greek (Windows-1253)"),
     /* 8 */
     N_("Hebrew (ISO 8859-8)"),
     N_("Hebrew (Windows-1255)"),
@@ -147,8 +147,8 @@ static const char *const ppsz_encoding_names[] = {
     N_("Japanese (7-bits JIS/ISO-2022-JP-2)"),
     N_("Japanese Unix (EUC-JP)"),
     N_("Japanese (Shift JIS)"),
+    N_("Korean (EUC-KR/CP949)"),
     N_("Korean (ISO-2022-KR)"),
-    N_("Korean Unix (EUC-KR)"),
     N_("Traditional Chinese (Big5)"),
     N_("Traditional Chinese Unix (EUC-TW)"),
     N_("Hong-Kong Supplementary (HKSCS)"),
@@ -228,7 +228,6 @@ static int OpenDecoder( vlc_object_t *p_this )
 {
     decoder_t     *p_dec = (decoder_t*)p_this;
     decoder_sys_t *p_sys;
-    vlc_value_t    val;
 
     switch( p_dec->fmt_in.i_codec )
     {
@@ -312,9 +311,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     }
     free (psz_charset);
 
-    var_Create( p_dec, "subsdec-align", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
-    var_Get( p_dec, "subsdec-align", &val );
-    p_sys->i_align = val.i_int;
+    p_sys->i_align = var_CreateGetInteger( p_dec, "subsdec-align" );
 
     if( p_dec->fmt_in.i_codec == VLC_CODEC_SSA
      && var_CreateGetBool( p_dec, "subsdec-formatted" ) )
@@ -685,6 +682,7 @@ static char *CreateHtmlSubtitle( int *pi_align, char *psz_subtitle )
     psz_tag[ 0 ] = '\0';
 
     /* */
+    //Oo + 100 ???
     size_t i_buf_size = strlen( psz_subtitle ) + 100;
     char   *psz_html_start = malloc( i_buf_size );
     char   *psz_html = psz_html_start;

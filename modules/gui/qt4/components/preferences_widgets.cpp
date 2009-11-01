@@ -136,12 +136,10 @@ ConfigControl *ConfigControl::createControl( vlc_object_t *p_this,
         p_control = new DirectoryConfigControl( p_this, p_item, parent, l,
                                                 line );
         break;
-#if 0
     case CONFIG_ITEM_FONT:
         p_control = new FontConfigControl( p_this, p_item, parent, l,
-                                           line, false );
+                                           line);
         break;
-#endif
     case CONFIG_ITEM_KEY:
         p_control = new KeySelectorControl( p_this, p_item, parent, l, line );
         break;
@@ -198,6 +196,29 @@ void ConfigControl::doApply( intf_thread_t *p_intf )
         }
     }
 }
+
+/*******************************************************
+ * Simple widgets
+ *******************************************************/
+InterfacePreviewWidget::InterfacePreviewWidget ( QWidget *parent ) : QLabel( parent )
+{
+    setGeometry( 0, 0, 128, 100 );
+    setSizePolicy( QSizePolicy::Fixed, QSizePolicy::Fixed );
+}
+
+void InterfacePreviewWidget::setPreview( int comboid )
+{
+    /* Need to move resources references as soon as qt4.cpp
+       local defines has been moved somewhere else
+    */
+    const char * pixmaps[] = { ":/prefsmenu/sample_classic",
+                               ":/prefsmenu/sample_complete",
+                               ":/prefsmenu/sample_minimal",
+                                ":/prefsmenu/sample_skins" };
+    setPixmap( QPixmap( pixmaps[ comboid ] ) );
+}
+
+
 
 /**************************************************************************
  * String-based controls
@@ -306,7 +327,7 @@ FileConfigControl::FileConfigControl( vlc_object_t *_p_this,
 void FileConfigControl::updateField()
 {
     QString file = QFileDialog::getOpenFileName( NULL,
-                  qtr( "Select File" ), qfu( config_GetHomeDir() ) );
+                  qtr( "Select File" ), QVLCUserDir( VLC_HOME_DIR ) );
     if( file.isNull() ) return;
     text->setText( toNativeSeparators( file ) );
 }
@@ -340,37 +361,45 @@ void DirectoryConfigControl::updateField()
     QString dir = QFileDialog::getExistingDirectory( NULL,
                       qtr( "Select Directory" ),
                       text->text().isEmpty() ?
-                        qfu( config_GetHomeDir() ) : text->text(),
+                        QVLCUserDir( VLC_HOME_DIR ) : text->text(),
                   QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks );
 
     if( dir.isNull() ) return;
     text->setText( toNativeSepNoSlash( dir ) );
 }
 
-#if 0
-#include <QFontDialog>
-
 /********* String / Font **********/
 FontConfigControl::FontConfigControl( vlc_object_t *_p_this,
-                        module_config_t *_p_item, QWidget *_p_widget,
-                        QGridLayout *_p_layout, int& _int, bool _pwd ) :
-     FileConfigControl( _p_this, _p_item, _p_widget, _p_layout, _int, _pwd)
-{}
+                        module_config_t *_p_item, QWidget *_parent,
+                        QGridLayout *_p_layout, int& line) :
+     VStringConfigControl( _p_this, _p_item, _parent )
+{
+    label = new QLabel( qtr(p_item->psz_text) );
+    font = new QFontComboBox( _parent );
+    font->setCurrentFont( QFont( qfu( p_item->value.psz) ) );
+    if( !_p_layout )
+    {
+        QHBoxLayout *layout = new QHBoxLayout();
+        layout->addWidget( label, 0 );
+        layout->addWidget( font, 1 );
+        widget->setLayout( layout );
+    }
+    else
+    {
+        _p_layout->addWidget( label, line, 0 );
+        _p_layout->addWidget( font, line, 1, 1, -1 );
+    }
+}
 
 FontConfigControl::FontConfigControl( vlc_object_t *_p_this,
                         module_config_t *_p_item, QLabel *_p_label,
-                        QLineEdit *_p_line, QPushButton *_p_button, bool _pwd ):
-     FileConfigControl( _p_this, _p_item, _p_label, _p_line, _p_button, _pwd)
-{}
-
-void FontConfigControl::updateField()
+                        QFontComboBox *_p_font):
+     VStringConfigControl( _p_this, _p_item)
 {
-    bool ok;
-    QFont font = QFontDialog::getFont( &ok, QFont( text->text() ), NULL );
-    if( !ok ) return;
-    text->setText( font.family() );
+    label = _p_label;
+    font = _p_font;
+    font->setCurrentFont( QFont( qfu( p_item->value.psz) ) );
 }
-#endif
 
 /********* String / choice list **********/
 StringListConfigControl::StringListConfigControl( vlc_object_t *_p_this,
@@ -1014,7 +1043,7 @@ BoolConfigControl::BoolConfigControl( vlc_object_t *_p_this,
 BoolConfigControl::BoolConfigControl( vlc_object_t *_p_this,
                                       module_config_t *_p_item,
                                       QLabel *_label,
-                                      QCheckBox *_checkbox,
+                                      QAbstractButton *_checkbox,
                                       bool bycat ) :
                    VIntConfigControl( _p_this, _p_item )
 {
@@ -1025,14 +1054,13 @@ BoolConfigControl::BoolConfigControl( vlc_object_t *_p_this,
 
 void BoolConfigControl::finish()
 {
-    checkbox->setCheckState( p_item->value.i == true ? Qt::Checked
-                                                        : Qt::Unchecked );
+    checkbox->setChecked( p_item->value.i == true );
     checkbox->setToolTip( formatTooltip(qtr(p_item->psz_longtext)) );
 }
 
 int BoolConfigControl::getValue()
 {
-    return checkbox->checkState() == Qt::Checked ? true : false;
+    return checkbox->isChecked();
 }
 
 /**************************************************************************
@@ -1353,6 +1381,7 @@ KeyInputDialog::KeyInputDialog( QTreeWidget *_table,
     table = _table;
     setWindowTitle( b_global ? qtr( "Global" ): ""
                     + qtr( "Hotkey for " ) + keyToChange );
+    setWindowRole( "vlc-key-input" );
 
     vLayout = new QVBoxLayout( this );
     selected = new QLabel( qtr( "Press the new keys for " ) + keyToChange );

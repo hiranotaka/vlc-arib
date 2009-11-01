@@ -51,14 +51,11 @@ OpenDialog* OpenDialog::getInstance( QWidget *parent, intf_thread_t *p_intf,
     else if( !b_rawInstance )
     {
         /* Request the instance but change small details:
-           - Button menu
-           - Modality on top of the parent dialog */
+           - Button menu */
         if( b_selectMode )
-        {
-            instance->setWindowModality( Qt::WindowModal );
             _action_flag = SELECT; /* This should be useless, but we never know
                                       if the call is correct */
-        }
+        instance->setWindowModality( Qt::WindowModal );
         instance->i_action_flag = _action_flag;
         instance->b_pl = _b_pl;
         instance->setMenuAction();
@@ -75,20 +72,14 @@ OpenDialog::OpenDialog( QWidget *parent,
     i_action_flag = _action_flag;
     b_pl =_b_pl;
 
-    /* Workaround the Win32 Vout that put the video on top at regular times */
-#ifdef WIN32
-    setWindowFlags( Qt::WindowStaysOnTopHint | Qt::Dialog );
-#endif
-
     if( b_selectMode ) /* Select mode */
-    {
         i_action_flag = SELECT;
-        setWindowModality( Qt::WindowModal );
-    }
 
     /* Basic Creation of the Window */
     ui.setupUi( this );
     setWindowTitle( qtr( "Open Media" ) );
+    setWindowRole( "vlc-open-media" );
+    setWindowModality( Qt::WindowModal );
 
     /* Tab definition and creation */
     fileOpenPanel    = new FileOpenPanel( this, p_intf );
@@ -97,11 +88,14 @@ OpenDialog::OpenDialog( QWidget *parent,
     captureOpenPanel = new CaptureOpenPanel( this, p_intf );
 
     /* Insert the tabs */
-    ui.Tab->insertTab( OPEN_FILE_TAB, fileOpenPanel, qtr( "&File" ) );
-    ui.Tab->insertTab( OPEN_DISC_TAB, discOpenPanel, qtr( "&Disc" ) );
-    ui.Tab->insertTab( OPEN_NETWORK_TAB, netOpenPanel, qtr( "&Network" ) );
+    ui.Tab->insertTab( OPEN_FILE_TAB, fileOpenPanel, QIcon( ":/type/folder-grey" ),
+                       qtr( "&File" ) );
+    ui.Tab->insertTab( OPEN_DISC_TAB, discOpenPanel, QIcon( ":/type/disc" ),
+                       qtr( "&Disc" ) );
+    ui.Tab->insertTab( OPEN_NETWORK_TAB, netOpenPanel, QIcon( ":/type/network" ),
+                       qtr( "&Network" ) );
     ui.Tab->insertTab( OPEN_CAPTURE_TAB, captureOpenPanel,
-                       qtr( "Capture &Device" ) );
+                       QIcon( ":/type/capture-card" ), qtr( "Capture &Device" ) );
 
     /* Hide the Slave input widgets */
     ui.slaveLabel->hide();
@@ -129,8 +123,7 @@ OpenDialog::OpenDialog( QWidget *parent,
     openButtonMenu->addAction( qtr( "&Convert" ), this, SLOT( transcode() ) ,
                                     QKeySequence( "Alt+C" ) );
 
-    ui.menuButton->setMenu( openButtonMenu );
-    ui.menuButton->setIcon( QIcon( ":/down_arrow" ) );
+    playButton->setMenu( openButtonMenu );
 
     /* Add the three Buttons */
     ui.buttonsBox->addButton( selectButton, QDialogButtonBox::AcceptRole );
@@ -229,7 +222,6 @@ void OpenDialog::setMenuAction()
         }
         playButton->show();
         selectButton->hide();
-        playButton->setDefault( true );
     }
 }
 
@@ -346,7 +338,9 @@ void OpenDialog::finish( bool b_enqueue = false )
         bool b_start = !i && !b_enqueue;
 
         input_item_t *p_input;
-        p_input = input_item_New( p_intf, qtu( itemsMRL[i] ), NULL );
+        char* psz_uri = make_URI( qtu( itemsMRL[i] ) );
+        p_input = input_item_New( p_intf, psz_uri, NULL );
+        free( psz_uri );
 
         /* Insert options only for the first element.
            We don't know how to edit that anyway. */

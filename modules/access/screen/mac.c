@@ -32,7 +32,12 @@
 
 #import <vlc_common.h>
 
+// Fix ourselves ColorSync headers that gets included in ApplicationServices.
+#define DisposeCMProfileIterateUPP(a) DisposeCMProfileIterateUPP(CMProfileIterateUPP userUPP __attribute__((unused)))
+#define DisposeCMMIterateUPP(a) DisposeCMMIterateUPP(CMProfileIterateUPP userUPP __attribute__((unused)))
+#define __MACHINEEXCEPTIONS__
 #import <ApplicationServices/ApplicationServices.h>
+
 #import <OpenGL/OpenGL.h>
 #import <OpenGL/gl.h>
 #import <stdlib.h>

@@ -33,7 +33,7 @@ fi
 LANG=C
 export LANG
 set -e
-set -x
+set +x
 
 BUILD=`gcc -dumpmachine`
 if test "$#" -ge "1"; then
@@ -72,15 +72,19 @@ fi
 
 case $HOST in
     *powerpc*|*ppc*)
-         echo "ARCH=ppc" >> config.mak
+         ARCH="ppc"
      ;;
-    *darwin10*)
-         echo "ARCH=x86_64" >> config.mak
+    *86_64*)
+          ARCH="x86_64"
      ;;
     *86*)
-          echo "ARCH=i386" >> config.mak
+          ARCH="i386"
+     ;;
+    arm*eabi)
+          ARCH="armel"
      ;;
 esac
+echo "ARCH = $ARCH" >> config.mak
 
 # Check the HAVE_{OS}
 case $HOST in
@@ -97,9 +101,6 @@ case $HOST in
     *wince*)
         echo "HAVE_WINCE = 1" >> config.mak
     ;;
-    *beos*)
-        echo "HAVE_BEOS = 1" >> config.mak
-    ;;
 esac
 
 case $HOST in
@@ -109,32 +110,27 @@ case $HOST in
         echo "Compiling VLC requires 10.5.x or later" >&2
         exit 1
     ;;
-    powerpc-apple-darwin8)
-        echo "Your version of Mac OS X is too old!" >&2
-        echo "Compiling and running VLC requires 10.5.x or later" >&2
-        exit 1
-    ;;
-    i686-apple-darwin8)
+    *-apple-darwin8)
         echo "Your version of Mac OS X is too old!" >&2
         echo "Compiling and running VLC requires 10.5.x or later" >&2
         exit 1
     ;;
     powerpc-apple-darwin9)
-# Mac OS X 10.5 with Xcode 3, specific rules apply
         SDK_TARGET=10.5
         echo "SDK_TARGET = ${SDK_TARGET}" >> config.mak
         echo "ENVP = MACOSX_DEPLOYMENT_TARGET=${SDK_TARGET}" >> config.mak
         echo "MACOSX_SDK = /Developer/SDKs/MacOSX10.5.sdk" >> config.mak
         echo "HAVE_DARWIN_9 = 1" >> config.mak
         HAVE_DARWIN_9=1
+        HAVE_DARWIN_32=1
         CFLAGS_TUNING=" -arch ppc -mtune=G4"
         EXTRA_CFLAGS=" -D\${ENVP} -isysroot \${MACOSX_SDK} -mmacosx-version-min=\${SDK_TARGET}"
-        EXTRA_LDFLAGS=" -arch ppc -isysroot \${MACOSX_SDK} -Wl,-syslibroot,\${MACOSX_SDK}"
-        CC="/Developer/usr/llvm-gcc-4.2/bin/llvm-gcc-4.2"
-        CXX="/Developer/usr/llvm-gcc-4.2/bin/llvm-g++-4.2"
-        LD="ld -arch ppc -syslibroot \${MACOSX_SDK}"
+        EXTRA_LDFLAGS=" -arch ppc -isysroot \${MACOSX_SDK} -mmacosx-version-min=\${SDK_TARGET} -Wl,-syslibroot,\${MACOSX_SDK}"
+        CC="/Developer/usr/bin/gcc-4.2"
+        CXX="/Developer/usr/bin/g++-4.2"
+        LD="ld -arch ppc -syslibroot \${MACOSX_SDK} -mmacosx-version-min=\${SDK_TARGET}"
         echo "PATH = /bin:/usr/bin:/usr/local/bin:" >> config.mak
-        cat src/Distributions/darwin.mak >> distro.mak
+        DISTRO=darwin
         if test -e /Developer/SDKs; then
             echo "SDKs found. Everything is fine." >&2
         else
@@ -142,7 +138,7 @@ case $HOST in
             exit 1
         fi
     ;;
-    i686-apple-darwin9)
+    i686-apple-darwin*)
         SDK_TARGET=10.5
         MIN_LD_VERSION_WITH_TEXT_RELOCATION=81
         echo "SDK_TARGET = ${SDK_TARGET}" >> config.mak
@@ -155,77 +151,71 @@ case $HOST in
         fi
         echo "ENVP = MACOSX_DEPLOYMENT_TARGET=${SDK_TARGET}" >> config.mak
         echo "MACOSX_SDK = /Developer/SDKs/MacOSX10.5.sdk" >> config.mak
-        CFLAGS_TUNING=" -march=pentium-m -mtune=prescott -arch i386"
+        HAVE_DARWIN_32=1
+        CFLAGS_TUNING=" -march=prescott -mtune=generic -arch i386 -m32"
         EXTRA_CFLAGS=" -D\${ENVP} -isysroot \${MACOSX_SDK} -mmacosx-version-min=\${SDK_TARGET}"
-        EXTRA_LDFLAGS=" -arch i386 -isysroot \${MACOSX_SDK} -Wl,-syslibroot,\${MACOSX_SDK}"
-        CC="/Developer/usr/llvm-gcc-4.2/bin/llvm-gcc-4.2"
-        CXX="/Developer/usr/llvm-gcc-4.2/bin/llvm-g++-4.2"
+        EXTRA_LDFLAGS=" -arch i386 -isysroot \${MACOSX_SDK} -Wl,-syslibroot,\${MACOSX_SDK} -mmacosx-version-min=\${SDK_TARGET}"
+        CC="/Developer/usr/bin/gcc-4.2"
+        CXX="/Developer/usr/bin/g++-4.2"
         echo "PATH = /bin:/usr/bin:/usr/local/bin" >> config.mak
-        cat src/Distributions/darwin.mak >> distro.mak
+        DISTRO=darwin
         if test -e /Developer/SDKs; then
             echo "SDKs found. Everything is fine." >&2
         else
             echo "ERROR:\nYour Developer Tools' SDKs were not found.\nYou need to add extra symbolic links to /Developer to achieve correctly\nbuilt contribs.\nHave a look at the OSX-Compile-HOWTO for details." >&2
             exit 1
         fi
+        if test $HOST = "i686-apple-darwin10"; then
+            echo "HAVE_DARWIN_10 = 1" >> config.mak
+        fi
     ;;
-    *-apple-darwin10)
+    x86_64-apple-darwin*)
         SDK_TARGET=10.5
         echo "SDK_TARGET = ${SDK_TARGET}" >> config.mak
         echo "HAVE_DARWIN_OS_ON_INTEL = 1" >> config.mak
         echo "HAVE_DARWIN_9 = 1" >> config.mak
-        echo "HAVE_DARWIN_10 = 1" >> config.mak
-        HAVE_DARWIN_10=1
         echo "ENVP = MACOSX_DEPLOYMENT_TARGET=${SDK_TARGET}" >> config.mak
         echo "MACOSX_SDK = /Developer/SDKs/MacOSX${SDK_TARGET}.sdk" >> config.mak
-        CFLAGS_TUNING=" -march=core2"
+        HAVE_DARWIN_64=1
+        CFLAGS_TUNING=" -march=core2 -mtune=core2 -m64 -arch x86_64"
+        echo "HAVE_DARWIN_64 = 1" >> config.mak
         EXTRA_CFLAGS=" -D\${ENVP} -isysroot \${MACOSX_SDK} -mmacosx-version-min=\${SDK_TARGET}"
-        EXTRA_LDFLAGS=" -isysroot \${MACOSX_SDK} -Wl,-syslibroot,\${MACOSX_SDK}"
+        EXTRA_LDFLAGS=" -isysroot \${MACOSX_SDK} -Wl,-syslibroot,\${MACOSX_SDK} -mmacosx-version-min=\${SDK_TARGET}"
         echo "PATH = /bin:/usr/bin:/usr/local/bin" >> config.mak
-        CC="gcc"
-        CXX="g++"
-        cat src/Distributions/darwin.mak >> distro.mak
+        CC="/Developer/usr/bin/gcc-4.2"
+        CXX="/Developer/usr/bin/g++-4.2"
+        LD="ld"
+        RANLIB="ranlib"
+        AR="ar"
+        STRIP="strip"
+        DISTRO=darwin64
         if test -e /Developer/SDKs; then
             echo "SDKs found. Everything is fine." >&2
         else
             echo "ERROR:\nYour Developer Tools' SDKs were not found.\nYou need to add extra symbolic links to /Developer to achieve correctly\nbuilt contribs.\nHave a look at the OSX-Compile-HOWTO for details." >&2
             exit 1
         fi
-    ;;
-    i586-pc-beos)
-        if test -f /boot/beos/system/lib/libbind.so; then
-            EXTRA_LDFLAGS=" -lbind -lsocket"
-        else
-            EXTRA_LDFLAGS=" -lnet"
+        if test $HOST = "x86_64-apple-darwin10"; then
+            echo "HAVE_DARWIN_10 = 1" >> config.mak
         fi
-        if test "$HOST" = "$BUILD"; then
-#           Compiling on BeOS
-            PATH=".:/boot/home/config/bin:/bin:/boot/apps"
-            PATH="${PATH}:/boot/preferences:/boot/beos/apps"
-            PATH="${PATH}:/boot/beos/preferences"
-            PATH="${PATH}:/boot/develop/tools/gnupro/bin"
-            echo "PATH = ${PATH}" >> config.mak
-            LIBRARY_PATH="${LIBRARY_PATH}:%A/lib:/boot/home/config/lib"
-            LIBRARY_PATH="${LIBRARY_PATH}:/boot/beos/system/lib"
-            echo "LIBRARY_PATH = ${LIBRARY_PATH}" >> config.mak
-        else
-#           Cross compiling from Linux
-            PATH="/opt/beos-tools/bin:/opt/cross-tools/bin"
-            PATH="${PATH}:/usr/bin:/bin"
-            echo "PATH = ${PATH}" >> config.mak
-        fi
-        cat src/Distributions/beos.mak >> distro.mak
     ;;
     *mingw32ce)
         echo "HAVE_WINCE = 1" >> config.mak
         echo "PKG_CONFIG_PATH = \$(PREFIX)/lib/pkgconfig" >> config.mak
-        cat src/Distributions/wince.mak >> distro.mak
+        DISTRO=wince
+    ;;
+    x86_64-*-mingw*)
+        echo "HAVE_WIN64 = 1" >> config.mak
+        echo "HAVE_WIN32 = 1" >> config.mak
+        echo "PKG_CONFIG_PATH = \$(PREFIX)/lib/pkgconfig" >> config.mak
+           EXTRA_CFLAGS="-O3"
+        DISTRO=win64
     ;;
     *mingw32*)
         echo "HAVE_WIN32 = 1" >> config.mak
         echo "PKG_CONFIG_PATH = \$(PREFIX)/lib/pkgconfig" >> config.mak
-	    EXTRA_CFLAGS="-O3"
-        cat src/Distributions/win32.mak >> distro.mak
+        EXTRA_CFLAGS="-O3"
+        DISTRO=win32
     ;;
     i686-pc-cygwin)
         echo "HAVE_WIN32 = 1" >> config.mak
@@ -237,49 +227,64 @@ case $HOST in
         EXTRA_CPPFLAGS=" -mno-cygwin -isystem /usr/include/mingw"
         EXTRA_LDFLAGS=" -mno-cygwin"
         echo "PKG_CONFIG_PATH = \$(PREFIX)/lib/pkgconfig" >> config.mak
-        cat src/Distributions/win32.mak >> distro.mak
+        DISTRO=win32
     ;;
     arm-wince-pe)
         echo "PKG_CONFIG_PATH = \$(PREFIX)/lib/pkgconfig" >> config.mak
         EXTRA_CPPFLAGS=" -D_WIN32_WCE"
-        cat src/Distributions/wince.mak >> distro.mak
+        DISTRO=wince
     ;;
     armeb-linux-uclibc)
         echo "HAVE_UCLIBC = 1" >> config.mak
         echo "HAVE_BIGENDIAN = 1" >> config.mak
         EXTRA_CFLAGS="-Os -march=armv5 -msoft-float"
-        if test ! -z "${DISTRO}";  then
-            cat src/Distributions/${DISTRO}.mak >> distro.mak
+    ;;
+    arm-none-linux-gnueabi)
+        if test -f /etc/maemo_version; then
+            DISTRO=maemo
+            echo 'HAVE_MAEMO = 1' >> config.mak
+            EXTRA_CFLAGS=" -mcpu=cortex-a8 -mtune=cortex-a8 -march=armv7-a"
+            EXTRA_CFLAGS="$EXTRA_CFLAGS -mfpu=neon -mfloat-abi=softfp"
+            EXTRA_CFLAGS="$EXTRA_CFLAGS -O3 -fno-tree-vectorize"
         else
-            cat src/Distributions/unix.mak >> distro.mak
+            EXTRA_CFLAGS="-msoft-float"
         fi
     ;;
-    *)
-        if test "$HOST" = "$BUILD"; then
-            if test -d "/usr/lib/pkgconfig"; then
-                if test -z "$PKG_CONFIG_PATH"; then
-                    echo "PKG_CONFIG_PATH = /usr/lib/pkgconfig" >> config.mak
-                fi
-                if test -z "$PKG_CONFIG_LIBDIR"; then
-                    echo "PKG_CONFIG_LIBDIR = /usr/lib/pkgconfig" >> config.mak
-                fi
-            fi
-            # Try to match distribution
-            if test -f /etc/fedora-release; then
-                cat src/Distributions/fedora.mak >> distro.mak
-            else
-                # Default Unix-like systems
-                cat src/Distributions/unix.mak >> distro.mak
-            fi
-        else # unknown distro
-            if test ! -z "${DISTRO}";  then
-                cat src/Distributions/${DISTRO}.mak >> distro.mak
-            else
-                cat src/Distributions/unix.mak >> distro.mak
-            fi
-        fi
+    *86_64*linux*)
+        EXTRA_CFLAGS=" -fPIC"
+        EXTRA_CPPFLAGS=" -fPIC"
+        EXTRA_LDFLAGS=" -L/usr/lib64"
+        echo "LIBRARY_PATH = /usr/lib64" >> config.mak
+        echo "PKG_CONFIG_PATH = /usr/lib64/pkgconfig" >> config.mak
+        echo "PKG_CONFIG_LIBDIR = /usr/lib64/pkgconfig" >> config.mak
     ;;
 esac
+
+if test -z "${DISTRO}" -a "$HOST" = "$BUILD"; then
+    if test -d "/usr/lib/pkgconfig"; then
+        if test -z "$PKG_CONFIG_PATH"; then
+            echo "PKG_CONFIG_PATH = /usr/lib/pkgconfig" >> config.mak
+        fi
+        if test -z "$PKG_CONFIG_LIBDIR"; then
+            echo "PKG_CONFIG_LIBDIR = /usr/lib/pkgconfig" >> config.mak
+        fi
+    fi
+    # Try to match distribution
+    if test -f /etc/fedora-release; then
+        DISTRO=fedora
+    elif test -f /etc/maemo_version; then
+        DISTRO=maemo
+        echo 'HAVE_MAEMO = 1' >> config.mak
+    elif test -f /etc/debian_version; then
+        # NOTE: check for Debian *after* its derivatives
+        DISTRO=debian
+    fi
+fi
+
+# Default Unix-like systems
+test -z "${DISTRO}" && DISTRO=unix
+
+cat src/Distributions/"${DISTRO}".mak >> distro.mak
 
 echo "BUILD = $BUILD" >> config.mak
 echo "HOST = $HOST" >> config.mak
@@ -333,20 +338,29 @@ if test $HAVE_DARWIN_9; then
     set +x
     echo
     echo "*****************************************************************"
-    echo "* We are using the llvm-gcc-4.2 compiler on OS X by default,    *"
-    echo "* so compilation will fail if it isn't installed.               *"
+    echo "* We are using GCC-4.2 on OS X, so compilation WILL FAIL if it  *"
+    echo "* is NOT installed. *"
     echo "*****************************************************************"
 fi
 
-if test $HAVE_DARWIN_10; then
+if test $HAVE_DARWIN_32; then
     set +x
     echo
     echo "*****************************************************************"
-    echo "* You are running Darwin 10.                                    *"
-    echo "* For testing purposes, VLC will be compiled in 64bit mode.     *"
-    echo "* While doing so, for time being, the 10.5 SDK is used.         *"
-    echo "* Note that in contrast to our Darwin 9 builds, we are not      *"
-    echo "* using the llvm compiler, but plain GCC 4.2.                   *"
+    echo "* VLC will be compiled in 32bit mode.                           *" 
+    echo "*                                                               *"
+    echo "* Re-run with the x86_64-apple-darwin* argument to turn on      *" 
+    echo "* 64bit compilation for Intel-based Macs, whereas * is either   *"
+    echo "* 9 or 10 depending on your Darwin version.                     *"
+    echo "* There is NO PPC64 support right now.                          *"
+    echo "*****************************************************************"
+fi
+
+if test $HAVE_DARWIN_64; then
+    set +x
+    echo
+    echo "*****************************************************************"
+    echo "* VLC will be compiled in 64bit mode using the 10.5 SDK.        *" 
     echo "*****************************************************************"
     set -x
 fi

@@ -71,17 +71,22 @@ struct demux_t
         int          i_seekpoint;   /* idem, start from 0 */
     } info;
     demux_sys_t *p_sys;
+
+    /* Weak link to parent input */
+    input_thread_t *p_input;
 };
 
 
 /* demux_meta_t is returned by "meta reader" module to the demuxer */
-struct demux_meta_t
+typedef struct demux_meta_t
 {
+    VLC_COMMON_MEMBERS
+    demux_t *p_demux; /** FIXME: use stream_t instead? */
     vlc_meta_t *p_meta;                 /**< meta data */
 
     int i_attachments;                  /**< number of attachments */
     input_attachment_t **attachments;    /**< array of attachments */
-};
+} demux_meta_t;
 
 enum demux_query_e
 {
@@ -124,13 +129,15 @@ enum demux_query_e
     /* Attachments */
     DEMUX_GET_ATTACHMENTS,      /* arg1=input_attachment_t***, int* res=can fail */
 
-    /* RECORD you should accept it only if the stream can be recorded without
+    /* RECORD you are ensured that it is never called twice with the same state
+     * you should accept it only if the stream can be recorded without
      * any modification or header addition. */
     DEMUX_CAN_RECORD,           /* arg1=bool*   res=can fail(assume false) */
     DEMUX_SET_RECORD_STATE,     /* arg1=bool    res=can fail */
 
 
     /* II. Specific access_demux queries */
+    /* PAUSE you are ensured that it is never called twice with the same state */
     DEMUX_CAN_PAUSE = 0x1000,   /* arg1= bool*    can fail (assume false)*/
     DEMUX_SET_PAUSE_STATE,      /* arg1= bool     can fail */
 
@@ -188,13 +195,19 @@ VLC_EXPORT( decoder_t *,demux_PacketizerNew, ( demux_t *p_demux, es_format_t *p_
  */
 VLC_EXPORT( void, demux_PacketizerDestroy, ( decoder_t *p_packetizer ) );
 
+/**
+ * This function will return the parent input of this demux.
+ * It is retained. Can return NULL.
+ */
+VLC_EXPORT( input_thread_t *, demux_GetParentInput, ( demux_t *p_demux ) );
+
 /* */
 #define DEMUX_INIT_COMMON() do {            \
     p_demux->pf_control = Control;          \
     p_demux->pf_demux = Demux;              \
-    p_demux->p_sys = malloc( sizeof( demux_sys_t ) ); \
+    p_demux->p_sys = calloc( 1, sizeof( demux_sys_t ) ); \
     if( !p_demux->p_sys ) return VLC_ENOMEM;\
-    memset( p_demux->p_sys, 0, sizeof( demux_sys_t ) ); } while(0)
+    } while(0)
 
 /**
  * @}

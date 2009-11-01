@@ -38,11 +38,12 @@
 #include <QLineEdit>
 #include <QLabel>
 
+PluginDialog *PluginDialog::instance = NULL;
+
 PluginDialog::PluginDialog( intf_thread_t *_p_intf ) : QVLCFrame( _p_intf )
 {
-    setAttribute( Qt::WA_DeleteOnClose );
-
     setWindowTitle( qtr( "Plugins and extensions" ) );
+    setWindowRole( "vlc-plugins" );
     QGridLayout *layout = new QGridLayout( this );
 
     /* Main Tree for modules */
@@ -105,7 +106,7 @@ inline void PluginDialog::FillTree()
         if( qs_item.at(1).isEmpty() ) continue;
 #endif
 
-        QTreeWidgetItem *item = new QTreeWidgetItem( qs_item );
+        QTreeWidgetItem *item = new PluginTreeItem( qs_item );
         treePlugins->addTopLevelItem( item );
     }
 }
@@ -130,3 +131,10 @@ PluginDialog::~PluginDialog()
                              treePlugins->header()->saveState() );
 }
 
+bool PluginTreeItem::operator< ( const QTreeWidgetItem & other ) const
+{
+    int col = treeWidget()->sortColumn();
+    if( col == 2 )
+        return text( col ).toInt() < other.text( col ).toInt();
+    return text( col ) < other.text( col );
+}

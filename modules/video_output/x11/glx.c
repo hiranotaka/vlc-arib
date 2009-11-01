@@ -92,15 +92,6 @@ static void SwitchContext( vout_thread_t * );
     "If your graphics card provides several adaptors, you have " \
     "to choose which one will be used (you shouldn't have to change this).")
 
-#define ALT_FS_TEXT N_("Alternate fullscreen method")
-#define ALT_FS_LONGTEXT N_( \
-    "There are two ways to make a fullscreen window, unfortunately each one " \
-    "has its drawbacks.\n" \
-    "1) Let the window manager handle your fullscreen window (default), but " \
-    "things like taskbars will likely show on top of the video.\n" \
-    "2) Completely bypass the window manager, but then nothing will be able " \
-    "to show on top of the video.")
-
 #define DISPLAY_TEXT N_("X11 display")
 #define DISPLAY_LONGTEXT N_( \
     "X11 hardware display to use. By default VLC will " \
@@ -109,11 +100,6 @@ static void SwitchContext( vout_thread_t * );
 #define SHM_TEXT N_("Use shared memory")
 #define SHM_LONGTEXT N_( \
     "Use shared memory to communicate between VLC and the X server.")
-
-#define SCREEN_TEXT N_("Screen for fullscreen mode.")
-#define SCREEN_LONGTEXT N_( \
-    "Screen to use in fullscreen mode. For instance " \
-    "set it to 0 for first screen, 1 for the second.")
 
 vlc_module_begin ()
     set_shortname( "OpenGL(GLX)" )
@@ -125,12 +111,8 @@ vlc_module_begin ()
 
     add_string( "glx-display", NULL, NULL, DISPLAY_TEXT, DISPLAY_LONGTEXT, true )
     add_integer( "glx-adaptor", -1, NULL, ADAPTOR_TEXT, ADAPTOR_LONGTEXT, true )
-    add_bool( "glx-altfullscreen", 0, NULL, ALT_FS_TEXT, ALT_FS_LONGTEXT, true )
 #ifdef HAVE_SYS_SHM_H
-    add_bool( "glx-shm", 1, NULL, SHM_TEXT, SHM_LONGTEXT, true )
-#endif
-#ifdef HAVE_XINERAMA
-    add_integer ( "glx-xineramascreen", -1, NULL, SCREEN_TEXT, SCREEN_LONGTEXT, true )
+    add_bool( "glx-shm", true, NULL, SHM_TEXT, SHM_LONGTEXT, true )
 #endif
 vlc_module_end ()
 
@@ -234,7 +216,7 @@ int InitGLX13( vout_thread_t *p_vout )
 {
     vout_sys_t *p_sys = p_vout->p_sys;
     int i_nb, ret = VLC_EGENERIC;
-    GLXFBConfig *p_fbconfs = NULL, fbconf;
+    GLXFBConfig *p_fbconfs = NULL, fbconf = NULL;
     XWindowAttributes att;
     static const int p_attr[] = {
         GLX_RED_SIZE, 5, GLX_GREEN_SIZE, 5, GLX_BLUE_SIZE, 5,
@@ -255,7 +237,7 @@ int InitGLX13( vout_thread_t *p_vout )
      * configuration was chosen, instead of selecting the frame buffer from
      * the window. That requires reworking xcommon.c though.
      * -- Courmisch */
-    XGetWindowAttributes( p_sys->p_display, p_sys->p_win->video_window, &att );
+    XGetWindowAttributes( p_sys->p_display, p_sys->window.video_window, &att );
     for( int i = 0; i < i_nb && !fbconf; i++ )
     {
         XVisualInfo *p_vi;
@@ -277,7 +259,7 @@ int InitGLX13( vout_thread_t *p_vout )
 
     /* Create the GLX window */
     p_sys->gwnd = glXCreateWindow( p_sys->p_display, fbconf,
-                                   p_sys->p_win->video_window, NULL );
+                                   p_sys->window.video_window, NULL );
     if( p_sys->gwnd == None )
     {
         msg_Err( p_vout, "Cannot create GLX window" );
@@ -305,8 +287,8 @@ static void SwapBuffers( vout_thread_t *p_vout )
     vout_sys_t *p_sys = p_vout->p_sys;
     unsigned int i_width, i_height, i_x, i_y;
 
-    vout_PlacePicture( p_vout, p_vout->p_sys->p_win->i_width,
-                       p_vout->p_sys->p_win->i_height,
+    vout_PlacePicture( p_vout, p_vout->p_sys->window.i_width,
+                       p_vout->p_sys->window.i_height,
                        &i_x, &i_y, &i_width, &i_height );
 
     glViewport( 0, 0, (GLint)i_width, (GLint)i_height );
@@ -317,7 +299,7 @@ static void SwapBuffers( vout_thread_t *p_vout )
     }
     else
     {
-        glXSwapBuffers( p_sys->p_display, p_sys->p_win->video_window );
+        glXSwapBuffers( p_sys->p_display, p_sys->window.video_window );
     }
 }
 
@@ -333,7 +315,7 @@ void SwitchContext( vout_thread_t *p_vout )
     }
     else
     {
-        glXMakeCurrent( p_sys->p_display, p_sys->p_win->video_window,
+        glXMakeCurrent( p_sys->p_display, p_sys->window.video_window,
                         p_sys->gwctx );
     }
 }

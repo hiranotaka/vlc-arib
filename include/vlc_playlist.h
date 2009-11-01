@@ -16,9 +16,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef VLC_PLAYLIST_H_
@@ -133,12 +133,13 @@ TYPEDEF_ARRAY(playlist_item_t*, playlist_item_array_t);
  */
 
 /** Helper structure to export to file part of the playlist */
-struct playlist_export_t
+typedef struct playlist_export_t
 {
-    char *psz_filename;
+    VLC_COMMON_MEMBERS
+    const char *psz_filename;
     FILE *p_file;
     playlist_item_t *p_root;
-};
+} playlist_export_t;
 
 /** playlist item / node */
 struct playlist_item_t
@@ -192,22 +193,36 @@ struct playlist_add_t
     int i_item; /**< Playist id of the playlist_item_t */
 };
 
+/* A bit of macro magic to generate an enum out of the following list,
+ * and later, to generate a list of static functions out of the same list.
+ * There is also SORT_RANDOM, which is always last and handled specially.
+ */
+#define VLC_DEFINE_SORT_FUNCTIONS \
+    DEF( SORT_ID )\
+    DEF( SORT_TITLE )\
+    DEF( SORT_TITLE_NODES_FIRST )\
+    DEF( SORT_ARTIST )\
+    DEF( SORT_GENRE )\
+    DEF( SORT_DURATION )\
+    DEF( SORT_TITLE_NUMERIC )\
+    DEF( SORT_ALBUM )\
+    DEF( SORT_TRACK_NUMBER )\
+    DEF( SORT_DESCRIPTION )\
+    DEF( SORT_RATING )\
+    DEF( SORT_URI )
+
+#define DEF( s ) s,
 enum
 {
-    SORT_ID = 0,
-    SORT_TITLE = 1,
-    SORT_TITLE_NODES_FIRST = 2,
-    SORT_ARTIST = 3,
-    SORT_GENRE = 4,
-    SORT_RANDOM = 5,
-    SORT_DURATION = 6,
-    SORT_TITLE_NUMERIC = 7,
-    SORT_ALBUM = 8,
-    SORT_TRACK_NUMBER = 9,
-    SORT_DESCRIPTION = 10,
-    SORT_RATING = 11,
-    SORT_URI = 12,
+    VLC_DEFINE_SORT_FUNCTIONS
+    SORT_RANDOM,
+    NUM_SORT_FNS=SORT_RANDOM
 };
+#undef  DEF
+#ifndef VLC_INTERNAL_PLAYLIST_SORT_FUNCTIONS
+#undef  VLC_DEFINE_SORT_FUNCTIONS
+#endif
+
 enum
 {
     ORDER_NORMAL = 0,
@@ -286,6 +301,7 @@ VLC_EXPORT( int, playlist_AskForArtEnqueue, (playlist_t *, input_item_t *, bool 
 
 /* Playlist sorting */
 VLC_EXPORT( int,  playlist_TreeMove, ( playlist_t *, playlist_item_t *, playlist_item_t *, int ) );
+VLC_EXPORT( int,  playlist_TreeMoveMany, ( playlist_t *, int, playlist_item_t **, playlist_item_t *, int ) );
 VLC_EXPORT( int,  playlist_RecursiveNodeSort, ( playlist_t *, playlist_item_t *,int, int ) );
 
 VLC_EXPORT( playlist_item_t *,  playlist_CurrentPlayingItem, ( playlist_t * ) );
@@ -350,7 +366,6 @@ VLC_EXPORT( int, playlist_NodeDelete, ( playlist_t *, playlist_item_t *, bool , 
 VLC_EXPORT( playlist_item_t *, playlist_GetPreferredNode, ( playlist_t *p_playlist, playlist_item_t *p_node ) );
 VLC_EXPORT( playlist_item_t *, playlist_GetNextLeaf, ( playlist_t *p_playlist, playlist_item_t *p_root, playlist_item_t *p_item, bool b_ena, bool b_unplayed ) );
 VLC_EXPORT( playlist_item_t *, playlist_GetPrevLeaf, ( playlist_t *p_playlist, playlist_item_t *p_root, playlist_item_t *p_item, bool b_ena, bool b_unplayed ) );
-VLC_EXPORT( playlist_item_t *, playlist_GetLastLeaf, ( playlist_t *p_playlist, playlist_item_t *p_root ) );
 
 /***********************************************************************
  * Inline functions

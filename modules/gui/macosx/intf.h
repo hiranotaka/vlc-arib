@@ -54,13 +54,17 @@ unsigned int CocoaKeyToVLC( unichar i_key );
             @"/System/Library/CoreServices/SystemVersion.plist"] \
             objectForKey: @"ProductVersion"] floatValue]
 
+
+// You need to release those objects after use
+input_thread_t *getInput(void);
+vout_thread_t *getVout(void);
+aout_instance_t *getAout(void);
+
 /*****************************************************************************
  * intf_sys_t: description and status of the interface
  *****************************************************************************/
 struct intf_sys_t
 {
-    NSAutoreleasePool * o_pool;
-
     /* special actions */
     bool b_mute;
     int i_play_status;
@@ -105,10 +109,7 @@ struct intf_sys_t
     id o_vlm;                   /* VLCVLMController */
     id o_embedded_list;         /* VLCEmbeddedList*/
     id o_coredialogs;           /* VLCCoreDialogProvider */
-    VLCInformation * o_info;                  /* VLCInformation */
-#ifdef UPDATE_CHECK
-    id o_update;                /* VLCUpdate      */
-#endif
+    VLCInformation * o_info;    /* VLCInformation */
     id o_eyetv;                 /* VLCEyeTVController */
     BOOL nib_main_loaded;       /* main nibfile */
     BOOL nib_open_loaded;       /* open nibfile */
@@ -117,7 +118,6 @@ struct intf_sys_t
     BOOL nib_extended_loaded;   /* extended nibfile */
     BOOL nib_bookmarks_loaded;  /* bookmarks nibfile */
     BOOL nib_prefs_loaded;      /* preferences nibfile */
-    BOOL nib_update_loaded;     /* update nibfile */
     BOOL nib_info_loaded;       /* information panel nibfile */
     BOOL nib_vlm_loaded;        /* VLM Panel nibfile */
     BOOL nib_coredialogs_loaded; /* CoreDialogs nibfile */
@@ -214,6 +214,7 @@ struct intf_sys_t
     IBOutlet NSMenuItem * o_mi_random;
     IBOutlet NSMenuItem * o_mi_repeat;
     IBOutlet NSMenuItem * o_mi_loop;
+    IBOutlet NSMenuItem * o_mi_quitAfterPB;
     IBOutlet NSMenuItem * o_mi_fwd;
     IBOutlet NSMenuItem * o_mi_bwd;
     IBOutlet NSMenuItem * o_mi_fwd1m;
@@ -359,6 +360,7 @@ struct intf_sys_t
 - (id)controllerWindow;
 - (id)voutMenu;
 - (id)eyeTVController;
+- (id)appleRemoteController;
 - (void)applicationWillTerminate:(NSNotification *)notification;
 - (NSString *)localizedString:(const char *)psz;
 - (char *)delocalizeString:(NSString *)psz;
@@ -398,7 +400,6 @@ struct intf_sys_t
 - (IBAction)viewAbout:(id)sender;
 - (IBAction)showLicense:(id)sender;
 - (IBAction)viewPreferences:(id)sender;
-- (IBAction)checkForUpdate:(id)sender;
 - (IBAction)viewHelp:(id)sender;
 - (IBAction)openReadMe:(id)sender;
 - (IBAction)openDocumentation:(id)sender;
@@ -431,8 +432,12 @@ struct intf_sys_t
 @interface VLCApplication : NSApplication
 {
     BOOL b_justJumped;
+	BOOL b_mediaKeySupport;
+    BOOL b_activeInBackground;
+    BOOL b_active;
 }
 
+- (void)coreChangedMediaKeySupportSetting: (NSNotification *)o_notification;
 - (void)sendEvent: (NSEvent*)event;
 - (void)resetJump;
 

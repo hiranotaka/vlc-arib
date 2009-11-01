@@ -27,7 +27,7 @@
 /*****************************************************************************
  * Defines
  *****************************************************************************/
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
+#if defined(MODULE_NAME_IS_xvmc)
 #   define IMAGE_TYPE     XvImage
 #   define EXTRA_ARGS     int i_xvport, int i_chroma, int i_bits_per_pixel
 #   define EXTRA_ARGS_SHM int i_xvport, int i_chroma, XShmSegmentInfo *p_shm
@@ -51,10 +51,6 @@
         VLC_FOURCC( i & 0xff, (i >> 8) & 0xff, (i >> 16) & 0xff, \
                     (i >> 24) & 0xff )
 
-#ifdef HAVE_OSSO
-#include <libosso.h>
-#endif
-
 struct vout_window_t;
 
 /*****************************************************************************
@@ -76,11 +72,6 @@ typedef struct x11_window_t
 
     Atom                wm_protocols;
     Atom                wm_delete_window;
-
-#ifdef HAVE_XINERAMA
-    int                 i_screen;
-#endif
-
 } x11_window_t;
 
 /*****************************************************************************
@@ -211,35 +202,20 @@ struct vout_sys_t
     /* Internal settings and properties */
     Display *           p_display;                        /* display pointer */
 
-    Visual *            p_visual;                          /* visual pointer */
     int                 i_screen;                           /* screen number */
 
-    /* Our current window */
-    x11_window_t *      p_win;
-
-    /* Our two windows */
-    x11_window_t        original_window;
-    x11_window_t        fullscreen_window;
-
-    /* key and mouse event handling */
-    int                 i_vout_event;  /* 1(Fullsupport), 2(FullscreenOnly), 3(none) */
+    /* Our window */
+    x11_window_t        window;
 
     /* X11 generic properties */
-    bool          b_altfullscreen;          /* which fullscreen method */
 #ifdef HAVE_SYS_SHM_H
     int                 i_shm_opcode;      /* shared memory extension opcode */
 #endif
 
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
+#if defined(MODULE_NAME_IS_xvmc)
     int                 i_xvport;
     bool          b_paint_colourkey;
     int                 i_colourkey;
-#else
-    Colormap            colormap;               /* colormap used (8bpp only) */
-
-    unsigned int        i_screen_depth;
-    unsigned int        i_bytes_per_pixel;
-    unsigned int        i_bytes_per_line;
 #endif
 
     /* Screen saver properties */
@@ -258,17 +234,6 @@ struct vout_sys_t
     Cursor              blank_cursor;                   /* the hidden cursor */
     mtime_t             i_time_button_last_pressed;   /* to track dbl-clicks */
     Pixmap              cursor_pixmap;
-
-    /* Window manager properties */
-    Atom                net_wm_state;
-    Atom                net_wm_state_fullscreen;
-    bool          b_net_wm_state_fullscreen;
-    Atom                net_wm_state_above;
-    bool          b_net_wm_state_above;
-    Atom                net_wm_state_stays_on_top;
-    bool          b_net_wm_state_stays_on_top;
-    Atom                net_wm_state_below;
-    bool          b_net_wm_state_below;
 
 #ifdef MODULE_NAME_IS_glx
     /* GLX properties */
@@ -336,11 +301,6 @@ struct vout_sys_t
 #ifdef HAVE_XSP
     int                 i_hw_scale;
 #endif
-
-#ifdef HAVE_OSSO
-    osso_context_t      *p_octx;
-    int                 i_backlight_on_counter;
-#endif
 };
 
 /*****************************************************************************
@@ -387,17 +347,15 @@ typedef struct mwmhints_t
 /*****************************************************************************
  * Chroma defines
  *****************************************************************************/
-#ifdef MODULE_NAME_IS_xvideo
-#   define MAX_DIRECTBUFFERS (VOUT_MAX_PICTURES)
-#elif defined(MODULE_NAME_IS_xvmc)
+#if defined(MODULE_NAME_IS_xvmc)
 #   define MAX_DIRECTBUFFERS (VOUT_MAX_PICTURES+2)
 #else
 #   define MAX_DIRECTBUFFERS 2
 #endif
 
 #ifndef MODULE_NAME_IS_glx
-static IMAGE_TYPE *CreateImage    ( vout_thread_t *,
-                                    Display *, EXTRA_ARGS, int, int );
+IMAGE_TYPE *CreateImage    ( vout_thread_t *,
+                             Display *, EXTRA_ARGS, int, int );
 #ifdef HAVE_SYS_SHM_H
 IMAGE_TYPE *CreateShmImage ( vout_thread_t *,
                                     Display *, EXTRA_ARGS_SHM, int, int );

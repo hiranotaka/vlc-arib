@@ -39,7 +39,7 @@
 	return self;
 }
 
-- (float) dividerThickness
+- (CGFloat) dividerThickness
 {
 	return 1.0;
 }
@@ -131,7 +131,7 @@
     i_row = [o_outline_view rowForItem:item];
     if( i_row > -1 )
     {
-        [o_outline_view selectRow:i_row byExtendingSelection: NO];
+		[o_outline_view selectRowIndexes:[NSIndexSet indexSetWithIndex:i_row] byExtendingSelection:NO];
         [o_outline_view scrollRowToVisible: i_row];
     }
 }
@@ -162,7 +162,7 @@
     i_row = [o_outline_view rowForItem:[o_playlist playingItem]];
     if( i_row > -1 )
     {
-        [o_outline_view selectRow:i_row byExtendingSelection: NO];
+		[o_outline_view selectRowIndexes:[NSIndexSet indexSetWithIndex:i_row] byExtendingSelection:NO];
         [o_outline_view scrollRowToVisible: i_row];
     }
 }
@@ -172,13 +172,13 @@
 @implementation VLCSidebar (NSOutlineViewDataSource)
 
 /* return the number of children for Obj-C pointer item */ /* DONE */
-- (int)outlineView:(NSOutlineView *)outlineView numberOfChildrenOfItem:(id)item
+- (NSInteger)outlineView:(NSOutlineView *)outlineView numberOfChildrenOfItem:(id)item
 {
     return [o_playlist outlineView:outlineView numberOfChildrenOfItem:item];
 }
 
 /* return the child at index for the Obj-C pointer item */ /* DONE */
-- (id)outlineView:(NSOutlineView *)outlineView child:(int)index ofItem:(id)item
+- (id)outlineView:(NSOutlineView *)outlineView child:(NSInteger)index ofItem:(id)item
 {
     return [o_playlist outlineView:outlineView child:index ofItem:item];
 }

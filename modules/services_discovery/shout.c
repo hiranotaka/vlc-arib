@@ -72,7 +72,7 @@ static const struct shout_item_t p_frenchtv[] = {
 static const struct shout_item_t p_items[] = {
     item(            N_("Shoutcast Radio"), "http/shout-winamp://www.shoutcast.com/sbin/newxml.phtml" ),
     item(            N_("Shoutcast TV"),    "http/shout-winamp://www.shoutcast.com/sbin/newtvlister.phtml?alltv=1" ),
-    item(            N_("Freebox TV"),      "http://mafreebox.freebox.fr/freeboxtv/playlist.m3u" ),
+    itemWithOption( N_("Freebox TV"),"http://mafreebox.freebox.fr/freeboxtv/playlist.m3u", "deinterlace=1"),
     itemWithChildren(N_("French TV"),        p_frenchtv ),
     endItem()
 };
@@ -85,6 +85,7 @@ static const struct shout_item_t p_items[] = {
 struct shout_category_t {
     services_discovery_t * p_sd;
     const char * psz_category;
+    const struct shout_item_t * p_parent;
 };
 
 /* Main functions */
@@ -99,6 +100,8 @@ OPEN( ShoutRadio )
 OPEN( ShoutTV )
 OPEN( Freebox )
 OPEN( FrenchTV )
+
+#undef OPEN
 
 vlc_module_begin ()
     set_category( CAT_PLAYLIST )
@@ -173,9 +176,13 @@ static int Open( vlc_object_t *p_this, enum type_e i_type )
 static void ItemAdded( const vlc_event_t * p_event, void * user_data )
 {
     struct shout_category_t * params = user_data;
-    services_discovery_AddItem( params->p_sd,
-            p_event->u.input_item_subitem_added.p_new_child,
-            params->psz_category );
+    const struct shout_item_t * p_parent = params->p_parent;
+    input_item_t * p_input = p_event->u.input_item_subitem_added.p_new_child;
+
+    for(int i = 0; p_parent->ppsz_options[i] != NULL; i++)
+        input_item_AddOption( p_input, p_parent->ppsz_options[i], VLC_INPUT_OPTION_TRUSTED);
+
+    services_discovery_AddItem( params->p_sd, p_input, params->psz_category );
 }
 
 /*****************************************************************************
@@ -184,13 +191,12 @@ static void ItemAdded( const vlc_event_t * p_event, void * user_data )
 static input_item_t * CreateInputItemFromShoutItem( services_discovery_t *p_sd,
                                          const struct shout_item_t * p_item )
 {
-    int i;
     /* Create the item */
     input_item_t *p_input = input_item_New( p_sd, p_item->psz_url,
                                             vlc_gettext(p_item->psz_name) );
 
     /* Copy options */
-    for( i = 0; p_item->ppsz_options[i] != NULL; i++ )
+    for(int i = 0; p_item->ppsz_options[i] != NULL; i++)
         input_item_AddOption( p_input, p_item->ppsz_options[i], VLC_INPUT_OPTION_TRUSTED );
     input_item_AddOption( p_input, "no-playlist-autostart", VLC_INPUT_OPTION_TRUSTED );
 
@@ -204,7 +210,7 @@ static void AddSubitemsOfShoutItemURL( services_discovery_t *p_sd,
                                        const struct shout_item_t * p_item,
                                        const char * psz_category )
 {
-    struct shout_category_t category = { p_sd, psz_category };
+    struct shout_category_t category = { p_sd, psz_category, p_item };
 
     /* Create the item */
     input_item_t *p_input = CreateInputItemFromShoutItem( p_sd, p_item );
@@ -212,7 +218,7 @@ static void AddSubitemsOfShoutItemURL( services_discovery_t *p_sd,
     /* Read every subitems, and add them in ItemAdded */
     vlc_event_attach( &p_input->event_manager, vlc_InputItemSubItemAdded,
                       ItemAdded, &category );
-    input_Read( p_sd, p_input, true );
+    input_Read( p_sd, p_input );
     vlc_event_detach( &p_input->event_manager, vlc_InputItemSubItemAdded,
                       ItemAdded, &category );
 

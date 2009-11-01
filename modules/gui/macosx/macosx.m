@@ -1,13 +1,14 @@
 /*****************************************************************************
  * macosx.m: Mac OS X module for vlc
  *****************************************************************************
- * Copyright (C) 2001-2006 the VideoLAN team
+ * Copyright (C) 2001-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Colin Delacroix <colin@zoy.org>
  *          Eugenio Jarosiewicz <ej0@cise.ufl.edu>
  *          Florian G. Pflug <fgp@phlo.org>
  *          Jon Lech Johansen <jon-vl@nanocrew.net>
+ *          
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,20 +88,38 @@ void CloseVideoGL ( vlc_object_t * );
 #define EQ_KEEP_LONGTEXT N_("By default, VLC keeps the last equalizer settings before " \
                             "termination. This feature can be disabled here.")
 
+#define USE_APPLE_REMOTE_TEXT N_("Control playback with the Apple Remote")
+#define USE_APPLE_REMOTE_LONGTEXT N_("By default, VLC can be remotely controlled with the Apple Remote.")
+
+#define USE_MEDIAKEYS_TEXT N_("Control playback with media keys")
+#define USE_MEDIAKEYS_LONGTEXT N_("By default, VLC can be controlled using the media keys on modern Apple " \
+                                  "keyboards.")
+
+#define USE_MEDIAKEYS_BACKGROUND_TEXT N_("Use media key control when VLC is in background")
+#define USE_MEDIAKEYS_BACKGROUND_LONGTEXT N_("By default, VLC will accept media key events also when being " \
+                                                                                            "in background.")
+
 vlc_module_begin ()
     set_description( N_("Mac OS X interface") )
     set_capability( "interface", 200 )
     set_callbacks( OpenIntf, CloseIntf )
     set_category( CAT_INTERFACE )
     set_subcategory( SUBCAT_INTERFACE_MAIN )
-    add_bool( "macosx-autoplay", 1, NULL, AUTOPLAY_OSX_TEST, AUTOPLAY_OSX_LONGTEXT,
+    linked_with_a_crap_library_which_uses_atexit( )
+    add_bool( "macosx-autoplay", true, NULL, AUTOPLAY_OSX_TEST, AUTOPLAY_OSX_LONGTEXT,
               false )
-    add_bool( "macosx-recentitems", 1, NULL, RECENT_ITEMS_TEXT, RECENT_ITEMS_LONGTEXT,
+    add_bool( "macosx-recentitems", true, NULL, RECENT_ITEMS_TEXT, RECENT_ITEMS_LONGTEXT,
               false )
-    add_bool( "macosx-eq-keep", 1, NULL, EQ_KEEP_TEXT, EQ_KEEP_LONGTEXT,
+    add_bool( "macosx-eq-keep", true, NULL, EQ_KEEP_TEXT, EQ_KEEP_LONGTEXT,
               false )
-    add_bool( "macosx-fspanel", 1, NULL, FSPANEL_TEXT, FSPANEL_LONGTEXT,
+    add_bool( "macosx-fspanel", true, NULL, FSPANEL_TEXT, FSPANEL_LONGTEXT,
               false )
+    add_bool( "macosx-appleremote", true, NULL, USE_APPLE_REMOTE_TEXT, USE_APPLE_REMOTE_LONGTEXT,
+             false )
+    add_bool( "macosx-mediakeys", true, NULL, USE_MEDIAKEYS_TEXT, USE_MEDIAKEYS_LONGTEXT,
+             false )
+    add_bool( "macosx-mediakeys-background", true, NULL, USE_MEDIAKEYS_BACKGROUND_TEXT, USE_MEDIAKEYS_BACKGROUND_LONGTEXT,
+             false )
 
     add_submodule ()
         set_description( "Mac OS X OpenGL" )
@@ -111,13 +130,13 @@ vlc_module_begin ()
 
         add_integer( "macosx-vdev", 0, NULL, VDEV_TEXT, VDEV_LONGTEXT,
                      false )
-        add_bool( "macosx-stretch", 0, NULL, STRETCH_TEXT, STRETCH_LONGTEXT,
+        add_bool( "macosx-stretch", false, NULL, STRETCH_TEXT, STRETCH_LONGTEXT,
                   false )
         add_float_with_range( "macosx-opaqueness", 1, 0, 1, NULL,
                               OPAQUENESS_TEXT, OPAQUENESS_LONGTEXT, true );
-        add_bool( "macosx-black", 1, NULL, BLACK_TEXT, BLACK_LONGTEXT,
+        add_bool( "macosx-black", true, NULL, BLACK_TEXT, BLACK_LONGTEXT,
                   false )
-        add_bool( "macosx-background", 0, NULL, BACKGROUND_TEXT, BACKGROUND_LONGTEXT,
+        add_bool( "macosx-background", false, NULL, BACKGROUND_TEXT, BACKGROUND_LONGTEXT,
                   false )
 vlc_module_end ()
 

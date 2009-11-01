@@ -32,23 +32,16 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_interface.h>
 #include <vlc_playlist.h>
 #include <vlc_vout.h>
-#include <vlc_window.h>
+#include <vlc_vout_window.h>
 #include <vlc_keys.h>
-
-#include <errno.h>                                                 /* ENOMEM */
 
 #ifdef HAVE_MACHINE_PARAM_H
     /* BSD */
 #   include <machine/param.h>
 #   include <sys/types.h>                                  /* typedef ushort */
 #   include <sys/ipc.h>
-#endif
-
-#ifndef WIN32
-#   include <netinet/in.h>                            /* BSD: struct in_addr */
 #endif
 
 #ifdef HAVE_XSP
@@ -63,8 +56,6 @@
 #include <X11/Xproto.h>
 #include <X11/Xmd.h>
 #include <X11/Xutil.h>
-#include <X11/keysym.h>
-#include <X11/XF86keysym.h>
 #ifdef HAVE_SYS_SHM_H
 #   include <X11/extensions/XShm.h>
 #endif
@@ -72,24 +63,13 @@
 #   include <X11/extensions/dpms.h>
 #endif
 
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
-#   include <X11/extensions/Xv.h>
-#   include <X11/extensions/Xvlib.h>
-#endif
-
 #ifdef MODULE_NAME_IS_glx
 #   include <GL/glx.h>
 #endif
 
-#ifdef HAVE_XINERAMA
-#   include <X11/extensions/Xinerama.h>
-#endif
-
-#ifdef HAVE_X11_EXTENSIONS_XF86VMODE_H
-#   include <X11/extensions/xf86vmode.h>
-#endif
-
 #ifdef MODULE_NAME_IS_xvmc
+#   include <X11/extensions/Xv.h>
+#   include <X11/extensions/Xvlib.h>
 #   include <X11/extensions/vldXvMC.h>
 #   include "../../codec/xvmc/accel_xvmc.h"
 #endif
@@ -102,9 +82,11 @@
 int  Activate   ( vlc_object_t * );
 void Deactivate ( vlc_object_t * );
 
+#ifndef MODULE_NAME_IS_glx
 static int  InitVideo      ( vout_thread_t * );
 static void EndVideo       ( vout_thread_t * );
 static void DisplayVideo   ( vout_thread_t *, picture_t * );
+#endif
 static int  ManageVideo    ( vout_thread_t * );
 static int  Control        ( vout_thread_t *, int, va_list );
 
@@ -113,8 +95,10 @@ static int  InitDisplay    ( vout_thread_t * );
 static int  CreateWindow   ( vout_thread_t *, x11_window_t * );
 static void DestroyWindow  ( vout_thread_t *, x11_window_t * );
 
+#ifndef MODULE_NAME_IS_glx
 static int  NewPicture     ( vout_thread_t *, picture_t * );
 static void FreePicture    ( vout_thread_t *, picture_t * );
+#endif
 
 #ifdef HAVE_SYS_SHM_H
 static int i_shm_major = 0;
@@ -129,36 +113,18 @@ static void CreateCursor   ( vout_thread_t * );
 static void DestroyCursor  ( vout_thread_t * );
 static void ToggleCursor   ( vout_thread_t * );
 
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
+#if defined(MODULE_NAME_IS_xvmc)
 static int  XVideoGetPort    ( vout_thread_t *, vlc_fourcc_t, picture_heap_t * );
-static void XVideoReleasePort( vout_thread_t *, int );
-#endif
-
-#ifdef MODULE_NAME_IS_x11
-static void SetPalette     ( vout_thread_t *,
-                             uint16_t *, uint16_t *, uint16_t * );
-#endif
-
-#ifdef MODULE_NAME_IS_xvmc
 static void RenderVideo    ( vout_thread_t *, picture_t * );
-static int  xvmc_check_yv12( Display *display, XvPortID port );
-static void xvmc_update_XV_DOUBLE_BUFFER( vout_thread_t *p_vout );
+//static int  xvmc_check_yv12( Display *display, XvPortID port );
+//static void xvmc_update_XV_DOUBLE_BUFFER( vout_thread_t *p_vout );
 #endif
-
-static void TestNetWMSupport( vout_thread_t * );
-static int ConvertKey( int );
-
-static int WindowOnTop( vout_thread_t *, bool );
 
 static int X11ErrorHandler( Display *, XErrorEvent * );
 
 #ifdef HAVE_XSP
 static void EnablePixelDoubling( vout_thread_t *p_vout );
 static void DisablePixelDoubling( vout_thread_t *p_vout );
-#endif
-
-#ifdef HAVE_OSSO
-static const int i_backlight_on_interval = 300;
 #endif
 
 
@@ -174,34 +140,30 @@ int Activate ( vlc_object_t *p_this )
 {
     vout_thread_t *p_vout = (vout_thread_t *)p_this;
     char *        psz_display;
-    vlc_value_t   val;
 #if defined(MODULE_NAME_IS_xvmc)
     char *psz_value;
-#endif
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
     char *       psz_chroma;
     vlc_fourcc_t i_chroma = 0;
     bool   b_chroma = 0;
 #endif
 
+#ifndef MODULE_NAME_IS_glx
     p_vout->pf_init = InitVideo;
     p_vout->pf_end = EndVideo;
-    p_vout->pf_manage = ManageVideo;
+    p_vout->pf_display = DisplayVideo;
+#endif
 #ifdef MODULE_NAME_IS_xvmc
     p_vout->pf_render = RenderVideo;
 #else
     p_vout->pf_render = NULL;
 #endif
-    p_vout->pf_display = DisplayVideo;
+    p_vout->pf_manage = ManageVideo;
     p_vout->pf_control = Control;
 
     /* Allocate structure */
     p_vout->p_sys = malloc( sizeof( vout_sys_t ) );
     if( p_vout->p_sys == NULL )
         return VLC_ENOMEM;
-
-    /* key and mouse event handling */
-    p_vout->p_sys->i_vout_event = var_CreateGetInteger( p_vout, "vout-event" );
 
     /* Open display, using the "display" config variable or the DISPLAY
      * environment variable */
@@ -225,7 +187,7 @@ int Activate ( vlc_object_t *p_this )
     /* Get a screen ID matching the XOpenDisplay return value */
     p_vout->p_sys->i_screen = DefaultScreen( p_vout->p_sys->p_display );
 
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
+#if defined(MODULE_NAME_IS_xvmc)
     psz_chroma = config_GetPsz( p_vout, "xvideo-chroma" );
     if( psz_chroma )
     {
@@ -338,12 +300,14 @@ int Activate ( vlc_object_t *p_this )
     CreateCursor( p_vout );
 
     /* Set main window's size */
-    p_vout->p_sys->original_window.i_width = p_vout->i_window_width;
-    p_vout->p_sys->original_window.i_height = p_vout->i_window_height;
+    p_vout->p_sys->window.i_x      = 0;
+    p_vout->p_sys->window.i_y      = 0;
+    p_vout->p_sys->window.i_width  = p_vout->i_window_width;
+    p_vout->p_sys->window.i_height = p_vout->i_window_height;
     var_Create( p_vout, "video-title", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
     /* Spawn base window - this window will include the video output window,
      * but also command buttons, subtitles and other indicators */
-    if( CreateWindow( p_vout, &p_vout->p_sys->original_window ) )
+    if( CreateWindow( p_vout, &p_vout->p_sys->window ) )
     {
         msg_Err( p_vout, "cannot create X11 window" );
         DestroyCursor( p_vout );
@@ -357,7 +321,7 @@ int Activate ( vlc_object_t *p_this )
     {
         msg_Err( p_vout, "cannot initialize X11 display" );
         DestroyCursor( p_vout );
-        DestroyWindow( p_vout, &p_vout->p_sys->original_window );
+        DestroyWindow( p_vout, &p_vout->p_sys->window );
         XCloseDisplay( p_vout->p_sys->p_display );
         free( p_vout->p_sys );
         return VLC_EGENERIC;
@@ -367,10 +331,7 @@ int Activate ( vlc_object_t *p_this )
     DisableXScreenSaver( p_vout );
 
     /* Misc init */
-    p_vout->p_sys->b_altfullscreen = 0;
     p_vout->p_sys->i_time_button_last_pressed = 0;
-
-    TestNetWMSupport( p_vout );
 
 #ifdef MODULE_NAME_IS_xvmc
     p_vout->p_sys->p_last_subtitle_save = NULL;
@@ -431,20 +392,9 @@ int Activate ( vlc_object_t *p_this )
     p_vout->p_sys->i_hw_scale = 1;
 #endif
 
-#ifdef HAVE_OSSO
-    p_vout->p_sys->i_backlight_on_counter = i_backlight_on_interval;
-    p_vout->p_sys->p_octx = osso_initialize( "vlc", VERSION, 0, NULL );
-    if ( p_vout->p_sys->p_octx == NULL ) {
-        msg_Err( p_vout, "Could not get osso context" );
-    } else {
-        msg_Dbg( p_vout, "Initialized osso context" );
-    }
-#endif
-
     /* Variable to indicate if the window should be on top of others */
     /* Trigger a callback right now */
-    var_Get( p_vout, "video-on-top", &val );
-    var_Set( p_vout, "video-on-top", val );
+    var_TriggerCallback( p_vout, "video-on-top" );
 
     return VLC_SUCCESS;
 }
@@ -458,27 +408,13 @@ void Deactivate ( vlc_object_t *p_this )
 {
     vout_thread_t *p_vout = (vout_thread_t *)p_this;
 
-    /* If the fullscreen window is still open, close it */
-    if( p_vout->b_fullscreen )
-    {
-        ToggleFullScreen( p_vout );
-    }
-
     /* Restore cursor if it was blanked */
     if( !p_vout->p_sys->b_mouse_pointer_visible )
     {
         ToggleCursor( p_vout );
     }
 
-#ifdef MODULE_NAME_IS_x11
-    /* Destroy colormap */
-    if( XDefaultDepth(p_vout->p_sys->p_display, p_vout->p_sys->i_screen) == 8 )
-    {
-        XFreeColormap( p_vout->p_sys->p_display, p_vout->p_sys->colormap );
-    }
-#elif defined(MODULE_NAME_IS_xvideo)
-    XVideoReleasePort( p_vout, p_vout->p_sys->i_xvport );
-#elif defined(MODULE_NAME_IS_xvmc)
+#if defined(MODULE_NAME_IS_xvmc)
     if( p_vout->p_sys->xvmc_cap )
     {
         xvmc_context_writer_lock( &p_vout->p_sys->xvmc_lock );
@@ -504,19 +440,12 @@ void Deactivate ( vlc_object_t *p_this )
 
     DestroyCursor( p_vout );
     EnableXScreenSaver( p_vout );
-    DestroyWindow( p_vout, &p_vout->p_sys->original_window );
+    DestroyWindow( p_vout, &p_vout->p_sys->window );
     XCloseDisplay( p_vout->p_sys->p_display );
 
     /* Destroy structure */
 #ifdef MODULE_NAME_IS_xvmc
     free_context_lock( &p_vout->p_sys->xvmc_lock );
-#endif
-
-#ifdef HAVE_OSSO
-    if ( p_vout->p_sys->p_octx != NULL ) {
-        msg_Dbg( p_vout, "Deinitializing osso context" );
-        osso_deinitialize( p_vout->p_sys->p_octx );
-    }
 #endif
 
     free( p_vout->p_sys );
@@ -527,6 +456,7 @@ void Deactivate ( vlc_object_t *p_this )
 #define XINE_IMGFMT_YV12 (('2'<<24)|('1'<<16)|('V'<<8)|'Y')
 
 /* called xlocked */
+#if 0
 static int xvmc_check_yv12( Display *display, XvPortID port )
 {
     XvImageFormatValues *formatValues;
@@ -548,12 +478,16 @@ static int xvmc_check_yv12( Display *display, XvPortID port )
     XFree (formatValues);
     return 1;
 }
+#endif
 
+#if 0
 static void xvmc_sync_surface( vout_thread_t *p_vout, XvMCSurface * srf )
 {
     XvMCSyncSurface( p_vout->p_sys->p_display, srf );
 }
+#endif
 
+#if 0
 static void xvmc_update_XV_DOUBLE_BUFFER( vout_thread_t *p_vout )
 {
     Atom         atom;
@@ -572,6 +506,7 @@ static void xvmc_update_XV_DOUBLE_BUFFER( vout_thread_t *p_vout )
     //xprintf(this->xine, XINE_VERBOSITY_DEBUG,
     //    "video_out_xxmc: double buffering mode = %d\n", xv_double_buffer);
 }
+#endif
 
 static void RenderVideo( vout_thread_t *p_vout, picture_t *p_pic )
 {
@@ -759,8 +694,8 @@ static void RenderVideo( vout_thread_t *p_vout, picture_t *p_pic )
  *****************************************************************************/
 static void EnablePixelDoubling( vout_thread_t *p_vout )
 {
-    int i_hor_scale = ( p_vout->p_sys->p_win->i_width ) / p_vout->render.i_width;
-    int i_vert_scale =  ( p_vout->p_sys->p_win->i_height ) / p_vout->render.i_height;
+    int i_hor_scale = ( p_vout->p_sys->window.i_width ) / p_vout->render.i_width;
+    int i_vert_scale =  ( p_vout->p_sys->window.i_height ) / p_vout->render.i_height;
     if ( ( i_hor_scale > 1 ) && ( i_vert_scale > 1 ) ) {
         p_vout->p_sys->i_hw_scale = 2;
         msg_Dbg( p_vout, "Enabling pixel doubling, scaling factor %d", p_vout->p_sys->i_hw_scale );
@@ -784,7 +719,7 @@ static void DisablePixelDoubling( vout_thread_t *p_vout )
 #endif
 
 
-
+#if !defined(MODULE_NAME_IS_glx)
 /*****************************************************************************
  * InitVideo: initialize X11 video thread output method
  *****************************************************************************
@@ -798,7 +733,7 @@ static int InitVideo( vout_thread_t *p_vout )
 
     I_OUTPUTPICTURES = 0;
 
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
+#if defined(MODULE_NAME_IS_xvmc)
     /* Initialize the output structure; we already found an XVideo port,
      * and the corresponding chroma we will be using. Since we can
      * arbitrary scale, stick to the coordinates and aspect. */
@@ -836,65 +771,6 @@ static int InitVideo( vout_thread_t *p_vout )
             break;
     }
 #endif
-
-#elif defined(MODULE_NAME_IS_x11)
-    /* Initialize the output structure: RGB with square pixels, whatever
-     * the input format is, since it's the only format we know */
-    switch( p_vout->p_sys->i_screen_depth )
-    {
-        case 8: /* FIXME: set the palette */
-            p_vout->output.i_chroma = VLC_CODEC_RGB8; break;
-        case 15:
-            p_vout->output.i_chroma = VLC_CODEC_RGB15; break;
-        case 16:
-            p_vout->output.i_chroma = VLC_CODEC_RGB16; break;
-        case 24:
-        case 32:
-            p_vout->output.i_chroma = VLC_CODEC_RGB32; break;
-        default:
-            msg_Err( p_vout, "unknown screen depth %i",
-                     p_vout->p_sys->i_screen_depth );
-            return VLC_SUCCESS;
-    }
-
-#ifdef HAVE_XSP
-    vout_PlacePicture( p_vout, p_vout->p_sys->p_win->i_width  / p_vout->p_sys->i_hw_scale,
-                       p_vout->p_sys->p_win->i_height  / p_vout->p_sys->i_hw_scale,
-                       &i_index, &i_index,
-                       &p_vout->fmt_out.i_visible_width,
-                       &p_vout->fmt_out.i_visible_height );
-#else
-    vout_PlacePicture( p_vout, p_vout->p_sys->p_win->i_width,
-                       p_vout->p_sys->p_win->i_height,
-                       &i_index, &i_index,
-                       &p_vout->fmt_out.i_visible_width,
-                       &p_vout->fmt_out.i_visible_height );
-#endif
-
-    p_vout->fmt_out.i_chroma = p_vout->output.i_chroma;
-
-    p_vout->output.i_width = p_vout->fmt_out.i_width =
-        p_vout->fmt_out.i_visible_width * p_vout->fmt_in.i_width /
-        p_vout->fmt_in.i_visible_width;
-    p_vout->output.i_height = p_vout->fmt_out.i_height =
-        p_vout->fmt_out.i_visible_height * p_vout->fmt_in.i_height /
-        p_vout->fmt_in.i_visible_height;
-    p_vout->fmt_out.i_x_offset =
-        p_vout->fmt_out.i_visible_width * p_vout->fmt_in.i_x_offset /
-        p_vout->fmt_in.i_visible_width;
-    p_vout->fmt_out.i_y_offset =
-        p_vout->fmt_out.i_visible_height * p_vout->fmt_in.i_y_offset /
-        p_vout->fmt_in.i_visible_height;
-
-    p_vout->fmt_out.i_sar_num = p_vout->fmt_out.i_sar_den = 1;
-    p_vout->output.i_aspect = p_vout->fmt_out.i_aspect =
-        p_vout->fmt_out.i_width * VOUT_ASPECT_FACTOR /p_vout->fmt_out.i_height;
-
-    msg_Dbg( p_vout, "x11 image size %ix%i (%i,%i,%ix%i)",
-             p_vout->fmt_out.i_width, p_vout->fmt_out.i_height,
-             p_vout->fmt_out.i_x_offset, p_vout->fmt_out.i_y_offset,
-             p_vout->fmt_out.i_visible_width,
-             p_vout->fmt_out.i_visible_height );
 #endif
 
     /* Try to initialize up to MAX_DIRECTBUFFERS direct buffers */
@@ -947,8 +823,8 @@ static void DisplayVideo( vout_thread_t *p_vout, picture_t *p_pic )
 {
     unsigned int i_width, i_height, i_x, i_y;
 
-    vout_PlacePicture( p_vout, p_vout->p_sys->p_win->i_width,
-                       p_vout->p_sys->p_win->i_height,
+    vout_PlacePicture( p_vout, p_vout->p_sys->window.i_width,
+                       p_vout->p_sys->window.i_height,
                        &i_x, &i_y, &i_width, &i_height );
 
 #ifdef MODULE_NAME_IS_xvmc
@@ -1021,7 +897,7 @@ static void DisplayVideo( vout_thread_t *p_vout, picture_t *p_pic )
     /* XvMCSyncSurface(p_vout->p_sys->p_display, p_picture->p_sys->xvmc_surf); */
     XvMCPutSurface( p_vout->p_sys->p_display,
                     p_pic->p_sys->xvmc_surf,
-                    p_vout->p_sys->p_win->video_window,
+                    p_vout->p_sys->window.video_window,
                     src_x,
                     src_y,
                     src_width,
@@ -1067,56 +943,34 @@ static void DisplayVideo( vout_thread_t *p_vout, picture_t *p_pic )
     if( p_vout->p_sys->i_shm_opcode )
     {
         /* Display rendered image using shared memory extension */
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
         XvShmPutImage( p_vout->p_sys->p_display, p_vout->p_sys->i_xvport,
-                       p_vout->p_sys->p_win->video_window,
-                       p_vout->p_sys->p_win->gc, p_pic->p_sys->p_image,
+                       p_vout->p_sys->window.video_window,
+                       p_vout->p_sys->window.gc, p_pic->p_sys->p_image,
                        p_vout->fmt_out.i_x_offset,
                        p_vout->fmt_out.i_y_offset,
                        p_vout->fmt_out.i_visible_width,
                        p_vout->fmt_out.i_visible_height,
                        0 /*dest_x*/, 0 /*dest_y*/, i_width, i_height,
                        False /* Don't put True here or you'll waste your CPU */ );
-#else
-        XShmPutImage( p_vout->p_sys->p_display,
-                      p_vout->p_sys->p_win->video_window,
-                      p_vout->p_sys->p_win->gc, p_pic->p_sys->p_image,
-                      p_vout->fmt_out.i_x_offset,
-                      p_vout->fmt_out.i_y_offset,
-                      0 /*dest_x*/, 0 /*dest_y*/,
-                      p_vout->fmt_out.i_visible_width,
-                      p_vout->fmt_out.i_visible_height,
-                      False /* Don't put True here ! */ );
-#endif
     }
     else
 #endif /* HAVE_SYS_SHM_H */
     {
         /* Use standard XPutImage -- this is gonna be slow ! */
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
         XvPutImage( p_vout->p_sys->p_display, p_vout->p_sys->i_xvport,
-                    p_vout->p_sys->p_win->video_window,
-                    p_vout->p_sys->p_win->gc, p_pic->p_sys->p_image,
+                    p_vout->p_sys->window.video_window,
+                    p_vout->p_sys->window.gc, p_pic->p_sys->p_image,
                     p_vout->fmt_out.i_x_offset,
                     p_vout->fmt_out.i_y_offset,
                     p_vout->fmt_out.i_visible_width,
                     p_vout->fmt_out.i_visible_height,
                     0 /*dest_x*/, 0 /*dest_y*/, i_width, i_height );
-#else
-        XPutImage( p_vout->p_sys->p_display,
-                   p_vout->p_sys->p_win->video_window,
-                   p_vout->p_sys->p_win->gc, p_pic->p_sys->p_image,
-                   p_vout->fmt_out.i_x_offset,
-                   p_vout->fmt_out.i_y_offset,
-                   0 /*dest_x*/, 0 /*dest_y*/,
-                   p_vout->fmt_out.i_visible_width,
-                   p_vout->fmt_out.i_visible_height );
-#endif
     }
 
     /* Make sure the command is sent now - do NOT use XFlush !*/
     XSync( p_vout->p_sys->p_display, False );
 }
+#endif
 
 /*****************************************************************************
  * ManageVideo: handle X11 events
@@ -1135,22 +989,17 @@ static int ManageVideo( vout_thread_t *p_vout )
 #endif
 
     /* Handle events from the owner window */
-    if( p_vout->p_sys->p_win->owner_window )
+    while( XCheckWindowEvent( p_vout->p_sys->p_display,
+                              p_vout->p_sys->window.owner_window->handle.xid,
+                              StructureNotifyMask, &xevent ) == True )
     {
-        while( XCheckWindowEvent( p_vout->p_sys->p_display,
-                                p_vout->p_sys->p_win->owner_window->handle.xid,
-                                  StructureNotifyMask, &xevent ) == True )
-        {
-            /* ConfigureNotify event: prepare  */
-            if( xevent.type == ConfigureNotify )
-            {
-                /* Update dimensions */
-                XResizeWindow( p_vout->p_sys->p_display,
-                               p_vout->p_sys->p_win->base_window,
-                               xevent.xconfigure.width,
-                               xevent.xconfigure.height );
-            }
-        }
+        /* ConfigureNotify event: prepare  */
+        if( xevent.type == ConfigureNotify )
+            /* Update dimensions */
+            XResizeWindow( p_vout->p_sys->p_display,
+                           p_vout->p_sys->window.base_window,
+                           xevent.xconfigure.width,
+                           xevent.xconfigure.height );
     }
 
     /* Handle X11 events: ConfigureNotify events are parsed to know if the
@@ -1159,8 +1008,8 @@ static int ManageVideo( vout_thread_t *p_vout )
      * to intercept window destruction requests */
 
     while( XCheckWindowEvent( p_vout->p_sys->p_display,
-                              p_vout->p_sys->p_win->base_window,
-                              StructureNotifyMask | KeyPressMask |
+                              p_vout->p_sys->window.base_window,
+                              StructureNotifyMask |
                               ButtonPressMask | ButtonReleaseMask |
                               PointerMotionMask | Button1MotionMask , &xevent )
            == True )
@@ -1169,57 +1018,14 @@ static int ManageVideo( vout_thread_t *p_vout )
         if( xevent.type == ConfigureNotify )
         {
             if( (unsigned int)xevent.xconfigure.width
-                   != p_vout->p_sys->p_win->i_width
+                   != p_vout->p_sys->window.i_width
               || (unsigned int)xevent.xconfigure.height
-                    != p_vout->p_sys->p_win->i_height )
+                    != p_vout->p_sys->window.i_height )
             {
                 /* Update dimensions */
                 p_vout->i_changes |= VOUT_SIZE_CHANGE;
-                p_vout->p_sys->p_win->i_width = xevent.xconfigure.width;
-                p_vout->p_sys->p_win->i_height = xevent.xconfigure.height;
-            }
-        }
-        /* Keyboard event */
-        else if( xevent.type == KeyPress )
-        {
-            unsigned int state = xevent.xkey.state;
-            KeySym x_key_symbol;
-            char i_key;                                   /* ISO Latin-1 key */
-
-            /* We may have keys like F1 trough F12, ESC ... */
-            x_key_symbol = XKeycodeToKeysym( p_vout->p_sys->p_display,
-                                             xevent.xkey.keycode, 0 );
-            val.i_int = ConvertKey( (int)x_key_symbol );
-
-            xevent.xkey.state &= ~ShiftMask;
-            xevent.xkey.state &= ~ControlMask;
-            xevent.xkey.state &= ~Mod1Mask;
-
-            if( !val.i_int &&
-                XLookupString( &xevent.xkey, &i_key, 1, NULL, NULL ) )
-            {
-                /* "Normal Keys"
-                 * The reason why I use this instead of XK_0 is that
-                 * with XLookupString, we don't have to care about
-                 * keymaps. */
-                val.i_int = i_key;
-            }
-
-            if( val.i_int )
-            {
-                if( state & ShiftMask )
-                {
-                    val.i_int |= KEY_MODIFIER_SHIFT;
-                }
-                if( state & ControlMask )
-                {
-                    val.i_int |= KEY_MODIFIER_CTRL;
-                }
-                if( state & Mod1Mask )
-                {
-                    val.i_int |= KEY_MODIFIER_ALT;
-                }
-                var_Set( p_vout->p_libvlc, "key-pressed", val );
+                p_vout->p_sys->window.i_width = xevent.xconfigure.width;
+                p_vout->p_sys->window.i_height = xevent.xconfigure.height;
             }
         }
         /* Mouse click */
@@ -1291,9 +1097,7 @@ static int ManageVideo( vout_thread_t *p_vout )
                         val.i_int &= ~2;
                         var_Set( p_vout, "mouse-button-down", val );
 
-                        var_Get( p_vout->p_libvlc, "intf-show", &val );
-                        val.b_bool = !val.b_bool;
-                        var_Set( p_vout->p_libvlc, "intf-show", val );
+                        var_ToggleBool( p_vout->p_libvlc, "intf-show" );
                     }
                     break;
 
@@ -1328,8 +1132,8 @@ static int ManageVideo( vout_thread_t *p_vout )
             /* somewhat different use for vout_PlacePicture:
              * here the values are needed to give to mouse coordinates
              * in the original picture space */
-            vout_PlacePicture( p_vout, p_vout->p_sys->p_win->i_width,
-                               p_vout->p_sys->p_win->i_height,
+            vout_PlacePicture( p_vout, p_vout->p_sys->window.i_width,
+                               p_vout->p_sys->window.i_height,
                                &i_x, &i_y, &i_width, &i_height );
 
             /* Compute the x coordinate and check if the value is
@@ -1380,44 +1184,8 @@ static int ManageVideo( vout_thread_t *p_vout )
 
     /* Handle events for video output sub-window */
     while( XCheckWindowEvent( p_vout->p_sys->p_display,
-                              p_vout->p_sys->p_win->video_window,
-                              ExposureMask, &xevent ) == True )
-    {
-        /* Window exposed (only handled if stream playback is paused) */
-        if( xevent.type == Expose )
-        {
-            if( ((XExposeEvent *)&xevent)->count == 0 )
-            {
-                /* (if this is the last a collection of expose events...) */
-
-#if defined(MODULE_NAME_IS_xvideo)
-                x11_window_t *p_win = p_vout->p_sys->p_win;
-
-                /* Paint the colour key if needed */
-                if( p_vout->p_sys->b_paint_colourkey &&
-                    xevent.xexpose.window == p_win->video_window )
-                {
-                    XSetForeground( p_vout->p_sys->p_display,
-                                    p_win->gc, p_vout->p_sys->i_colourkey );
-                    XFillRectangle( p_vout->p_sys->p_display,
-                                    p_win->video_window, p_win->gc, 0, 0,
-                                    p_win->i_width, p_win->i_height );
-                }
-#endif
-
-#if 0
-                if( p_vout->p_libvlc->p_input_bank->pp_input[0] != NULL )
-                {
-                    if( PAUSE_S == p_vout->p_libvlc->p_input_bank->pp_input[0]
-                                                   ->stream.control.i_status )
-                    {
-                        /* XVideoDisplay( p_vout )*/;
-                    }
-                }
-#endif
-            }
-        }
-    }
+                              p_vout->p_sys->window.video_window,
+                              ExposureMask, &xevent ) == True );
 
     /* ClientMessage event - only WM_PROTOCOLS with WM_DELETE_WINDOW data
      * are handled - according to the man pages, the format is always 32
@@ -1425,9 +1193,9 @@ static int ManageVideo( vout_thread_t *p_vout )
     while( XCheckTypedEvent( p_vout->p_sys->p_display,
                              ClientMessage, &xevent ) )
     {
-        if( (xevent.xclient.message_type == p_vout->p_sys->p_win->wm_protocols)
+        if( (xevent.xclient.message_type == p_vout->p_sys->window.wm_protocols)
                && ((Atom)xevent.xclient.data.l[0]
-                     == p_vout->p_sys->p_win->wm_delete_window ) )
+                     == p_vout->p_sys->window.wm_delete_window ) )
         {
             /* the user wants to close the window */
             playlist_t * p_playlist = pl_Hold( p_vout );
@@ -1502,37 +1270,23 @@ static int ManageVideo( vout_thread_t *p_vout )
     {
         unsigned int i_width, i_height, i_x, i_y;
 
-#ifdef MODULE_NAME_IS_x11
-        /* We need to signal the vout thread about the size change because it
-         * is doing the rescaling */
-#else
         p_vout->i_changes &= ~VOUT_SIZE_CHANGE;
-#endif
 
-        vout_PlacePicture( p_vout, p_vout->p_sys->p_win->i_width,
-                           p_vout->p_sys->p_win->i_height,
+        vout_PlacePicture( p_vout, p_vout->p_sys->window.i_width,
+                           p_vout->p_sys->window.i_height,
                            &i_x, &i_y, &i_width, &i_height );
 
         XMoveResizeWindow( p_vout->p_sys->p_display,
-                           p_vout->p_sys->p_win->video_window,
+                           p_vout->p_sys->window.video_window,
                            i_x, i_y, i_width, i_height );
     }
-
-    /* cursor hiding depending on --vout-event option
-     *      activated if:
-     *            value = 1 (Fullsupport) (default value)
-     *         or value = 2 (Fullscreen-Only) and condition met
-     */
-    bool b_vout_event = (   ( p_vout->p_sys->i_vout_event == 1 )
-                         || ( p_vout->p_sys->i_vout_event == 2 && p_vout->b_fullscreen )
-                        );
 
     /* Autohide Cursour */
     if( mdate() - p_vout->p_sys->i_time_mouse_last_moved >
         p_vout->p_sys->i_mouse_hide_timeout )
     {
         /* Hide the mouse automatically */
-        if( b_vout_event && p_vout->p_sys->b_mouse_pointer_visible )
+        if( p_vout->p_sys->b_mouse_pointer_visible )
         {
             ToggleCursor( p_vout );
         }
@@ -1542,23 +1296,10 @@ static int ManageVideo( vout_thread_t *p_vout )
     xvmc_context_reader_unlock( &p_vout->p_sys->xvmc_lock );
 #endif
 
-#ifdef HAVE_OSSO
-    if ( p_vout->p_sys->p_octx != NULL ) {
-        if ( p_vout->p_sys->i_backlight_on_counter == i_backlight_on_interval ) {
-            if ( osso_display_blanking_pause( p_vout->p_sys->p_octx ) != OSSO_OK ) {
-                msg_Err( p_vout, "Could not disable backlight blanking" );
-        } else {
-                msg_Dbg( p_vout, "Backlight blanking disabled" );
-            }
-            p_vout->p_sys->i_backlight_on_counter = 0;
-        } else {
-            p_vout->p_sys->i_backlight_on_counter ++;
-        }
-    }
-#endif
     return 0;
 }
 
+#if !defined( MODULE_NAME_IS_glx )
 /*****************************************************************************
  * EndVideo: terminate X11 video thread output method
  *****************************************************************************
@@ -1576,6 +1317,7 @@ static void EndVideo( vout_thread_t *p_vout )
         FreePicture( p_vout, PP_OUTPUTPICTURE[ i_index ] );
     }
 }
+#endif
 
 /* following functions are local */
 
@@ -1590,7 +1332,6 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
     XEvent                  xevent;
 
     bool              b_map_notify = false;
-    vlc_value_t             val;
 
     /* Prepare window manager hints and properties */
     p_win->wm_protocols =
@@ -1608,10 +1349,16 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
                                                      p_vout->p_sys->i_screen);
     xwindow_attributes.event_mask = ExposureMask | StructureNotifyMask;
 
-    if( !p_vout->b_fullscreen )
     {
-        p_win->owner_window = vout_RequestXWindow( p_vout, &p_win->i_x,
-                              &p_win->i_y, &p_win->i_width, &p_win->i_height );
+        vout_window_cfg_t wnd_cfg;
+        memset( &wnd_cfg, 0, sizeof(wnd_cfg) );
+        wnd_cfg.type   = VOUT_WINDOW_TYPE_XID;
+        wnd_cfg.x      = p_win->i_x;
+        wnd_cfg.y      = p_win->i_y;
+        wnd_cfg.width  = p_win->i_width;
+        wnd_cfg.height = p_win->i_height;
+
+        p_win->owner_window = vout_window_New( VLC_OBJECT(p_vout), NULL, &wnd_cfg );
         if( !p_win->owner_window )
             return VLC_EGENERIC;
         xsize_hints.base_width  = xsize_hints.width = p_win->i_width;
@@ -1649,50 +1396,6 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
                            CWBackingStore | CWBackPixel | CWEventMask,
                            &xwindow_attributes );
     }
-    else
-    {
-        /* Fullscreen window size and position */
-        p_win->owner_window = NULL;
-        p_win->i_x = p_win->i_y = 0;
-        p_win->i_width =
-            DisplayWidth( p_vout->p_sys->p_display, p_vout->p_sys->i_screen );
-        p_win->i_height =
-            DisplayHeight( p_vout->p_sys->p_display, p_vout->p_sys->i_screen );
-
-        /* Create the window and set hints - the window must receive
-         * ConfigureNotify events, and until it is displayed, Expose and
-         * MapNotify events. */
-
-        p_win->base_window =
-            XCreateWindow( p_vout->p_sys->p_display,
-                           DefaultRootWindow( p_vout->p_sys->p_display ),
-                           p_win->i_x, p_win->i_y,
-                           p_win->i_width, p_win->i_height,
-                           0,
-                           0, InputOutput, 0,
-                           CWBackingStore | CWBackPixel | CWEventMask,
-                           &xwindow_attributes );
-
-        var_Get( p_vout, "video-title", &val );
-        if( !val.psz_string || !*val.psz_string )
-        {
-            XStoreName( p_vout->p_sys->p_display, p_win->base_window,
-#ifdef MODULE_NAME_IS_x11
-                        VOUT_TITLE " (X11 output)"
-#elif defined(MODULE_NAME_IS_glx)
-                        VOUT_TITLE " (GLX output)"
-#else
-                        VOUT_TITLE " (XVideo output)"
-#endif
-              );
-        }
-        else
-        {
-            XStoreName( p_vout->p_sys->p_display,
-                        p_win->base_window, val.psz_string );
-        }
-        free( val.psz_string );
-    }
 
     if( (p_win->wm_protocols == None)        /* use WM_DELETE_WINDOW */
         || (p_win->wm_delete_window == None)
@@ -1729,36 +1432,10 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
         }
     } while( !b_map_notify );
 
-    /* key and mouse events handling depending on --vout-event option
-     *      activated if:
-     *            value = 1 (Fullsupport) (default value)
-     *         or value = 2 (Fullscreen-Only) and condition met
-     */
-    bool b_vout_event = (   ( p_vout->p_sys->i_vout_event == 1 )
-                         || ( p_vout->p_sys->i_vout_event == 2 && p_vout->b_fullscreen )
-                        );
-    if ( b_vout_event )
-        XSelectInput( p_vout->p_sys->p_display, p_win->base_window,
-                      StructureNotifyMask | KeyPressMask |
-                      ButtonPressMask | ButtonReleaseMask |
-                      PointerMotionMask );
-
-#ifdef MODULE_NAME_IS_x11
-    if( XDefaultDepth(p_vout->p_sys->p_display, p_vout->p_sys->i_screen) == 8 )
-    {
-        /* Allocate a new palette */
-        p_vout->p_sys->colormap =
-            XCreateColormap( p_vout->p_sys->p_display,
-                             DefaultRootWindow( p_vout->p_sys->p_display ),
-                             DefaultVisual( p_vout->p_sys->p_display,
-                                            p_vout->p_sys->i_screen ),
-                             AllocAll );
-
-        xwindow_attributes.colormap = p_vout->p_sys->colormap;
-        XChangeWindowAttributes( p_vout->p_sys->p_display, p_win->base_window,
-                                 CWColormap, &xwindow_attributes );
-    }
-#endif
+    long mask = StructureNotifyMask | PointerMotionMask;
+    if( var_CreateGetBool( p_vout, "mouse-events" ) )
+        mask |= ButtonPressMask | ButtonReleaseMask;
+    XSelectInput( p_vout->p_sys->p_display, p_win->base_window, mask );
 
     /* Create video output sub-window. */
     p_win->video_window =  XCreateSimpleWindow(
@@ -1791,10 +1468,6 @@ static int CreateWindow( vout_thread_t *p_vout, x11_window_t *p_win )
 
     /* Do NOT use XFlush here ! */
     XSync( p_vout->p_sys->p_display, False );
-
-    /* At this stage, the window is open, displayed, and ready to
-     * receive data */
-    p_vout->p_sys->p_win = p_win;
 
     return VLC_SUCCESS;
 }
@@ -1831,7 +1504,7 @@ static void DestroyWindow( vout_thread_t *p_vout, x11_window_t *p_win )
         }
     } while( !b_destroy_notify );
 
-    vout_ReleaseWindow( p_win->owner_window );
+    vout_window_Delete( p_win->owner_window );
 }
 
 /*****************************************************************************
@@ -1839,13 +1512,10 @@ static void DestroyWindow( vout_thread_t *p_vout, x11_window_t *p_win )
  *****************************************************************************
  * Returns 0 on success, -1 otherwise
  *****************************************************************************/
+#if !defined(MODULE_NAME_IS_glx)
 static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
 {
-#ifndef MODULE_NAME_IS_glx
-
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
     int i_plane;
-#endif
 
     /* We know the chroma, allocate a buffer which will be used
      * directly by the decoder */
@@ -1877,13 +1547,8 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
         /* Create image using XShm extension */
         p_pic->p_sys->p_image =
             CreateShmImage( p_vout, p_vout->p_sys->p_display,
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
                             p_vout->p_sys->i_xvport,
                             VLC2X11_FOURCC(p_vout->output.i_chroma),
-#else
-                            p_vout->p_sys->p_visual,
-                            p_vout->p_sys->i_screen_depth,
-#endif
                             &p_pic->p_sys->shminfo,
                             p_vout->output.i_width, p_vout->output.i_height );
     }
@@ -1894,15 +1559,9 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
         /* Create image without XShm extension */
         p_pic->p_sys->p_image =
             CreateImage( p_vout, p_vout->p_sys->p_display,
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
                          p_vout->p_sys->i_xvport,
                          VLC2X11_FOURCC(p_vout->output.i_chroma),
                          p_pic->format.i_bits_per_pixel,
-#else
-                         p_vout->p_sys->p_visual,
-                         p_vout->p_sys->i_screen_depth,
-                         p_vout->p_sys->i_bytes_per_pixel,
-#endif
                          p_vout->output.i_width, p_vout->output.i_height );
 
 #ifdef HAVE_SYS_SHM_H
@@ -1922,7 +1581,6 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
 
     switch( p_vout->output.i_chroma )
     {
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
         case VLC_CODEC_I420:
         case VLC_CODEC_YV12:
         case VLC_CODEC_Y211:
@@ -1953,26 +1611,6 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
 
             break;
 
-#else
-        case VLC_CODEC_RGB8:
-        case VLC_CODEC_RGB16:
-        case VLC_CODEC_RGB15:
-        case VLC_CODEC_RGB24:
-        case VLC_CODEC_RGB32:
-
-            p_pic->p->i_lines = p_pic->p_sys->p_image->height;
-            p_pic->p->i_visible_lines = p_pic->p_sys->p_image->height;
-            p_pic->p->p_pixels = (uint8_t*)p_pic->p_sys->p_image->data
-                                  + p_pic->p_sys->p_image->xoffset;
-            p_pic->p->i_pitch = p_pic->p_sys->p_image->bytes_per_line;
-
-            /* p_pic->p->i_pixel_pitch = 4 for RV24 but this should be set
-             * properly by picture_Setup() */
-            p_pic->p->i_visible_pitch = p_pic->p->i_pixel_pitch
-                                         * p_pic->p_sys->p_image->width;
-            break;
-#endif
-
         default:
             /* Unknown chroma, tell the guy to get lost */
             IMAGE_FREE( p_pic->p_sys->p_image );
@@ -1982,12 +1620,6 @@ static int NewPicture( vout_thread_t *p_vout, picture_t *p_pic )
             p_pic->i_planes = 0;
             return -1;
     }
-#else
-
-    VLC_UNUSED(p_vout); VLC_UNUSED(p_pic);
-
-#endif /* !MODULE_NAME_IS_glx */
-
     return 0;
 }
 
@@ -2033,6 +1665,7 @@ static void FreePicture( vout_thread_t *p_vout, picture_t *p_pic )
 
     free( p_pic->p_sys );
 }
+#endif /* !MODULE_NAME_IS_glx */
 
 /*****************************************************************************
  * ToggleFullScreen: Enable or disable full screen mode
@@ -2041,320 +1674,16 @@ static void FreePicture( vout_thread_t *p_vout, picture_t *p_pic )
  *****************************************************************************/
 static void ToggleFullScreen ( vout_thread_t *p_vout )
 {
-    Atom prop;
-    mwmhints_t mwmhints;
-    XSetWindowAttributes attributes;
-
-#ifdef HAVE_XINERAMA
-    int i_d1, i_d2;
-#endif
-
     p_vout->b_fullscreen = !p_vout->b_fullscreen;
+    vout_window_SetFullScreen( p_vout->p_sys->window.owner_window,
+                               p_vout->b_fullscreen );
 
+#ifdef HAVE_XSP
     if( p_vout->b_fullscreen )
-    {
-        msg_Dbg( p_vout, "entering fullscreen mode" );
-
-        /* Getting current window position */
-        Window root_win;
-        Window* child_windows;
-        unsigned int num_child_windows;
-        Window parent_win;
-        Window child_win;
-        XWindowAttributes win_attr;
-        int screen_x,screen_y;
-
-        XGetWindowAttributes(
-                p_vout->p_sys->p_display,
-                p_vout->p_sys->p_win->video_window,
-                &win_attr);
-
-        XQueryTree(
-                p_vout->p_sys->p_display,
-                p_vout->p_sys->p_win->video_window,
-                &root_win,
-                &parent_win,
-                &child_windows,
-                &num_child_windows);
-        XFree(child_windows);
-
-        XTranslateCoordinates(
-                p_vout->p_sys->p_display,
-                parent_win, win_attr.root,
-                win_attr.x,win_attr.y,
-                &screen_x,&screen_y,
-                &child_win);
-
-        msg_Dbg( p_vout, "X %d/%d Y %d/%d", win_attr.x,screen_x,win_attr.y,screen_y);
-        /* screen_x and screen_y are current position */
-
-        p_vout->p_sys->b_altfullscreen =
-            config_GetInt( p_vout, MODULE_STRING "-altfullscreen" );
-
-        XUnmapWindow( p_vout->p_sys->p_display,
-                      p_vout->p_sys->p_win->base_window );
-
-        p_vout->p_sys->p_win = &p_vout->p_sys->fullscreen_window;
-
-        CreateWindow( p_vout, p_vout->p_sys->p_win );
-        XDestroyWindow( p_vout->p_sys->p_display,
-                        p_vout->p_sys->fullscreen_window.video_window );
-        XReparentWindow( p_vout->p_sys->p_display,
-                         p_vout->p_sys->original_window.video_window,
-                         p_vout->p_sys->fullscreen_window.base_window, 0, 0 );
-        p_vout->p_sys->fullscreen_window.video_window =
-            p_vout->p_sys->original_window.video_window;
-
-        /* To my knowledge there are two ways to create a borderless window.
-         * There's the generic way which is to tell x to bypass the window
-         * manager, but this creates problems with the focus of other
-         * applications.
-         * The other way is to use the motif property "_MOTIF_WM_HINTS" which
-         * luckily seems to be supported by most window managers. */
-        if( !p_vout->p_sys->b_altfullscreen )
-        {
-            mwmhints.flags = MWM_HINTS_DECORATIONS;
-            mwmhints.decorations = False;
-
-            prop = XInternAtom( p_vout->p_sys->p_display, "_MOTIF_WM_HINTS",
-                                False );
-            XChangeProperty( p_vout->p_sys->p_display,
-                             p_vout->p_sys->p_win->base_window,
-                             prop, prop, 32, PropModeReplace,
-                             (unsigned char *)&mwmhints,
-                             PROP_MWM_HINTS_ELEMENTS );
-        }
-        else
-        {
-            /* brute force way to remove decorations */
-            attributes.override_redirect = True;
-            XChangeWindowAttributes( p_vout->p_sys->p_display,
-                                     p_vout->p_sys->p_win->base_window,
-                                     CWOverrideRedirect,
-                                     &attributes);
-
-            /* Make sure the change is effective */
-            XReparentWindow( p_vout->p_sys->p_display,
-                             p_vout->p_sys->p_win->base_window,
-                             DefaultRootWindow( p_vout->p_sys->p_display ),
-                             0, 0 );
-        }
-
-        if( p_vout->p_sys->b_net_wm_state_fullscreen )
-        {
-            XClientMessageEvent event;
-
-            memset( &event, 0, sizeof( XClientMessageEvent ) );
-
-            event.type = ClientMessage;
-            event.message_type = p_vout->p_sys->net_wm_state;
-            event.display = p_vout->p_sys->p_display;
-            event.window = p_vout->p_sys->p_win->base_window;
-            event.format = 32;
-            event.data.l[ 0 ] = 1; /* set property */
-            event.data.l[ 1 ] = p_vout->p_sys->net_wm_state_fullscreen;
-
-            XSendEvent( p_vout->p_sys->p_display,
-                        DefaultRootWindow( p_vout->p_sys->p_display ),
-                        False, SubstructureRedirectMask,
-                        (XEvent*)&event );
-        }
-
-/* "bad fullscreen" - set this to 0. doing fullscreen this way is problematic
- * for many reasons and basically fights with the window manager as the wm
- * reparents AND vlc goes and reparents - multiple times. don't do it. it just
- * makes it more inefficient and less "nice" to the x11 citizenry. this turns
- * it off */
-#define BADFS 0
-/* explicitly asking for focus when you fullscreened is a little silly. the
- * window manager SHOULD be handling this itself based on its own focus
- * policies. if the user is "using" a given xinerama/xrandr screen or x11
- * multihead screen AND vlc wants to fullscreen the wm should also focus it
- * as its the only thing on the screen. if vlc fullscreens and its on
- * "another monitor" to the one the user is using - this may "steal" the focus
- * as really the wm should be deciding if, on fullscreening of a window
- * the focus should go there or not, so let the wm decided */
-#define APPFOCUS 0
-        /* Make sure the change is effective */
-        XReparentWindow( p_vout->p_sys->p_display,
-                         p_vout->p_sys->p_win->base_window,
-                         DefaultRootWindow( p_vout->p_sys->p_display ),
-                         0, 0 );
-
-#ifdef HAVE_XINERAMA
-        if( XineramaQueryExtension( p_vout->p_sys->p_display, &i_d1, &i_d2 ) &&
-            XineramaIsActive( p_vout->p_sys->p_display ) )
-        {
-            XineramaScreenInfo *screens;   /* infos for xinerama */
-            int i_num_screens;
-
-            msg_Dbg( p_vout, "using XFree Xinerama extension");
-
-#define SCREEN p_vout->p_sys->p_win->i_screen
-
-            /* Get Information about Xinerama (num of screens) */
-            screens = XineramaQueryScreens( p_vout->p_sys->p_display,
-                                            &i_num_screens );
-
-            SCREEN = config_GetInt( p_vout,
-                                        MODULE_STRING "-xineramascreen" );
-
-            /* just check that user has entered a good value,
-             * otherwise use that screen where window is */
-            if( SCREEN >= i_num_screens || SCREEN < 0 )
-            {
-                msg_Dbg( p_vout, "requested screen number invalid (%d/%d)", SCREEN, i_num_screens );
-#define left screens[SCREEN].x_org
-#define right left + screens[SCREEN].width
-#define top screens[SCREEN].y_org
-#define bottom top + screens[SCREEN].height
-
-                 for( SCREEN = i_num_screens-1; SCREEN > 0; SCREEN--)
-                 {
-                     if( left <= screen_x && screen_x <= right &&
-                             top <= screen_y && screen_y <= bottom )
-                         break;
-                 }
-#undef bottom
-#undef top
-#undef right
-#undef left
-            }
-
-            /* Get the X/Y upper left corner coordinate of the above screen */
-            p_vout->p_sys->p_win->i_x = screens[SCREEN].x_org;
-            p_vout->p_sys->p_win->i_y = screens[SCREEN].y_org;
-
-            /* Set the Height/width to the screen resolution */
-            p_vout->p_sys->p_win->i_width = screens[SCREEN].width;
-            p_vout->p_sys->p_win->i_height = screens[SCREEN].height;
-
-            XFree(screens);
-
-#undef SCREEN
-
-        }
-        else
-#endif
-        {
-            /* The window wasn't necessarily created at the requested size */
-            p_vout->p_sys->p_win->i_x = p_vout->p_sys->p_win->i_y = 0;
-
-#ifdef HAVE_XF86VIDMODE
-            XF86VidModeModeLine mode;
-            int i_dummy;
-
-            if( XF86VidModeGetModeLine( p_vout->p_sys->p_display,
-                                        p_vout->p_sys->i_screen, &i_dummy,
-                                        &mode ) )
-            {
-                p_vout->p_sys->p_win->i_width = mode.hdisplay;
-                p_vout->p_sys->p_win->i_height = mode.vdisplay;
-
-                /* move cursor to the middle of the window to prevent
-                 * unwanted display move if the display is smaller than the
-                 * full desktop */
-                XWarpPointer( p_vout->p_sys->p_display, None,
-                              p_vout->p_sys->p_win->base_window, 0, 0, 0, 0,
-                              mode.hdisplay / 2 , mode.vdisplay / 2 );
-                /* force desktop view to upper left corner */
-                XF86VidModeSetViewPort( p_vout->p_sys->p_display,
-                                        p_vout->p_sys->i_screen, 0, 0 );
-            }
-            else
-#endif
-            {
-                p_vout->p_sys->p_win->i_width =
-                    DisplayWidth( p_vout->p_sys->p_display,
-                                p_vout->p_sys->i_screen );
-                p_vout->p_sys->p_win->i_height =
-                    DisplayHeight( p_vout->p_sys->p_display,
-                                p_vout->p_sys->i_screen );
-            }
-
-        }
-
-        XMoveResizeWindow( p_vout->p_sys->p_display,
-                           p_vout->p_sys->p_win->base_window,
-                           p_vout->p_sys->p_win->i_x,
-                           p_vout->p_sys->p_win->i_y,
-                           p_vout->p_sys->p_win->i_width,
-                           p_vout->p_sys->p_win->i_height );
-
-#ifdef HAVE_XSP
         EnablePixelDoubling( p_vout );
-#endif
-
-#if APPFOCUS // RASTER: let the wm do focus policy
-        /* Activate the window (give it the focus) */
-        XClientMessageEvent event;
-
-        memset( &event, 0, sizeof( XClientMessageEvent ) );
-
-        event.type = ClientMessage;
-        event.message_type =
-           XInternAtom( p_vout->p_sys->p_display, "_NET_ACTIVE_WINDOW", False );
-        event.display = p_vout->p_sys->p_display;
-        event.window = p_vout->p_sys->p_win->base_window;
-        event.format = 32;
-        event.data.l[ 0 ] = 1; /* source indication (1 = from an application */
-        event.data.l[ 1 ] = 0; /* timestamp */
-        event.data.l[ 2 ] = 0; /* requestor's currently active window */
-        /* XXX: window manager would be more likely to obey if we already have
-         * an active window (and give it to the event), such as an interface */
-
-        XSendEvent( p_vout->p_sys->p_display,
-                    DefaultRootWindow( p_vout->p_sys->p_display ),
-                    False, SubstructureRedirectMask,
-                    (XEvent*)&event );
-#endif
-    }
     else
-    {
-        msg_Dbg( p_vout, "leaving fullscreen mode" );
-
-#ifdef HAVE_XSP
         DisablePixelDoubling( p_vout );
 #endif
-
-        XReparentWindow( p_vout->p_sys->p_display,
-                         p_vout->p_sys->original_window.video_window,
-                         p_vout->p_sys->original_window.base_window, 0, 0 );
-
-        p_vout->p_sys->fullscreen_window.video_window = None;
-        DestroyWindow( p_vout, &p_vout->p_sys->fullscreen_window );
-        p_vout->p_sys->p_win = &p_vout->p_sys->original_window;
-
-        XMapWindow( p_vout->p_sys->p_display,
-                    p_vout->p_sys->p_win->base_window );
-    }
-
-    /* Unfortunately, using XSync() here is not enough to ensure the
-     * window has already been mapped because the XMapWindow() request
-     * has not necessarily been sent directly to our window (remember,
-     * the call is first redirected to the window manager) */
-
-#if BADFS // RASTER: this is silly... if we have already mapped before
-    XEvent xevent;
-    do
-    {
-        XWindowEvent( p_vout->p_sys->p_display,
-                      p_vout->p_sys->p_win->base_window,
-                      StructureNotifyMask, &xevent );
-    } while( xevent.type != MapNotify );
-#else
-   XSync(p_vout->p_sys->p_display, False);
-#endif
-
-    /* Be careful, this can generate a BadMatch error if the window is not
-     * already mapped by the server (see above) */
-    XSetInputFocus(p_vout->p_sys->p_display,
-                   p_vout->p_sys->p_win->base_window,
-                   RevertToParent,
-                   CurrentTime);
-
-    /* signal that the size needs to be updated */
-    p_vout->i_changes |= VOUT_SIZE_CHANGE;
 }
 
 /*****************************************************************************
@@ -2478,19 +1807,19 @@ static void ToggleCursor( vout_thread_t *p_vout )
     if( p_vout->p_sys->b_mouse_pointer_visible )
     {
         XDefineCursor( p_vout->p_sys->p_display,
-                       p_vout->p_sys->p_win->base_window,
+                       p_vout->p_sys->window.base_window,
                        p_vout->p_sys->blank_cursor );
         p_vout->p_sys->b_mouse_pointer_visible = 0;
     }
     else
     {
         XUndefineCursor( p_vout->p_sys->p_display,
-                         p_vout->p_sys->p_win->base_window );
+                         p_vout->p_sys->window.base_window );
         p_vout->p_sys->b_mouse_pointer_visible = 1;
     }
 }
 
-#if defined(MODULE_NAME_IS_xvideo) || defined(MODULE_NAME_IS_xvmc)
+#if defined(MODULE_NAME_IS_xvmc)
 /*****************************************************************************
  * XVideoGetPort: get YUV12 port
  *****************************************************************************/
@@ -2542,11 +1871,7 @@ static int XVideoGetPort( vout_thread_t *p_vout,
     }
 
     i_selected_port = -1;
-#ifdef MODULE_NAME_IS_xvmc
     i_requested_adaptor = config_GetInt( p_vout, "xvmc-adaptor" );
-#else
-    i_requested_adaptor = config_GetInt( p_vout, "xvideo-adaptor" );
-#endif
     for( i_adaptor = 0; i_adaptor < i_num_adaptors; ++i_adaptor )
     {
         XvImageFormatValues *p_formats;
@@ -2684,14 +2009,6 @@ static int XVideoGetPort( vout_thread_t *p_vout,
 
     return i_selected_port;
 }
-
-/*****************************************************************************
- * XVideoReleasePort: release YUV12 port
- *****************************************************************************/
-static void XVideoReleasePort( vout_thread_t *p_vout, int i_port )
-{
-    XvUngrabPort( p_vout->p_sys->p_display, i_port, CurrentTime );
-}
 #endif
 
 /*****************************************************************************
@@ -2702,13 +2019,6 @@ static void XVideoReleasePort( vout_thread_t *p_vout, int i_port )
  *****************************************************************************/
 static int InitDisplay( vout_thread_t *p_vout )
 {
-#ifdef MODULE_NAME_IS_x11
-    XPixmapFormatValues *       p_formats;                 /* pixmap formats */
-    XVisualInfo *               p_xvisual;            /* visuals information */
-    XVisualInfo                 xvisual_template;         /* visual template */
-    int                         i_count, i;                    /* array size */
-#endif
-
 #ifdef HAVE_SYS_SHM_H
     p_vout->p_sys->i_shm_opcode = 0;
 
@@ -2740,105 +2050,6 @@ static int InitDisplay( vout_thread_t *p_vout )
         msg_Dbg( p_vout, "XShm video extension disabled" );
 #endif
 
-#ifdef MODULE_NAME_IS_xvideo
-    /* XXX The brightness and contrast values should be read from environment
-     * XXX variables... */
-#if 0
-    XVideoSetAttribute( p_vout, "XV_BRIGHTNESS", 0.5 );
-    XVideoSetAttribute( p_vout, "XV_CONTRAST",   0.5 );
-#endif
-#endif
-
-#ifdef MODULE_NAME_IS_x11
-    /* Initialize structure */
-    p_vout->p_sys->i_screen = DefaultScreen( p_vout->p_sys->p_display );
-
-    /* Get screen depth */
-    p_vout->p_sys->i_screen_depth = XDefaultDepth( p_vout->p_sys->p_display,
-                                                   p_vout->p_sys->i_screen );
-    switch( p_vout->p_sys->i_screen_depth )
-    {
-    case 8:
-        /*
-         * Screen depth is 8bpp. Use PseudoColor visual with private colormap.
-         */
-        xvisual_template.screen =   p_vout->p_sys->i_screen;
-        xvisual_template.class =    DirectColor;
-        p_xvisual = XGetVisualInfo( p_vout->p_sys->p_display,
-                                    VisualScreenMask | VisualClassMask,
-                                    &xvisual_template, &i_count );
-        if( p_xvisual == NULL )
-        {
-            msg_Err( p_vout, "no PseudoColor visual available" );
-            return VLC_EGENERIC;
-        }
-        p_vout->p_sys->i_bytes_per_pixel = 1;
-        p_vout->output.pf_setpalette = SetPalette;
-        break;
-    case 15:
-    case 16:
-    case 24:
-    default:
-        /*
-         * Screen depth is higher than 8bpp. TrueColor visual is used.
-         */
-        xvisual_template.screen =   p_vout->p_sys->i_screen;
-        xvisual_template.class =    TrueColor;
-/* In some cases, we get a truecolor class adaptor that has a different
-   color depth. So try to get a real true color one first */
-        xvisual_template.depth =    p_vout->p_sys->i_screen_depth;
-
-        p_xvisual = XGetVisualInfo( p_vout->p_sys->p_display,
-                                    VisualScreenMask | VisualClassMask |
-                                    VisualDepthMask,
-                                    &xvisual_template, &i_count );
-        if( p_xvisual == NULL )
-        {
-            msg_Warn( p_vout, "No screen matching the required color depth" );
-            p_xvisual = XGetVisualInfo( p_vout->p_sys->p_display,
-                                    VisualScreenMask | VisualClassMask,
-                                    &xvisual_template, &i_count );
-            if( p_xvisual == NULL )
-            {
-
-                msg_Err( p_vout, "no TrueColor visual available" );
-                return VLC_EGENERIC;
-            }
-        }
-
-        p_vout->output.i_rmask = p_xvisual->red_mask;
-        p_vout->output.i_gmask = p_xvisual->green_mask;
-        p_vout->output.i_bmask = p_xvisual->blue_mask;
-
-        /* There is no difference yet between 3 and 4 Bpp. The only way
-         * to find the actual number of bytes per pixel is to list supported
-         * pixmap formats. */
-        p_formats = XListPixmapFormats( p_vout->p_sys->p_display, &i_count );
-        p_vout->p_sys->i_bytes_per_pixel = 0;
-
-        for( i = 0; i < i_count; i++ )
-        {
-            /* Under XFree4.0, the list contains pixmap formats available
-             * through all video depths ; so we have to check against current
-             * depth. */
-            if( p_formats[i].depth == (int)p_vout->p_sys->i_screen_depth )
-            {
-                if( p_formats[i].bits_per_pixel / 8
-                        > (int)p_vout->p_sys->i_bytes_per_pixel )
-                {
-                    p_vout->p_sys->i_bytes_per_pixel =
-                        p_formats[i].bits_per_pixel / 8;
-                }
-            }
-        }
-        if( p_formats ) XFree( p_formats );
-
-        break;
-    }
-    p_vout->p_sys->p_visual = p_xvisual->visual;
-    XFree( p_xvisual );
-#endif
-
     return VLC_SUCCESS;
 }
 
@@ -2861,15 +2072,9 @@ IMAGE_TYPE * CreateShmImage( vout_thread_t *p_vout,
     Status result;
 
     /* Create XImage / XvImage */
-#ifdef MODULE_NAME_IS_xvideo
+#if defined(MODULE_NAME_IS_xvmc)
     p_image = XvShmCreateImage( p_display, i_xvport, i_chroma, 0,
                                 i_width, i_height, p_shm );
-#elif defined(MODULE_NAME_IS_xvmc)
-    p_image = XvShmCreateImage( p_display, i_xvport, i_chroma, 0,
-                                i_width, i_height, p_shm );
-#else
-    p_image = XShmCreateImage( p_display, p_visual, i_depth, ZPixmap, 0,
-                               p_shm, i_width, i_height );
 #endif
     if( p_image == NULL )
     {
@@ -2891,9 +2096,8 @@ IMAGE_TYPE * CreateShmImage( vout_thread_t *p_vout,
         return NULL;
     }
 
-    /* Allocate shared memory segment - 0776 set the access permission
-     * rights (like umask), they are not yet supported by all X servers */
-    p_shm->shmid = shmget( IPC_PRIVATE, DATA_SIZE(p_image), IPC_CREAT | 0776 );
+    /* Allocate shared memory segment. */
+    p_shm->shmid = shmget( IPC_PRIVATE, DATA_SIZE(p_image), IPC_CREAT | 0600 );
     if( p_shm->shmid < 0 )
     {
         msg_Err( p_vout, "cannot allocate shared image data (%m)" );
@@ -2943,67 +2147,6 @@ IMAGE_TYPE * CreateShmImage( vout_thread_t *p_vout,
 }
 #endif
 
-/*****************************************************************************
- * CreateImage: create an XImage or XvImage
- *****************************************************************************
- * Create a simple image used as a buffer.
- *****************************************************************************/
-static IMAGE_TYPE * CreateImage( vout_thread_t *p_vout,
-                                 Display *p_display, EXTRA_ARGS,
-                                 int i_width, int i_height )
-{
-    uint8_t *    p_data;                          /* image data storage zone */
-    IMAGE_TYPE *p_image;
-#ifdef MODULE_NAME_IS_x11
-    int         i_quantum;                     /* XImage quantum (see below) */
-    int         i_bytes_per_line;
-#endif
-
-    /* Allocate memory for image */
-#ifdef MODULE_NAME_IS_xvideo
-    p_data = malloc( i_width * i_height * i_bits_per_pixel / 8 );
-#elif defined(MODULE_NAME_IS_x11)
-    i_bytes_per_line = i_width * i_bytes_per_pixel;
-    p_data = malloc( i_bytes_per_line * i_height );
-#endif
-    if( !p_data )
-        return NULL;
-
-#ifdef MODULE_NAME_IS_x11
-    /* Optimize the quantum of a scanline regarding its size - the quantum is
-       a diviser of the number of bits between the start of two scanlines. */
-    if( i_bytes_per_line & 0xf )
-    {
-        i_quantum = 0x8;
-    }
-    else if( i_bytes_per_line & 0x10 )
-    {
-        i_quantum = 0x10;
-    }
-    else
-    {
-        i_quantum = 0x20;
-    }
-#endif
-
-    /* Create XImage. p_data will be automatically freed */
-#ifdef MODULE_NAME_IS_xvideo
-    p_image = XvCreateImage( p_display, i_xvport, i_chroma,
-                             (char *)p_data, i_width, i_height );
-#elif defined(MODULE_NAME_IS_x11)
-    p_image = XCreateImage( p_display, p_visual, i_depth, ZPixmap, 0,
-                            (char *)p_data, i_width, i_height, i_quantum, 0 );
-#endif
-    if( p_image == NULL )
-    {
-        msg_Err( p_vout, "XCreateImage() failed" );
-        free( p_data );
-        return NULL;
-    }
-
-    return p_image;
-}
-
 #endif
 /*****************************************************************************
  * X11ErrorHandler: replace error handler so we can intercept some of them
@@ -3038,260 +2181,33 @@ static int X11ErrorHandler( Display * display, XErrorEvent * event )
     }
 #endif
 
-#ifndef HAVE_OSSO
     XSetErrorHandler(NULL);
     return (XSetErrorHandler(X11ErrorHandler))( display, event );
-#else
-    /* Work-around Maemo Xvideo bug */
-    return 0;
-#endif
 }
-
-#ifdef MODULE_NAME_IS_x11
-/*****************************************************************************
- * SetPalette: sets an 8 bpp palette
- *****************************************************************************
- * This function sets the palette given as an argument. It does not return
- * anything, but could later send information on which colors it was unable
- * to set.
- *****************************************************************************/
-static void SetPalette( vout_thread_t *p_vout,
-                        uint16_t *red, uint16_t *green, uint16_t *blue )
-{
-    int i;
-    XColor p_colors[255];
-
-    /* allocate palette */
-    for( i = 0; i < 255; i++ )
-    {
-        /* kludge: colors are indexed reversely because color 255 seems
-         * to be reserved for black even if we try to set it to white */
-        p_colors[ i ].pixel = 255 - i;
-        p_colors[ i ].pad   = 0;
-        p_colors[ i ].flags = DoRed | DoGreen | DoBlue;
-        p_colors[ i ].red   = red[ 255 - i ];
-        p_colors[ i ].blue  = blue[ 255 - i ];
-        p_colors[ i ].green = green[ 255 - i ];
-    }
-
-    XStoreColors( p_vout->p_sys->p_display,
-                  p_vout->p_sys->colormap, p_colors, 255 );
-}
-#endif
 
 /*****************************************************************************
  * Control: control facility for the vout
  *****************************************************************************/
 static int Control( vout_thread_t *p_vout, int i_query, va_list args )
 {
-    bool b_arg;
     unsigned int i_width, i_height;
 
     switch( i_query )
     {
         case VOUT_SET_SIZE:
-            if( p_vout->p_sys->p_win->owner_window )
-                return vout_ControlWindow( p_vout->p_sys->p_win->owner_window,
-                                           i_query, args);
-
             i_width  = va_arg( args, unsigned int );
             i_height = va_arg( args, unsigned int );
             if( !i_width ) i_width = p_vout->i_window_width;
             if( !i_height ) i_height = p_vout->i_window_height;
 
-#ifdef MODULE_NAME_IS_xvmc
-            xvmc_context_reader_lock( &p_vout->p_sys->xvmc_lock );
-#endif
-            /* Update dimensions */
-            XResizeWindow( p_vout->p_sys->p_display,
-                           p_vout->p_sys->p_win->base_window,
-                           i_width, i_height );
-#ifdef MODULE_NAME_IS_xvmc
-            xvmc_context_reader_unlock( &p_vout->p_sys->xvmc_lock );
-#endif
-            return VLC_SUCCESS;
+            return vout_window_SetSize( p_vout->p_sys->window.owner_window,
+                                        i_width, i_height);
 
         case VOUT_SET_STAY_ON_TOP:
-            if( p_vout->p_sys->p_win->owner_window )
-                return vout_ControlWindow( p_vout->p_sys->p_win->owner_window,
-                                           i_query, args);
-
-            b_arg = (bool) va_arg( args, int );
-#ifdef MODULE_NAME_IS_xvmc
-            xvmc_context_reader_lock( &p_vout->p_sys->xvmc_lock );
-#endif
-            WindowOnTop( p_vout, b_arg );
-#ifdef MODULE_NAME_IS_xvmc
-            xvmc_context_reader_unlock( &p_vout->p_sys->xvmc_lock );
-#endif
-            return VLC_SUCCESS;
+            return vout_window_SetOnTop( p_vout->p_sys->window.owner_window,
+                                         va_arg( args, int ) );
 
        default:
             return VLC_EGENERIC;
     }
-}
-
-/*****************************************************************************
- * TestNetWMSupport: tests for Extended Window Manager Hints support
- *****************************************************************************/
-static void TestNetWMSupport( vout_thread_t *p_vout )
-{
-    int i_ret, i_format;
-    unsigned long i, i_items, i_bytesafter;
-    Atom net_wm_supported;
-    union { Atom *p_atom; unsigned char *p_char; } p_args;
-
-    p_args.p_atom = NULL;
-
-    p_vout->p_sys->b_net_wm_state_fullscreen =
-    p_vout->p_sys->b_net_wm_state_above =
-    p_vout->p_sys->b_net_wm_state_below =
-    p_vout->p_sys->b_net_wm_state_stays_on_top =
-        false;
-
-    net_wm_supported =
-        XInternAtom( p_vout->p_sys->p_display, "_NET_SUPPORTED", False );
-
-    i_ret = XGetWindowProperty( p_vout->p_sys->p_display,
-                                DefaultRootWindow( p_vout->p_sys->p_display ),
-                                net_wm_supported,
-                                0, 16384, False, AnyPropertyType,
-                                &net_wm_supported,
-                                &i_format, &i_items, &i_bytesafter,
-                                (unsigned char **)&p_args );
-
-    if( i_ret != Success || i_items == 0 ) return;
-
-    msg_Dbg( p_vout, "Window manager supports NetWM" );
-
-    p_vout->p_sys->net_wm_state =
-        XInternAtom( p_vout->p_sys->p_display, "_NET_WM_STATE", False );
-    p_vout->p_sys->net_wm_state_fullscreen =
-        XInternAtom( p_vout->p_sys->p_display, "_NET_WM_STATE_FULLSCREEN",
-                     False );
-    p_vout->p_sys->net_wm_state_above =
-        XInternAtom( p_vout->p_sys->p_display, "_NET_WM_STATE_ABOVE", False );
-    p_vout->p_sys->net_wm_state_below =
-        XInternAtom( p_vout->p_sys->p_display, "_NET_WM_STATE_BELOW", False );
-    p_vout->p_sys->net_wm_state_stays_on_top =
-        XInternAtom( p_vout->p_sys->p_display, "_NET_WM_STATE_STAYS_ON_TOP",
-                     False );
-
-    for( i = 0; i < i_items; i++ )
-    {
-        if( p_args.p_atom[i] == p_vout->p_sys->net_wm_state_fullscreen )
-        {
-            msg_Dbg( p_vout,
-                     "Window manager supports _NET_WM_STATE_FULLSCREEN" );
-            p_vout->p_sys->b_net_wm_state_fullscreen = true;
-        }
-        else if( p_args.p_atom[i] == p_vout->p_sys->net_wm_state_above )
-        {
-            msg_Dbg( p_vout, "Window manager supports _NET_WM_STATE_ABOVE" );
-            p_vout->p_sys->b_net_wm_state_above = true;
-        }
-        else if( p_args.p_atom[i] == p_vout->p_sys->net_wm_state_below )
-        {
-            msg_Dbg( p_vout, "Window manager supports _NET_WM_STATE_BELOW" );
-            p_vout->p_sys->b_net_wm_state_below = true;
-        }
-        else if( p_args.p_atom[i] == p_vout->p_sys->net_wm_state_stays_on_top )
-        {
-            msg_Dbg( p_vout,
-                     "Window manager supports _NET_WM_STATE_STAYS_ON_TOP" );
-            p_vout->p_sys->b_net_wm_state_stays_on_top = true;
-        }
-    }
-
-    XFree( p_args.p_atom );
-}
-
-/*****************************************************************************
- * Key events handling
- *****************************************************************************/
-static const struct
-{
-    int i_x11key;
-    int i_vlckey;
-
-} x11keys_to_vlckeys[] =
-{
-    { XK_F1, KEY_F1 }, { XK_F2, KEY_F2 }, { XK_F3, KEY_F3 }, { XK_F4, KEY_F4 },
-    { XK_F5, KEY_F5 }, { XK_F6, KEY_F6 }, { XK_F7, KEY_F7 }, { XK_F8, KEY_F8 },
-    { XK_F9, KEY_F9 }, { XK_F10, KEY_F10 }, { XK_F11, KEY_F11 },
-    { XK_F12, KEY_F12 },
-
-    { XK_Return, KEY_ENTER },
-    { XK_KP_Enter, KEY_ENTER },
-    { XK_space, KEY_SPACE },
-    { XK_Escape, KEY_ESC },
-
-    { XK_Menu, KEY_MENU },
-    { XK_Left, KEY_LEFT },
-    { XK_Right, KEY_RIGHT },
-    { XK_Up, KEY_UP },
-    { XK_Down, KEY_DOWN },
-
-    { XK_Home, KEY_HOME },
-    { XK_End, KEY_END },
-    { XK_Page_Up, KEY_PAGEUP },
-    { XK_Page_Down, KEY_PAGEDOWN },
-
-    { XK_Insert, KEY_INSERT },
-    { XK_Delete, KEY_DELETE },
-    { XF86XK_AudioNext, KEY_MEDIA_NEXT_TRACK},
-    { XF86XK_AudioPrev, KEY_MEDIA_PREV_TRACK},
-    { XF86XK_AudioMute, KEY_VOLUME_MUTE },
-    { XF86XK_AudioLowerVolume, KEY_VOLUME_DOWN },
-    { XF86XK_AudioRaiseVolume, KEY_VOLUME_UP },
-    { XF86XK_AudioPlay, KEY_MEDIA_PLAY_PAUSE },
-    { XF86XK_AudioPause, KEY_MEDIA_PLAY_PAUSE },
-
-    { 0, 0 }
-};
-
-static int ConvertKey( int i_key )
-{
-    int i;
-
-    for( i = 0; x11keys_to_vlckeys[i].i_x11key != 0; i++ )
-    {
-        if( x11keys_to_vlckeys[i].i_x11key == i_key )
-        {
-            return x11keys_to_vlckeys[i].i_vlckey;
-        }
-    }
-
-    return 0;
-}
-
-/*****************************************************************************
- * WindowOnTop: Switches the "always on top" state of the video window.
- *****************************************************************************/
-static int WindowOnTop( vout_thread_t *p_vout, bool b_on_top )
-{
-    XClientMessageEvent event;
-
-    memset( &event, 0, sizeof( XClientMessageEvent ) );
-    event.type = ClientMessage;
-    event.message_type = p_vout->p_sys->net_wm_state;
-    event.display = p_vout->p_sys->p_display;
-    event.window = p_vout->p_sys->p_win->base_window;
-    event.format = 32;
-    event.data.l[ 0 ] = b_on_top; /* set property */
-
-    if( p_vout->p_sys->b_net_wm_state_stays_on_top )
-        event.data.l[ 1 ] = p_vout->p_sys->net_wm_state_stays_on_top;
-    else if( p_vout->p_sys->b_net_wm_state_above )
-        /* use _NET_WM_STATE_ABOVE if window manager
-         * doesn't handle _NET_WM_STATE_STAYS_ON_TOP */
-        event.data.l[ 1 ] = p_vout->p_sys->net_wm_state_above;
-    else
-        return VLC_EGENERIC;
-
-    XSendEvent( p_vout->p_sys->p_display,
-                DefaultRootWindow( p_vout->p_sys->p_display ),
-                False, SubstructureRedirectMask,
-                (XEvent*)&event );
-    return VLC_SUCCESS;
 }

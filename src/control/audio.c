@@ -22,12 +22,20 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#include "libvlc_internal.h"
-#include <vlc/libvlc.h>
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
 
+#include <vlc/libvlc.h>
+#include <vlc/libvlc_media.h>
+#include <vlc/libvlc_media_player.h>
+
+#include <vlc_common.h>
 #include <vlc_input.h>
 #include <vlc_aout.h>
 
+#include "libvlc_internal.h"
+#include "media_player_internal.h"
 
 /*
  * Remember to release the returned aout_instance_t since it is locked at
@@ -44,7 +52,8 @@ static aout_instance_t *GetAOut( libvlc_instance_t *p_instance,
     p_aout = vlc_object_find( p_instance->p_libvlc_int, VLC_OBJECT_AOUT, FIND_CHILD );
     if( !p_aout )
     {
-        libvlc_exception_raise( p_exception, "No active audio output" );
+        libvlc_exception_raise( p_exception );
+        libvlc_printerr( "No active audio output" );
         return NULL;
     }
 
@@ -54,7 +63,7 @@ static aout_instance_t *GetAOut( libvlc_instance_t *p_instance,
 /*****************************************
  * Get the list of available audio outputs
  *****************************************/
-VLC_PUBLIC_API libvlc_audio_output_t *
+libvlc_audio_output_t *
         libvlc_audio_output_list_get( libvlc_instance_t *p_instance,
                                       libvlc_exception_t *p_e )
 {
@@ -76,7 +85,8 @@ VLC_PUBLIC_API libvlc_audio_output_t *
                     malloc( sizeof( libvlc_audio_output_t ) );
                 if( p_actual == NULL )
                 {
-                    libvlc_exception_raise( p_e, "Not enough memory" );
+                    libvlc_exception_raise( p_e );
+                    libvlc_printerr( "Not enough memory" );
                     libvlc_audio_output_list_release( p_list );
                     module_list_free( module_list );
                     return NULL;
@@ -105,7 +115,7 @@ VLC_PUBLIC_API libvlc_audio_output_t *
 /********************************************
  * Free the list of available audio outputs
  ***********************************************/
-VLC_PUBLIC_API void libvlc_audio_output_list_release( libvlc_audio_output_t *p_list )
+void libvlc_audio_output_list_release( libvlc_audio_output_t *p_list )
 {
     libvlc_audio_output_t *p_actual, *p_before;
     p_actual = p_list;
@@ -124,7 +134,7 @@ VLC_PUBLIC_API void libvlc_audio_output_list_release( libvlc_audio_output_t *p_l
 /***********************
  * Set the audio output.
  ***********************/
-VLC_PUBLIC_API int libvlc_audio_output_set( libvlc_instance_t *p_instance,
+int libvlc_audio_output_set( libvlc_instance_t *p_instance,
                                             const char *psz_name )
 {
     if( module_exists( psz_name ) )
@@ -142,7 +152,7 @@ VLC_PUBLIC_API int libvlc_audio_output_set( libvlc_instance_t *p_instance,
 int libvlc_audio_output_device_count( libvlc_instance_t *p_instance,
                                       const char *psz_audio_output )
 {
-    char *psz_config_name = NULL;
+    char *psz_config_name;
     if( !psz_audio_output )
         return 0;
     if( asprintf( &psz_config_name, "%s-audio-device", psz_audio_output ) == -1 )
@@ -163,10 +173,8 @@ int libvlc_audio_output_device_count( libvlc_instance_t *p_instance,
 
         return p_module_config->i_list;
     }
-    else
-        free( psz_config_name );
 
-
+    free( psz_config_name );
     return 0;
 }
 
@@ -177,7 +185,7 @@ char * libvlc_audio_output_device_longname( libvlc_instance_t *p_instance,
                                             const char *psz_audio_output,
                                             int i_device )
 {
-    char *psz_config_name = NULL;
+    char *psz_config_name;
     if( !psz_audio_output )
         return NULL;
     if( asprintf( &psz_config_name, "%s-audio-device", psz_audio_output ) == -1 )
@@ -208,9 +216,8 @@ char * libvlc_audio_output_device_longname( libvlc_instance_t *p_instance,
                 return strdup( p_module_config->ppsz_list[i_device] );
         }
     }
-    else
-        free( psz_config_name );
 
+    free( psz_config_name );
     return NULL;
 }
 
@@ -221,7 +228,7 @@ char * libvlc_audio_output_device_id( libvlc_instance_t *p_instance,
                                       const char *psz_audio_output,
                                       int i_device )
 {
-    char *psz_config_name = NULL;
+    char *psz_config_name;
     if( !psz_audio_output )
         return NULL;
     if( asprintf( &psz_config_name, "%s-audio-device", psz_audio_output ) == -1)
@@ -248,16 +255,15 @@ char * libvlc_audio_output_device_id( libvlc_instance_t *p_instance,
             return strdup( p_module_config->ppsz_list[i_device] );
 
     }
-    else
-        free( psz_config_name );
 
+    free( psz_config_name );
     return NULL;
 }
 
 /*****************************
  * Set device for using
  *****************************/
-VLC_PUBLIC_API void libvlc_audio_output_device_set( libvlc_instance_t *p_instance,
+void libvlc_audio_output_device_set( libvlc_instance_t *p_instance,
                                                     const char *psz_audio_output,
                                                     const char *psz_device_id )
 {
@@ -279,13 +285,10 @@ int libvlc_audio_output_get_device_type( libvlc_instance_t *p_instance,
     aout_instance_t *p_aout = GetAOut( p_instance, p_e );
     if( p_aout )
     {
-        vlc_value_t val;
-
-        var_Get( p_aout, "audio-device", &val );
+        int i_device_type = var_GetInteger( p_aout, "audio-device" );
         vlc_object_release( p_aout );
-        return val.i_int;
+        return i_device_type;
     }
-    libvlc_exception_raise( p_e, "Unable to get audio output" );
     return libvlc_AudioOutputDevice_Error;
 }
 
@@ -297,48 +300,42 @@ void libvlc_audio_output_set_device_type( libvlc_instance_t *p_instance,
                                           libvlc_exception_t *p_e )
 {
     aout_instance_t *p_aout = GetAOut( p_instance, p_e );
-    if( p_aout )
+    if( !p_aout )
+        return;
+    if( var_SetInteger( p_aout, "audio-device", device_type ) < 0 )
     {
-        if( var_SetInteger( p_aout, "audio-device", device_type ) < 0 )
-            libvlc_exception_raise( p_e, "Failed setting audio device" );
-        vlc_object_release( p_aout );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Error setting audio device" );
     }
+    vlc_object_release( p_aout );
 }
 
 /*****************************************************************************
  * libvlc_audio_get_mute : Get the volume state, true if muted
  *****************************************************************************/
-void libvlc_audio_toggle_mute( libvlc_instance_t *p_instance,
-                               libvlc_exception_t *p_e )
+void libvlc_audio_toggle_mute( libvlc_instance_t *p_instance )
 {
-    VLC_UNUSED(p_e);
-
-    aout_VolumeMute( p_instance->p_libvlc_int, NULL );
+    aout_ToggleMute( p_instance->p_libvlc_int, NULL );
 }
 
-int libvlc_audio_get_mute( libvlc_instance_t *p_instance,
-                           libvlc_exception_t *p_e )
+int libvlc_audio_get_mute( libvlc_instance_t *p_instance )
 {
-    return (libvlc_audio_get_volume(p_instance, p_e) == 0);
+    return (libvlc_audio_get_volume(p_instance) == 0);
 }
 
-void libvlc_audio_set_mute( libvlc_instance_t *p_instance, int mute,
-                            libvlc_exception_t *p_e )
+void libvlc_audio_set_mute( libvlc_instance_t *p_instance, int mute )
 {
-    if ( mute ^ libvlc_audio_get_mute( p_instance, p_e ) )
+    if ( !mute != !libvlc_audio_get_mute( p_instance ) )
     {
-        aout_VolumeMute( p_instance->p_libvlc_int, NULL );
+        aout_ToggleMute( p_instance->p_libvlc_int, NULL );
     }
 }
 
 /*****************************************************************************
  * libvlc_audio_get_volume : Get the current volume (range 0-200 %)
  *****************************************************************************/
-int libvlc_audio_get_volume( libvlc_instance_t *p_instance,
-                             libvlc_exception_t *p_e )
+int libvlc_audio_get_volume( libvlc_instance_t *p_instance )
 {
-    VLC_UNUSED(p_e);
-
     audio_volume_t i_volume;
 
     aout_VolumeGet( p_instance->p_libvlc_int, &i_volume );
@@ -361,7 +358,8 @@ void libvlc_audio_set_volume( libvlc_instance_t *p_instance, int i_volume,
     }
     else
     {
-        libvlc_exception_raise( p_e, "Volume out of range" );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Volume out of range" );
     }
 }
 
@@ -403,18 +401,17 @@ int libvlc_audio_get_track( libvlc_media_player_t *p_mi,
     vlc_value_t val_list;
     vlc_value_t val;
     int i_track = -1;
-    int i_ret = -1;
     int i;
 
     if( !p_input_thread )
         return -1;
 
-    i_ret = var_Get( p_input_thread, "audio-es", &val );
-    if( i_ret < 0 )
+    if( var_Get( p_input_thread, "audio-es", &val ) < 0 )
     {
-        libvlc_exception_raise( p_e, "Getting Audio track information failed" );
         vlc_object_release( p_input_thread );
-        return i_ret;
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Audio track information not found" );
+        return -1;
     }
 
     var_Change( p_input_thread, "audio-es", VLC_VAR_GETCHOICES, &val_list, NULL );
@@ -446,16 +443,20 @@ void libvlc_audio_set_track( libvlc_media_player_t *p_mi, int i_track,
         return;
 
     var_Change( p_input_thread, "audio-es", VLC_VAR_GETCHOICES, &val_list, NULL );
-    if( (i_track < 0) && (i_track > val_list.p_list->i_count) )
+    if( (i_track < 0) || (i_track > val_list.p_list->i_count) )
     {
-        libvlc_exception_raise( p_e, "Audio track out of range" );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Audio track out of range" );
         goto end;
     }
 
     newval = val_list.p_list->p_values[i_track];
     i_ret = var_Set( p_input_thread, "audio-es", newval );
     if( i_ret < 0 )
-        libvlc_exception_raise( p_e, "Setting audio track failed" );
+    {
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Audio track out of range" ); /* Race... */
+    }
 
 end:
     var_FreeList( &val_list, NULL );
@@ -469,16 +470,12 @@ int libvlc_audio_get_channel( libvlc_instance_t *p_instance,
                               libvlc_exception_t *p_e )
 {
     aout_instance_t *p_aout = GetAOut( p_instance, p_e );
-    if( p_aout )
-    {
-        vlc_value_t val;
+    if( !p_aout )
+        return 0;
 
-        var_Get( p_aout, "audio-channels", &val );
-        vlc_object_release( p_aout );
-        return val.i_int;
-    }
-    libvlc_exception_raise( p_e, "Unable to get audio output" );
-    return libvlc_AudioChannel_Error;
+    int val = var_GetInteger( p_aout, "audio-channels" );
+    vlc_object_release( p_aout );
+    return val;
 }
 
 /*****************************************************************************
@@ -489,17 +486,13 @@ void libvlc_audio_set_channel( libvlc_instance_t *p_instance,
                                libvlc_exception_t *p_e )
 {
     aout_instance_t *p_aout = GetAOut( p_instance, p_e );
-    if( p_aout )
+    if( !p_aout )
+        return;
+
+    if( var_SetInteger( p_aout, "audio-channels", channel ) < 0 )
     {
-        vlc_value_t val;
-        int i_ret = -1;
-
-        val.i_int = channel;
-        i_ret = var_Set( p_aout, "audio-channels", val );
-        if( i_ret < 0 )
-            libvlc_exception_raise( p_e, "Failed setting audio channel" );
-
-        vlc_object_release( p_aout );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Audio channel out of range" );
     }
-
+    vlc_object_release( p_aout );
 }

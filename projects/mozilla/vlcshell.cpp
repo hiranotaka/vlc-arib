@@ -47,12 +47,10 @@
 /* Enable/disable debugging printf's for X11 resizing */
 #undef X11_RESIZE_DEBUG
 
-#define WINDOW_TEXT "Waiting for video"
-
 /*****************************************************************************
  * Unix-only declarations
 ******************************************************************************/
-#ifdef XP_UNIX
+#if defined(XP_UNIX)
 
 static void Redraw( Widget w, XtPointer closure, XEvent *event );
 static void ControlHandler( Widget w, XtPointer closure, XEvent *event );
@@ -201,19 +199,23 @@ int16 NPP_HandleEvent( NPP instance, void * event )
             const NPWindow& npwindow = p_plugin->getWindow();
             if( npwindow.window )
             {
-                int hasVout = FALSE;
+                bool hasVout = false;
 
                 if( p_plugin->playlist_isplaying(&ex) )
                 {
                     hasVout = p_plugin->player_has_vout(NULL);
                     if( hasVout )
                     {
+#ifdef NOT_WORKING
                         libvlc_rectangle_t area;
                         area.left = 0;
                         area.top = 0;
                         area.right = npwindow.width;
                         area.bottom = npwindow.height;
                         libvlc_video_redraw_rectangle(p_plugin->getMD(&ex), &area, NULL);
+#else
+#warning disabled code
+#endif
                     }
                 }
                 libvlc_exception_clear(&ex);
@@ -239,7 +241,8 @@ int16 NPP_HandleEvent( NPP instance, void * event )
 
                     ForeColor(whiteColor);
                     MoveTo( (npwindow.width-80)/ 2  , npwindow.height / 2 );
-                    DrawText( WINDOW_TEXT , 0 , strlen(WINDOW_TEXT) );
+                    if( p_plugin->psz_text )
+                        DrawText( p_plugin->psz_text, 0, strlen(p_plugin->psz_text) );
                 }
             }
             return true;
@@ -337,6 +340,16 @@ NPError NPP_Destroy( NPP instance, NPSavedData** save )
     }
 #endif
 
+    libvlc_exception_t ex;
+    libvlc_exception_init(&ex);
+    int val = p_plugin->playlist_isplaying(&ex);
+    libvlc_exception_clear(&ex);
+    if(val)
+    {
+        p_plugin->playlist_stop(&ex);
+        libvlc_exception_clear(&ex);
+    }
+
     delete p_plugin;
 
     return NPERR_NO_ERROR;
@@ -344,7 +357,7 @@ NPError NPP_Destroy( NPP instance, NPSavedData** save )
 
 NPError NPP_SetWindow( NPP instance, NPWindow* window )
 {
-#if defined(XP_UNIX) && !defined(__APPLE__)
+#if defined(XP_UNIX)
     Window control;
     unsigned int i_control_height = 0, i_control_width = 0;
 #endif
@@ -362,7 +375,7 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
         return NPERR_NO_ERROR;
     }
 
-#if defined(XP_UNIX) && !defined(__APPLE__)
+#if defined(XP_UNIX)
     control = p_plugin->getControlWindow();
 #endif
 
@@ -406,10 +419,12 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
         clip.left    = window->clipRect.left;
         clip.bottom  = window->clipRect.bottom;
         clip.right   = window->clipRect.right;
-
+#ifdef NOT_WORKING
         libvlc_video_set_viewport(p_vlc, p_plugin->getMD(&ex), &view, &clip, &ex);
         libvlc_exception_clear(&ex);
-
+#else
+#warning disabled code
+#endif        
         /* remember new window */
         p_plugin->setWindow(*window);
     }
@@ -467,7 +482,7 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
     }
 #endif /* XP_WIN */
 
-#ifdef XP_UNIX
+#if defined(XP_UNIX)
     /* default to hidden toolbar, shown at the end of this method if asked *
      * developers note : getToolbarSize need to wait the end of this method
      */
@@ -544,7 +559,8 @@ NPError NPP_SetWindow( NPP instance, NPWindow* window )
             {
                 if( p_plugin->b_autoplay )
                 {
-                    p_plugin->playlist_play(NULL);
+                    p_plugin->playlist_play(&ex);
+                    libvlc_exception_clear(&ex);
                 }
             }
             p_plugin->b_stream = true;
@@ -730,8 +746,9 @@ static LRESULT CALLBACK Manage( HWND p_hwnd, UINT i_msg, WPARAM wpar, LPARAM lpa
             FillRect( hdc, &rect, (HBRUSH)GetStockObject(BLACK_BRUSH) );
             SetTextColor(hdc, RGB(255, 255, 255));
             SetBkColor(hdc, RGB(0, 0, 0));
-            DrawText( hdc, WINDOW_TEXT, strlen(WINDOW_TEXT), &rect,
-                      DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            if( p_plugin->psz_text )
+                DrawText( hdc, p_plugin->psz_text, strlen(p_plugin->psz_text), &rect,
+                          DT_CENTER|DT_VCENTER|DT_SINGLELINE);
 
             EndPaint( p_hwnd, &paintstruct );
             return 0L;
@@ -747,7 +764,7 @@ static LRESULT CALLBACK Manage( HWND p_hwnd, UINT i_msg, WPARAM wpar, LPARAM lpa
 /******************************************************************************
  * UNIX-only methods
  *****************************************************************************/
-#ifdef XP_UNIX
+#if defined(XP_UNIX)
 static void Redraw( Widget w, XtPointer closure, XEvent *event )
 {
     VlcPlugin* p_plugin = reinterpret_cast<VlcPlugin*>(closure);
@@ -774,9 +791,10 @@ static void Redraw( Widget w, XtPointer closure, XEvent *event )
     gcv.foreground = WhitePixel( p_display, 0 );
     XChangeGC( p_display, gc, GCForeground, &gcv );
 
-    XDrawString( p_display, video, gc,
-                 window.width / 2 - 40, (window.height - i_control_height) / 2,
-                 WINDOW_TEXT, strlen(WINDOW_TEXT) );
+    if( p_plugin->psz_text )
+        XDrawString( p_display, video, gc,
+                     window.width / 2 - 40, (window.height - i_control_height) / 2,
+                     p_plugin->psz_text, strlen(p_plugin->psz_text) );
     XFreeGC( p_display, gc );
 
     p_plugin->redrawToolbar();
@@ -837,8 +855,7 @@ static void ControlHandler( Widget w, XtPointer closure, XEvent *event )
             case clicked_Mute:
             case clicked_Unmute:
             {
-                libvlc_audio_toggle_mute( p_plugin->getVLC(), &ex );
-                libvlc_exception_clear( &ex );
+                libvlc_audio_toggle_mute( p_plugin->getVLC() );
             }
             break;
 

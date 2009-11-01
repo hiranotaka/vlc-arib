@@ -40,9 +40,8 @@ ErrorsDialog::ErrorsDialog( QWidget *parent, intf_thread_t *_p_intf )
              : QVLCDialog( parent, _p_intf )
 {
     setWindowTitle( qtr( "Errors" ) );
+    setWindowRole( "vlc-errors" );
     resize( 500 , 300 );
-
-    setWindowModality( Qt::ApplicationModal );
 
     QGridLayout *layout = new QGridLayout( this );
 

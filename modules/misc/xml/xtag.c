@@ -33,9 +33,9 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 
-#include "vlc_xml.h"
-#include "vlc_block.h"
-#include "vlc_stream.h"
+#include <vlc_xml.h>
+#include <vlc_block.h>
+#include <vlc_stream.h>
 
 #include <ctype.h>
 #include <stdarg.h>
@@ -361,13 +361,12 @@ static XList *xlist_append( XList *list, void *data )
     if( !list )
         return l;
 
-    for( last = list; last; last = last->next )
-    {
-        if( !last->next )
-            break;
-    }
+    /* Find the last element */
+    last = list;
+    while( last->next )
+        last = last->next;
 
-    if( last ) last->next = l;
+    last->next = l;
     l->prev = last;
     return list;
 }
@@ -628,7 +627,7 @@ static XTag *xtag_parse_tag( XTagParser *parser )
             !strncmp( s, "<!DOCTYPE", 9 ) ) {
         xi = xtag_index( parser, X_CLOSETAG );
         if ( xi > 0 ) {
-            parser->start = s = &s[xi+1];
+            parser->start = &s[xi+1];
             xtag_skip_whitespace( parser );
             return xtag_parse_tag( parser );
         }
@@ -668,7 +667,7 @@ static XTag *xtag_parse_tag( XTagParser *parser )
                 }
                 strncpy( pcdata, parser->start, s - parser->start );
                 pcdata[s - parser->start]='\0';
-                parser->start = s = &s[3];
+                parser->start = &s[3];
                 tag->name = NULL;
                 tag->pcdata = pcdata;
                 tag->parent = parser->current_tag;

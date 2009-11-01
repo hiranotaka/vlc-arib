@@ -35,6 +35,10 @@
 #include <vlc_dialog.h>
 #include <vlc_aout.h>
 
+// By pass part of header which compile with some warnings,
+// and that we don't require.
+#define __MACHINEEXCEPTIONS__
+
 #include <CoreAudio/CoreAudio.h>
 #include <AudioUnit/AudioUnitProperties.h>
 #include <AudioUnit/AudioUnitParameters.h>
@@ -243,7 +247,7 @@ static int Open( vlc_object_t * p_this )
     if( p_sys->i_hog_pid != -1 && p_sys->i_hog_pid != getpid() )
     {
         msg_Err( p_aout, "Selected audio device is exclusively in use by another program." );
-        dialog_Fatal( p_aout, _("Audio output failed"),
+        dialog_Fatal( p_aout, _("Audio output failed"), "%s",
                         _("The selected audio output device is exclusively in "
                           "use by another program.") );
         goto error;
@@ -428,7 +432,7 @@ static int OpenAnalog( aout_instance_t *p_aout )
             {
                 p_aout->output.output.i_physical_channels = AOUT_CHAN_LEFT | AOUT_CHAN_RIGHT;
                 msg_Err( p_aout, "You should configure your speaker layout with Audio Midi Setup Utility in /Applications/Utilities. Now using Stereo mode." );
-                dialog_Fatal( p_aout, _("Audio device is not configured"),
+                dialog_Fatal( p_aout, _("Audio device is not configured"), "%s",
                                 _("You should configure your speaker layout with "
                                   "the \"Audio Midi Setup\" utility in /Applications/"
                                   "Utilities. Stereo mode is being used now.") );
@@ -904,6 +908,7 @@ static void Close( vlc_object_t * p_this )
  *****************************************************************************/
 static void Play( aout_instance_t * p_aout )
 {
+    VLC_UNUSED(p_aout);
 }
 
 
@@ -993,6 +998,7 @@ static void Probe( aout_instance_t * p_aout )
         if( !AudioDeviceHasOutput( p_devices[i]) )
         {
             msg_Dbg( p_aout, "this device is INPUT only. skipping..." );
+            free( psz_name );
             continue;
         }
 
@@ -1050,7 +1056,7 @@ static void Probe( aout_instance_t * p_aout )
     return;
 
 error:
-    var_Destroy( p_aout, "audio-device" );
+    msg_Warn( p_aout, "audio device already in use" );
     free( p_devices );
     return;
 }
@@ -1264,7 +1270,7 @@ static int AudioStreamChangeFormat( aout_instance_t *p_aout, AudioStreamID i_str
 static OSStatus RenderCallbackAnalog( vlc_object_t *_p_aout,
                                       AudioUnitRenderActionFlags *ioActionFlags,
                                       const AudioTimeStamp *inTimeStamp,
-                                      unsigned int inBusNummer,
+                                      unsigned int inBusNumber,
                                       unsigned int inNumberFrames,
                                       AudioBufferList *ioData )
 {
@@ -1274,6 +1280,10 @@ static OSStatus RenderCallbackAnalog( vlc_object_t *_p_aout,
 
     aout_instance_t * p_aout = (aout_instance_t *)_p_aout;
     struct aout_sys_t * p_sys = p_aout->output.p_sys;
+
+    VLC_UNUSED(ioActionFlags);
+    VLC_UNUSED(inBusNumber);
+    VLC_UNUSED(inNumberFrames);
 
     host_time.mFlags = kAudioTimeStampHostTimeValid;
     AudioDeviceTranslateTime( p_sys->i_selected_dev, inTimeStamp, &host_time );
@@ -1318,7 +1328,7 @@ static OSStatus RenderCallbackAnalog( vlc_object_t *_p_aout,
  
         if( p_buffer != NULL )
         {
-            uint32_t i_second_mData_bytes = __MIN( p_buffer->i_nb_bytes, ioData->mBuffers[0].mDataByteSize - i_mData_bytes );
+            uint32_t i_second_mData_bytes = __MIN( p_buffer->i_buffer, ioData->mBuffers[0].mDataByteSize - i_mData_bytes );
  
             vlc_memcpy( (uint8_t *)ioData->mBuffers[0].mData + i_mData_bytes,
                         p_buffer->p_buffer, i_second_mData_bytes );
@@ -1326,7 +1336,7 @@ static OSStatus RenderCallbackAnalog( vlc_object_t *_p_aout,
 
             if( i_mData_bytes >= ioData->mBuffers[0].mDataByteSize )
             {
-                p_sys->i_total_bytes = p_buffer->i_nb_bytes - i_second_mData_bytes;
+                p_sys->i_total_bytes = p_buffer->i_buffer - i_second_mData_bytes;
                 vlc_memcpy( p_sys->p_remainder_buffer,
                             &p_buffer->p_buffer[i_second_mData_bytes],
                             p_sys->i_total_bytes );
@@ -1366,6 +1376,10 @@ static OSStatus RenderCallbackSPDIF( AudioDeviceID inDevice,
     aout_instance_t * p_aout = (aout_instance_t *)threadGlobals;
     struct aout_sys_t * p_sys = p_aout->output.p_sys;
 
+    VLC_UNUSED(inDevice);
+    VLC_UNUSED(inInputData);
+    VLC_UNUSED(inInputTime);
+
     /* Check for the difference between the Device clock and mdate */
     p_sys->clock_diff = - (mtime_t)
         AudioConvertHostTimeToNanos( inNow->mHostTime ) / 1000;
@@ -1380,11 +1394,11 @@ static OSStatus RenderCallbackSPDIF( AudioDeviceID inDevice,
 #define BUFFER outOutputData->mBuffers[p_sys->i_stream_index]
     if( p_buffer != NULL )
     {
-        if( (int)BUFFER.mDataByteSize != (int)p_buffer->i_nb_bytes)
-            msg_Warn( p_aout, "bytesize: %d nb_bytes: %d", (int)BUFFER.mDataByteSize, (int)p_buffer->i_nb_bytes );
+        if( (int)BUFFER.mDataByteSize != (int)p_buffer->i_buffer)
+            msg_Warn( p_aout, "bytesize: %d nb_bytes: %d", (int)BUFFER.mDataByteSize, (int)p_buffer->i_buffer );
  
         /* move data into output data buffer */
-        vlc_memcpy( BUFFER.mData, p_buffer->p_buffer, p_buffer->i_nb_bytes );
+        vlc_memcpy( BUFFER.mData, p_buffer->p_buffer, p_buffer->i_buffer );
         aout_BufferFree( p_buffer );
     }
     else
@@ -1430,6 +1444,9 @@ static OSStatus StreamListener( AudioStreamID inStream,
 {
     OSStatus err = noErr;
     struct { vlc_mutex_t lock; vlc_cond_t cond; } * w = inClientData;
+
+    VLC_UNUSED(inStream);
+    VLC_UNUSED(inChannel);
  
     switch( inPropertyID )
     {

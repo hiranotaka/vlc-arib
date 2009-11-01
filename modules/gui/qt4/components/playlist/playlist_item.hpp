@@ -28,21 +28,15 @@
 # include "config.h"
 #endif
 
-#include "components/playlist/playlist_model.hpp"
-
-#include <QString>
 #include <QList>
 
-class QSettings;
-class PLModel;
 
 class PLItem
 {
     friend class PLModel;
 public:
-    PLItem( int, int, PLItem *parent , PLModel * );
-    PLItem( playlist_item_t *, PLItem *parent, PLModel * );
-    PLItem( playlist_item_t *, QSettings *, PLModel * );
+    PLItem( playlist_item_t *, PLItem *parent );
+    PLItem( playlist_item_t * );
     ~PLItem();
 
     int row() const;
@@ -50,34 +44,26 @@ public:
     void insertChild( PLItem *, int p, bool signal = true );
     void appendChild( PLItem *item, bool signal = true )
     {
-        insertChild( item, children.count(), signal );
+        children.insert( children.count(), item );
     };
-
-    void remove( PLItem *removed );
+    void removeChild( PLItem * );
+    void removeChildren();
+    void takeChildAt( int );
 
     PLItem *child( int row ) { return children.value( row ); };
     int childCount() const { return children.count(); };
 
     PLItem *parent() { return parentItem; };
-
-    QString columnString( int col ) { return item_col_strings.value( col ); };
-
-    void update( playlist_item_t *, bool );
+    input_item_t *inputItem() { return p_input; }
 
 protected:
     QList<PLItem*> children;
-    QList<QString> item_col_strings;
-    bool b_current;
-    int i_type;
     int i_id;
-    int i_input_id;
-    int i_showflags;
+    input_item_t *p_input;
 
 private:
-    void init( int, int, PLItem *, PLModel *, QSettings * );
-    void updateColumnHeaders();
+    void init( playlist_item_t *, PLItem * );
     PLItem *parentItem;
-    PLModel *model;
 };
 
 #endif

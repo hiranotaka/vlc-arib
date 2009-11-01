@@ -66,9 +66,9 @@ vlc_module_begin ()
     set_description( N_("Windows Service interface") )
     set_category( CAT_INTERFACE )
     set_subcategory( SUBCAT_INTERFACE_CONTROL )
-    add_bool( "ntservice-install", 0, NULL,
+    add_bool( "ntservice-install", false, NULL,
               INSTALL_TEXT, INSTALL_LONGTEXT, true )
-    add_bool( "ntservice-uninstall", 0, NULL,
+    add_bool( "ntservice-uninstall", false, NULL,
               UNINSTALL_TEXT, UNINSTALL_LONGTEXT, true )
     add_string ( "ntservice-name", VLCSERVICENAME, NULL,
                  NAME_TEXT, NAME_LONGTEXT, true )
@@ -125,10 +125,9 @@ void Close( vlc_object_t *p_this )
 static void Run( intf_thread_t *p_intf )
 {
     intf_sys_t sys;
-    intf_thread_t *p_extraintf;
     SERVICE_TABLE_ENTRY dispatchTable[] =
     {
-        { VLCSERVICENAME, &ServiceDispatch },
+        { (LPTSTR)VLCSERVICENAME, &ServiceDispatch },
         { NULL, NULL }
     };
 
@@ -309,26 +308,14 @@ static void WINAPI ServiceDispatch( DWORD numArgs, char **args )
 
         if( asprintf( &psz_temp, "%s,none", psz_module ) != -1 )
         {
-            intf_thread_t *p_new_intf;
-
             /* Try to create the interface */
-            p_new_intf = intf_Create( p_intf, psz_temp );
-            if( p_new_intf == NULL )
+            if( intf_Create( p_intf, psz_temp ) )
             {
                 msg_Err( p_intf, "interface \"%s\" initialization failed",
                          psz_temp );
                 free( psz_temp );
                 continue;
             }
-
-            /* Try to run the interface */
-            if( intf_RunThread( p_new_intf ) )
-            {
-                vlc_object_detach( p_new_intf );
-                vlc_object_release( p_new_intf );
-                msg_Err( p_intf, "interface \"%s\" cannot run", psz_temp );
-            }
-
             free( psz_temp );
         }
     }

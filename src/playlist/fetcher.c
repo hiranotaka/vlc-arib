@@ -25,10 +25,13 @@
 # include "config.h"
 #endif
 
+#include <assert.h>
+
 #include <vlc_common.h>
 #include <vlc_playlist.h>
 #include <vlc_stream.h>
 #include <limits.h>
+#include <vlc_art_finder.h>
 
 #include "art.h"
 #include "fetcher.h"
@@ -40,13 +43,11 @@
  *****************************************************************************/
 struct playlist_fetcher_t
 {
-    VLC_COMMON_MEMBERS;
-
     playlist_t      *p_playlist;
 
-    vlc_thread_t    thread;
     vlc_mutex_t     lock;
     vlc_cond_t      wait;
+    bool            b_live;
     int             i_art_policy;
     int             i_waiting;
     input_item_t    **pp_waiting;
@@ -62,61 +63,63 @@ static void *Thread( void * );
  *****************************************************************************/
 playlist_fetcher_t *playlist_fetcher_New( playlist_t *p_playlist )
 {
-    playlist_fetcher_t *p_fetcher =
-        vlc_custom_create( p_playlist, sizeof(*p_fetcher),
-                           VLC_OBJECT_GENERIC, "playlist fetcher" );
-
+    playlist_fetcher_t *p_fetcher = malloc( sizeof(*p_fetcher) );
     if( !p_fetcher )
         return NULL;
 
-    vlc_object_attach( p_fetcher, p_playlist );
     p_fetcher->p_playlist = p_playlist;
     vlc_mutex_init( &p_fetcher->lock );
     vlc_cond_init( &p_fetcher->wait );
+    p_fetcher->b_live = false;
     p_fetcher->i_waiting = 0;
     p_fetcher->pp_waiting = NULL;
     p_fetcher->i_art_policy = var_GetInteger( p_playlist, "album-art" );
     ARRAY_INIT( p_fetcher->albums );
 
-    if( vlc_clone( &p_fetcher->thread, Thread, p_fetcher,
-                   VLC_THREAD_PRIORITY_LOW ) )
-    {
-        msg_Err( p_fetcher, "cannot spawn secondary preparse thread" );
-        vlc_object_release( p_fetcher );
-        return NULL;
-    }
-
     return p_fetcher;
 }
 
-void playlist_fetcher_Push( playlist_fetcher_t *p_fetcher, input_item_t *p_item )
+void playlist_fetcher_Push( playlist_fetcher_t *p_fetcher,
+                            input_item_t *p_item )
 {
     vlc_gc_incref( p_item );
 
     vlc_mutex_lock( &p_fetcher->lock );
     INSERT_ELEM( p_fetcher->pp_waiting, p_fetcher->i_waiting,
                  p_fetcher->i_waiting, p_item );
-    vlc_cond_signal( &p_fetcher->wait );
+    if( !p_fetcher->b_live )
+    {
+        vlc_thread_t th;
+
+        if( vlc_clone( &th, Thread, p_fetcher, VLC_THREAD_PRIORITY_LOW ) )
+            msg_Err( p_fetcher->p_playlist,
+                     "cannot spawn secondary preparse thread" );
+        else
+        {
+            vlc_detach( th );
+            p_fetcher->b_live = true;
+        }
+    }
     vlc_mutex_unlock( &p_fetcher->lock );
 }
 
 void playlist_fetcher_Delete( playlist_fetcher_t *p_fetcher )
 {
-    /* */
-    vlc_object_kill( p_fetcher );
-
-    /* Destroy the item meta-infos fetcher */
-    vlc_cancel( p_fetcher->thread );
-    vlc_join( p_fetcher->thread, NULL );
-
+    vlc_mutex_lock( &p_fetcher->lock );
+    /* Remove any left-over item, the fetcher will exit */
     while( p_fetcher->i_waiting > 0 )
-    {   /* Any left-over unparsed item? */
+    {
         vlc_gc_decref( p_fetcher->pp_waiting[0] );
         REMOVE_ELEM( p_fetcher->pp_waiting, p_fetcher->i_waiting, 0 );
     }
+
+    while( p_fetcher->b_live )
+        vlc_cond_wait( &p_fetcher->wait, &p_fetcher->lock );
+    vlc_mutex_unlock( &p_fetcher->lock );
+
     vlc_cond_destroy( &p_fetcher->wait );
     vlc_mutex_destroy( &p_fetcher->lock );
-    vlc_object_release( p_fetcher );
+    free( p_fetcher );
 }
 
 
@@ -133,12 +136,10 @@ void playlist_fetcher_Delete( playlist_fetcher_t *p_fetcher )
 static int FindArt( playlist_fetcher_t *p_fetcher, input_item_t *p_item )
 {
     int i_ret;
-    module_t *p_module;
-    char *psz_title, *psz_artist, *psz_album;
 
-    psz_artist = input_item_GetArtist( p_item );
-    psz_album = input_item_GetAlbum( p_item );
-    psz_title = input_item_GetTitle( p_item );
+    char *psz_artist = input_item_GetArtist( p_item );
+    char *psz_album = input_item_GetAlbum( p_item );
+    char *psz_title = input_item_GetTitle( p_item );
     if( !psz_title )
         psz_title = input_item_GetName( p_item );
 
@@ -154,7 +155,8 @@ static int FindArt( playlist_fetcher_t *p_fetcher, input_item_t *p_item )
             if( !strcmp( album.psz_artist, psz_artist ) &&
                 !strcmp( album.psz_album, psz_album ) )
             {
-                msg_Dbg( p_fetcher, " %s - %s has already been searched",
+                msg_Dbg( p_fetcher->p_playlist,
+                         " %s - %s has already been searched",
                          psz_artist, psz_album );
                 /* TODO-fenrir if we cache art filename too, we can go faster */
                 free( psz_artist );
@@ -200,7 +202,7 @@ static int FindArt( playlist_fetcher_t *p_fetcher, input_item_t *p_item )
     psz_artist = input_item_GetArtist( p_item );
     if( psz_album && psz_artist )
     {
-        msg_Dbg( p_fetcher, "searching art for %s - %s",
+        msg_Dbg( p_fetcher->p_playlist, "searching art for %s - %s",
              psz_artist, psz_album );
     }
     else
@@ -209,24 +211,31 @@ static int FindArt( playlist_fetcher_t *p_fetcher, input_item_t *p_item )
         if( !psz_title )
             psz_title = input_item_GetName( p_item );
 
-        msg_Dbg( p_fetcher, "searching art for %s", psz_title );
+        msg_Dbg( p_fetcher->p_playlist, "searching art for %s", psz_title );
         free( psz_title );
     }
 
     /* Fetch the art url */
-    p_fetcher->p_private = p_item;
+    i_ret = VLC_EGENERIC;
 
-    p_module = module_need( p_fetcher, "art finder", NULL, false );
+    vlc_object_t *p_parent = VLC_OBJECT(p_fetcher->p_playlist);
+    art_finder_t *p_finder =
+        vlc_custom_create( p_parent, sizeof( *p_finder ), VLC_OBJECT_GENERIC,
+                           "art finder" );
+    if( p_finder != NULL)
+    {
+        module_t *p_module;
 
-    if( p_module )
-    {
-        module_unneed( p_fetcher, p_module );
-        i_ret = 1;
-    }
-    else
-    {
-        msg_Dbg( p_fetcher, "unable to find art" );
-        i_ret = VLC_EGENERIC;
+        vlc_object_attach( p_finder, p_parent );
+        p_finder->p_item = p_item;
+
+        p_module = module_need( p_finder, "art finder", NULL, false );
+        if( p_module )
+        {
+            module_unneed( p_finder, p_module );
+            i_ret = 1;
+        }
+        vlc_object_release( p_finder );
     }
 
     /* Record this album */
@@ -259,18 +268,19 @@ static int DownloadArt( playlist_fetcher_t *p_fetcher, input_item_t *p_item )
 
     if( !strncmp( psz_arturl , "file://", 7 ) )
     {
-        msg_Dbg( p_fetcher, "Album art is local file, no need to cache" );
+        msg_Dbg( p_fetcher->p_playlist,
+                 "Album art is local file, no need to cache" );
         free( psz_arturl );
         return VLC_SUCCESS;
     }
 
     if( !strncmp( psz_arturl , "APIC", 4 ) )
     {
-        msg_Warn( p_fetcher, "APIC fetch not supported yet" );
+        msg_Warn( p_fetcher->p_playlist, "APIC fetch not supported yet" );
         goto error;
     }
 
-    stream_t *p_stream = stream_UrlNew( p_fetcher, psz_arturl );
+    stream_t *p_stream = stream_UrlNew( p_fetcher->p_playlist, psz_arturl );
     if( !p_stream )
         goto error;
 
@@ -319,11 +329,11 @@ static int InputEvent( vlc_object_t *p_this, char const *psz_cmd,
                        vlc_value_t oldval, vlc_value_t newval, void *p_data )
 {
     VLC_UNUSED(p_this); VLC_UNUSED(psz_cmd); VLC_UNUSED(oldval);
-    playlist_fetcher_t *p_fetcher = p_data;
+    vlc_cond_t *p_cond = p_data;
 
     if( newval.i_int == INPUT_EVENT_ITEM_META ||
         newval.i_int == INPUT_EVENT_DEAD )
-        vlc_cond_signal( &p_fetcher->wait );
+        vlc_cond_signal( p_cond );
 
     return VLC_SUCCESS;
 }
@@ -346,22 +356,26 @@ static void WaitPreparsed( playlist_fetcher_t *p_fetcher, input_item_t *p_item )
     if( input_GetItem( p_input ) != p_item )
         goto exit;
 
-    var_AddCallback( p_input, "intf-event", InputEvent, p_fetcher );
+    vlc_cond_t cond;
+    vlc_cond_init( &cond );
+    var_AddCallback( p_input, "intf-event", InputEvent, &cond );
 
     const mtime_t i_deadline = mdate() + 500*1000;
+    bool b_timeout = false;
 
-    while( !p_input->b_eof && !p_input->b_error && !input_item_IsPreparsed( p_item ) )
+    while( !p_input->b_eof && !p_input->b_error
+        && !input_item_IsPreparsed( p_item ) && !b_timeout )
     {
-        /* A bit weird, but input_item_IsPreparsed does held the protected value */
+        /* A bit weird, but input_item_IsPreparsed holds the protected value */
+        /* FIXME: locking looks wrong here */
         vlc_mutex_lock( &p_fetcher->lock );
-        vlc_cond_timedwait( &p_fetcher->wait, &p_fetcher->lock, i_deadline );
+        if( vlc_cond_timedwait( &cond, &p_fetcher->lock, i_deadline ) )
+            b_timeout = true;
         vlc_mutex_unlock( &p_fetcher->lock );
-
-        if( i_deadline <= mdate() )
-            break;
     }
 
-    var_DelCallback( p_input, "intf-event", InputEvent, p_fetcher );
+    var_DelCallback( p_input, "intf-event", InputEvent, &cond );
+    vlc_cond_destroy( &cond );
 
 exit:
     vlc_object_release( p_input );
@@ -374,42 +388,31 @@ static void *Thread( void *p_data )
 
     for( ;; )
     {
-        input_item_t *p_item;
+        input_item_t *p_item = NULL;
 
-        /* Be sure to be cancellable before our queue is empty */
-        vlc_testcancel();
-
-        /* */
         vlc_mutex_lock( &p_fetcher->lock );
-        mutex_cleanup_push( &p_fetcher->lock );
-
-        while( p_fetcher->i_waiting == 0 )
-            vlc_cond_wait( &p_fetcher->wait, &p_fetcher->lock );
-
-        p_item = p_fetcher->pp_waiting[0];
-        REMOVE_ELEM( p_fetcher->pp_waiting, p_fetcher->i_waiting, 0 );
-        vlc_cleanup_run( );
+        if( p_fetcher->i_waiting != 0 )
+        {
+            p_item = p_fetcher->pp_waiting[0];
+            REMOVE_ELEM( p_fetcher->pp_waiting, p_fetcher->i_waiting, 0 );
+        }
+        else
+        {
+            p_fetcher->b_live = false;
+            vlc_cond_signal( &p_fetcher->wait );
+        }
+        vlc_mutex_unlock( &p_fetcher->lock );
 
         if( !p_item )
-            continue;
+            break;
 
         /* */
-        int canc = vlc_savecancel();
 
         /* Wait that the input item is preparsed if it is being played */
         WaitPreparsed( p_fetcher, p_item );
 
-        /* */
-        if( !vlc_object_alive( p_fetcher ) )
-            goto end;
-
         /* Find art, and download it if needed */
         int i_ret = FindArt( p_fetcher, p_item );
-
-        /* */
-        if( !vlc_object_alive( p_fetcher ) )
-            goto end;
-
         if( i_ret == 1 )
             i_ret = DownloadArt( p_fetcher, p_item );
 
@@ -427,18 +430,7 @@ static void *Thread( void *p_data )
             input_item_SetArtNotFound( p_item, true );
         }
         free( psz_name );
-
-    end:
         vlc_gc_decref( p_item );
-
-        vlc_restorecancel( canc );
-
-        int i_activity = var_GetInteger( p_playlist, "activity" );
-        if( i_activity < 0 ) i_activity = 0;
-        /* Sleep at least 1ms */
-        msleep( (i_activity+1) * 1000 );
     }
     return NULL;
 }
-
-

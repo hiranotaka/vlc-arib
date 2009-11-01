@@ -33,6 +33,7 @@ int GetVlcChroma( video_format_t *fmt, const int i_ffmpeg_chroma );
 
 picture_t * DecodeVideo    ( decoder_t *, block_t ** );
 aout_buffer_t * DecodeAudio( decoder_t *, block_t ** );
+subpicture_t *DecodeSubtitle( decoder_t *p_dec, block_t ** );
 
 /* Video encoder module */
 int  OpenEncoder ( vlc_object_t * );
@@ -58,6 +59,12 @@ int InitAudioDec( decoder_t *p_dec, AVCodecContext *p_context,
                   AVCodec *p_codec, int i_codec_id, const char *psz_namecodec );
 void EndAudioDec( decoder_t *p_dec );
 
+/* Subtitle Decoder */
+int InitSubtitleDec( decoder_t *p_dec, AVCodecContext *p_context,
+                     AVCodec *p_codec, int i_codec_id, const char *psz_namecodec );
+void EndSubtitleDec( decoder_t *p_dec );
+
+
 /*****************************************************************************
  * Module descriptor help strings
  *****************************************************************************/
@@ -67,7 +74,7 @@ void EndAudioDec( decoder_t *p_dec );
 
 #define ERROR_TEXT N_("Error resilience")
 #define ERROR_LONGTEXT N_( \
-    "Ffmpeg can do error resilience.\n" \
+    "FFmpeg can do error resilience.\n" \
     "However, with a buggy encoder (such as the ISO MPEG-4 encoder from M$) " \
     "this can produce a lot of errors.\n" \
     "Valid values range from 0 to 4 (0 disables all errors resilience).")
@@ -106,7 +113,7 @@ void EndAudioDec( decoder_t *p_dec );
     "(-1=None, 0=Default, 1=B-frames, 2=P-frames, 3=B+P frames, 4=all frames)." )
 
 #define DEBUG_TEXT N_( "Debug mask" )
-#define DEBUG_LONGTEXT N_( "Set ffmpeg debug mask" )
+#define DEBUG_LONGTEXT N_( "Set FFmpeg debug mask" )
 
 /* TODO: Use a predefined list, with 0,1,2,4,7 */
 #define VISMV_TEXT N_( "Visualize motion vectors" )
@@ -126,6 +133,9 @@ void EndAudioDec( decoder_t *p_dec );
 #define SKIPLOOPF_LONGTEXT N_( "Skipping the loop filter (aka deblocking) " \
     "usually has a detrimental effect on quality. However it provides a big " \
     "speedup for high definition streams." )
+
+#define HW_TEXT N_("Hardware decoding")
+#define HW_LONGTEXT N_("This allows hardware decoding when available.")
 
 /*
  * Encoder options
@@ -238,12 +248,10 @@ void EndAudioDec( decoder_t *p_dec );
   "the PSNR isn't much changed (default: 0.0). The H264 specification " \
   "recommends 7." )
 
-#if LIBAVCODEC_VERSION_INT >= ((51<<16)+(40<<8)+4)
 #define ENC_PROFILE_TEXT N_( "Specify AAC audio profile to use" )
 #define ENC_PROFILE_LONGTEXT N_( "Specify the AAC audio profile to use " \
    "for encoding the audio bitstream. It takes the following options: " \
    "main, low, ssr (not supported) and ltp (default: main)" )
-#endif
 
 #define FFMPEG_COMMON_MEMBERS   \
     int i_cat;                  \
@@ -257,3 +265,6 @@ void EndAudioDec( decoder_t *p_dec );
 #   define AV_VERSION_INT(a, b, c) ((a)<<16 | (b)<<8 | (c))
 #endif
 
+/* Uncomment it to enable compilation with vaapi (you also must change the build
+ * system) */
+//#define HAVE_AVCODEC_VAAPI 1

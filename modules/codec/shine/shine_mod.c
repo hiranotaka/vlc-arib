@@ -124,7 +124,7 @@ static block_t *GetPCM( encoder_t *p_enc, aout_buffer_t *p_block )
     if( !p_block ) goto buffered; /* just return a block if we can */
 
     /* Put the PCM samples sent by VLC in the Fifo */
-    while( p_sys->i_buffer + p_block->i_nb_bytes >= pcm_chunk_size )
+    while( p_sys->i_buffer + p_block->i_buffer >= pcm_chunk_size )
     {
         unsigned int i_buffer = 0;
         p_pcm_block = block_New( p_enc, pcm_chunk_size );
@@ -144,20 +144,20 @@ static block_t *GetPCM( encoder_t *p_enc, aout_buffer_t *p_block )
                     p_block->p_buffer, pcm_chunk_size - i_buffer );
         p_block->p_buffer += pcm_chunk_size - i_buffer;
 
-        p_block->i_nb_bytes -= pcm_chunk_size - i_buffer;
+        p_block->i_buffer -= pcm_chunk_size - i_buffer;
 
         block_FifoPut( p_sys->p_fifo, p_pcm_block );
     }
 
     /* We hadn't enough data to make a block, put it in standby */
-    if( p_block->i_nb_bytes )
+    if( p_block->i_buffer )
     {
         uint8_t *p_tmp;
 
         if( p_sys->i_buffer > 0 )
-            p_tmp = realloc( p_sys->p_buffer, p_block->i_nb_bytes + p_sys->i_buffer );
+            p_tmp = realloc( p_sys->p_buffer, p_block->i_buffer + p_sys->i_buffer );
         else
-            p_tmp = malloc( p_block->i_nb_bytes );
+            p_tmp = malloc( p_block->i_buffer );
 
         if( !p_tmp )
         {
@@ -168,10 +168,10 @@ static block_t *GetPCM( encoder_t *p_enc, aout_buffer_t *p_block )
         }
         p_sys->p_buffer = p_tmp;
         vlc_memcpy( p_sys->p_buffer + p_sys->i_buffer,
-                    p_block->p_buffer, p_block->i_nb_bytes );
+                    p_block->p_buffer, p_block->i_buffer );
 
-        p_sys->i_buffer += p_block->i_nb_bytes;
-        p_block->i_nb_bytes = 0;
+        p_sys->i_buffer += p_block->i_buffer;
+        p_block->i_buffer = 0;
     }
 
 buffered:
@@ -181,12 +181,13 @@ buffered:
 
 static block_t *EncodeFrame( encoder_t *p_enc, aout_buffer_t *p_block )
 {
-    encoder_sys_t *p_sys = (encoder_sys_t *)p_enc->p_sys;
     block_t *p_pcm_block;
     block_t *p_chain = NULL;
-    unsigned int i_samples = p_block->i_nb_bytes >> 2 /* s16l stereo */;
-    mtime_t start_date = p_block->start_date;
+    unsigned int i_samples = p_block->i_buffer >> 2 /* s16l stereo */;
+    mtime_t start_date = p_block->i_pts;
     start_date -= (mtime_t)i_samples * (mtime_t)1000000 / (mtime_t)p_enc->fmt_out.audio.i_rate;
+
+    VLC_UNUSED(p_enc);
 
     do {
         p_pcm_block = GetPCM( p_enc, p_block );
@@ -215,7 +216,7 @@ static block_t *EncodeFrame( encoder_t *p_enc, aout_buffer_t *p_block )
         start_date += p_mp3_block->i_length;
         p_mp3_block->i_dts = p_mp3_block->i_pts = start_date;
 
-        p_mp3_block->i_samples = SAMP_PER_FRAME1;
+        p_mp3_block->i_nb_samples = SAMP_PER_FRAME1;
 
         block_ChainAppend( &p_chain, p_mp3_block );
 

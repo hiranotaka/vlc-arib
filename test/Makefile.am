@@ -4,6 +4,11 @@
 
 AUTOMAKE_OPTIONS = subdir-objects
 
+extra_check_verbose = $(extra_check_verbose_$(V))
+extra_check_verbose_ = $(extra_check_flags__$(AM_DEFAULT_VERBOSITY))
+extra_check_verbose_0 = @echo TEST $@
+extra_check_verbose__0 = $(extra_check_verbose_0)
+
 ###############################################################################
 # Unit/regression test
 ###############################################################################
@@ -13,19 +18,19 @@ check_PROGRAMS = \
 	test_libvlc_media_list \
 	test_libvlc_media_list_player \
 	test_libvlc_media_player \
+	test_src_misc_variables \
         $(NULL)
 
 # Disabled test:
 # meta: No suitable test file
 EXTRA_PROGRAMS = \
 	test_libvlc_meta \
-	test_dummy \
 	$(NULL)
 
 #check_DATA = samples/test.sample samples/meta.sample
 EXTRA_DIST = samples/empty.voc
 
-check_HEADERS = libvlc/test.h
+check_HEADERS = libvlc/test.h libvlc/libvlc_additions.h
 
 TESTS = $(check_PROGRAMS)
 
@@ -75,10 +80,10 @@ test_libvlc_meta_LDADD = $(top_builddir)/src/libvlc.la
 test_libvlc_meta_CFLAGS = $(CFLAGS_tests)
 test_libvlc_meta_LDFLAGS = $(LDFLAGS_tests)
 
-test_dummy_SOURCES = libvlc/test.c
-test_dummy_LDADD = $(top_builddir)/src/libvlc.la
-test_dummy_CFLAGS = $(CFLAGS_tests)
-test_dummy_LDFLAGS = $(LDFLAGS_tests)
+test_src_misc_variables_SOURCES = src/misc/variables.c
+test_src_misc_variables_LDADD = $(top_builddir)/src/libvlc.la
+test_src_misc_variables_CFLAGS = $(CFLAGS_tests)
+test_src_misc_variables_LDFLAGS = $(LDFLAGS_tests)
 
 checkall:
 	$(MAKE) check_PROGRAMS="$(check_PROGRAMS) $(EXTRA_PROGRAMS)" check

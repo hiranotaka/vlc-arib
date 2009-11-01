@@ -73,6 +73,7 @@ MessagesDialog::MessagesDialog( intf_thread_t *_p_intf)
                : QVLCFrame( _p_intf )
 {
     setWindowTitle( qtr( "Messages" ) );
+    setWindowRole( "vlc-messages" );
 
     /* General widgets */
     QGridLayout *mainLayout = new QGridLayout( this );
@@ -245,7 +246,7 @@ bool MessagesDialog::save()
 {
     QString saveLogFileName = QFileDialog::getSaveFileName(
             this, qtr( "Save log file as..." ),
-            qfu( config_GetHomeDir() ),
+            QVLCUserDir( VLC_DOCUMENTS_DIR ),
             qtr( "Texts / Logs (*.log *.txt);; All (*.*) ") );
 
     if( !saveLogFileName.isNull() )
@@ -277,10 +278,14 @@ void MessagesDialog::buildTree( QTreeWidgetItem *parentItem,
     else
         item = new QTreeWidgetItem( modulesTree );
 
-    if( p_obj->psz_object_name )
+    char *name = vlc_object_get_name( p_obj );
+    if( name != NULL )
+    {
         item->setText( 0, qfu( p_obj->psz_object_type ) + " \"" +
-                       qfu( p_obj->psz_object_name ) + "\" (" +
+                       qfu( name ) + "\" (" +
                        QString::number((uintptr_t)p_obj) + ")" );
+        free( name );
+    }
     else
         item->setText( 0, qfu( p_obj->psz_object_type ) + " (" +
                        QString::number((uintptr_t)p_obj) + ")" );

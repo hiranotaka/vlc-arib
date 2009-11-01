@@ -147,7 +147,7 @@ static int Open ( vlc_object_t *p_this )
 
     /* */
     const rar_file_t *p_file = p_sys->p_file;
-    msg_Dbg( s, "Using RAR stream filter for '%s' %lld(expected %lld) bytes in %d chunks",
+    msg_Dbg( s, "Using RAR stream filter for '%s' %"PRId64"(expected %"PRId64") bytes in %d chunks",
              p_file->psz_name, p_file->i_real_size, p_file->i_size, p_file->i_chunk );
 
     return VLC_SUCCESS;
@@ -238,8 +238,7 @@ static int Peek( stream_t *s, const uint8_t **pp_peek, unsigned int i_peek )
         return i_read;
     }
 
-    if( p_sys->p_peek_alloc )
-        free( p_sys->p_peek_alloc );
+    free( p_sys->p_peek_alloc );
 
     p_sys->p_peek_alloc =
     p_sys->p_peek       = p_peek;
@@ -525,7 +524,7 @@ static int SkipFile( stream_t *s,const rar_block_t *p_hdr )
             rar_file_chunk_t *p_chunk = malloc( sizeof( *p_chunk ) );
             if( p_chunk )
             {
-                p_chunk->i_offset = stream_Tell( s->p_source );
+                p_chunk->i_offset = stream_Tell( s->p_source ) + p_hdr->i_size;
                 p_chunk->i_size = p_hdr->i_add_size;
                 p_chunk->i_cummulated_size = 0;
                 if( p_current->i_chunk > 0 )

@@ -143,7 +143,7 @@ static void    Close  ( vlc_object_t * );
   "of the shaping algorithm, since I frames are usually the biggest " \
   "frames in the stream.")
 
-#define PCR_TEXT N_("PCR delay (ms)")
+#define PCR_TEXT N_("PCR interval (ms)")
 #define PCR_LONGTEXT N_("Set at which interval " \
   "PCRs (Program Clock Reference) will be sent (in milliseconds). " \
   "This value should be below 100ms. (default is 70ms).")
@@ -210,7 +210,7 @@ vlc_module_begin ()
 #endif
     add_string( SOUT_CFG_PREFIX "program-pmt", NULL, NULL, PMTPROG_TEXT,
                 PMTPROG_LONGTEXT, true )
-    add_bool( SOUT_CFG_PREFIX "es-id-pid", 0, NULL, PID_TEXT, PID_LONGTEXT,
+    add_bool( SOUT_CFG_PREFIX "es-id-pid", false, NULL, PID_TEXT, PID_LONGTEXT,
               true )
     add_string( SOUT_CFG_PREFIX "muxpmt", NULL, NULL, MUXPMT_TEXT, MUXPMT_LONGTEXT, true )
 #ifdef HAVE_DVBPSI_SDT
@@ -1054,6 +1054,10 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
                     p_stream->i_stream_type = 0x81;
                     p_stream->i_stream_id = 0xbd;
                     break;
+                case VLC_CODEC_EAC3:
+                    p_stream->i_stream_type = 0x06;
+                    p_stream->i_stream_id = 0xbd;
+                    break;
                 case VLC_CODEC_DVD_LPCM:
                     p_stream->i_stream_type = 0x83;
                     p_stream->i_stream_id = 0xbd;
@@ -1396,7 +1400,6 @@ static int Mux( sout_mux_t *p_mux )
             block_FifoEmpty( p_mux->pp_inputs[i]->p_fifo );
         }
         msg_Dbg( p_mux, "waiting for PCR streams" );
-        msleep( 1000 );
         return VLC_SUCCESS;
     }
     p_pcr_stream = (ts_stream_t*)p_sys->p_pcr_input->p_sys;
@@ -1765,6 +1768,7 @@ static int Mux( sout_mux_t *p_mux )
 #define STD_PES_PAYLOAD 170
 static block_t *FixPES( sout_mux_t *p_mux, block_fifo_t *p_fifo )
 {
+    VLC_UNUSED(p_mux);
     block_t *p_data;
     size_t i_size;
 
@@ -2003,6 +2007,7 @@ static void TSDate( sout_mux_t *p_mux, sout_buffer_chain_t *p_chain_ts,
 static block_t *TSNew( sout_mux_t *p_mux, ts_stream_t *p_stream,
                        bool b_pcr )
 {
+    VLC_UNUSED(p_mux);
     block_t *p_pes = p_stream->chain_pes.p_first;
     block_t *p_ts;
 
@@ -2222,6 +2227,7 @@ static void PEStoTS( sout_instance_t *p_sout,
                      sout_buffer_chain_t *c, block_t *p_pes,
                      ts_stream_t *p_stream )
 {
+    VLC_UNUSED(p_sout);
     uint8_t *p_data;
     int     i_size;
     int     b_new_pes;
@@ -2313,6 +2319,7 @@ static void PEStoTS( sout_instance_t *p_sout,
 static block_t *WritePSISection( sout_instance_t *p_sout,
                                        dvbpsi_psi_section_t* p_section )
 {
+    VLC_UNUSED(p_sout);
     block_t   *p_psi, *p_first = NULL;
 
     while( p_section )
@@ -2693,6 +2700,11 @@ static void GetPMT( sout_mux_t *p_mux, sout_buffer_chain_t *c )
             /* DTS format identifier, frame size 1024 - FIXME */
             uint8_t data[4] = { 0x44, 0x54, 0x53, 0x32 };
             dvbpsi_PMTESAddDescriptor( p_es, 0x05, 4, data );
+        }
+        else if( p_stream->i_codec == VLC_CODEC_EAC3 )
+        {
+            uint8_t data[1] = { 0x00 };
+            dvbpsi_PMTESAddDescriptor( p_es, 0x7a, 1, data );
         }
         else if( p_stream->i_codec == VLC_CODEC_TELETEXT )
         {

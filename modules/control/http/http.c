@@ -27,6 +27,7 @@
 
 #include "http.h"
 #include <vlc_plugin.h>
+#include <vlc_url.h>
 
 #include <assert.h>
 
@@ -417,7 +418,7 @@ static void ParseExecute( httpd_file_sys_t *p_args, char *p_buffer,
         state = "stop";
     }
 
-    aout_VolumeGet( p_args->p_intf, &i_volume );
+    aout_VolumeGet( p_sys->p_playlist, &i_volume );
     sprintf( volume, "%d", (int)i_volume );
 
     p_args->vars = mvar_New( "variables", "" );
@@ -787,7 +788,8 @@ int  ArtCallback( httpd_handler_sys_t *p_args,
         psz_art = input_item_GetArtURL( p_item );
     }
 
-    if( psz_art && !strncmp( psz_art, "file://", strlen( "file://" ) ) )
+    if( psz_art && !strncmp( psz_art, "file://", strlen( "file://" ) ) &&
+        decode_URI( psz_art + 7 ) )
     {
         FILE *f;
         char *psz_ext;

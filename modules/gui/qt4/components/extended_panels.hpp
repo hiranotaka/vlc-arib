@@ -30,7 +30,6 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_aout.h>
 
 #include "ui/equalizer.h"
 #include "ui/video_effects.h"
@@ -48,7 +47,7 @@ class ExtVideo: public QObject
     Q_OBJECT
     friend class ExtendedDialog;
 public:
-    ExtVideo( intf_thread_t *, QTabWidget * );
+    ExtVideo( struct intf_thread_t *, QTabWidget * );
     virtual ~ExtVideo();
     /*void gotoConf( QObject* );*/
 private:

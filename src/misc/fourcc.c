@@ -65,6 +65,7 @@ static const entry_t p_list_video[] = {
         A("mp2v"),
         A("MPEG"),
         A("mpg2"),
+        A("MPG2"),
 
         E("PIM1", "Pinnacle DC1000 (MPEG-1 Video)"),
 
@@ -376,7 +377,9 @@ static const entry_t p_list_video[] = {
         A("WMV3"),
         A("wmv3"),
 
-    B(VLC_CODEC_WMVA, "Windows Media Video Advanced"),
+    /* WMVA is the VC-1 codec before the standardization proces,
+     * it is not bitstream compatible and deprecated  */
+    B(VLC_CODEC_WMVA, "Windows Media Video Advanced Profile"),
         A("WMVA"),
         A("wmva"),
         A("WVP2"),
@@ -387,9 +390,6 @@ static const entry_t p_list_video[] = {
         A("wvc1"),
         A("vc-1"),
         A("VC-1"),
-        /* WMVA is the VC-1 codec before the standardization proces,
-         * it is not bitstream compatible and deprecated  */
-        E("WMVA", "Windows Media Video Advanced Profile"),
 
     /* Microsoft Video 1 */
     B(VLC_CODEC_MSVIDEO1, "Microsoft Video 1"),
@@ -602,6 +602,9 @@ static const entry_t p_list_video[] = {
     B(VLC_CODEC_CDG, "CD-G Video"),
         A("CDG "),
 
+    B(VLC_CODEC_FRWU, "Forward Uncompressed" ),
+        A("FRWU"),
+
     /* */
     B(VLC_CODEC_YV12, "Planar 4:2:0 YVU"),
         A("YV12"),
@@ -664,16 +667,21 @@ static const entry_t p_list_video[] = {
     B(VLC_CODEC_UYVY, "Packed YUV 4:2:2, U:Y:V:Y"),
         A("UYVY"),
         A("UYNV"),
+        A("UYNY"),
         A("Y422"),
+        A("HDYC"),
+        A("AVUI"),
+        A("uyv1"),
         A("2vuy"),
         A("2Vuy"),
-        A("AVUI"),
+        A("2Vu1"),
     B(VLC_CODEC_VYUY, "Packed YUV 4:2:2, V:Y:U:Y"),
         A("VYUY"),
     B(VLC_CODEC_YUYV, "Packed YUV 4:2:2, Y:U:Y:V"),
         A("YUY2"),
         A("YUYV"),
         A("YUNV"),
+        A("V422"),
     B(VLC_CODEC_YVYU, "Packed YUV 4:2:2, Y:V:Y:U"),
         A("YVYU"),
 
@@ -893,6 +901,10 @@ static const entry_t p_list_audio[] = {
     B(VLC_CODEC_ADPCM_IMA_WS, "Westwood IMA ADPCM audio"),
         A("AIWS"),
 
+    /* MS ADPCM */
+    B(VLC_CODEC_ADPCM_MS, "MS ADPCM audio"),
+        A("ms\x00\x02"),
+
     /* Sierra VMD */
     B(VLC_CODEC_VMDAUDIO, "Sierra VMD Audio"),
         A("vmda"),
@@ -900,6 +912,13 @@ static const entry_t p_list_audio[] = {
     /* G.726 ADPCM */
     B(VLC_CODEC_ADPCM_G726, "G.726 ADPCM Audio"),
         A("g726"),
+
+    /* Flash ADPCM */
+    B(VLC_CODEC_ADPCM_SWF, "Flash ADPCM Audio"),
+        A("SWFa"),
+
+    B(VLC_CODEC_ADPCM_IMA_WAV, "IMA WAV ADPCM Audio"),
+        A("ms\x00\x11"),
 
     /* AMR */
     B(VLC_CODEC_AMR_NB, "AMR narrow band"),
@@ -943,6 +962,9 @@ static const entry_t p_list_audio[] = {
     B(VLC_CODEC_GSM_MS, "Microsoft GSM Audio"),
         A("agsm"),
 
+    B(VLC_CODEC_ATRAC1, "atrac 1"),
+        A("atr1"),
+
     B(VLC_CODEC_ATRAC3, "atrac 3"),
         A("atrc"),
         A("\x70\x02\x00\x00"),
@@ -965,6 +987,9 @@ static const entry_t p_list_audio[] = {
     B(VLC_CODEC_MLP, "MLP/TrueHD Audio"),
         A("mlp "),
 
+    B(VLC_CODEC_TRUEHD, "TrueHD Audio"),
+        A("trhd"),
+
     B(VLC_CODEC_QCELP, "QCELP Audio"),
         A("Qclp"),
 
@@ -980,6 +1005,9 @@ static const entry_t p_list_audio[] = {
 
     B(VLC_CODEC_DVD_LPCM, "DVD LPCM Audio"),
         A("lpcm"),
+
+    B(VLC_CODEC_DVDA_LPCM, "DVD-Audio LPCM Audio"),
+        A("apcm"),
 
     B(VLC_CODEC_BD_LPCM, "BD LPCM Audio"),
         A("bpcm"),
@@ -1054,8 +1082,11 @@ static const entry_t p_list_audio[] = {
     B(VLC_CODEC_FL32, "32 bits float"),
         A("fl32"),
 
-    B(VLC_CODEC_FL32, "64 bits float"),
+    B(VLC_CODEC_FL64, "64 bits float"),
         A("fl64"),
+
+    B(VLC_CODEC_TWINVQ, "TwinVQ"),
+        A("TWIN"),
 
     B(0, "")
 };
@@ -1074,6 +1105,7 @@ static const entry_t p_list_spu[] = {
     B(VLC_CODEC_XSUB, "DivX XSUB subtitles"),
         A("XSUB"),
         A("xsub"),
+        A("DXSB"),
 
     B(VLC_CODEC_SSA, "SubStation Alpha subtitles"),
         A("ssa "),
@@ -1084,14 +1116,11 @@ static const entry_t p_list_spu[] = {
     B(VLC_CODEC_TELETEXT, "Teletext"),
         A("telx"),
 
-    B(VLC_CODEC_TELETEXT, "Kate subtiles"),
+    B(VLC_CODEC_KATE, "Kate subtitles"),
         A("kate"),
 
     B(VLC_CODEC_CMML, "CMML annotations/metadata"),
         A("cmml"),
-
-    B(VLC_CODEC_ITU_T140, "ITU T.140 subtitles"),
-        A("t140"),
 
     B(VLC_CODEC_ITU_T140, "ITU T.140 subtitles"),
         A("t140"),
@@ -1104,6 +1133,9 @@ static const entry_t p_list_spu[] = {
 
     B(VLC_CODEC_CVD, "CVD subtitles"),
         A("cvd "),
+
+    B(VLC_CODEC_BD_PG, "BD subtitles"),
+        A("bdpg"),
 
     B(0, "")
 };
@@ -1273,5 +1305,220 @@ const char *vlc_fourcc_GetDescription( int i_cat, vlc_fourcc_t i_fourcc )
     entry_t e = Find( i_cat, i_fourcc );
 
     return e.psz_description;
+}
+
+
+/* */
+#define VLC_CODEC_YUV_PLANAR_420 \
+    VLC_CODEC_I420, VLC_CODEC_YV12, VLC_CODEC_J420
+
+#define VLC_CODEC_YUV_PLANAR_422 \
+    VLC_CODEC_I422, VLC_CODEC_J422
+
+#define VLC_CODEC_YUV_PLANAR_440 \
+    VLC_CODEC_I440, VLC_CODEC_J440
+
+#define VLC_CODEC_YUV_PLANAR_444 \
+    VLC_CODEC_I444, VLC_CODEC_J444
+
+#define VLC_CODEC_YUV_PACKED \
+    VLC_CODEC_YUYV, VLC_CODEC_YVYU, \
+    VLC_CODEC_UYVY, VLC_CODEC_VYUY
+
+#define VLC_CODEC_FALLBACK_420 \
+    VLC_CODEC_YUV_PLANAR_422, VLC_CODEC_YUV_PACKED, \
+    VLC_CODEC_YUV_PLANAR_444, VLC_CODEC_YUV_PLANAR_440, \
+    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211
+
+static const vlc_fourcc_t p_I420_fallback[] = {
+    VLC_CODEC_I420, VLC_CODEC_YV12, VLC_CODEC_J420, VLC_CODEC_FALLBACK_420, 0
+};
+static const vlc_fourcc_t p_J420_fallback[] = {
+    VLC_CODEC_J420, VLC_CODEC_I420, VLC_CODEC_YV12, VLC_CODEC_FALLBACK_420, 0
+};
+static const vlc_fourcc_t p_YV12_fallback[] = {
+    VLC_CODEC_YV12, VLC_CODEC_I420, VLC_CODEC_J420, VLC_CODEC_FALLBACK_420, 0
+};
+
+#define VLC_CODEC_FALLBACK_422 \
+    VLC_CODEC_YUV_PACKED, VLC_CODEC_YUV_PLANAR_420, \
+    VLC_CODEC_YUV_PLANAR_444, VLC_CODEC_YUV_PLANAR_440, \
+    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211
+
+static const vlc_fourcc_t p_I422_fallback[] = {
+    VLC_CODEC_I422, VLC_CODEC_J422, VLC_CODEC_FALLBACK_422, 0
+};
+static const vlc_fourcc_t p_J422_fallback[] = {
+    VLC_CODEC_J422, VLC_CODEC_I422, VLC_CODEC_FALLBACK_422, 0
+};
+
+#define VLC_CODEC_FALLBACK_444 \
+    VLC_CODEC_YUV_PLANAR_422, VLC_CODEC_YUV_PACKED, \
+    VLC_CODEC_YUV_PLANAR_420, VLC_CODEC_YUV_PLANAR_440, \
+    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211
+
+static const vlc_fourcc_t p_I444_fallback[] = {
+    VLC_CODEC_I444, VLC_CODEC_J444, VLC_CODEC_FALLBACK_444, 0
+};
+static const vlc_fourcc_t p_J444_fallback[] = {
+    VLC_CODEC_J444, VLC_CODEC_I444, VLC_CODEC_FALLBACK_444, 0
+};
+
+static const vlc_fourcc_t p_I440_fallback[] = {
+    VLC_CODEC_I440,
+    VLC_CODEC_YUV_PLANAR_420,
+    VLC_CODEC_YUV_PLANAR_422,
+    VLC_CODEC_YUV_PLANAR_444,
+    VLC_CODEC_YUV_PACKED,
+    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211, 0
+};
+
+#define VLC_CODEC_FALLBACK_PACKED \
+    VLC_CODEC_YUV_PLANAR_422, VLC_CODEC_YUV_PLANAR_420, \
+    VLC_CODEC_YUV_PLANAR_444, VLC_CODEC_YUV_PLANAR_440, \
+    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211
+
+static const vlc_fourcc_t p_YUYV_fallback[] = {
+    VLC_CODEC_YUYV,
+    VLC_CODEC_YVYU,
+    VLC_CODEC_UYVY,
+    VLC_CODEC_VYUY,
+    VLC_CODEC_FALLBACK_PACKED, 0
+};
+static const vlc_fourcc_t p_YVYU_fallback[] = {
+    VLC_CODEC_YVYU,
+    VLC_CODEC_YUYV,
+    VLC_CODEC_UYVY,
+    VLC_CODEC_VYUY,
+    VLC_CODEC_FALLBACK_PACKED, 0
+};
+static const vlc_fourcc_t p_UYVY_fallback[] = {
+    VLC_CODEC_UYVY,
+    VLC_CODEC_VYUY,
+    VLC_CODEC_YUYV,
+    VLC_CODEC_YVYU,
+    VLC_CODEC_FALLBACK_PACKED, 0
+};
+static const vlc_fourcc_t p_VYUY_fallback[] = {
+    VLC_CODEC_VYUY,
+    VLC_CODEC_UYVY,
+    VLC_CODEC_YUYV,
+    VLC_CODEC_YVYU,
+    VLC_CODEC_FALLBACK_PACKED, 0
+};
+
+static const vlc_fourcc_t *pp_YUV_fallback[] = {
+    p_YV12_fallback,
+    p_I420_fallback,
+    p_J420_fallback,
+    p_I422_fallback,
+    p_J422_fallback,
+    p_I444_fallback,
+    p_J444_fallback,
+    p_I440_fallback,
+    p_YUYV_fallback,
+    p_YVYU_fallback,
+    p_UYVY_fallback,
+    p_VYUY_fallback,
+    NULL,
+};
+
+static const vlc_fourcc_t p_list_YUV[] = {
+    VLC_CODEC_YUV_PLANAR_420,
+    VLC_CODEC_YUV_PLANAR_422,
+    VLC_CODEC_YUV_PLANAR_440,
+    VLC_CODEC_YUV_PLANAR_444,
+    VLC_CODEC_YUV_PACKED,
+    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211,
+    0,
+};
+
+/* */
+static const vlc_fourcc_t p_RGB32_fallback[] = {
+    VLC_CODEC_RGB32,
+    VLC_CODEC_RGB24,
+    VLC_CODEC_RGB16,
+    VLC_CODEC_RGB15,
+    VLC_CODEC_RGB8,
+    0,
+};
+static const vlc_fourcc_t p_RGB24_fallback[] = {
+    VLC_CODEC_RGB24,
+    VLC_CODEC_RGB32,
+    VLC_CODEC_RGB16,
+    VLC_CODEC_RGB15,
+    VLC_CODEC_RGB8,
+    0,
+};
+static const vlc_fourcc_t p_RGB16_fallback[] = {
+    VLC_CODEC_RGB16,
+    VLC_CODEC_RGB24,
+    VLC_CODEC_RGB32,
+    VLC_CODEC_RGB15,
+    VLC_CODEC_RGB8,
+    0,
+};
+static const vlc_fourcc_t p_RGB15_fallback[] = {
+    VLC_CODEC_RGB15,
+    VLC_CODEC_RGB16,
+    VLC_CODEC_RGB24,
+    VLC_CODEC_RGB32,
+    VLC_CODEC_RGB8,
+    0,
+};
+static const vlc_fourcc_t p_RGB8_fallback[] = {
+    VLC_CODEC_RGB8,
+    VLC_CODEC_RGB15,
+    VLC_CODEC_RGB16,
+    VLC_CODEC_RGB24,
+    VLC_CODEC_RGB32,
+    0,
+};
+static const vlc_fourcc_t *pp_RGB_fallback[] = {
+    p_RGB32_fallback,
+    p_RGB24_fallback,
+    p_RGB16_fallback,
+    p_RGB15_fallback,
+    p_RGB8_fallback,
+    NULL,
+};
+
+
+/* */
+static const vlc_fourcc_t *GetFallback( vlc_fourcc_t i_fourcc,
+                                        const vlc_fourcc_t *pp_fallback[],
+                                        const vlc_fourcc_t p_list[] )
+{
+    for( unsigned i = 0; pp_fallback[i]; i++ )
+    {
+        if( pp_fallback[i][0] == i_fourcc )
+            return pp_fallback[i];
+    }
+    return p_list;
+}
+
+const vlc_fourcc_t *vlc_fourcc_GetYUVFallback( vlc_fourcc_t i_fourcc )
+{
+    return GetFallback( i_fourcc, pp_YUV_fallback, p_list_YUV );
+}
+const vlc_fourcc_t *vlc_fourcc_GetRGBFallback( vlc_fourcc_t i_fourcc )
+{
+    return GetFallback( i_fourcc, pp_RGB_fallback, p_RGB32_fallback );
+}
+
+bool vlc_fourcc_AreUVPlanesSwapped( vlc_fourcc_t a, vlc_fourcc_t b )
+{
+    return (((a == VLC_CODEC_I420 || a == VLC_CODEC_J420) && b == VLC_CODEC_YV12) ||
+            ((b == VLC_CODEC_I420 || b == VLC_CODEC_J420) && a == VLC_CODEC_YV12));
+}
+
+bool vlc_fourcc_IsYUV(vlc_fourcc_t fcc)
+{
+    for( unsigned i = 0; p_list_YUV[i]; i++ )
+    {
+        if( p_list_YUV[i] == fcc )
+            return true;
+    }
+    return false;
 }
 

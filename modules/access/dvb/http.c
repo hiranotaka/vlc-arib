@@ -62,8 +62,8 @@
 #endif
 
 #ifdef ENABLE_HTTPD
-#   include "vlc_httpd.h"
-#   include "vlc_acl.h"
+#   include <vlc_httpd.h>
+#   include <vlc_acl.h>
 #endif
 
 #include "dvb.h"
@@ -253,6 +253,7 @@ static int HttpCallback( httpd_file_sys_t *p_args,
                          uint8_t *_psz_request,
                          uint8_t **_pp_data, int *pi_data )
 {
+    VLC_UNUSED(p_file);
     access_sys_t *p_sys = p_args->p_access->p_sys;
     char *psz_request = (char *)_psz_request;
     char **pp_data = (char **)_pp_data;
@@ -299,10 +300,10 @@ static int HttpCallback( httpd_file_sys_t *p_args,
 /****************************************************************************
  * HTTPExtractValue: Extract a GET variable from psz_request
  ****************************************************************************/
-char *HTTPExtractValue( char *psz_uri, const char *psz_name,
-                            char *psz_value, int i_value_max )
+const char *HTTPExtractValue( const char *psz_uri, const char *psz_name,
+                        char *psz_value, int i_value_max )
 {
-    char *p = psz_uri;
+    const char *p = psz_uri;
 
     while( (p = strstr( p, psz_name )) )
     {

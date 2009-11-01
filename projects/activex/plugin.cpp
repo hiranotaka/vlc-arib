@@ -475,10 +475,12 @@ void VLCPlugin::initVLC()
     ppsz_argv[ppsz_argc++] = "--no-one-instance";
 
     /* common settings */
+    ppsz_argv[ppsz_argc++] = "-vv";
     ppsz_argv[ppsz_argc++] = "--no-stats";
     ppsz_argv[ppsz_argc++] = "--no-media-library";
-    ppsz_argv[ppsz_argc++] = "--ignore-config";
     ppsz_argv[ppsz_argc++] = "--intf=dummy";
+    ppsz_argv[ppsz_argc++] = "--no-video-title-show";
+
 
     // loop mode is a configuration option only
     if( _b_autoloop )
@@ -502,7 +504,7 @@ void VLCPlugin::initVLC()
     libvlc_audio_set_volume(_p_libvlc, _i_volume, NULL);
     if( _b_mute )
     {
-        libvlc_audio_set_mute(_p_libvlc, TRUE, NULL);
+        libvlc_audio_set_mute(_p_libvlc, TRUE);
     }
 
     // initial playlist item
@@ -1068,14 +1070,7 @@ int  VLCPlugin::playlist_add_extended_untrusted(const char *mrl, int optc, const
         return -1;
 
     for( int i = 0; i < optc; ++i )
-    {
-        libvlc_media_add_option_untrusted(p_m, optv[i],ex);
-        if( libvlc_exception_raised(ex) )
-        {
-            libvlc_media_release(p_m);
-            return -1;
-        }
-    }
+        libvlc_media_add_option_flag(p_m, optv[i], libvlc_media_option_unique);
 
     libvlc_media_list_lock(_p_mlist);
     libvlc_media_list_add_media(_p_mlist,p_m,ex);

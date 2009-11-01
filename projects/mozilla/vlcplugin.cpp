@@ -45,6 +45,7 @@ VlcPlugin::VlcPlugin( NPP instance, uint16 mode ) :
     b_stream(0),
     b_autoplay(1),
     b_toolbar(0),
+    psz_text(NULL),
     psz_target(NULL),
     playlist_index(-1),
     libvlc_instance(NULL),
@@ -98,7 +99,7 @@ NPError VlcPlugin::init(int argc, char* const argn[], char* const argv[])
     /* locate VLC module path */
 #ifdef XP_MACOSX
     ppsz_argv[ppsz_argc++] = "--plugin-path=/Library/Internet\\ Plug-Ins/VLC\\ Plugin.plugin/Contents/MacOS/modules";
-    ppsz_argv[ppsz_argc++] = "--vout=macosx";
+    ppsz_argv[ppsz_argc++] = "--vout=minimal_macosx";
 #elif defined(XP_WIN)
     HKEY h_key;
     DWORD i_type, i_data = MAX_PATH + 1;
@@ -126,14 +127,13 @@ NPError VlcPlugin::init(int argc, char* const argn[], char* const argv[])
     ppsz_argv[ppsz_argc++] = "-vv";
     ppsz_argv[ppsz_argc++] = "--no-stats";
     ppsz_argv[ppsz_argc++] = "--no-media-library";
-    ppsz_argv[ppsz_argc++] = "--ignore-config";
     ppsz_argv[ppsz_argc++] = "--intf=dummy";
     ppsz_argv[ppsz_argc++] = "--no-video-title-show";
 
     const char *progid = NULL;
 
     /* parse plugin arguments */
-    for( int i = 0; i < argc ; i++ )
+    for( int i = 0; (i < argc) && (ppsz_argc < 32); i++ )
     {
        /* fprintf(stderr, "argn=%s, argv=%s\n", argn[i], argv[i]); */
 
@@ -143,6 +143,11 @@ NPError VlcPlugin::init(int argc, char* const argn[], char* const argv[])
          || !strcmp( argn[i], "src") )
         {
             psz_target = argv[i];
+        }
+        else if( !strcmp( argn[i], "text" ) )
+        {
+            free( psz_text );
+            psz_text = strdup( argv[i] );
         }
         else if( !strcmp( argn[i], "autoplay")
               || !strcmp( argn[i], "autostart") )
@@ -216,7 +221,7 @@ NPError VlcPlugin::init(int argc, char* const argn[], char* const argv[])
     ** this URL is used for making absolute URL from relative URL that may be
     ** passed as an MRL argument
     */
-    NPObject *plugin;
+    NPObject *plugin = NULL;
 
     if( NPERR_NO_ERROR == NPN_GetValue(p_browser, NPNVWindowNPObject, &plugin) )
     {
@@ -236,7 +241,7 @@ NPError VlcPlugin::init(int argc, char* const argn[], char* const argv[])
             {
                 NPString &location = NPVARIANT_TO_STRING(result);
 
-                psz_baseURL = static_cast<char*>(malloc(location.utf8length+1));
+                psz_baseURL = (char *) malloc(location.utf8length+1);
                 if( psz_baseURL )
                 {
                     strncpy(psz_baseURL, location.utf8characters, location.utf8length);
@@ -266,6 +271,8 @@ VlcPlugin::~VlcPlugin()
 {
     free(psz_baseURL);
     free(psz_target);
+    free(psz_text);
+
     if( libvlc_media_player )
         libvlc_media_player_release( libvlc_media_player );
     if( libvlc_media_list )
@@ -321,14 +328,7 @@ int VlcPlugin::playlist_add_extended_untrusted( const char *mrl, const char *nam
         return -1;
 
     for( int i = 0; i < optc; ++i )
-    {
-        libvlc_media_add_option_untrusted(p_m, optv[i],ex);
-        if( libvlc_exception_raised(ex) )
-        {
-            libvlc_media_release(p_m);
-            return -1;
-        }
-    }
+        libvlc_media_add_option_flag(p_m, optv[i], libvlc_media_option_unique);
 
     libvlc_media_list_lock(libvlc_media_list);
     libvlc_media_list_add_media(libvlc_media_list,p_m,ex);
@@ -420,9 +420,9 @@ int  VlcPlugin::get_fullscreen( libvlc_exception_t *ex )
     return r;
 }
 
-int  VlcPlugin::player_has_vout( libvlc_exception_t *ex )
+bool  VlcPlugin::player_has_vout( libvlc_exception_t *ex )
 {
-    int r = 0;
+    bool r = false;
     if( playlist_isplaying(ex) )
         r = libvlc_media_player_has_vout(libvlc_media_player, ex);
     return r;
@@ -469,7 +469,7 @@ relativeurl:
         if( psz_baseURL )
         {
             size_t baseLen = strlen(psz_baseURL);
-            char *href = static_cast<char*>(malloc(baseLen+strlen(url)+1));
+            char *href = (char *) malloc(baseLen+strlen(url)+1);
             if( href )
             {
                 /* prepend base URL */
@@ -513,7 +513,7 @@ relativeurl:
                     if( '/' != *href )
                     {
                         /* baseURL is not an absolute path */
-		        free(href);
+                        free(href);
                         return NULL;
                     }
                     pathstart = href;
@@ -748,8 +748,7 @@ void VlcPlugin::redrawToolbar()
     libvlc_exception_init( &ex );
 
     /* get mute info */
-    b_mute = libvlc_audio_get_mute( getVLC(), &ex );
-    libvlc_exception_clear( &ex );
+    b_mute = libvlc_audio_get_mute( getVLC() );
 
     gcv.foreground = BlackPixel( p_display, 0 );
     gc = XCreateGC( p_display, control, GCForeground, &gcv );
@@ -857,8 +856,7 @@ vlc_toolbar_clicked_t VlcPlugin::getToolbarButtonClicked( int i_xpos, int i_ypos
     libvlc_exception_clear( &ex );
 
     /* get mute info */
-    b_mute = libvlc_audio_get_mute( getVLC(), &ex );
-    libvlc_exception_clear( &ex );
+    b_mute = libvlc_audio_get_mute( getVLC() );
 
     /* is Pause of Play button clicked */
     if( (is_playing != 1) &&

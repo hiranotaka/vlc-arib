@@ -59,7 +59,6 @@ endif
 
 ifneq ($(CC),)
 HOSTCC+= CC="$(CC)"
-FFMPEGCONF += --cc=$(CC)
 endif
 ifneq ($(CXX),)
 HOSTCC+= CXX="$(CXX)"
@@ -116,12 +115,17 @@ endif
 #
 ifdef HAVE_WIN32
 HOSTCONF+= --without-pic --disable-shared --enable-msw --disable-dependency-tracking
-FFMPEGCONF+= --target-os=mingw32 --enable-memalign-hack --cpu=i686 --arch=i686 --disable-debug
+FFMPEGCONF+= --target-os=mingw32 --enable-memalign-hack
+ifdef HAVE_WIN64
+FFMPEGCONF+= --cpu=athlon64 --arch=x86_64
+else
+FFMPEGCONF+= --cpu=i686
+endif
 endif
 
 ifdef HAVE_WINCE
 HOSTCONF+= --without-pic --disable-shared
-FFMPEGCONF+= --enable-mingwce --cpu=armv4l --disable-debug --disable-encoders --disable-muxers --disable-mpegaudio-hp --disable-decoder=snow --disable-decoder=vc9 --disable-decoder=wmv3 --disable-decoder=vorbis --disable-decoder=dvdsub --disable-decoder=dvbsub --disable-protocols
+FFMPEGCONF+= --enable-mingwce --cpu=armv4l --disable-encoders --disable-muxers --disable-mpegaudio-hp --disable-decoder=snow --disable-decoder=vc9 --disable-decoder=wmv3 --disable-decoder=vorbis --disable-decoder=dvdsub --disable-decoder=dvbsub --disable-protocols
 endif
 
 ifdef HAVE_UCLIBC
@@ -130,14 +134,10 @@ FFMPEGCONF+= --arch=armeb --enable-armv5te --enable-iwmmxt
 else
 FFMPEGCONF+= --arch=armv4l
 endif
-FFMPEGCONF+= --enable-small --disable-debug --disable-mpegaudio-hp
+FFMPEGCONF+= --enable-small --disable-mpegaudio-hp
 FFMPEG_CFLAGS += -DHAVE_LRINTF --std=c99
 else
-FFMPEGCONF+= --enable-libmp3lame --enable-libfaac --enable-libgsm
-endif
-
-ifdef HAVE_BEOS
-FFMPEGCONF+= --cpu=x86 --disable-debug --disable-audio-beos
+FFMPEGCONF+= --enable-libmp3lame --enable-libgsm
 endif
 
 ifdef HAVE_DARWIN_OS_ON_INTEL
@@ -145,11 +145,13 @@ FFMPEGCONF += --enable-memalign-hack
 endif
 
 ifdef HAVE_DARWIN_OS
+X264CONF=--host=$(HOST)
 X264CONF += --enable-pic
 FFMPEGCONF += --cc=$(CC)
 FFMPEGCONF += --arch=$(ARCH)
-ifdef HAVE_DARWIN_10
+ifdef HAVE_DARWIN_64
 FFMPEGCONF += --cpu=core2
+X264CONF+=--host=x86_64-apple-darwin10
 endif
 ifdef HAVE_DARWIN_OS_ON_INTEL
 FFMPEG_CFLAGS += -DHAVE_LRINTF
@@ -158,6 +160,23 @@ endif
 
 ifdef HAVE_AMR
 FFMPEGCONF+= --enable-libamr-nb --enable-libamr-wb --enable-nonfree
+endif
+
+ifdef HAVE_LINUX
+ifdef HAVE_MAEMO
+ifneq ($(filter -m%=cortex-a8, $(EXTRA_CFLAGS)),)
+FFMPEGCONF += --disable-runtime-cpudetect --enable-neon --cpu=cortex-a8
+endif
+# Really, this could be done on all Linux platforms, not just Maemo.
+# Installing statically-linked VLC plugins is so much simpler.
+HOSTCONF += --with-pic --disable-shared
+endif
+FFMPEGCONF += --enable-pic
+X264CONF += --enable-pic
+endif
+
+ifdef HAVE_ISA_THUMB
+NOTHUMB ?= -mno-thumb
 endif
 
 DATE=`date +%Y-%m-%d`
@@ -207,39 +226,6 @@ endef
 #	$(MAKE) -C $< install
 #	$(INSTALL_NAME)
 #	touch $@
-
-ifeq ($(HOST),i586-pc-beos)
-# We test if the file actually exists, as sometimes (but not always)
-# libtool won't accept to build the shared library
-define INSTALL_NAME
-	if test -f $(PREFIX)/lib/lib$(patsubst .%,%,$@).so ; then \
-		mkdir -p $(PREFIX)/vlc-lib ; \
-		cp $(PREFIX)/lib/lib$(patsubst .%,%,$@).so \
-		  $(PREFIX)/vlc-lib/ ; \
-	fi
-endef
-endif
-
-# ***************************************************************************
-# perl
-# ***************************************************************************
-
-ifeq ($(BUILD),i586-pc-beos)
-perl-$(PERL_VERSION).tar.gz:
-	$(WGET) $(PERL_URL)
-
-perl: perl-$(PERL_VERSION).tar.gz
-	$(EXTRACT_GZ)
-	sed -i.orig 's%prefix="/boot/home/config"%prefix="$(PREFIX)"%'  perl/hints/beos.sh
-
-.perl: perl
-	(cd $<; ./Configure -d -e && make && make install && ln -sf perl5/$(PERL_VERSION)/BePC-beos/CORE/libperl.so $(PREFIX)/lib/libperl.so)
-	touch $@
-
-CLEAN_FILE += .perl
-CLEAN_PKG += perl
-DISTCLEAN_PKG += perl-$(PERL_VERSION).tar.gz
-endif
 
 # ***************************************************************************
 # autoconf
@@ -323,23 +309,6 @@ CLEAN_FILE += .libtool
 
 endif
 
-ifeq ($(BUILD),i586-pc-beos)
-libtool-$(LIBTOOL_VERSION).tar.gz:
-	$(WGET) $(LIBTOOL_URL)
-
-libtool: libtool-$(LIBTOOL_VERSION).tar.gz
-	$(EXTRACT_GZ)
-
-.libtool: libtool
-	(cd $<; ./configure --prefix=$(PREFIX) && make && make install)
-	touch $@
-
-CLEAN_PKG += libtool
-DISTCLEAN_PKG += libtool-$(LIBTOOL_VERSION).tar.gz
-CLEAN_FILE += .libtool
-
-endif
-
 # ***************************************************************************
 # automake
 # ***************************************************************************
@@ -401,11 +370,6 @@ ifdef HAVE_WIN32
 else
 	( cd $< && $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --disable-java --disable-native-java --without-emacs)
 endif
-ifeq ($(BUILD),i586-pc-beos)
-# The ugliest kludge ever - so libtool correctly links shared libraries
-# on BeOS. Sorry, I just can't figure out how libtool works
-	( cd $< && for f in `find . -name libtool`; do  sed -e 's/ -shared / -nostart /' -e 's/^predep_objects.*/predep_objects=""/' -i  $$f; chmod +x $$f; done )
-endif
 ifneq ($(HOST),$(BUILD))
   ifndef HAVE_CYGWIN
     # We'll use the installed gettext and only need to cross-compile libintl, also build autopoint and gettextsize tools need for VLC bootstrap
@@ -438,14 +402,25 @@ libiconv-$(LIBICONV_VERSION).tar.gz:
 
 libiconv: libiconv-$(LIBICONV_VERSION).tar.gz
 	$(EXTRACT_GZ)
-ifdef HAVE_DARWIN_OS
-	patch -p0 < Patches/libiconv.patch
+ifdef HAVE_WIN64
+	patch -p0 < Patches/libiconv-win64.patch
 endif
-	patch -p0 < Patches/libiconv-autoconf-uclibc.patch
+
+libiconv-snowleopard.tar.bz2:
+	$(WGET) $(LIBICONVMAC_URL)
+
+libiconv-snowleopard: libiconv-snowleopard.tar.bz2
+	$(EXTRACT_BZ2)
 
 ifdef HAVE_DARWIN_OS
+ifdef HAVE_DARWIN_10
+.iconv: libiconv-snowleopard
+	(cd libiconv-snowleopard && cp libiconv.* ../../lib/)
+	touch $@
+else
 .iconv:
 	touch $@
+endif
 else
 .iconv: libiconv
 	(cd libiconv; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --disable-nls && make && make install)
@@ -466,16 +441,19 @@ fontconfig-$(FONTCONFIG_VERSION).tar.gz:
 
 fontconfig: fontconfig-$(FONTCONFIG_VERSION).tar.gz Patches/fontconfig.patch
 	$(EXTRACT_GZ)
-	patch -p0 < Patches/fontconfig.patch
 	patch -p0 < Patches/fontconfig-nodocs.patch
-	(cd $@; autoreconf)
+ifdef HAVE_WIN32
+	patch -p0 < Patches/fontconfig.patch
+	patch -p0 < Patches/fontconfig-noxml2.patch
+endif
+	(cd $@; autoreconf -ivf)
 
 .fontconfig: fontconfig .xml .freetype
 ifdef HAVE_WIN32
   ifdef HAVE_CYGWIN
-	(cd $<; LIBXML2_CFLAGS=`$(PREFIX)/bin/xml2-config --cflags` ./configure --target=$(HOST) --disable-pic --disable-shared --disable-docs --with-cache-dir=WINDOWSTEMPDIR --with-arch=i686 --with-default-fonts=C:\\windows\fonts --with-add-fonts=C:\\winnt\fonts --prefix=$(PREFIX) --with-freetype-config=$(PREFIX)/bin/freetype-config --enable-libxml2 && make && make install)
+	(cd $<;  ./configure --target=$(HOST) --disable-pic --disable-shared --disable-docs --with-arch=i686 --prefix=$(PREFIX) --with-freetype-config=$(PREFIX)/bin/freetype-config --enable-libxml2 && make && make install)
   else
-	(cd $<; $(HOSTCC) LIBXML2_CFLAGS=`$(PREFIX)/bin/xml2-config --cflags` ./configure $(HOSTCONF) --with-cache-dir=WINDOWSTEMPDIR --with-arch=i686 --with-default-fonts=C:\\windows\fonts --with-add-fonts=C:\\winnt\fonts --prefix=$(PREFIX) --with-freetype-config=$(PREFIX)/bin/freetype-config --enable-libxml2 --disable-docs && make && make install)
+	(cd $<; $(HOSTCC)  ./configure $(HOSTCONF) --with-arch=i686 --prefix=$(PREFIX) --with-freetype-config=$(PREFIX)/bin/freetype-config --disable-libxml2 --disable-docs && make && make install)
   endif
 else
   ifdef HAVE_DARWIN_OS
@@ -544,6 +522,9 @@ a52dec-$(A52DEC_VERSION).tar.gz:
 
 a52dec: a52dec-$(A52DEC_VERSION).tar.gz
 	$(EXTRACT_GZ)
+ifeq ($(ARCH),armel)
+	(cd $@ ; patch -p0 < ../Patches/liba52-fixed.diff)
+endif
 
 .a52: a52dec
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) && cd liba52 && make && make install && cd ../include && make && make install)
@@ -557,22 +538,13 @@ DISTCLEAN_PKG += a52dec-$(A52DEC_VERSION).tar.gz
 # mpeg2dec
 # ***************************************************************************
 
-#mpeg2dec:
-#	@echo "*** Please press return here : ***"
-#	cvs -d $(MPEG2DEC_CVSROOT) login
-#	cvs -d $(MPEG2DEC_CVSROOT) co mpeg2dec
-#	(cd $@; ./bootstrap)
-
 libmpeg2-$(LIBMPEG2_VERSION).tar.gz:
 	$(WGET) $(LIBMPEG2_URL)
 
-# It is easier to use bootstrapped versions...
-#mpeg2dec-$(MPEG2DEC_VERSION).tar.gz:
-#	$(WGET) $(MPEG2DEC_SNAPSHOT)
-#	mv mpeg2dec-$(MPEG2DEC_DATE).tar.gz $@
-
 libmpeg2: libmpeg2-$(LIBMPEG2_VERSION).tar.gz
 	$(EXTRACT_GZ)
+	cd libmpeg2 && patch -p0 < ../Patches/libmpeg2-mc-neon.patch
+	cd libmpeg2 && ./bootstrap
 
 .mpeg2: libmpeg2
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --without-x --disable-sdl && cd libmpeg2 && make && make install && cd ../include && make && make install)
@@ -580,7 +552,6 @@ libmpeg2: libmpeg2-$(LIBMPEG2_VERSION).tar.gz
 
 CLEAN_FILE += .mpeg2
 CLEAN_PKG += libmpeg2
-#DISTCLEAN_PKG += mpeg2dec-$(MPEG2DEC_VERSION)-cvs.tar.gz
 DISTCLEAN_PKG += libmpeg2-$(LIBMPEG2_VERSION).tar.gz
 
 # ***************************************************************************
@@ -593,6 +564,9 @@ libid3tag-$(LIBID3TAG_VERSION).tar.gz:
 libid3tag: libid3tag-$(LIBID3TAG_VERSION).tar.gz
 	$(EXTRACT_GZ)
 	patch -d libid3tag -p0 < Patches/libid3tag-0.15.1b-fix-CVE-2008-2109.patch
+ifdef HAVE_DARWIN_OS
+	( cd $@; sed -e 's%-dynamiclib%-dynamiclib -arch $(ARCH)%' -i.orig  configure )
+endif
 
 .id3tag: libid3tag
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) && make && make install)
@@ -648,14 +622,18 @@ lua-$(LUA_VERSION).tar.gz:
 
 lua: lua-$(LUA_VERSION).tar.gz
 	$(EXTRACT_GZ)
+ifdef HAVE_DARWIN_OS
+	(cd $@; sed -e 's%gcc%$(CC)%' -e 's%LDFLAGS=%LDFLAGS=$(EXTRA_CFLAGS) $(EXTRA_LDFLAGS)%' -i.orig  src/Makefile)
+endif
 
 .lua: lua
 ifdef HAVE_WIN32
-	( cd $<; sed -i.orig 's/lua luac/lua.exe/' Makefile ; cd src; sed -i.orig 's/CC=/#CC=/' Makefile; cd ../..;)
-	(cd $<; $(HOSTCC) make $(LUA_MAKEPLATEFORM); cd src; $(HOSTCC) make liblua.a; cd ..;$(HOSTCC) make install INSTALL_TOP=$(PREFIX); $(RANLIB) $(PREFIX)/lib/liblua.a)
-	(cd $<; sed -i.orig 's@prefix= /usr/local@prefix= $(PREFIX)@' etc/lua.pc; mkdir -p $(PREFIX)/lib/pkgconfig; cp etc/lua.pc $(PREFIX)/lib/pkgconfig)
+	( cd $< && sed -i.orig 's/lua luac/lua.exe/' Makefile && cd src && sed -i.orig 's/CC=/#CC=/' Makefile && sed -i 's/strip/$(STRIP)/' Makefile && cd ../..)
+	(cd $<&& $(HOSTCC) make $(LUA_MAKEPLATEFORM)&& cd src&& $(HOSTCC) make liblua.a&& cd ..&&$(HOSTCC) make install INSTALL_TOP=$(PREFIX)&& $(RANLIB) $(PREFIX)/lib/liblua.a)
+	(cd $<&& sed -i.orig 's@prefix= /usr/local@prefix= $(PREFIX)@' etc/lua.pc&& mkdir -p $(PREFIX)/lib/pkgconfig&& cp etc/lua.pc $(PREFIX)/lib/pkgconfig)
 else
-	(cd $<; $(HOSTCC) make $(LUA_MAKEPLATEFORM) && make install INSTALL_TOP=$(PREFIX))
+	(cd $<&& patch -p1) < Patches/lua-noreadline.patch
+	(cd $<&& $(HOSTCC) make $(LUA_MAKEPLATEFORM) && make install INSTALL_TOP=$(PREFIX))
 endif
 	touch $@
 
@@ -673,11 +651,11 @@ libmad-$(LIBMAD_VERSION).tar.gz:
 libmad: libmad-$(LIBMAD_VERSION).tar.gz
 	$(EXTRACT_GZ)
 ifdef HAVE_DARWIN_OS
-	( cd $@; sed -e 's%-march=i486%$(EXTRA_CFLAGS) $(EXTRA_LDFLAGS)%' -i.orig  configure )
+	( cd $@; sed -e 's%-march=i486%$(EXTRA_CFLAGS) $(EXTRA_LDFLAGS)%' -e 's%-dynamiclib%-dynamiclib -arch $(ARCH)%' -i.orig  configure )
 endif
 
 .mad: libmad
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="-O3" && make && make install)
+	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="-O3 $(NOTHUMB)" && make && make install)
 	$(INSTALL_NAME)
 	touch $@
 
@@ -714,22 +692,11 @@ DISTCLEAN_PKG += libogg-$(OGG_VERSION).tar.gz
 # vorbis
 # ***************************************************************************
 
-#vorbis:
-#	@echo "*** Please type \"anoncvs\" here : ***"
-#	cvs -d $(OGG_CVSROOT) login
-#	cvs -d $(OGG_CVSROOT) co vorbis
-#	(cd $@; ./autogen.sh)
-
 libvorbis-$(VORBIS_VERSION).tar.gz:
 	$(WGET) $(VORBIS_URL)
 
 libvorbis: libvorbis-$(VORBIS_VERSION).tar.gz
 	$(EXTRACT_GZ)
-	patch -p0 < Patches/libvorbis.patch
-	patch -d libvorbis -p0 < Patches/libvorbis-r14598-CVE-2008-1420.patch
-	patch -d libvorbis -p0 < Patches/libvorbis-r14602-CVE-2008-1419.patch
-	patch -d libvorbis -p0 < Patches/libvorbis-r14602-CVE-2008-1423.patch
-	(cd $@; sh autogen.sh)
 
 .vorbis: libvorbis .ogg
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) && make && make install)
@@ -752,7 +719,7 @@ ifdef SVN
 tremor:
 	$(SVN) co http://svn.xiph.org/trunk/Tremor tremor
 	(cd $@ && patch -p0 < ../Patches/tremor.patch)
-	(cd $@; rm -f ogg.h && echo "#include <ogg/ogg.h>" > ogg.h && rm -f os_types.h && echo "#include <ogg/os_types.h>" > os_types.h && ./autogen.sh)
+	(cd $@; rm -f ogg.h && echo "#include <ogg/ogg.h>" > ogg.h && rm -f os_types.h && echo "#include <ogg/os_types.h>" > os_types.h)
 else
 tremor-$(TREMOR_VERSION).tar.bz2:
 	echo "tremor snapshot does not exist, you MUST use subversion !"
@@ -764,13 +731,13 @@ tremor: tremor-$(TREMOR_VERSION).tar.bz2
 endif
 
 .tremor: tremor .ogg
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --disable-shared && make && make install)
+	(cd $<; $(HOSTCC) ./autogen.sh $(HOSTCONF) --prefix=$(PREFIX) --disable-shared CFLAGS="$(NOTHUMB)" && make && make install)
 	$(INSTALL_NAME)
 	touch $@
 
 ifdef SVN
 tremor-source: tremor
-	tar cfvz tremor-$(DATE).tar.gz tremor
+	tar cv --exclude=.svn tremor | bzip2 > tremor-$(DATE).tar.bz2
 
 SOURCE += tremor-source
 endif
@@ -788,28 +755,37 @@ libtheora-$(THEORA_VERSION).tar.bz2:
 
 libtheora: libtheora-$(THEORA_VERSION).tar.bz2
 	$(EXTRACT_BZ2)
-	patch -p0 < Patches/theora.patch
-	patch -p0 < Patches/libtheora-includes.patch
-ifdef HAVE_WIN32
-	patch -p0 < Patches/theora-doc.patch
+ifdef HAVE_DARWIN_OS
+ifdef HAVE_DARWIN_OS_ON_INTEL
+	patch -p0 < Patches/theora_mac_intel32.patch
+else
+	patch -p0 < Patches/theora_mac_ppc.patch
 endif
-	(cd $@; autoconf)
+endif
+	patch -p0 < Patches/libtheora-includes.patch
 
 THEORACONF = --disable-sdltest --disable-oggtest --disable-vorbistest --disable-examples
-ifdef HAVE_WIN32
-THEORACONF += --disable-docs
-endif
 
-ifdef HAVE_DARWIN_10
+ifdef HAVE_DARWIN_64
+THEORACONF += --disable-asm
+endif
+ifdef HAVE_WIN64
 THEORACONF += --disable-asm
 endif
 
 .theora: libtheora .ogg
-ifdef HAVE_BEOS
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) $(THEORACONF) --disable-asm && make && make install)
-else
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) $(THEORACONF)&& make && make install)
+ifdef HAVE_DARWIN_OS
+	cd $<; $(HOSTCC) ./autogen.sh $(HOSTCONF) --prefix=$(PREFIX) $(THEORACONF)
 endif
+ifdef HAVE_WIN32
+	cd $<; $(HOSTCC) ./autogen.sh $(HOSTCONF) --prefix=$(PREFIX) $(THEORACONF)
+endif
+	if test ! -f $</config.status; then \
+		cd $< ; \
+		$(HOSTCC) ./configure $(HOSTCONF) \
+			--prefix=$(PREFIX) $(THEORACONF) ; \
+	fi
+	cd $< && make && make install
 	$(INSTALL_NAME)
 	touch $@
 
@@ -828,7 +804,6 @@ libshout: libshout-$(SHOUT_VERSION).tar.gz
 	$(EXTRACT_GZ)
 ifdef HAVE_WIN32
 	patch -p0 < Patches/libshout-win32.patch
-	(cd $@; autoreconf && automake)
 endif
 
 .shout: libshout .theora .ogg .speex .vorbis
@@ -851,6 +826,9 @@ flac: flac-$(FLAC_VERSION).tar.gz
 	$(EXTRACT_GZ)
 ifdef HAVE_WIN32
 	patch -p0 < Patches/flac-win32.patch
+endif
+ifdef HAVE_DARWIN_OS
+	( cd $@; sed -e 's%-dynamiclib%-dynamiclib -arch $(ARCH)%' -i.orig  configure )
 endif
 
 FLAC_DISABLE_FLAGS = --disable-oggtest --disable-xmms-plugin --disable-cpplibs
@@ -886,9 +864,6 @@ speex-$(SPEEX_VERSION).tar.gz:
 speex: speex-$(SPEEX_VERSION).tar.gz
 	$(EXTRACT_GZ)
 	patch -p0 < Patches/speex.patch
-ifdef HAVE_BEOS
-	patch -p0 < Patches/speex-BeOS.patch
-endif
 
 .speex: speex
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --enable-ogg=no && make && make install)
@@ -908,33 +883,16 @@ faad2-$(FAAD2_VERSION).tar.gz:
 
 faad2: faad2-$(FAAD2_VERSION).tar.gz
 	$(EXTRACT_GZ)
-	(cd $@; sh ./bootstrap)
+	(cd $@; echo|$(CC) -iquote . -E - || sed -i 's/-iquote /-I/' libfaad/Makefile.am; sh ./bootstrap)
+	patch -p0 < Patches/faad-arm-fixed.patch
 
 .faad: faad2
-	(cd $< && $(HOSTCC) ./configure $(HOSTCONF) --disable-shared --prefix=$(PREFIX) CFLAGS="-O3" && sed -i.orig "s/shrext_cmds/shrext/g" libtool && make -C libfaad && make -C libfaad install)
+	(cd $< && $(HOSTCC) ./configure $(HOSTCONF) --disable-shared --prefix=$(PREFIX) CFLAGS="-O3 $(NOTHUMB)" && sed -i.orig "s/shrext_cmds/shrext/g" libtool && make -C libfaad && make -C libfaad install)
 	touch $@
 
 CLEAN_FILE += .faad
 CLEAN_PKG += faad2
 DISTCLEAN_PKG += faad2-$(FAAD2_VERSION).tar.gz
-
-# ***************************************************************************
-# faac
-# ***************************************************************************
-
-faac-$(FAAC_VERSION).tar.gz:
-	$(WGET) $(FAAC_URL)
-
-faac: faac-$(FAAC_VERSION).tar.gz
-	$(EXTRACT_GZ)
-
-.faac: faac
-	(cd $<; ./bootstrap && $(HOSTCC) ./configure $(HOSTCONF) --without-mp4v2 --prefix=$(PREFIX) --disable-shared && make && make install)
-	touch $@
-
-CLEAN_FILE += .faac
-CLEAN_PKG += faac
-DISTCLEAN_PKG += faac-$(FAAC_VERSION).tar.gz
 
 # ***************************************************************************
 # lame
@@ -961,16 +919,13 @@ DISTCLEAN_PKG += lame-$(LAME_VERSION).tar.gz
 libebml-$(LIBEBML_VERSION).tar.bz2:
 	$(WGET) $(LIBEBML_URL)
 
-## No reasons to use SVN anymore
-#ifdef SVN
-#libebml:
-#	$(SVN) co http://svn.matroska.org/svn/matroska/trunk/libebml libebml
-#else
 libebml: libebml-$(LIBEBML_VERSION).tar.bz2
 	$(EXTRACT_BZ2)
-#endif
 ifdef HAVE_WIN32
 	(cd $@; patch -p0 < ../Patches/libebml-svn-win32.patch)
+endif
+ifdef HAVE_WIN64
+	patch -p0 < Patches/libebml-win64.patch
 endif
 
 .ebml: libebml
@@ -981,12 +936,6 @@ else
 	$(RANLIB) $(PREFIX)/lib/libebml.a
 endif
 	touch $@
-## No reasons to use SVN anymore
-#ifdef SVN
-#libebml-source: libebml
-#	tar cfvz  libebml-$(DATE).tar.gz libebml
-#SOURCE += libebml-source
-#endif
 
 CLEAN_FILE += .ebml
 CLEAN_PKG += libebml
@@ -999,14 +948,8 @@ DISTCLEAN_PKG += libebml-$(LIBEBML_VERSION).tar.bz2
 libmatroska-$(LIBMATROSKA_VERSION).tar.bz2:
 	$(WGET) $(LIBMATROSKA_URL)
 
-## No reasons to use SVN anymore
-#if SVN
-#libmatroska:
-#	$(SVN) co http://svn.matroska.org/svn/matroska/trunk/libmatroska libmatroska
-#else
 libmatroska: libmatroska-$(LIBMATROSKA_VERSION).tar.bz2
 	$(EXTRACT_BZ2)
-#endif
 	patch -p0 < ./Patches/libmatroska-kaxblock.patch
 ifdef HAVE_WIN32
 	(cd $@; patch -p0 < ../Patches/libmatroska-win32.patch)
@@ -1021,13 +964,6 @@ else
 endif
 	touch $@
 
-## No reasons to use SVN anymore
-#ifdef SVN
-#libmatroska-source: libmatroska
-#	tar cfvz libmatroska-$(DATE).tar.gz libmatroska
-#
-#SOURCE += libmatroska-source
-#endif
 
 CLEAN_FILE += .matroska
 CLEAN_PKG += libmatroska
@@ -1078,19 +1014,16 @@ DISTCLEAN_PKG += amrwb-$(LIBAMR_WB_VERSION).tar.bz2
 ifdef SVN
 ffmpeg:
 	$(SVN) co $(FFMPEG_SVN) ffmpeg
-ifeq ($(HOST),i586-pc-beos)
-	(cd $@; patch -p0 < ../Patches/ffmpeg-svn-beos.patch)
+ifdef HAVE_ISA_THUMB
+	patch -p0 < Patches/ffmpeg-avcodec-no-thumb.patch
 endif
 ifdef HAVE_WINCE
 	patch -p1 < Patches/ffmpeg-svn-wince.patch
 endif
-ifdef HAVE_BEOS
-	(cd $@; patch -p0 < ../Patches/ffmpeg-alignment.patch)
+ifdef HAVE_DARWIN_OS
+ifndef HAVE_DARWIN_OS_ON_INTEL
+	(cd $@; patch -p0 < ../Patches/ffmpeg-darwin-ppc-mdynamic.patch)
 endif
-ifdef HAVE_DARWIN_OS_ON_INTEL
-	(cd $@; patch -p0 < ../Patches/ffmpeg-macosx-intel-mmx.patch)
-else
-	(cd $@; patch -p0 < ../Patches/ffmpeg-darwin-ppc-mdynamic.patch) 
 endif
 ifdef HAVE_UCLIBC
 	patch -p0 < Patches/ffmpeg-svn-uclibc.patch
@@ -1104,6 +1037,7 @@ ifdef NO_TEXT_RELOCATION
 	echo "Broken LD. Fix your tools."
 	exit -1
 endif
+	(cd $@; patch -p1 < ../Patches/eac3_spectral.patch)
 else
 ffmpeg-$(FFMPEG_VERSION).tar.gz:
 	echo "ffmpeg snapshot is too old, you MUST use subversion !"
@@ -1114,9 +1048,18 @@ ffmpeg: ffmpeg-$(FFMPEG_VERSION).tar.gz
 	$(EXTRACT_GZ)
 endif
 
-FFMPEGCONF += --enable-gpl --enable-postproc --disable-ffserver --disable-ffmpeg --disable-ffplay --disable-devices --disable-protocols --disable-network
+FFMPEGCONF += \
+	--disable-debug \
+	--enable-gpl \
+	--enable-postproc \
+	--disable-ffserver \
+	--disable-ffmpeg \
+	--disable-ffplay \
+	--disable-devices \
+	--disable-protocols \
+	--disable-network
 ifdef HAVE_WIN32
-FFMPEGCONF += --disable-bzlib --disable-decoder=dca
+FFMPEGCONF += --disable-bzlib --disable-decoder=dca --disable-encoder=ac3 --enable-libmp3lame
 endif
 
 ifdef HAVE_WINCE
@@ -1125,15 +1068,15 @@ else
 ifdef HAVE_UCLIBC
 .ffmpeg: ffmpeg
 else
-.ffmpeg: ffmpeg .faac .lame .gsm
+.ffmpeg: ffmpeg .lame .gsm
 endif
 endif
-	(cd $<; $(HOSTCC) ./configure $(FFMPEGCONF) --prefix=$(PREFIX) --extra-cflags="$(CFLAGS) $(FFMPEG_CFLAGS) -DRUNTIME_CPUDETECT" --extra-ldflags="$(LDFLAGS)" $(FFMPEGCONF) --disable-shared --enable-static && make && make install-libs install-headers)
+	(cd $<; $(HOSTCC) ./configure --prefix=$(PREFIX) --extra-cflags="$(CFLAGS) $(FFMPEG_CFLAGS)" --extra-ldflags="$(LDFLAGS)" $(FFMPEGCONF) --disable-shared --enable-static && make && make install-libs install-headers)
 	touch $@
 
 ifdef SVN
 ffmpeg-source: ffmpeg
-	tar cfvz ffmpeg-$(DATE).tar.gz ffmpeg
+	tar cv --exclude=.svn ffmpeg | bzip2 > ffmpeg-$(DATE).tar.bz2
 
 SOURCE += ffmpeg-source
 endif
@@ -1165,7 +1108,7 @@ endif
 
 ifdef SVN
 libdvdcss-source: libdvdcss
-	tar cfvz libdvdcss-$(DATE).tar.gz libdvdcss
+	tar cv --exclude=.svn libdvdcss | bzip2 > libdvdcss-$(DATE).tar.bz2
 
 SOURCE += libdvdcss-source
 endif
@@ -1270,6 +1213,9 @@ live: live555-$(LIVEDOTCOM_VERSION).tar.gz
 	$(EXTRACT_GZ)
 	patch -p0 < Patches/live-noapps.patch
 	patch -p0 < Patches/live-uselocale.patch
+ifdef HAVE_WIN64
+	patch -p0 < Patches/live-win64.patch
+endif
 
 .live: live
 ifdef HAVE_WIN32
@@ -1285,6 +1231,7 @@ ifdef HAVE_BIGENDIAN
 	(cd $<; ./genMakefiles armeb-uclibc && make $(HOSTCC))
 endif
 else
+	(cd $<; sed -e 's%-D_FILE_OFFSET_BITS=64%-D_FILE_OFFSET_BITS=64\ -fPIC\ -DPIC%' -i.orig config.linux)
 	(cd $<; ./genMakefiles linux && make $(HOSTCC))
 endif
 endif
@@ -1314,25 +1261,18 @@ goom$(GOOM2k4_VERSION).tar.gz:
 
 goom: goom$(GOOM2k4_VERSION).tar.gz
 	$(EXTRACT_GZ)
-ifdef HAVE_DARWIN_OS
-	patch -p0 < Patches/goom.patch
-endif
 ifdef HAVE_WIN32
 	(cd $@; dos2unix configure.in)
 	patch -p0 < Patches/goom2k4-0-win32.patch
 else
-ifndef HAVE_DARWIN_OS
 	patch -p0 < Patches/goom2k4-0-mmx.patch
 endif
-endif
 	patch -p0 < Patches/goom2k4-0-memleaks.patch
+	patch -p0 < Patches/goom2k4-autotools.patch
+	(cd $@; rm -f configure; ACLOCAL="aclocal -I m4/" autoreconf -ivf)
 
 .goom2k4: goom
-ifdef HAVE_DARWIN_OS
-	(cd $<; ./configure --prefix=$(PREFIX) --disable-shared --enable-static && make && make install)
-else
-	(cd $< && rm -f configure; aclocal -I m4/ && automake --add-missing && autoconf configure.in > configure && $(HOSTCC) sh ./configure $(HOSTCONF) --prefix=$(PREFIX) --disable-shared --enable-static --disable-glibtest --disable-gtktest && make && make install)
-endif
+	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --disable-shared --enable-static --disable-glibtest --disable-gtktest && make && make install)
 	touch $@
 
 CLEAN_FILE += .goom2k4
@@ -1348,10 +1288,8 @@ libcaca-$(LIBCACA_VERSION).tar.gz:
 
 libcaca: libcaca-$(LIBCACA_VERSION).tar.gz
 	$(EXTRACT_GZ)
+	patch -p0 < Patches/libcaca-static.patch
 ifdef HAVE_DARWIN_OS
-	#remove me at next libcaca upgrade
-	patch -p0 < Patches/caca_driver_cocoa.diff
-	patch -p0 < Patches/caca_macosx.diff
 	patch -p0 < Patches/libcaca-osx-sdkofourchoice.patch
 	(cd $@; sed -e 's%/Developer/SDKs/MacOSX10.4u.sdk%$(MACOSX_SDK)%' -i.orig  configure)
 endif
@@ -1404,9 +1342,6 @@ x264:
 ifdef HAVE_WIN32
 	(cd x264; patch -p0 < ../Patches/x264-svn-win32.patch )
 endif
-ifdef HAVE_DARWIN_OS
-	(cd $@; patch -p0 < ../Patches/x264-svn-darwin.patch )
-endif
 
 else
 
@@ -1440,9 +1375,10 @@ endif
 endif
 	touch $@
 
-ifdef SVN
+ifdef GIT
 x264-source: x264
-	tar cfvz x264-$(DATE).tar.gz x264
+	cd x264 && \
+	git archive --format=tar HEAD | bzip2 > ../x264-$(DATE).tar.bz2
 
 SOURCE += x264-source
 endif
@@ -1460,10 +1396,9 @@ libmodplug-$(MODPLUG_VERSION).tar.gz:
 
 libmodplug: libmodplug-$(MODPLUG_VERSION).tar.gz
 	$(EXTRACT_GZ)
-	patch -p0 < Patches/libmodplug-gccllvm42.patch
 ifdef HAVE_WIN32
 	patch -p0 < Patches/libmodplug-win32.patch
-	(cd $@; autoreconf)
+	(cd $@; autoreconf -ivf )
 endif
 
 .mod: libmodplug
@@ -1483,9 +1418,19 @@ libcddb-$(CDDB_VERSION).tar.bz2:
 
 libcddb: libcddb-$(CDDB_VERSION).tar.bz2
 	$(EXTRACT_BZ2)
+	(cd $@; patch -p0 < ../Patches/libcddb-cross.patch )
+ifdef HAVE_WIN32
+	(cd $@; patch -p0 < ../Patches/libcddb-win32.patch )
+endif
+	(cd $@; autoreconf -fisv)
 
+ifdef HAVE_WIN32
+.cddb: libcddb .regex
+	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --disable-shared --enable-static --without-iconv CFLAGS="$(CFLAGS) -D_BSD_SOCKLEN_T_=int" && make && make install)
+else
 .cddb: libcddb
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --disable-shared --enable-static CFLAGS="$(CFLAGS) -D_BSD_SOCKLEN_T_=int" LDFLAGS="$(LDFLAGS) -liconv" && make && make install)
+endif
 	touch $@
 
 CLEAN_FILE += .cddb
@@ -1537,26 +1482,6 @@ endif
 CLEAN_FILE += .cdio
 CLEAN_PKG += libcdio
 DISTCLEAN_PKG += libcdio-$(CDIO_VERSION).tar.gz
-
-# ***************************************************************************
-# wxWidgets
-# ***************************************************************************
-
-wxWidgets-$(WXWIDGETS_VERSION).tar.gz:
-	$(WGET) $(WXWIDGETS_URL)
-
-wxwidgets: wxWidgets-$(WXWIDGETS_VERSION).tar.gz
-	$(EXTRACT_GZ)
-	(cd wxwidgets; patch -p0 < ../Patches/wxwidgets_uri.patch)
-
-.wxwidgets: wxwidgets
-	(cd wxwidgets; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) --enable-optimise --disable-debug --enable-unicode --disable-threads --disable-gif --disable-pcx --disable-iff --disable-pnm --without-zlib  --without-libpng --without-libjpeg --without-libtiff --without-regex  --disable-zipstream --disable-fs_zip --enable-no_rtti  --enable-no_exceptions --disable-exceptions --disable-stl --disable-html --without-expat --disable-protocols --disable-protocol --disable-xrc --disable-sound --disable-dialupman --disable-mediactrl  --disable-joystick --disable-grid --disable-datepick --disable-postscript--disable-filesystem --disable-fileproto --disable-ipc --disable-sockets --disable-precomp-headers && make && make install)
-	$(INSTALL_NAME)
-	touch $@
-
-CLEAN_FILE += .wxwidgets
-CLEAN_PKG += wxwidgets
-DISTCLEAN_PKG += wxWidgets-$(WXWIDGETS_VERSION).tar.gz
 
 # ***************************************************************************
 # qt4 (win32 binary)
@@ -1626,7 +1551,7 @@ qt4_mac: qt-mac-opensource-src-$(QT4_MAC_VERSION).tar.gz
 	$(EXTRACT_GZ)
 
 .qt4_mac: qt4_mac
-	(cd qt4_mac; ./configure -prefix $(PREFIX) -release -fast -no-qt3support -nomake "examples demos" -sdk $(MACOSX_SDK) -no-framework && make && make install)
+	(cd qt4_mac; ./configure -prefix $(PREFIX) -release -fast -no-qt3support -nomake "examples demos" -sdk $(MACOSX_SDK) -no-framework -arch $(ARCH) && make && make install)
 	touch $@
 
 CLEAN_FILE += .qt4_mac
@@ -1714,15 +1639,12 @@ twolame-$(TWOLAME_VERSION).tar.gz:
 
 twolame: twolame-$(TWOLAME_VERSION).tar.gz
 	$(EXTRACT_GZ)
-ifdef HAVE_BEOS
-	patch -p0 < Patches/twolame-BeOS.patch
-endif
 ifdef HAVE_WIN32
 	(cd twolame/win32; $(WGET) "http://twolame.svn.sourceforge.net/viewvc/*checkout*/twolame/trunk/win32/winutil.h")
 endif
 
 .twolame: twolame
-	(cd twolame; $(HOSTCC) CFLAGS="${CFLAGS}  -DLIBTWOLAME_STATIC" ./configure $(HOSTCONF) --prefix=$(PREFIX) && cd libtwolame &&  make && make install)
+	(cd twolame; $(HOSTCC) CFLAGS="${CFLAGS}  -DLIBTWOLAME_STATIC" ./configure $(HOSTCONF) --prefix=$(PREFIX) &&  make && make install)
 	$(INSTALL_NAME)
 	touch $@
 
@@ -1780,7 +1702,7 @@ zvbi-$(ZVBI_VERSION).tar.bz2:
 zvbi: zvbi-$(ZVBI_VERSION).tar.bz2
 	$(EXTRACT_BZ2)
 ifdef HAVE_WIN32
-	(cd $@; patch -p1 < ../Patches/zvbi-win32.patch; patch -p1 < ../Patches/zvbi-makefile.patch; autoreconf)
+	(cd $@; patch -p1 < ../Patches/zvbi-win32.patch; patch -p1 < ../Patches/zvbi-makefile.patch; autoreconf -ivf)
 endif
 
 ifdef HAVE_WIN32
@@ -1792,7 +1714,7 @@ ifdef HAVE_DARWIN_OS
 	(cd $<; ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS) -fnested-functions" && make && make install)
 else
 ifdef HAVE_WIN32
-	(cd $<; ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS) --std=gnu99" LIBS="-lpthreadGC2" && make && make install)
+	(cd $<; ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS) -DPTW32_STATIC_LIB --std=gnu99"  && make && make install)
 else
 	(cd $<; ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" && make -C src && make -C src install)
 endif
@@ -1808,23 +1730,11 @@ DISTCLEAN_PKG += zvbi-$(ZVBI_VERSION).tar.bz2
 # libraw1394
 # ***************************************************************************
 
-#ifdef SVN
-#libraw1394:
-#	$(SVN) co -r 325 $(LIBDC1394_SVN)/libraw1394/trunk/libraw1394  libraw1394
-#        (cd $<; libtoolize --copy --force; \
-#                autopoint -f; \
-#                aclocal -I extras/contrib/share/aclocal; \
-#                autoconf; \
-#                autoheader; \
-#                automake --add-missing --copy -Wall)
-#
-#else
 libraw1394-$(LIBRAW1394_VERSION).tar.gz:
 	$(WGET) $(LIBRAW1394_URL)
 
 libraw1394: libraw1394-$(LIBRAW1394_VERSION).tar.gz
 	$(EXTRACT_GZ)
-#endif
 
 .raw1394: libraw1394
 	(cd $<; ./configure --prefix=$(PREFIX) && make && make DESTDIR=$(PREFIX) install)
@@ -1839,23 +1749,11 @@ DISTCLEAN_PKG += libraw1394-$(LIBRAW1394_VERSION).tar.gz
 # libdc1394
 # ***************************************************************************
 
-#ifdef SVN
-#libdc1394:
-#	$(SVN) co -r 325 $(LIBDC1394_SVN)/libdc1394/trunk/libdc1394  libdc1394
-#        (cd $<; libtoolize --copy --force; \
-#                autopoint -f; \
-#                aclocal -I extras/contrib/share/aclocal; \
-#                autoconf; \
-#                autoheader; \
-#                automake --add-missing --copy -Wall)
-#
-#else
 libdc1394-$(LIBDC1394_VERSION).tar.gz:
 	$(WGET) $(LIBDC1394_URL)
 
 libdc1394: libdc1394-$(LIBDC1394_VERSION).tar.gz
 	$(EXTRACT_GZ)
-#endif
 
 .dc1394: libdc1394
 	(cd $<; ./configure --prefix=$(PREFIX) && \
@@ -1906,7 +1804,7 @@ CIPHDIG= --enable-ciphers=aes,des,rfc2268,arcfour --enable-digests=sha1,md5,rmd1
 ifdef HAVE_WIN32
 	(cd $<; ./autogen.sh && $(HOSTCC) ./configure $(HOSTCONF) --target=i586-mingw32msvc --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" $(CIPHDIG) --disable-shared --enable-static --disable-nls && make && make install)
 else
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" $(CIPHDIG) && make && make install)
+	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS) -lgpg-error" $(CIPHDIG) && make && make install)
 endif
 	$(INSTALL_NAME)
 	touch $@
@@ -1944,13 +1842,12 @@ gnutls: gnutls-$(GNUTLS_VERSION).tar.bz2
 	$(EXTRACT_BZ2)
 ifdef HAVE_WIN32
 	patch -p0 < Patches/gnutls-win32.patch
-	(cd $@; cd lgl; ln -sf alloca_.h alloca.h;)
-	(cd $@; autoconf)
+	(cd $@; autoreconf)
 endif
 
 .gnutls: gnutls .gcrypt .gpg-error
 ifdef HAVE_WIN32
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" --target=i586-mingw32msvc --disable-cxx -disable-shared --enable-static --disable-nls   --with-included-opencdk --with-included-libtasn1 && cd lgl && make && cd ../gl && make &&  cd ../lib &&make && make install && cd ../includes && make install)
+	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" --target=i586-mingw32msvc --disable-cxx -disable-shared --enable-static --disable-nls --with-included-opencdk --with-included-libtasn1 &&  cd gl && make && cd ../lib && make && make install )
 else
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" --disable-cxx --with-included-opencdk --disable-guile && make && make install)
 endif
@@ -1985,18 +1882,21 @@ DISTCLEAN_PKG += libopendaap-$(DAAP_VERSION).tar.bz2
 # glib
 # ***************************************************************************
 
-glib-$(GLIB_VERSION).tar.gz:
+glib-$(GLIB_VERSION).tar.bz2:
 	$(WGET) $(GLIB_URL)
 
-glib: glib-$(GLIB_VERSION).tar.gz
-	$(EXTRACT_GZ)
-	patch -p0 < Patches/glib.patch
+glib: glib-$(GLIB_VERSION).tar.bz2
+	$(EXTRACT_BZ2)
+	(cd $@; patch -p0 < ../Patches/glib-remove-gtkdoc.patch)
+ifdef HAVE_DARWIN_64
+	(cd $@; patch -p0 < ../Patches/glib-Darwin64.patch)
+endif
 
 .glib: glib
-	(cd $<; ./configure --prefix=$(PREFIX) --host=powerpc-apple-macos && make && make install)
+	(cd $<; sh autogen.sh --prefix=$(PREFIX) --host=$(HOST) && make && make install)
 	touch $@
 
-CLEAN_FILE += .glibl
+CLEAN_FILE += .glib
 CLEAN_PKG += glib
 DISTCLEAN_PKG += glib-$(GLIB_VERSION).tar.gz
 
@@ -2004,14 +1904,14 @@ DISTCLEAN_PKG += glib-$(GLIB_VERSION).tar.gz
 # libIDL
 # ***************************************************************************
 
-libIDL-$(LIBIDL_VERSION).tar.gz:
+libIDL-$(LIBIDL_VERSION).tar.bz2:
 	$(WGET) $(LIBIDL_URL)
 
-libIDL: libIDL-$(LIBIDL_VERSION).tar.gz
-	$(EXTRACT_GZ)
+libIDL: libIDL-$(LIBIDL_VERSION).tar.bz2
+	$(EXTRACT_BZ2)
 
 .IDL: libIDL
-	(cd $<; ./configure --prefix=$(PREFIX) --host=powerpc-apple-macos && make && make install )
+	(cd $<; ./configure --prefix=$(PREFIX) --host=$(HOST) && make && make install )
 	touch $@
 
 CLEAN_FILE += .IDL
@@ -2067,40 +1967,49 @@ DISTCLEAN_PKG += gecko-sdk-i586-pc-msvc-1.8b1.zip libIDL-0.6.3-win32-bin.zip gli
 
 # ***************************************************************************
 # mozilla-macosx
+#
+# Note that this dependency needs to be compiled against the 10.4u SDK using
+# using GCC-4.0. Using newer releases of one of these won't lead to a 
+# successful compilation! Adapt the respective variables in ../config.mak!
 # ***************************************************************************
 
-mozilla-source-$(MOZILLA_VERSION).tar.bz2:
+firefox-$(MOZILLA_VERSION)-source.tar.bz2:
 	$(WGET) $(MOZILLA_URL)
 
-mozilla: mozilla-source-$(MOZILLA_VERSION).tar.bz2
+mozilla: firefox-$(MOZILLA_VERSION)-source.tar.bz2
 	$(EXTRACT_BZ2)
+	(cd $@; patch -p0 < ../Patches/firefox-darwin.patch)
 
-.mozilla-macosx: mozilla
-	(cd $<; ./configure --prefix=$(PREFIX) --enable-default-toolkit=mac --enable-standalone-modules=xpcom,plugin && make && make install)
+.mozilla-macosx: mozilla .glib .IDL
+	ifneq($(SDK_TARGET),"10.4")
+	echo "Compiling the mozilla target requires the 10.4 SDK!"
+	exit -1
+	endif
+	(cd $<; ./configure --prefix=$(PREFIX)/gecko-sdk-new --enable-default-toolkit=cairo-cocoa --enable-standalone-modules=xpcom,plugin  --enable-application=xulrunner && make && make install)
 	touch $@
 
 CLEAN_FILE += .mozilla-macosx
-CLEAN_PKG += mozilla-macosx
-DISTCLEAN_PKG += mozilla-source-$(MOZILLA_VERSION).tar.bz2
+CLEAN_PKG += mozilla
+DISTCLEAN_PKG += firefox-source-$(MOZILLA_VERSION).tar.bz2
 
 # ***************************************************************************
 # libjpeg
 # ***************************************************************************
 
-jpeg-$(JPEG_VERSION).tar.gz:
+jpegsrc.v$(JPEG_VERSION).tar.gz:
 	$(WGET) $(JPEG_URL)
 
-jpeg: jpeg-$(JPEG_VERSION).tar.gz
+jpeg-7: jpegsrc.v$(JPEG_VERSION).tar.gz
 	$(EXTRACT_GZ)
 
-.jpeg: jpeg
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" $(HOSTCC) && make && make install-lib)
+.jpeg: jpeg-7
+	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" $(HOSTCC) && make && make install)
 	$(RANLIB) $(PREFIX)/lib/libjpeg.a
 	touch $@
 
 CLEAN_FILE += .jpeg
-CLEAN_PKG += jpeg
-DISTCLEAN_PKG += jpeg-$(JPEG_VERSION).tar.gz
+CLEAN_PKG += jpeg-7
+DISTCLEAN_PKG += jpegsrc.v$(JPEG_VERSION).tar.gz
 
 # ***************************************************************************
 # tiff
@@ -2160,7 +2069,6 @@ SDL_image-$(SDL_IMAGE_VERSION).tar.gz:
 SDL_image: SDL_image-$(SDL_IMAGE_VERSION).tar.gz
 	$(EXTRACT_GZ)
 	patch -p0 < Patches/SDL_image.patch
-	patch -p0 < Patches/SDL_image-CVE-2006-4484.patch
 
 .SDL_image: SDL_image .SDL .png .jpeg .tiff
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)" --enable-tif --disable-sdltest && make && make install)
@@ -2181,7 +2089,7 @@ libmpcdec-$(MUSE_VERSION).tar.bz2:
 mpcdec: libmpcdec-$(MUSE_VERSION).tar.bz2
 	$(EXTRACT_BZ2)
 	patch -p0 < Patches/mpcdec.patch
-	(cd $@; autoreconf)
+	(cd $@; autoreconf -ivf)
 
 .mpcdec: mpcdec
 ifdef HAVE_WIN32
@@ -2324,7 +2232,7 @@ yasm: yasm-$(YASM_VERSION).tar.gz
 
 CLEAN_FILE += .yasm
 CLEAN_PKG += yasm
-DISTCLEAN_PKG += yasm-$(YASM_VERSION).tar.bz2
+DISTCLEAN_PKG += yasm-$(YASM_VERSION).tar.gz
 
 # ***************************************************************************
 # kate
@@ -2386,7 +2294,7 @@ taglib-$(TAGLIB_VERSION).tar.gz:
 taglib: taglib-$(TAGLIB_VERSION).tar.gz
 	$(EXTRACT_GZ)
 ifdef HAVE_WIN32
-	patch -p0 < Patches/taglib.patch
+	patch -p0 < Patches/taglib-static.patch
 endif
 ifdef HAVE_CYGWIN
 	patch -p0 < Patches/taglib-cygwin.patch
@@ -2440,28 +2348,6 @@ CLEAN_PKG += ncurses
 DISTCLEAN_PKG += ncurses-$(NCURSES_VERSION).tar.gz
 
 # ***************************************************************************
-# asa library (ASS/SSA support)
-# ***************************************************************************
-
-asa.git.tar.gz:
-	$(WGET) $(ASA_URL)
-
-asa: asa.git.tar.gz
-	$(EXTRACT_GZ)
-	patch -p0 < Patches/asa-git.diff
-
-.asa: asa .fontconfig .pcre .iconv
-	(cd $<; ./bootstrap; $(HOSTCC) CFLAGS="$(CFLAGS) -DPCRE_STATIC" ./configure $(HOSTCONF) --prefix=$(PREFIX))
-	(cd $</lib/import; make || (echo "Please copy a ./preparse file you built for your host into asa/lib/import"; echo "When you are finished, press enter." ; echo "If you are building natively, press enter." ; read i ; make) )
-	(cd $<; make && make install)
-	$(INSTALL_NAME)
-	touch $@
-
-CLEAN_FILE += .asa
-CLEAN_PKG += asa
-DISTCLEAN_PKG += asa.git.tar.gz
-
-# ***************************************************************************
 # FluidSynth library (Midi)
 # ***************************************************************************
 
@@ -2470,6 +2356,10 @@ fluidsynth-$(FLUID_VERSION).tar.gz:
 
 fluidsynth: fluidsynth-$(FLUID_VERSION).tar.gz
 	$(EXTRACT_GZ)
+ifdef HAVE_WIN32
+	patch -p0 < Patches/fluid-win32.patch
+	cd $@; ./autogen.sh || true
+endif
 
 .fluid: fluidsynth
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) && make && make install)
@@ -2489,16 +2379,15 @@ liboil-$(OIL_VERSION).tar.gz:
 liboil: liboil-$(OIL_VERSION).tar.gz
 	$(EXTRACT_GZ)
 	patch -d liboil -p1 < Patches/liboil-noshared.patch
+	patch -d liboil -p1 < Patches/liboil-win64.patch
+	patch -d liboil -p1 < Patches/liboil-Xcompile.patch
+	(cd $@; autoreconf)
+
+
 
 .liboil: liboil
 ifdef HAVE_DARWIN_OS
-ifdef HAVE_DARWIN_OS_ON_INTEL
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS)")
-else
-	patch -p0 < Patches/liboil-ppc.patch
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS) -force_cpusubtype_ALL")
-	patch -p0 < Patches/liboil-ppc-hack.patch
-endif
 else
 	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS) -O2")
 endif
@@ -2520,7 +2409,7 @@ schroedinger: schroedinger-$(SCHROED_VERSION).tar.gz
 	$(EXTRACT_GZ)
 
 .schroedinger: schroedinger .liboil
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --with-thread=none --prefix=$(PREFIX) CFLAGS="$(CFLAGS) -O3" && make && make install)
+	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --with-thread=none --disable-gstreamer --prefix=$(PREFIX) CFLAGS="$(CFLAGS) -O3" && make -C schroedinger && make -C schroedinger install)
 	touch $@
 
 CLEAN_FILE += .schroedinger
@@ -2534,22 +2423,40 @@ DISTCLEAN_PKG += schroedinger-$(SCHROED_VERSION).tar.gz
 libass-$(ASS_VERSION).tar.bz2:
 	$(WGET) $(ASS_URL)
 
-# mplayer patches up to August 8, 2008 are included
-libass: libass-$(ASS_VERSION).tar.bz2
-	$(EXTRACT_BZ2)
-	patch -p0 < Patches/libass_mplayer_updates.patch
-ifneq ($(HOST),$(BUILD))
-	patch -p0 < Patches/libass-cross.patch
-	(cd $@; autoreconf; automake)
-endif
+libass:
+	$(GIT) clone $(ASS_GIT)
+	(cd $@; autoreconf -ivf)
 
-.libass: libass .png
-	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS) -O3" && make && make install)
+.libass: libass .freetype
+	(cd $<; $(HOSTCC) ./configure --disable-png $(HOSTCONF) --prefix=$(PREFIX) CFLAGS="$(CFLAGS) -O3" && make && make install)
 	touch $@
 
 CLEAN_FILE += .libass
 CLEAN_PKG += libass
 DISTCLEAN_PKG += libass-$(ASS_VERSION).tar.bz2
+
+# ***************************************************************************
+# Sparkle
+# ***************************************************************************
+
+"Sparkle-$(SPARKLE_VERSION).zip":
+	$(WGET) $(SPARKLE_URL)
+
+Sparkle: "Sparkle-$(SPARKLE_VERSION).zip"
+	rm -rf $@ || true
+	unzip $<
+	touch $@
+
+.Sparkle: Sparkle
+	rm -rf ../Sparkle
+	mv Sparkle ..
+	mkdir Sparkle
+	(cd $<)
+	touch $@
+
+CLEAN_FILE += .Sparkle
+CLEAN_PKG += Sparkle
+DISTCLEAN_PKG += Sparkle-$(SPARKLE_VERSION).zip
 
 # ***************************************************************************
 # UPNP library
@@ -2582,6 +2489,9 @@ gsm: gsm-$(GSM_VERSION).tar.gz
 ifneq ($(HOST),$(BUILD))
 	(patch -p0 < Patches/gsm-cross.patch)
 endif
+ifdef HAVE_DARWIN_OS
+	(cd $@; sed -e 's%-O2%-O2\ $(EXTRA_CFLAGS)\ $(EXTRA_LDFLAGS)%' -e 's%# LDFLAGS 	=%LDFLAGS 	= $(EXTRA_LDFLAGS)%' -e 's%gcc%$(CC)%' -i.orig  Makefile)
+endif
 
 .gsm: gsm
 	(cd $<; $(HOSTCC) make && cp inc/gsm.h $(PREFIX)/include && cp lib/libgsm.a  $(PREFIX)/lib)
@@ -2591,6 +2501,121 @@ CLEAN_FILE += .gsm
 CLEAN_PKG += gsm
 DISTCLEAN_PKG += gsm-$(GSM_VERSION).tar.gz
 
+# *********
+# projectM
+# *********
+ifdef SVN
+libprojectM:
+	$(SVN) co $(LIBPROJECTM_SVN) libprojectM
+	patch -d libprojectM -p0 < Patches/libprojectM-fpic.patch
+else
+libprojectM-$(LIBPROJECTM_VERSION).tar.bz2:
+	$(WGET) $(LIBPROJECTM_URL)
+
+libprojectM: libprojectM-$(LIBPROJECTM_VERSION).tar.bz2
+	$(EXTRACT_BZ2)
+endif
+
+.libprojectM: libprojectM
+	(cd $</src; $(HOSTCC) CPPFLAGS="$(CPPFLAGS)" cmake . -DUSE_FBO:STRING=FALSE -DUSE_FBO:BOOL=OFF -DINCLUDE-PROJECTM-LIBVISUAL:BOOL=OFF -DINCLUDE-PROJECTM-PULSEAUDIO:BOOL=OFF -DINCLUDE-PROJECTM-QT:BOOL=OFF -DCMAKE_INSTALL_PREFIX=$(PREFIX) && make install)
+	touch $@
+
+CLEAN_FILE += .libprojectM
+CLEAN_PKG += libprojectM
+DISTCLEAN_PKG += libprojectM-$(LIBPROJECTM_VERSION).tar.bz2
+
+# ***************************************************************************
+# X11 C Bindings
+# ***************************************************************************
+
+libxcb-$(XCB_VERSION).tar.bz2:
+	$(WGET) $(XCB_URL)/$@
+
+libxcb: libxcb-$(XCB_VERSION).tar.bz2
+	-rm -rf $@
+	bzcat $< | tar xf -
+	mv libxcb-$(XCB_VERSION) $@
+	touch $@
+
+.xcb: libxcb
+	cd $< && $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) \
+		--disable-composite \
+		--disable-damage \
+		--disable-dpms \
+		--disable-glx \
+		--enable-randr \
+		--disable-record \
+		--enable-render \
+		--disable-resource \
+		--disable-screensaver \
+		--disable-shape \
+		--enable-shm \
+		--disable-sync \
+		--disable-xevie \
+		--disable-xfixes \
+		--disable-xfree86-dri \
+		--disable-xinerama \
+		--disable-xinput \
+		--disable-xprint \
+		--disable-selinux \
+		--disable-xtest \
+		--enable-xv \
+		--disable-xvmc \
+		--disable-build-docs
+	cd $< && make install
+	touch $@
+
+xcb-util-$(XCB_UTIL_VERSION).tar.bz2:
+	$(WGET) $(XCB_UTIL_URL)/$@
+
+xcb-util: xcb-util-$(XCB_UTIL_VERSION).tar.bz2
+	-rm -rf $@
+	bzcat $< | tar xf -
+	mv xcb-util-$(XCB_UTIL_VERSION) $@
+	touch $@
+
+.xcb-util: xcb-util .xcb
+	cd $< && $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX)
+	cd $< && make install
+	touch $@
+
+CLEAN_FILES += .xcb-util .xcb
+CLEAN_PKG += xcb-util xcb
+DISTCLEAN_PKG += xcb-util-$(XCB_UTIL_VERSION).tar.bz2 libxcb-$(XCB_VERSION).tar.bz2
+
+# ***************************************************************************
+# Peflags utility (Windows only)
+# ***************************************************************************
+
+peflags/peflags.c:
+	mkdir -p peflags
+	cd peflags && $(WGET) $(PEFLAGS_URL)/peflags.c
+
+.peflags: peflags/peflags.c
+	cd peflags && gcc peflags.c -o peflags
+	install -d $(PREFIX)/bin
+	cd peflags && install ./peflags $(PREFIX)/bin
+	touch $@
+
+CLEAN_PKG += peflags
+CLEAN_FILES += .peflags
+
+# ************
+# Regex
+# ************
+
+regex-$(REGEX_VERSION).tar.gz:
+	$(WGET) $(REGEX_URL)
+
+regex: regex-$(REGEX_VERSION).tar.gz
+	$(EXTRACT_GZ)
+
+.regex: regex
+	(cd $<; $(HOSTCC) ./configure $(HOSTCONF) --prefix=$(PREFIX) && make subirs= && $(AR) ru libregex.a regex.o && $(RANLIB) libregex.a && cp -v regex.h $(PREFIX)/include && cp -v libregex.a $(PREFIX)/lib )
+
+CLEAN_FILE += .regex
+CLEAN_PKG += regex
+DISTCLEAN_PKG += regex-$(REGEX_VERSION).tar.gz
 
 
 # ***************************************************************************
@@ -2607,7 +2632,7 @@ clean-src: clean
 	rm -rf $(DISTCLEAN_PKG)
 
 clean-svn:
-	rm -rf ffmpeg tremor x264 libdca pa_snapshot_v$(PORTAUDIO_VERSION).tar.gz portaudio live555-$(LIVEDOTCOM_VERSION).tar.gz live
+	rm -rf ffmpeg tremor x264 libdca pa_snapshot_v$(PORTAUDIO_VERSION).tar.gz portaudio live555-$(LIVEDOTCOM_VERSION).tar.gz live libass
 
 distclean: clean-src
 

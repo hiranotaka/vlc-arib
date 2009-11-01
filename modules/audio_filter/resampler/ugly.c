@@ -32,21 +32,21 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_aout.h>
+#include <vlc_filter.h>
 
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
 static int  Create    ( vlc_object_t * );
 
-static void DoWork    ( aout_instance_t *, aout_filter_t *, aout_buffer_t *,
-                        aout_buffer_t * );
+static block_t *DoWork( filter_t *, block_t * );
 
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
 vlc_module_begin ()
     set_description( N_("Audio filter for ugly resampling") )
-    set_capability( "audio filter", 2 )
+    set_capability( "audio filter2", 2 )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_MISC )
     set_callbacks( Create, NULL )
@@ -57,75 +57,70 @@ vlc_module_end ()
  *****************************************************************************/
 static int Create( vlc_object_t *p_this )
 {
-    aout_filter_t * p_filter = (aout_filter_t *)p_this;
+    filter_t * p_filter = (filter_t *)p_this;
 
-    if ( p_filter->input.i_rate == p_filter->output.i_rate
-          || p_filter->input.i_format != p_filter->output.i_format
-          || p_filter->input.i_physical_channels
-              != p_filter->output.i_physical_channels
-          || p_filter->input.i_original_channels
-              != p_filter->output.i_original_channels
-          || (p_filter->input.i_format != VLC_CODEC_FL32
-               && p_filter->input.i_format != VLC_CODEC_FI32) )
+    if ( p_filter->fmt_in.audio.i_rate == p_filter->fmt_out.audio.i_rate
+          || p_filter->fmt_in.audio.i_format != p_filter->fmt_out.audio.i_format
+          || p_filter->fmt_in.audio.i_physical_channels
+              != p_filter->fmt_out.audio.i_physical_channels
+          || p_filter->fmt_in.audio.i_original_channels
+              != p_filter->fmt_out.audio.i_original_channels
+          || (p_filter->fmt_in.audio.i_format != VLC_CODEC_FL32
+               && p_filter->fmt_in.audio.i_format != VLC_CODEC_FI32) )
     {
         return VLC_EGENERIC;
     }
 
-    p_filter->pf_do_work = DoWork;
-
-    /* We don't want a new buffer to be created because we're not sure we'll
-     * actually need to resample anything. */
-    p_filter->b_in_place = true;
-
+    p_filter->pf_audio_filter = DoWork;
     return VLC_SUCCESS;
 }
 
 /*****************************************************************************
  * DoWork: convert a buffer
  *****************************************************************************/
-static void DoWork( aout_instance_t * p_aout, aout_filter_t * p_filter,
-                    aout_buffer_t * p_in_buf, aout_buffer_t * p_out_buf )
+static block_t *DoWork( filter_t * p_filter, block_t * p_in_buf )
 {
-    int32_t *p_out = (int32_t*)p_out_buf->p_buffer;
-
-    unsigned int i_nb_channels = aout_FormatNbChannels( &p_filter->input );
-    unsigned int i_in_nb = p_in_buf->i_nb_samples;
-    unsigned int i_out_nb = i_in_nb * p_filter->output.i_rate
-                                    / p_filter->input.i_rate;
-    unsigned int i_sample_bytes = i_nb_channels * sizeof(int32_t);
-    unsigned int i_out, i_chan, i_remainder = 0;
-
     /* Check if we really need to run the resampler */
-    if( p_aout->mixer.mixer.i_rate == p_filter->input.i_rate )
+    if( p_filter->fmt_out.audio.i_rate == p_filter->fmt_in.audio.i_rate )
+        return p_in_buf;
+
+    unsigned int i_nb_channels = aout_FormatNbChannels( &p_filter->fmt_in.audio );
+    unsigned int i_in_nb = p_in_buf->i_nb_samples;
+    unsigned int i_out_nb = i_in_nb * p_filter->fmt_out.audio.i_rate
+                                    / p_filter->fmt_in.audio.i_rate;
+    unsigned int i_sample_bytes = i_nb_channels * sizeof(int32_t);
+
+    block_t *p_out_buf = block_Alloc( i_out_nb * i_sample_bytes );
+    if( !p_out_buf )
+        goto out;
+
+    int32_t *p_out = (int32_t*)p_out_buf->p_buffer;
+    const int32_t *p_in = (int32_t*)p_in_buf->p_buffer;
+    unsigned int i_remainder = 0;
+
+    for( unsigned i_out = i_out_nb ; i_out-- ; )
     {
-        return;
-    }
-
-    int32_t p_in_orig[p_in_buf->i_nb_bytes / sizeof(int32_t)],
-           *p_in = p_in_orig;
-
-    vlc_memcpy( p_in, p_in_buf->p_buffer, p_in_buf->i_nb_bytes );
-
-    for( i_out = i_out_nb ; i_out-- ; )
-    {
-        for( i_chan = i_nb_channels ; i_chan ; )
+        for( unsigned i_chan = i_nb_channels ; i_chan ; )
         {
             i_chan--;
             p_out[i_chan] = p_in[i_chan];
         }
         p_out += i_nb_channels;
 
-        i_remainder += p_filter->input.i_rate;
-        while( i_remainder >= p_filter->output.i_rate )
+        i_remainder += p_filter->fmt_in.audio.i_rate;
+        while( i_remainder >= p_filter->fmt_out.audio.i_rate )
         {
             p_in += i_nb_channels;
-            i_remainder -= p_filter->output.i_rate;
+            i_remainder -= p_filter->fmt_out.audio.i_rate;
         }
     }
 
     p_out_buf->i_nb_samples = i_out_nb;
-    p_out_buf->i_nb_bytes = i_out_nb * i_sample_bytes;
-    p_out_buf->start_date = p_in_buf->start_date;
-    p_out_buf->end_date = p_out_buf->start_date + p_out_buf->i_nb_samples *
-        1000000 / p_filter->output.i_rate;
+    p_out_buf->i_buffer = i_out_nb * i_sample_bytes;
+    p_out_buf->i_pts = p_in_buf->i_pts;
+    p_out_buf->i_length = p_out_buf->i_nb_samples *
+        1000000 / p_filter->fmt_out.audio.i_rate;
+out:
+    block_Release( p_in_buf );
+    return p_out_buf;
 }

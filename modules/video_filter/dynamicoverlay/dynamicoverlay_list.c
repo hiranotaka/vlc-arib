@@ -1,10 +1,10 @@
 /*****************************************************************************
  * dynamicoverlay_list.h : dynamic overlay list
  *****************************************************************************
- * Copyright (C) 2008 the VideoLAN team
+ * Copyright (C) 2008-2009 the VideoLAN team
  * $Id$
  *
- * Author: SÃ¸ren BÃ¸g <avacore@videolan.org>
+ * Author: Søren Bøg <avacore@videolan.org>
  *         Jean-Paul Saman <jpsaman@videolan.org>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -38,13 +38,11 @@
 
 int ListInit( list_t *p_list )
 {
-    p_list->pp_head = malloc( 16 * sizeof( overlay_t * ) );
+    p_list->pp_head = calloc( 16, sizeof( overlay_t * ) );
     if( p_list->pp_head == NULL )
         return VLC_ENOMEM;
 
     p_list->pp_tail = p_list->pp_head + 16;
-    memset( p_list->pp_head, 0, 16 * sizeof( overlay_t * ) );
-
     return VLC_SUCCESS;
 }
 

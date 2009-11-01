@@ -32,9 +32,9 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
-#include "vlc_image.h"
+#include <vlc_image.h>
 
-#include "vlc_filter.h"
+#include <vlc_filter.h>
 #include "filter_picture.h"
 
 /*****************************************************************************
@@ -113,6 +113,9 @@ static void LoadMask( filter_t *p_filter, const char *psz_filename )
         p_filter->p_sys->p_mask = p_old_mask;
         msg_Err( p_filter, "Error while loading new mask. Keeping old mask." );
     }
+    else
+        msg_Err( p_filter, "Error while loading new mask. No mask available." );
+
     image_HandlerDelete( p_image );
 }
 
@@ -158,12 +161,14 @@ static int Create( vlc_object_t *p_this )
     if( !psz_filename )
     {
         msg_Err( p_filter, "Missing 'mask' option value." );
+        free( p_sys );
         return VLC_EGENERIC;
     }
 
     p_sys->p_mask = NULL;
     LoadMask( p_filter, psz_filename );
     free( psz_filename );
+
     p_sys->i_x = var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "x" );
     p_sys->i_y = var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "y" );
 
@@ -199,6 +204,7 @@ static void Destroy( vlc_object_t *p_this )
 static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
 {
     picture_t *p_outpic;
+    filter_sys_t *p_sys = p_filter->p_sys;
 
     if( !p_pic ) return NULL;
 
@@ -209,8 +215,13 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
         return NULL;
     }
 
-    /* Here */
-    FilterErase( p_filter, p_pic, p_outpic );
+    /* If the mask is empty: just copy the image */
+    vlc_mutex_lock( &p_sys->lock );
+    if( p_sys->p_mask )
+        FilterErase( p_filter, p_pic, p_outpic );
+    else
+        picture_CopyPixels( p_outpic, p_pic );
+    vlc_mutex_unlock( &p_sys->lock );
 
     return CopyInfoAndRelease( p_outpic, p_pic );
 }
@@ -223,7 +234,6 @@ static void FilterErase( filter_t *p_filter, picture_t *p_inpic,
 {
     filter_sys_t *p_sys = p_filter->p_sys;
 
-    vlc_mutex_lock( &p_sys->lock );
     const int i_mask_pitch = p_sys->p_mask->A_PITCH;
     const int i_mask_visible_pitch = p_sys->p_mask->p[A_PLANE].i_visible_pitch;
     const int i_mask_visible_lines = p_sys->p_mask->p[A_PLANE].i_visible_lines;
@@ -392,7 +402,6 @@ static void FilterErase( filter_t *p_filter, picture_t *p_inpic,
             }
         }
     }
-    vlc_mutex_unlock( &p_sys->lock );
 }
 
 static int EraseCallback( vlc_object_t *p_this, char const *psz_var,

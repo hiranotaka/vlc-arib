@@ -35,8 +35,8 @@
 #include <math.h>
 #include <limits.h> /* INT_MAX */
 
-#include "vlc_filter.h"
-#include "vlc_image.h"
+#include <vlc_filter.h>
+#include <vlc_image.h>
 
 #include "mosaic.h"
 
@@ -213,9 +213,9 @@ vlc_module_begin ()
     add_integer( CFG_PREFIX "cols", 2, NULL,
                  COLS_TEXT, COLS_LONGTEXT, false )
 
-    add_bool( CFG_PREFIX "keep-aspect-ratio", 0, NULL,
+    add_bool( CFG_PREFIX "keep-aspect-ratio", false, NULL,
               AR_TEXT, AR_LONGTEXT, false )
-    add_bool( CFG_PREFIX "keep-picture", 0, NULL,
+    add_bool( CFG_PREFIX "keep-picture", false, NULL,
               KEEP_TEXT, KEEP_LONGTEXT, false )
 
     add_string( CFG_PREFIX "order", "", NULL,
@@ -321,7 +321,7 @@ static int CreateFilter( vlc_object_t *p_this )
 
     GET_VAR( align, 0, 10 );
     if( p_sys->i_align == 3 || p_sys->i_align == 7 )
-        p_sys->i_align = 5; /* FIXME: NOT THREAD SAFE w.r.t. callback */
+        p_sys->i_align = 5;
 
     GET_VAR( borderw, 0, INT_MAX );
     GET_VAR( borderh, 0, INT_MAX );
@@ -331,7 +331,7 @@ static int CreateFilter( vlc_object_t *p_this )
     GET_VAR( position, 0, 2 );
     GET_VAR( delay, 100, INT_MAX );
 #undef GET_VAR
-    p_sys->i_delay *= 1000; /* FIXME: NOT THREAD SAFE w.r.t. callback */
+    p_sys->i_delay *= 1000;
 
     p_sys->b_ar = var_CreateGetBoolCommand( p_filter,
                                             CFG_PREFIX "keep-aspect-ratio" );
@@ -392,7 +392,26 @@ static void DestroyFilter( vlc_object_t *p_this )
     filter_t *p_filter = (filter_t*)p_this;
     filter_sys_t *p_sys = p_filter->p_sys;
 
-    /* FIXME: destroy callbacks first! */
+#define DEL_CB( name ) \
+    var_DelCallback( p_filter, CFG_PREFIX #name, MosaicCallback, p_sys )
+    DEL_CB( width );
+    DEL_CB( height );
+    DEL_CB( xoffset );
+    DEL_CB( yoffset );
+
+    DEL_CB( align );
+
+    DEL_CB( borderw );
+    DEL_CB( borderh );
+    DEL_CB( rows );
+    DEL_CB( cols );
+    DEL_CB( alpha );
+    DEL_CB( position );
+    DEL_CB( delay );
+
+    DEL_CB( keep-aspect-ratio );
+    DEL_CB( order );
+#undef DEL_CB
 
     if( !p_sys->b_keep )
     {
@@ -416,16 +435,6 @@ static void DestroyFilter( vlc_object_t *p_this )
 
     vlc_mutex_destroy( &p_sys->lock );
     free( p_sys );
-}
-
-/*****************************************************************************
- * MosaicReleasePicture : Hack to avoid picture duplication
- *****************************************************************************/
-static void MosaicReleasePicture( picture_t *p_picture )
-{
-    picture_t *p_original_pic = (picture_t *)p_picture->p_sys;
-
-    picture_Release( p_original_pic );
 }
 
 /*****************************************************************************
@@ -651,8 +660,8 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
         {
             msg_Err( p_filter, "cannot allocate SPU region" );
             p_filter->pf_sub_buffer_del( p_filter, p_spu );
-            vlc_mutex_unlock( &p_sys->lock );
             vlc_mutex_unlock( p_sys->p_lock );
+            vlc_mutex_unlock( &p_sys->lock );
             return p_spu;
         }
 

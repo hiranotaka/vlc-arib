@@ -4,7 +4,7 @@
  * Copyright (C) 2007 the VideoLAN team
  * $Id$
  *
- * Author: SÃ¸ren BÃ¸g <avacore@videolan.org>
+ * Author: Søren Bøg <avacore@videolan.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,8 +33,8 @@
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
 
-#include "vlc_filter.h"
-#include "vlc_image.h"
+#include <vlc_filter.h>
+#include <vlc_image.h>
 
 /*****************************************************************************
  * Local prototypes

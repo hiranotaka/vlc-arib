@@ -80,11 +80,11 @@ void ActionsManager::doAction( int id_action )
         case REVERSE_ACTION:
             THEMIM->getIM()->reverse(); break;
         case SKIP_BACK_ACTION:
-            var_SetInteger( p_intf->p_libvlc, "key-pressed",
+            var_SetInteger( p_intf->p_libvlc, "key-action",
                     ACTIONID_JUMP_BACKWARD_SHORT );
             break;
         case SKIP_FW_ACTION:
-            var_SetInteger( p_intf->p_libvlc, "key-pressed",
+            var_SetInteger( p_intf->p_libvlc, "key-action",
                     ACTIONID_JUMP_FORWARD_SHORT );
             break;
         case QUIT_ACTION:
@@ -117,7 +117,7 @@ void ActionsManager::fullscreen()
     vout_thread_t *p_vout = THEMIM->getVout();
     if( p_vout)
     {
-        var_SetBool( p_vout, "fullscreen", !var_GetBool( p_vout, "fullscreen" ) );
+        var_ToggleBool( p_vout, "fullscreen" );
         vlc_object_release( p_vout );
     }
 }
@@ -143,8 +143,7 @@ void ActionsManager::record()
     if( p_input )
     {
         /* This method won't work fine if the stream can't be cut anywhere */
-        const bool b_recording = var_GetBool( p_input, "record" );
-        var_SetBool( p_input, "record", !b_recording );
+        var_ToggleBool( p_input, "record" );
 #if 0
         else
         {
@@ -165,21 +164,21 @@ void ActionsManager::frame()
 {
     input_thread_t *p_input = THEMIM->getInput();
     if( p_input )
-        var_SetVoid( p_input, "frame-next" );
+        var_TriggerCallback( p_input, "frame-next" );
 }
 
 void ActionsManager::toggleMuteAudio()
 {
-     aout_VolumeMute( p_intf, NULL );
+     aout_ToggleMute( THEPL, NULL );
 }
 
 void ActionsManager::AudioUp()
 {
-    aout_VolumeUp( p_intf, 1, NULL );
+    aout_VolumeUp( THEPL, 1, NULL );
 }
 
 void ActionsManager::AudioDown()
 {
-    aout_VolumeDown( p_intf, 1, NULL );
+    aout_VolumeDown( THEPL, 1, NULL );
 }
 

@@ -53,6 +53,7 @@ HelpDialog::HelpDialog( intf_thread_t *_p_intf ) : QVLCFrame( _p_intf )
 
 {
     setWindowTitle( qtr( "Help" ) );
+    setWindowRole( "vlc-help" );
     setMinimumSize( 350, 300 );
 
     QGridLayout *layout = new QGridLayout( this );
@@ -85,6 +86,7 @@ AboutDialog::AboutDialog( QWidget *parent, intf_thread_t *_p_intf)
             : QVLCDialog( parent, _p_intf )
 {
     setWindowTitle( qtr( "About" ) );
+    setWindowRole( "vlc-about" );
     resize( 600, 500 );
     setMinimumSize( 600, 500 );
 
@@ -99,9 +101,9 @@ AboutDialog::AboutDialog( QWidget *parent, intf_thread_t *_p_intf)
             qtr( "VLC media player" ) + qfu( " " VERSION_MESSAGE ) );
     QLabel *iconVLC = new QLabel;
     if( QDate::currentDate().dayOfYear() >= 354 )
-        iconVLC->setPixmap( QPixmap( ":/vlc48-christmas.png" ) );
+        iconVLC->setPixmap( QPixmap( ":/logo/vlc48-christmas.png" ) );
     else
-        iconVLC->setPixmap( QPixmap( ":/vlc48.png" ) );
+        iconVLC->setPixmap( QPixmap( ":/logo/vlc48.png" ) );
     layout->addWidget( iconVLC, 0, 0, 1, 1 );
     layout->addWidget( introduction, 0, 1, 1, 7 );
     layout->addWidget( tab, 1, 0, 1, 8 );
@@ -128,9 +130,9 @@ AboutDialog::AboutDialog( QWidget *parent, intf_thread_t *_p_intf)
 
     QLabel *iconVLC2 = new QLabel;
     if( QDate::currentDate().dayOfYear() >= 354 )
-        iconVLC2->setPixmap( QPixmap( ":/vlc128-christmas.png" ) );
+        iconVLC2->setPixmap( QPixmap( ":/logo/vlc128-christmas.png" ) );
     else
-        iconVLC2->setPixmap( QPixmap( ":/vlc128.png" ) );
+        iconVLC2->setPixmap( QPixmap( ":/logo/vlc128.png" ) );
     infoLayout->addWidget( iconVLC2 );
     infoLayout->addWidget( infoLabel );
 
@@ -201,6 +203,7 @@ UpdateDialog *UpdateDialog::instance = NULL;
 UpdateDialog::UpdateDialog( intf_thread_t *_p_intf ) : QVLCFrame( _p_intf )
 {
     setWindowTitle( qtr( "VLC media player updates" ) );
+    setWindowRole( "vlc-update" );
 
     QGridLayout *layout = new QGridLayout( this );
 
@@ -271,7 +274,7 @@ void UpdateDialog::UpdateOrDownload()
     {
         QString dest_dir = QFileDialog::getExistingDirectory( this,
                                  qtr( "Select a directory..." ),
-                                 qfu( config_GetHomeDir() ) );
+                                 QVLCUserDir( VLC_DOWNLOAD_DIR ) );
 
         if( !dest_dir.isEmpty() )
         {

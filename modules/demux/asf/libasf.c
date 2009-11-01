@@ -108,7 +108,7 @@ static char *AsfObjectHelperReadString( const uint8_t *p_peek, int i_peek, uint8
             int i;
             for( i = 0; i < i_size/2; i++ )
                 psz_string[i] = GetWLE( &p_data[2*i] );
-            psz_string[i_size/2] = '\0'; \
+            psz_string[i_size/2] = '\0';
         }
     }
     else
@@ -434,7 +434,7 @@ static int ASF_ReadObject_metadata( stream_t *s, asf_object_t *p_obj )
         /* Read data */
         if( p_record->i_type == ASF_METADATA_TYPE_STRING )
         {
-            p_record->p_data = ASF_READS( i_data );
+            p_record->p_data = (uint8_t *)ASF_READS( i_data );
             p_record->i_data = i_data/2; /* FIXME Is that needed ? */
         }
         else if( p_record->i_type == ASF_METADATA_TYPE_BYTE )
@@ -1471,10 +1471,9 @@ static const struct
 
 
 static void ASF_ObjectDumpDebug( vlc_object_t *p_obj,
-                                 asf_object_common_t *p_node, int i_level )
+                                 asf_object_common_t *p_node, unsigned i_level )
 {
-    char str[1024];
-    int i;
+    unsigned i;
     union asf_object_u *p_child;
     const char *psz_name;
 
@@ -1487,12 +1486,16 @@ static void ASF_ObjectDumpDebug( vlc_object_t *p_obj,
     }
     psz_name = ASF_ObjectDumpDebugInfo[i].psz_name;
 
+    char str[512];
+    if( i_level * 5 + 1 >= sizeof(str) )
+        return;
+
     memset( str, ' ', sizeof( str ) );
     for( i = 1; i < i_level; i++ )
     {
         str[i * 5] = '|';
     }
-    snprintf( str + 5*i_level, 1024,
+    snprintf( &str[5*i_level], sizeof(str) - 5*i_level,
              "+ '%s' GUID "GUID_FMT" size:%"PRIu64"pos:%"PRIu64,
              psz_name,
              GUID_PRINT( p_node->i_object_id ),

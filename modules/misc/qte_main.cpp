@@ -75,7 +75,7 @@ static qte_thread_t * p_qte_main = NULL;
 vlc_module_begin ()
     set_description( N_("Qt Embedded GUI helper") )
     set_capability( "gui-helper", 90 )
-    add_bool( "qte-guiserver", 0, NULL, STANDALONE_TEXT, STANDALONE_LONGTEXT, false )
+    add_bool( "qte-guiserver", false, NULL, STANDALONE_TEXT, STANDALONE_LONGTEXT, false )
     add_shortcut( "qte" )
     set_callbacks( Open, Close )
 vlc_module_end ()
@@ -109,7 +109,7 @@ static int Open( vlc_object_t *p_this )
         vlc_object_release( p_qte_main );
         i_refcount--;
         vlc_mutex_unlock( lock );
-        return VLC_ETHREAD;
+        return VLC_ENOMEM;
     }
 
     i_refcount++;

@@ -39,56 +39,51 @@
 #include <vlc_vout.h>
 
 #ifdef __APPLE__
-#include <OpenGL/gl.h>
-#include <OpenGL/glext.h>
-
-/* On OS X, use GL_TEXTURE_RECTANGLE_EXT instead of GL_TEXTURE_2D.
-   This allows sizes which are not powers of 2 */
-#define VLCGL_TARGET GL_TEXTURE_RECTANGLE_EXT
-
-/* OS X OpenGL supports YUV. Hehe. */
-#define VLCGL_FORMAT GL_YCBCR_422_APPLE
-#define VLCGL_TYPE   GL_UNSIGNED_SHORT_8_8_APPLE
+# include <OpenGL/gl.h>
+# include <OpenGL/glext.h>
 #else
-
-#include <GL/gl.h>
-#define VLCGL_TARGET GL_TEXTURE_2D
-
-/* RV16 */
-#ifndef GL_UNSIGNED_SHORT_5_6_5
-#define GL_UNSIGNED_SHORT_5_6_5 0x8363
+# include <GL/gl.h>
 #endif
-//#define VLCGL_RGB_FORMAT GL_RGB
-//#define VLCGL_RGB_TYPE GL_UNSIGNED_SHORT_5_6_5
 
-/* RV24 */
-//#define VLCGL_RGB_FORMAT GL_RGB
-//#define VLCGL_RGB_TYPE GL_UNSIGNED_BYTE
-
-/* RV32 */
-#define VLCGL_RGB_FORMAT GL_RGBA
-#define VLCGL_RGB_TYPE GL_UNSIGNED_BYTE
-
-/* YUY2 */
 #ifndef YCBCR_MESA
-#define YCBCR_MESA 0x8757
+# define YCBCR_MESA 0x8757
 #endif
 #ifndef UNSIGNED_SHORT_8_8_MESA
-#define UNSIGNED_SHORT_8_8_MESA 0x85BA
+# define UNSIGNED_SHORT_8_8_MESA 0x85BA
 #endif
-#define VLCGL_YUV_FORMAT YCBCR_MESA
-#define VLCGL_YUV_TYPE UNSIGNED_SHORT_8_8_MESA
+/* RV16 */
+#ifndef GL_UNSIGNED_SHORT_5_6_5
+# define GL_UNSIGNED_SHORT_5_6_5 0x8363
+#endif
+#ifndef GL_CLAMP_TO_EDGE
+# define GL_CLAMP_TO_EDGE 0x812F
+#endif
+
+#ifdef __APPLE__
+/* On OS X, use GL_TEXTURE_RECTANGLE_EXT instead of GL_TEXTURE_2D.
+   This allows sizes which are not powers of 2 */
+# define VLCGL_TARGET GL_TEXTURE_RECTANGLE_EXT
+
+/* OS X OpenGL supports YUV. Hehe. */
+# define VLCGL_FORMAT GL_YCBCR_422_APPLE
+# define VLCGL_TYPE   GL_UNSIGNED_SHORT_8_8_APPLE
+#else
+
+# define VLCGL_TARGET GL_TEXTURE_2D
+
+/* RV32 */
+# define VLCGL_RGB_FORMAT GL_RGBA
+# define VLCGL_RGB_TYPE GL_UNSIGNED_BYTE
+
+/* YUY2 */
+# define VLCGL_YUV_FORMAT YCBCR_MESA
+# define VLCGL_YUV_TYPE UNSIGNED_SHORT_8_8_MESA
 
 /* Use RGB on Win32/GLX */
-#define VLCGL_FORMAT VLCGL_RGB_FORMAT
-#define VLCGL_TYPE   VLCGL_RGB_TYPE
-//#define VLCGL_FORMAT VLCGL_YUV_FORMAT
-//#define VLCGL_TYPE   VLCGL_YUV_TYPE
+# define VLCGL_FORMAT VLCGL_RGB_FORMAT
+# define VLCGL_TYPE   VLCGL_RGB_TYPE
 #endif
 
-#ifndef GL_CLAMP_TO_EDGE
-#   define GL_CLAMP_TO_EDGE 0x812F
-#endif
 
 /*****************************************************************************
  * Vout interface
@@ -196,26 +191,6 @@ static int CreateVout( vlc_object_t *p_this )
     var_Create( p_sys->p_vout, "video-deco",
                 VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
 
-    psz = var_CreateGetString( p_vout, "opengl-provider" );
-    p_sys->p_vout->p_module =
-        module_need( p_sys->p_vout, "opengl provider", psz, false );
-    free( psz );
-    if( p_sys->p_vout->p_module == NULL )
-    {
-        msg_Warn( p_vout, "No OpenGL provider found" );
-        vlc_object_detach( p_sys->p_vout );
-        vlc_object_release( p_sys->p_vout );
-        free( p_sys );
-        return VLC_ENOOBJ;
-    }
-
-    p_vout->pf_init = Init;
-    p_vout->pf_end = End;
-    p_vout->pf_manage = Manage;
-    p_vout->pf_render = Render;
-    p_vout->pf_display = DisplayVideo;
-    p_vout->pf_control = Control;
-
     /* Forward events from the opengl provider */
     var_Create( p_sys->p_vout, "mouse-x", VLC_VAR_INTEGER );
     var_Create( p_sys->p_vout, "mouse-y", VLC_VAR_INTEGER );
@@ -234,8 +209,30 @@ static int CreateVout( vlc_object_t *p_this )
     var_AddCallback( p_sys->p_vout, "mouse-moved", SendEvents, p_vout );
     var_AddCallback( p_sys->p_vout, "mouse-clicked", SendEvents, p_vout );
     var_AddCallback( p_sys->p_vout, "mouse-button-down", SendEvents, p_vout );
+    var_AddCallback( p_sys->p_vout, "video-on-top", SendEvents, p_vout );
     var_AddCallback( p_vout, "autoscale", SendEvents, p_sys->p_vout );
     var_AddCallback( p_vout, "scale", SendEvents, p_sys->p_vout );
+
+    psz = var_CreateGetString( p_vout, "opengl-provider" );
+    p_sys->p_vout->p_module =
+        module_need( p_sys->p_vout, "opengl provider", psz, false );
+    free( psz );
+    if( p_sys->p_vout->p_module == NULL )
+    {
+        msg_Warn( p_vout, "No OpenGL provider found" );
+        vlc_object_detach( p_sys->p_vout );
+        /* no need for var_DelCallback here :-) */
+        vlc_object_release( p_sys->p_vout );
+        free( p_sys );
+        return VLC_ENOOBJ;
+    }
+
+    p_vout->pf_init = Init;
+    p_vout->pf_end = End;
+    p_vout->pf_manage = Manage;
+    p_vout->pf_render = Render;
+    p_vout->pf_display = DisplayVideo;
+    p_vout->pf_control = Control;
 
     return VLC_SUCCESS;
 }
@@ -255,7 +252,7 @@ static int Init( vout_thread_t *p_vout )
     p_vout->output.i_chroma = VLC_CODEC_YUYV;
     i_pixel_pitch = 2;
 
-#elif (VLCGL_FORMAT == GL_YCBCR_422_APPLE)
+#elif defined( GL_YCBCR_422_APPLE ) && (VLCGL_FORMAT == GL_YCBCR_422_APPLE)
     p_vout->output.i_chroma = VLC_CODEC_UYVY;
     i_pixel_pitch = 2;
 
@@ -386,6 +383,11 @@ static void End( vout_thread_t *p_vout )
     {
         p_sys->p_vout->pf_unlock( p_sys->p_vout );
     }
+
+    /* We must release the opengl provider here: opengl requiere init and end
+       to be done in the same thread */
+    module_unneed( p_sys->p_vout, p_sys->p_vout->p_module );
+    vlc_object_release( p_sys->p_vout );
 }
 
 /*****************************************************************************
@@ -397,9 +399,6 @@ static void DestroyVout( vlc_object_t *p_this )
 {
     vout_thread_t *p_vout = (vout_thread_t *)p_this;
     vout_sys_t *p_sys = p_vout->p_sys;
-
-    module_unneed( p_sys->p_vout, p_sys->p_vout->p_module );
-    vlc_object_release( p_sys->p_vout );
 
     free( p_sys );
 }

@@ -104,7 +104,7 @@ static int    CacheSaveConfig  ( module_t *, FILE * );
  *****************************************************************************/
 void CacheLoad( vlc_object_t *p_this, module_bank_t *p_bank, bool b_delete )
 {
-    char *psz_filename, *psz_cachedir = config_GetCacheDir();
+    char *psz_filename, *psz_cachedir = config_GetUserDir(VLC_CACHE_DIR);
     FILE *file;
     int i, j, i_size, i_read;
     char p_cachestring[sizeof("cache " COPYRIGHT_MESSAGE)];
@@ -475,7 +475,7 @@ void CacheSave( vlc_object_t *p_this, module_bank_t *p_bank )
         "# For information about cache directory tags, see:\r\n"
         "#   http://www.brynosaurus.com/cachedir/\r\n";
 
-    char *psz_cachedir = config_GetCacheDir();
+    char *psz_cachedir = config_GetUserDir(VLC_CACHE_DIR);
     FILE *file;
     int i, j, i_cache;
     module_cache_t **pp_cache;
@@ -508,12 +508,7 @@ void CacheSave( vlc_object_t *p_this, module_bank_t *p_bank )
 
     char psz_tmpname[sizeof (psz_filename) + 12];
     snprintf (psz_tmpname, sizeof (psz_tmpname), "%s.%"PRIu32, psz_filename,
-#ifdef UNDER_CE
-              (uint32_t)GetCurrentProcessId ()
-#else
-              (uint32_t)getpid ()
-#endif
-             );
+              (uint32_t)getpid ());
     file = utf8_fopen( psz_tmpname, "wb" );
     if (file == NULL)
         goto error;

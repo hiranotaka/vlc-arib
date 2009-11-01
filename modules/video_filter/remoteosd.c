@@ -54,11 +54,11 @@
 #include <vlc_plugin.h>
 #include <vlc_vout.h>
 
-#include "vlc_filter.h"
+#include <vlc_filter.h>
 #include "filter_common.h"
-#include "vlc_image.h"
-#include "vlc_osd.h"
-#include "vlc_keys.h"
+#include <vlc_image.h>
+#include <vlc_osd.h>
+#include <vlc_keys.h>
 
 #include <vlc_network.h>
 #include <gcrypt.h>              /* to encrypt password */
@@ -133,11 +133,11 @@ vlc_module_begin ()
     add_integer_with_range( RMTOSD_CFG "update", RMTOSD_UPDATE_DEFAULT,
         RMTOSD_UPDATE_MIN, RMTOSD_UPDATE_MAX, NULL, RMTOSD_UPDATE_TEXT,
         RMTOSD_UPDATE_LONGTEXT, true )
-    add_bool( RMTOSD_CFG "vnc-polling", 0, NULL,
+    add_bool( RMTOSD_CFG "vnc-polling", false, NULL,
               RMTOSD_POLL_TEXT , RMTOSD_POLL_LONGTEXT, false )
-    add_bool( RMTOSD_CFG "mouse-events", 0, NULL,
+    add_bool( RMTOSD_CFG "mouse-events", false, NULL,
               RMTOSD_MOUSE_TEXT , RMTOSD_MOUSE_LONGTEXT, false )
-    add_bool( RMTOSD_CFG "key-events", 0, NULL,
+    add_bool( RMTOSD_CFG "key-events", false, NULL,
               RMTOSD_KEYS_TEXT , RMTOSD_KEYS_LONGTEXT, false )
     add_integer_with_range( RMTOSD_CFG "alpha", 255, 0, 255, NULL,
         RMTOSD_ALPHA_TEXT, RMTOSD_ALPHA_LONGTEXT, true )
@@ -202,8 +202,6 @@ static void vnc_encrypt_bytes( unsigned char *bytes, char *passwd );
  *****************************************************************************/
 struct filter_sys_t
 {
-    VLC_COMMON_MEMBERS
-
     bool          b_need_update;       /* VNC picture is updated, do update the OSD*/
     mtime_t       i_vnc_poll_interval; /* Update the OSD menu every n ms */
 
@@ -253,10 +251,9 @@ static int CreateFilter ( vlc_object_t *p_this )
 
     msg_Dbg( p_filter, "Creating vnc osd filter..." );
 
-    p_filter->p_sys = p_sys = malloc( sizeof(*p_sys) );
+    p_filter->p_sys = p_sys = calloc( 1, sizeof(*p_sys) );
     if( !p_filter->p_sys )
         return VLC_ENOMEM;
-    memset( p_sys, 0, sizeof(*p_sys) );
 
     /* Populating struct */
     vlc_mutex_init( &p_sys->lock );

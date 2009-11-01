@@ -31,6 +31,7 @@
  */
 
 #include <vlc_meta.h>
+#include <vlc_epg.h>
 
 #include <string.h>
 
@@ -64,7 +65,7 @@ struct input_item_t
     uint8_t    *optflagv;            /**< Some flags of input options */
     unsigned   optflagc;
 
-    mtime_t    i_duration;           /**< Duration in milliseconds*/
+    mtime_t    i_duration;           /**< Duration in microseconds */
 
     uint8_t    i_type;               /**< Type (file, disc, ... see input_item_type_e) */
     bool b_prefers_tree;             /**< Do we prefer being displayed as tree*/
@@ -81,6 +82,9 @@ struct input_item_t
     bool          b_error_when_reading;       /**< Error When Reading */
 
     vlc_meta_t *p_meta;
+
+    int         i_epg;               /**< Number of EPG entries */
+    vlc_epg_t   **pp_epg;            /**< EPG entries */
 
     vlc_event_manager_t event_manager;
 

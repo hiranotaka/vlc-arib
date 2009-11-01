@@ -50,6 +50,7 @@
 {
     [super init];
     o_fs_panel = [[VLCFSPanel alloc] init];
+    b_lockAspectRatio = YES;
     return self;
 }
 
@@ -109,6 +110,7 @@
 {
     [[NSNotificationCenter defaultCenter] removeObserver: self];
     
+    [o_fs_panel release];
     [o_repeat_single release];
     [o_repeat_all release];
     [o_repeat_off release];
@@ -156,6 +158,11 @@
     return [[o_voutView retain] autorelease];
 }
 
+- (BOOL)aspectRatioIsLocked
+{
+    return b_lockAspectRatio;
+}
+
 - (IBAction)stop:(id)sender
 {
     intf_thread_t * p_intf = VLCIntf;
@@ -200,12 +207,12 @@
     var_Set( p_playlist, "random", val );
     if( val.b_bool )
     {
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Random On" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Random On" ) );
         config_PutInt( p_playlist, "random", 1 );
     }
     else
     {
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Random Off" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Random Off" ) );
         config_PutInt( p_playlist, "random", 0 );
     }
 
@@ -269,7 +276,7 @@
         config_PutInt( p_playlist, "loop", 0 );
  
         /* show the change */
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Repeat One" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Repeat One" ) );
     }
     else if( repeating.b_bool && !looping.b_bool )
     {
@@ -285,7 +292,7 @@
         config_PutInt( p_playlist, "loop", 1 );
  
         /* show the change */
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Repeat All" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Repeat All" ) );
     }
     else
     {
@@ -301,7 +308,7 @@
         config_PutInt( p_playlist, "loop", 0 );
  
         /* show the change */
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Repeat Off" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Repeat Off" ) );
     }
 
     /* communicate with core and the main intf loop */
@@ -329,12 +336,12 @@
     var_Set( p_playlist, "repeat", val );
     if( val.b_bool )
     {
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Repeat One" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Repeat One" ) );
         config_PutInt( p_playlist, "repeat", 1 );
     }
     else
     {
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Repeat Off" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Repeat Off" ) );
         config_PutInt( p_playlist, "repeat", 0 );
     }
  
@@ -358,18 +365,28 @@
     var_Set( p_playlist, "loop", val );
     if( val.b_bool )
     {
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Repeat All" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Repeat All" ) );
         config_PutInt( p_playlist, "loop", 1 );
     }
     else
     {
-        vout_OSDMessage( p_intf, DEFAULT_CHAN, _( "Repeat Off" ) );
+        vout_OSDMessage( p_intf, DEFAULT_CHAN, "%s", _( "Repeat Off" ) );
         config_PutInt( p_playlist, "loop", 0 );
     }
 
     p_intf->p_sys->b_playmode_update = true;
     p_intf->p_sys->b_intf_update = true;
     pl_Release( p_intf );
+}
+
+- (IBAction)quitAfterPlayback:(id)sender
+{
+    vlc_value_t val;
+    playlist_t * p_playlist = pl_Hold( VLCIntf );
+    var_Get( p_playlist, "play-and-exit", &val );
+    val.b_bool = !val.b_bool;
+    var_Set( p_playlist, "play-and-exit", val );
+    pl_Release( VLCIntf );
 }
 
 - (IBAction)forward:(id)sender
@@ -413,10 +430,13 @@
 - (IBAction)volumeSliderUpdated:(id)sender
 {
     intf_thread_t * p_intf = VLCIntf;
+    playlist_t * p_playlist = pl_Hold( p_intf );
     audio_volume_t i_volume = (audio_volume_t)[sender intValue];
-    int i_volume_step = 0;
+    int i_volume_step;
+
     i_volume_step = config_GetInt( p_intf->p_libvlc, "volume-step" );
-    aout_VolumeSet( p_intf, i_volume * i_volume_step );
+    aout_VolumeSet( p_playlist, i_volume * i_volume_step );
+    pl_Release( p_playlist );
     /* Manage volume status */
     [o_main manageVolumeSlider];
 }
@@ -496,9 +516,7 @@
             if( [o_title isEqualToString: _NS("Fullscreen")] ||
                 [sender isKindOfClass:[NSButton class]] )
             {
-                vlc_value_t val;
-                var_Get( p_playlist, "fullscreen", &val );
-                var_Set( p_playlist, "fullscreen", (vlc_value_t)!val.b_bool );
+                var_ToggleBool( p_playlist, "fullscreen" );
             }
 
             pl_Release( VLCIntf );
@@ -548,6 +566,16 @@
     }
 }
 
+- (IBAction)lockVideosAspectRatio:(id)sender
+{
+    if( [sender state] == NSOffState )
+        [sender setState: NSOnState];
+    else
+        [sender setState: NSOffState];
+
+    b_lockAspectRatio = !b_lockAspectRatio;
+}
+
 - (IBAction)addSubtitleFile:(id)sender
 {
     NSInteger i_returnValue = 0;
@@ -573,14 +601,13 @@
         if( !p_input ) return;
         
         c = [[openPanel filenames] count];
-        NSLog( @"count: %i", c );
-        for (int i = 0; [[openPanel filenames] count] > i ; i++)
+
+        for (int i = 0; i < [[openPanel filenames] count] ; i++)
         {
             msg_Dbg( VLCIntf, "loading subs from %s", [[[openPanel filenames] objectAtIndex: i] UTF8String] );
             if( input_AddSubtitle( p_input, [[[openPanel filenames] objectAtIndex: i] UTF8String], TRUE ) )
                 msg_Warn( VLCIntf, "unable to load subtitles from '%s'",
                          [[[openPanel filenames] objectAtIndex: i] UTF8String] );
-            i++;
         }
     }
 }
@@ -684,9 +711,8 @@
     /* Get the descriptive name of the variable */
     var_Change( p_object, psz_variable, VLC_VAR_GETTEXT, &text, NULL );
     [o_mi setTitle: [[VLCMain sharedInstance] localizedString: text.psz_string ?
-                                        text.psz_string : strdup( psz_variable ) ]];
+                                        text.psz_string : psz_variable ]];
 
-    var_Get( p_object, psz_variable, &val );
     if( i_type & VLC_VAR_HASCHOICE )
     {
         NSMenu *o_menu = [o_mi submenu];
@@ -695,6 +721,10 @@
                         var:psz_variable selector:pf_callback];
  
         free( text.psz_string );
+        return;
+    }
+    if( var_Get( p_object, psz_variable, &val ) < 0 )
+    {
         return;
     }
 
@@ -716,8 +746,7 @@
         break;
 
     default:
-        free( text.psz_string );
-        return;
+        break;
     }
 
     if( ( i_type & VLC_VAR_TYPE ) == VLC_VAR_STRING ) free( val.psz_string );
@@ -785,6 +814,18 @@
     /* make (un)sensitive */
     [o_parent setEnabled: ( val_list.p_list->i_count > 1 )];
 
+    /* Aspect Ratio */
+    if( [[o_parent title] isEqualToString: _NS("Aspect-ratio")] == YES )
+    {
+        NSMenuItem *o_lmi_tmp2;
+        o_lmi_tmp2 = [o_menu addItemWithTitle: _NS("Lock Aspect Ratio") action: @selector(lockVideosAspectRatio:) keyEquivalent: @""];
+        [o_lmi_tmp2 setTarget: self];
+        [o_lmi_tmp2 setEnabled: YES];
+        [o_lmi_tmp2 setState: b_lockAspectRatio];
+        [o_parent setEnabled: YES];
+        [o_menu addItem: [NSMenuItem separatorItem]];
+    }
+
     /* special case for the subtitles items */
     if( [[o_parent title] isEqualToString: _NS("Subtitles Track")] == YES )
     {
@@ -798,7 +839,6 @@
 
     for( i = 0; i < val_list.p_list->i_count; i++ )
     {
-        vlc_value_t another_val;
         NSMenuItem * o_lmi;
         NSString *o_title = @"";
         VLCAutoGeneratedMenuContent *o_data;
@@ -806,15 +846,13 @@
         switch( i_type & VLC_VAR_TYPE )
         {
         case VLC_VAR_STRING:
-            another_val.psz_string =
-                strdup(val_list.p_list->p_values[i].psz_string);
 
             o_title = [[VLCMain sharedInstance] localizedString: text_list.p_list->p_values[i].psz_string ?
                 text_list.p_list->p_values[i].psz_string : val_list.p_list->p_values[i].psz_string ];
 
             o_lmi = [o_menu addItemWithTitle: o_title action: pf_callback keyEquivalent: @""];
-            o_data = [[VLCAutoGeneratedMenuContent alloc] initWithVariableName: strdup(psz_variable) ofObject: p_object
-                    andValue: another_val ofType: i_type];
+            o_data = [[VLCAutoGeneratedMenuContent alloc] initWithVariableName: psz_variable ofObject: p_object
+                    andValue: val_list.p_list->p_values[i] ofType: i_type];
             [o_lmi setRepresentedObject: [o_data autorelease]];
             [o_lmi setTarget: self];
 
@@ -826,12 +864,12 @@
         case VLC_VAR_INTEGER:
 
              o_title = text_list.p_list->p_values[i].psz_string ?
-                                 [[VLCMain sharedInstance] localizedString: strdup( text_list.p_list->p_values[i].psz_string )] :
+                                 [[VLCMain sharedInstance] localizedString: text_list.p_list->p_values[i].psz_string] :
                                  [NSString stringWithFormat: @"%d",
                                  val_list.p_list->p_values[i].i_int];
 
             o_lmi = [o_menu addItemWithTitle: o_title action: pf_callback keyEquivalent: @""];
-            o_data = [[VLCAutoGeneratedMenuContent alloc] initWithVariableName: strdup(psz_variable) ofObject: p_object
+            o_data = [[VLCAutoGeneratedMenuContent alloc] initWithVariableName: psz_variable ofObject: p_object
                     andValue: val_list.p_list->p_values[i] ofType: i_type];
             [o_lmi setRepresentedObject: [o_data autorelease]];
             [o_lmi setTarget: self];
@@ -1025,6 +1063,13 @@
         i_state = val.b_bool ? NSOnState : NSOffState;
         [o_mi setState: i_state];
     }
+    else if( [[o_mi title] isEqualToString: _NS("Quit after Playback")] )
+    {
+        int i_state;
+        var_Get( p_playlist, "play-and-exit", &val );
+        i_state = val.b_bool ? NSOnState : NSOffState;
+        [o_mi setState: i_state];
+    }
     else if( [[o_mi title] isEqualToString: _NS("Step Forward")] ||
              [[o_mi title] isEqualToString: _NS("Step Backward")] ||
              [[o_mi title] isEqualToString: _NS("Jump To Time")])
@@ -1125,10 +1170,12 @@
 
     if( self != nil )
     {
-        psz_name = strdup( name );
         _vlc_object = vlc_object_hold( object );
-        value = val;
+        psz_name = strdup( name );
         i_type = type;
+        value = val;
+        if( (i_type & VLC_VAR_TYPE) == VLC_VAR_STRING )
+            value.psz_string = strdup( val.psz_string );
     }
 
     return( self );
@@ -1137,6 +1184,8 @@
 - (void)dealloc
 {
     vlc_object_release( _vlc_object );
+    if( (i_type & VLC_VAR_TYPE) == VLC_VAR_STRING )
+        free( value.psz_string );
     free( psz_name );
     [super dealloc];
 }

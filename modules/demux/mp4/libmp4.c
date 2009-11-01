@@ -1243,12 +1243,12 @@ static int MP4_ReadBox_sample_soun( stream_t *p_stream, MP4_Box_t *p_box )
 
     if( p_box->i_type == FOURCC_drms )
     {
-        p_box->data.p_sample_soun->p_drms =
-            drms_alloc( config_GetHomeDir() );
-
-        if( p_box->data.p_sample_soun->p_drms == NULL )
+        char *home = config_GetUserDir( VLC_HOME_DIR );
+        if( home != NULL )
         {
-            msg_Err( p_stream, "drms_alloc() failed" );
+            p_box->data.p_sample_soun->p_drms = drms_alloc( home );
+            if( p_box->data.p_sample_soun->p_drms == NULL )
+                msg_Err( p_stream, "drms_alloc() failed" );
         }
     }
 
@@ -1344,12 +1344,12 @@ int MP4_ReadBox_sample_vide( stream_t *p_stream, MP4_Box_t *p_box )
 
     if( p_box->i_type == FOURCC_drmi )
     {
-        p_box->data.p_sample_vide->p_drms =
-            drms_alloc( config_GetHomeDir() );
-
-        if( p_box->data.p_sample_vide->p_drms == NULL )
+        char *home = config_GetUserDir( VLC_HOME_DIR );
+        if( home != NULL )
         {
-            msg_Err( p_stream, "drms_alloc() failed" );
+            p_box->data.p_sample_vide->p_drms = drms_alloc( home );
+            if( p_box->data.p_sample_vide->p_drms == NULL )
+                msg_Err( p_stream, "drms_alloc() failed" );
         }
     }
 
@@ -2876,18 +2876,24 @@ static void __MP4_BoxDumpStructure( stream_t *s,
     }
     else
     {
-        char str[512];
         unsigned int i;
-        memset( str, (uint8_t)' ', 512 );
+
+        char str[512];
+        if( i_level * 5 + 1 >= sizeof(str) )
+            return;
+
+        memset( str, ' ', sizeof(str) );
         for( i = 0; i < i_level; i++ )
         {
             str[i*5] = '|';
         }
-        if MP4_BOX_TYPE_ASCII()
-            sprintf( str + i_level * 5, "+ %4.4s size %d",
+        if( MP4_BOX_TYPE_ASCII() )
+            snprintf( &str[i_level * 5], sizeof(str) - 5*i_level,
+                      "+ %4.4s size %d",
                         (char*)&p_box->i_type, (uint32_t)p_box->i_size );
         else
-            sprintf( str + i_level * 5, "+ c%3.3s size %d",
+            snprintf( &str[i_level * 5], sizeof(str) - 5*i_level,
+                      "+ c%3.3s size %d",
                         (char*)&p_box->i_type+1, (uint32_t)p_box->i_size );
         msg_Dbg( s, "%s", str );
     }

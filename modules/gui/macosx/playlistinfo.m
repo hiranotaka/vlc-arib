@@ -29,6 +29,7 @@
 #include "intf.h"
 #include "playlistinfo.h"
 #include "playlist.h"
+#include <vlc_url.h>
 
 /*****************************************************************************
  * VLCPlaylistInfo Implementation
@@ -252,9 +253,7 @@ static VLCInfo *_o_sharedInstance = nil;
         if( !input_item_IsPreparsed( p_item ) )
         {
             playlist_t * p_playlist = pl_Hold( VLCIntf );
-            PL_LOCK;
-            playlist_PreparseEnqueue( p_playlist, p_item, pl_Locked );
-            PL_UNLOCK;
+            playlist_PreparseEnqueue( p_playlist, p_item, pl_Unlocked );
             pl_Release( VLCIntf );
         }
 
@@ -292,8 +291,10 @@ static VLCInfo *_o_sharedInstance = nil;
         char *psz_meta;
         NSImage *o_image;
         psz_meta = input_item_GetArtURL( p_item );
-        if( psz_meta && !strncmp( psz_meta, "file://", 7 ) )
-            o_image = [[NSImage alloc] initWithContentsOfFile: [NSString stringWithUTF8String: psz_meta+7]];
+
+        /* FIXME Can also be attachment:// */
+        if( psz_meta && strncmp( psz_meta, "attachment://", 13 ) )
+            o_image = [[NSImage alloc] initWithContentsOfURL: [NSURL URLWithString:[NSString stringWithUTF8String: psz_meta]]];
         else
             o_image = [[NSImage imageNamed: @"noart.png"] retain];
         [o_image_well setImage: o_image];
@@ -367,29 +368,7 @@ static VLCInfo *_o_sharedInstance = nil;
 
 - (IBAction)saveMetaData:(id)sender
 {
-    playlist_t * p_playlist = pl_Hold( VLCIntf );
-    vlc_value_t val;
-
     if( !p_item ) goto error;
-
-    meta_export_t p_export;
-    p_export.p_item = p_item;
-
-    /* we can write meta data only in a file */
-    vlc_mutex_lock( &p_item->lock );
-    int i_type = p_item->i_type;
-    vlc_mutex_unlock( &p_item->lock );
-
-    if( i_type != ITEM_TYPE_FILE )
-        goto error;
-
-    char *psz_uri_orig = input_item_GetURI( p_item );
-    char *psz_uri = psz_uri_orig;
-    if( !strncmp( psz_uri, "file://", 7 ) )
-        psz_uri += 7; /* strlen("file://") = 7 */
-
-    p_export.psz_file = strndup( psz_uri, PATH_MAX );
-    free( psz_uri_orig );
 
     #define utf8( o_blub ) \
         [[o_blub stringValue] UTF8String]
@@ -406,16 +385,10 @@ static VLCInfo *_o_sharedInstance = nil;
     input_item_SetDescription( p_item, utf8( o_description_txt ) );
     input_item_SetLanguage( p_item, utf8( o_language_txt ) );
 
-    PL_LOCK;
-    p_playlist->p_private = &p_export;
+    playlist_t * p_playlist = pl_Hold( VLCIntf );
+    input_item_WriteMeta( VLC_OBJECT(p_playlist), p_item );
 
-    module_t *p_mod = module_need( p_playlist, "meta writer", NULL, false );
-    if( p_mod )
-        module_unneed( p_playlist, p_mod );
-    PL_UNLOCK;
-
-    val.b_bool = true;
-    var_Set( p_playlist, "intf-change", val );
+    var_SetBool( p_playlist, "intf-change", true );
     [self updatePanelWithItem: p_item];
 
     pl_Release( VLCIntf );
@@ -423,7 +396,6 @@ static VLCInfo *_o_sharedInstance = nil;
     return;
 
 error:
-    pl_Release( VLCIntf );
     NSRunAlertPanel(_NS("Error while saving meta"),
         _NS("VLC was unable to save the meta data."),
         _NS("OK"), nil, nil);
@@ -591,7 +563,7 @@ error:
     o_children = nil;
 }
 
-- (VLCInfoTreeItem *)childAtIndex:(int)i_index {
+- (VLCInfoTreeItem *)childAtIndex:(NSUInteger)i_index {
     return [[self children] objectAtIndex:i_index];
 }
 

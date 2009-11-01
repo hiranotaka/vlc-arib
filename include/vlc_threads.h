@@ -48,8 +48,7 @@
 #   include <stdlib.h> /* lldiv_t definition (only in C99) */
 #   include <unistd.h> /* _POSIX_SPIN_LOCKS */
 #   include <pthread.h>
-    /* Needed for pthread_cond_timedwait */
-#   include <errno.h>
+#   include <semaphore.h>
 #   include <time.h>
 
 #endif
@@ -107,18 +106,21 @@ typedef pthread_t       vlc_thread_t;
 typedef pthread_mutex_t vlc_mutex_t;
 #define VLC_STATIC_MUTEX PTHREAD_MUTEX_INITIALIZER
 typedef pthread_cond_t  vlc_cond_t;
+typedef sem_t           vlc_sem_t;
+typedef pthread_rwlock_t vlc_rwlock_t;
 typedef pthread_key_t   vlc_threadvar_t;
+typedef struct vlc_timer *vlc_timer_t;
 
 #elif defined( WIN32 )
+#if !defined( UNDER_CE )
+typedef HANDLE vlc_thread_t;
+#else
 typedef struct
 {
     HANDLE handle;
-    void  *(*entry) (void *);
-    void  *data;
-#if defined( UNDER_CE )
     HANDLE cancel_event;
-#endif
 } *vlc_thread_t;
+#endif
 
 typedef struct
 {
@@ -128,8 +130,20 @@ typedef struct
 #define VLC_STATIC_MUTEX { 0, }
 
 typedef HANDLE  vlc_cond_t;
-typedef DWORD   vlc_threadvar_t;
+typedef HANDLE  vlc_sem_t;
 
+typedef struct
+{
+    vlc_mutex_t   mutex;
+    vlc_cond_t    read_wait;
+    vlc_cond_t    write_wait;
+    unsigned long readers;
+    unsigned long writers;
+    DWORD         writer;
+} vlc_rwlock_t;
+
+typedef DWORD   vlc_threadvar_t;
+typedef struct vlc_timer *vlc_timer_t;
 #endif
 
 #if defined( WIN32 ) && !defined ETIMEDOUT
@@ -150,7 +164,17 @@ VLC_EXPORT( void, vlc_cond_destroy,  ( vlc_cond_t * ) );
 VLC_EXPORT( void, vlc_cond_signal, (vlc_cond_t *) );
 VLC_EXPORT( void, vlc_cond_broadcast, (vlc_cond_t *) );
 VLC_EXPORT( void, vlc_cond_wait, (vlc_cond_t *, vlc_mutex_t *) );
-VLC_EXPORT( int, vlc_cond_timedwait, (vlc_cond_t *, vlc_mutex_t *, mtime_t) );
+VLC_EXPORT( int,  vlc_cond_timedwait, (vlc_cond_t *, vlc_mutex_t *, mtime_t) );
+VLC_EXPORT( void, vlc_sem_init, (vlc_sem_t *, unsigned) );
+VLC_EXPORT( void, vlc_sem_destroy, (vlc_sem_t *) );
+VLC_EXPORT( int,  vlc_sem_post, (vlc_sem_t *) );
+VLC_EXPORT( void, vlc_sem_wait, (vlc_sem_t *) );
+
+VLC_EXPORT( void, vlc_rwlock_init, (vlc_rwlock_t *) );
+VLC_EXPORT( void, vlc_rwlock_destroy, (vlc_rwlock_t *) );
+VLC_EXPORT( void, vlc_rwlock_rdlock, (vlc_rwlock_t *) );
+VLC_EXPORT( void, vlc_rwlock_wrlock, (vlc_rwlock_t *) );
+VLC_EXPORT( void, vlc_rwlock_unlock, (vlc_rwlock_t *) );
 VLC_EXPORT( int, vlc_threadvar_create, (vlc_threadvar_t * , void (*) (void *) ) );
 VLC_EXPORT( void, vlc_threadvar_delete, (vlc_threadvar_t *) );
 VLC_EXPORT( int, vlc_threadvar_set, (vlc_threadvar_t, void *) );
@@ -163,6 +187,11 @@ VLC_EXPORT( int, vlc_clone, (vlc_thread_t *, void * (*) (void *), void *, int) L
 VLC_EXPORT( void, vlc_cancel, (vlc_thread_t) );
 VLC_EXPORT( void, vlc_join, (vlc_thread_t, void **) );
 VLC_EXPORT (void, vlc_control_cancel, (int cmd, ...));
+
+VLC_EXPORT( int, vlc_timer_create, (vlc_timer_t *, void (*) (void *), void *) LIBVLC_USED );
+VLC_EXPORT( void, vlc_timer_destroy, (vlc_timer_t) );
+VLC_EXPORT( void, vlc_timer_schedule, (vlc_timer_t, bool, mtime_t, mtime_t) );
+VLC_EXPORT( unsigned, vlc_timer_getoverrun, (vlc_timer_t) LIBVLC_USED );
 
 #ifndef LIBVLC_USE_PTHREAD_CANCEL
 enum {
@@ -212,7 +241,7 @@ struct vlc_cleanup_t
 };
 
 /* This macros opens a code block on purpose. This is needed for multiple
- * calls within a single function. This also prevent Win32 developpers from
+ * calls within a single function. This also prevent Win32 developers from
  * writing code that would break on POSIX (POSIX opens a block as well). */
 # define vlc_cleanup_push( routine, arg ) \
     do { \

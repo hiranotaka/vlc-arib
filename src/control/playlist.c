@@ -21,10 +21,19 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
 #include "libvlc_internal.h"
 #include "libvlc.h"
 
+#include <vlc/libvlc_structures.h>
 #include <vlc/libvlc.h>
+#include <vlc/libvlc_media.h>
+#include <vlc/libvlc_media_player.h>
+#include <vlc/deprecated.h>
+
 #include <vlc_playlist.h>
 
 #include <assert.h>
@@ -35,8 +44,10 @@ void libvlc_playlist_play( libvlc_instance_t *p_instance, int i_id,
 {
     playlist_t *pl = libvlc_priv (p_instance->p_libvlc_int)->p_playlist;
     VLC_UNUSED(i_id); VLC_UNUSED(i_options); VLC_UNUSED(ppsz_options);
+    VLC_UNUSED(p_e);
 
     assert( pl );
-    if( pl->items.i_size == 0 ) RAISEVOID( "Empty playlist" );
+    if( pl->items.i_size == 0 )
+        return;
     playlist_Control( pl, PLAYLIST_PLAY, false );
 }

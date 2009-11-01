@@ -35,10 +35,7 @@
 #include "../events/evt_key.hpp"
 #include "../events/evt_mouse.hpp"
 #include "../events/evt_scroll.hpp"
-#include "vlc_keys.h"
-#ifdef sun
-#   include "solaris_specific.h" // for lrint
-#endif
+#include <vlc_keys.h>
 
 #define SCROLL_STEP 0.05
 #define LINE_INTERVAL 1  // Number of pixels inserted between 2 lines
@@ -433,7 +430,7 @@ void CtrlTree::handleEvent( EvtGeneric &rEvent )
                     }
                 }
             }
-            else if( key == KEY_ENTER || key == KEY_SPACE )
+            else if( key == KEY_ENTER || key == ' ' )
             {
                 // Go up one level (and close node)
                 if( &*it == m_pLastSelected )

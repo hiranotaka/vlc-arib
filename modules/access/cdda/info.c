@@ -27,9 +27,6 @@
 #include "callback.h"      /* FIXME - reorganize callback.h, cdda.h better */
 #include "cdda.h"          /* private structures. Also #includes vlc things */
 
-#warning playlist code must not be used here.
-#include <vlc_playlist.h>  /* Has to come *after* cdda.h */
-
 #include <cdio/cdio.h>
 #include <cdio/cdtext.h>
 #include <cdio/logging.h>
@@ -48,8 +45,8 @@ static char *CDDAFormatMRL( const access_t *p_access, track_t i_track );
 #ifdef HAVE_LIBCDDB
 
 #define free_and_dup(var, val) \
-  if (var) free(var);          \
-  if (val) var=strdup(val);
+  free( var );          \
+  if (val) var = strdup( val );
 
 
 /* Saves CDDB information about CD-DA via libcddb. */
@@ -157,15 +154,15 @@ cddb_end: ;
 }
 #endif /*HAVE_LIBCDDB*/
 
-#define add_meta_val(VLC_META, VAL)                           \
-  if ( p_cdda->p_meta && VAL) {                               \
-    /*vlc_meta_Add( p_cdda->p_meta, VLC_META, VAL );*/        \
-    dbg_print( INPUT_DBG_META, "field %s: %s\n",              \
-            input_MetaTypeToLocalizedString(VLC_META), VAL ); \
-  }                                                           \
+static inline void add_meta_val(access_t *p_access, vlc_meta_type_t meta, const char * val)
+{
+    cdda_data_t *p_cdda = (cdda_data_t *)p_access->p_sys;
+    if (p_cdda->p_meta && val)
+        dbg_print( INPUT_DBG_META, "field %s: %s\n", input_MetaTypeToLocalizedString(meta), val);
+}
 
 #define add_cddb_meta(FIELD, VLC_META)                            \
-  add_meta_val(VLC_META, cddb_disc_get_##FIELD(p_cdda->cddb.disc));
+  add_meta_val(p_access, VLC_META, cddb_disc_get_##FIELD(p_cdda->cddb.disc));
 
 #define add_cddb_meta_fmt(FIELD, FORMAT_SPEC, VLC_META)                 \
   {                                                                     \
@@ -173,7 +170,7 @@ cddb_end: ;
     snprintf( psz_buf, sizeof(psz_buf)-1, FORMAT_SPEC,                  \
               cddb_disc_get_##FIELD(p_cdda->cddb.disc));                               \
     psz_buf[sizeof(psz_buf)-1] = '\0';                                  \
-    add_meta_val(VLC_META, psz_buf);                    \
+    add_meta_val(p_access, VLC_META, psz_buf);                    \
   }
 
 /* Adds a string-valued entry to the stream and media information if
@@ -302,11 +299,11 @@ CDDAMetaInfo( access_t *p_access, track_t i_track )
             {
                 if( cddb_track_get_title(t) != NULL && ! p_cdda->b_nav_mode )
                 {
-                    add_meta_val( vlc_meta_Title, cddb_track_get_title(t) );
+                    add_meta_val( p_access, vlc_meta_Title, cddb_track_get_title(t) );
                 }
                 if( cddb_track_get_artist(t) != NULL )
                 {
-                    add_meta_val( vlc_meta_Artist, cddb_track_get_artist(t) );
+                    add_meta_val( p_access, vlc_meta_Artist, cddb_track_get_artist(t) );
                 }
             }
         }
@@ -452,14 +449,14 @@ CDDAMetaInfo( access_t *p_access, track_t i_track )
         {
             char *psz_name = CDDAFormatTitle( p_access, i_track ) ;
             if ( !p_cdda->b_nav_mode ) {
-                add_meta_val( vlc_meta_Title, psz_name );
+                add_meta_val( p_access, vlc_meta_Title, psz_name );
             } else
             {
                 input_Control( p_cdda->p_input, INPUT_SET_NAME, psz_name );
                 free(psz_name);
             }
             if (psz_meta_artist)
-            add_meta_val( vlc_meta_Artist, psz_meta_artist );
+            add_meta_val( p_access, vlc_meta_Artist, psz_meta_artist );
         }
     }
 }
@@ -532,6 +529,7 @@ char *
 CDDAFormatStr( const access_t *p_access, cdda_data_t *p_cdda,
                const char format_str[], const char *psz_mrl, track_t i_track)
 {
+    VLC_UNUSED(p_access);
 #define TEMP_STR_SIZE 256
 #define TEMP_STR_LEN (TEMP_STR_SIZE-1)
     static char temp_str[TEMP_STR_SIZE];
@@ -859,7 +857,7 @@ CDDAFixupPlaylist( access_t *p_access, cdda_data_t *p_cdda,
     }
     else
     {
-        input_thread_t *p_input = (input_thread_t*)vlc_object_find( p_access, VLC_OBJECT_INPUT, FIND_PARENT );
+        input_thread_t *p_input = access_GetParentInput( p_access );
         if( !p_input )
             return VLC_EGENERIC;
 

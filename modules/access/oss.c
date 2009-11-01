@@ -36,7 +36,7 @@
 #include <vlc_plugin.h>
 #include <vlc_access.h>
 #include <vlc_demux.h>
-#include <vlc_input.h>
+#include <vlc_charset.h>
 
 #include <ctype.h>
 #include <fcntl.h>
@@ -221,7 +221,6 @@ static int DemuxControl( demux_t *p_demux, int i_query, va_list args )
         /* Special for access_demux */
         case DEMUX_CAN_PAUSE:
         case DEMUX_CAN_SEEK:
-        case DEMUX_SET_PAUSE_STATE:
         case DEMUX_CAN_CONTROL_PACE:
             pb = (bool*)va_arg( args, bool * );
             *pb = false;
@@ -272,7 +271,7 @@ static int Demux( demux_t *p_demux )
         }
 
         /* Wait for data */
-        if( poll( &fd, 1, 500 ) ) /* Timeout after 0.5 seconds since I don't know if pf_demux can be blocking. */
+        if( poll( &fd, 1, 10 ) ) /* Timeout after 0.01 seconds. Bigger delays are an issue when used with/as an input-slave since all the inputs run in the same thread. */
         {
             if( fd.revents & (POLLIN|POLLPRI) )
             {
@@ -342,7 +341,7 @@ static int OpenAudioDevOss( demux_t *p_demux )
     int i_fd;
     int i_format;
 
-    i_fd = open( p_demux->p_sys->psz_device, O_RDONLY | O_NONBLOCK );
+    i_fd = utf8_open( p_demux->p_sys->psz_device, O_RDONLY | O_NONBLOCK );
 
     if( i_fd < 0 )
     {
@@ -418,7 +417,7 @@ static int OpenAudioDev( demux_t *p_demux )
 static bool ProbeAudioDevOss( demux_t *p_demux, const char *psz_device )
 {
     int i_caps;
-    int i_fd = open( psz_device, O_RDONLY | O_NONBLOCK );
+    int i_fd = utf8_open( psz_device, O_RDONLY | O_NONBLOCK );
 
     if( i_fd < 0 )
     {

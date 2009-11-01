@@ -30,6 +30,7 @@
 # include "config.h"
 #endif
 
+#define __STDC_CONSTANT_MACROS 1
 #define __STDC_FORMAT_MACROS 1
 #include <inttypes.h>
 
@@ -2001,20 +2002,31 @@ static int ConfigDevicesCallback( vlc_object_t *p_this, char const *psz_name,
 {
     module_config_t *p_item;
     bool b_audio = false;
+    char *psz_device = NULL;
+    int i_ret = VLC_SUCCESS;
+
+    if( !EMPTY_STR( newval.psz_string ) )
+        psz_device = strdup( newval.psz_string );
 
     /* Initialize OLE/COM */
     CoInitialize( 0 );
 
     p_item = config_FindConfig( p_this, psz_name );
-    if( !p_item ) return VLC_SUCCESS;
+
+    if( !p_item )
+    {
+        free( psz_device );
+        CoUninitialize();
+        return VLC_SUCCESS;
+    }
 
     if( !strcmp( psz_name, "dshow-adev" ) ) b_audio = true;
 
     string devicename;
 
-    if( newval.psz_string && *newval.psz_string )
+    if( psz_device )
     {
-        devicename = newval.psz_string;
+        devicename = psz_device ;
     }
     else
     {
@@ -2023,7 +2035,11 @@ static int ConfigDevicesCallback( vlc_object_t *p_this, char const *psz_name,
 
         /* Enumerate devices */
         FindCaptureDevice( p_this, NULL, &list_devices, b_audio );
-        if( !list_devices.size() ) return VLC_EGENERIC;
+        if( !list_devices.size() )
+        {
+            CoUninitialize();
+            return VLC_EGENERIC;
+        }
         devicename = *list_devices.begin();
     }
 
@@ -2036,17 +2052,15 @@ static int ConfigDevicesCallback( vlc_object_t *p_this, char const *psz_name,
     }
     else
     {
-        /* Uninitialize OLE/COM */
-        CoUninitialize();
-
         msg_Err( p_this, "didn't find device: %s", devicename.c_str() );
-        return VLC_EGENERIC;
+        i_ret = VLC_EGENERIC;
     }
 
     /* Uninitialize OLE/COM */
     CoUninitialize();
 
-    return VLC_SUCCESS;
+    free( psz_device );
+    return i_ret;
 }
 
 /*****************************************************************************

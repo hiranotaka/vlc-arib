@@ -222,9 +222,10 @@ static int Open( vlc_object_t * p_this )
                 static const uint32_t pi_pair[] = { AOUT_CHAN_REARLEFT|AOUT_CHAN_REARRIGHT,
                                                     AOUT_CHAN_MIDDLELEFT|AOUT_CHAN_MIDDLERIGHT,
                                                     AOUT_CHAN_LEFT|AOUT_CHAN_RIGHT };
+                /* FIXME: Unused yet
                 static const uint32_t pi_center[] = { AOUT_CHAN_REARCENTER,
                                                       0,
-                                                      AOUT_CHAN_CENTER };
+                                                      AOUT_CHAN_CENTER }; */
 
                 /* Try to complete with pair */
                 for( unsigned i = 0; i < sizeof(pi_pair)/sizeof(*pi_pair); i++ )
@@ -317,12 +318,12 @@ static int Open( vlc_object_t * p_this )
                            &p_sys->fmt ) )
             goto error;
         break;
-    case VLC_FOURCC( 'm', 's', 0x00, 0x02 ):
+    case VLC_CODEC_ADPCM_MS:
         if( FrameInfo_MS_ADPCM( &p_sys->i_frame_size, &p_sys->i_frame_samples,
                                 &p_sys->fmt ) )
             goto error;
         break;
-    case VLC_FOURCC( 'm', 's', 0x00, 0x11 ):
+    case VLC_CODEC_ADPCM_IMA_WAV:
         if( FrameInfo_IMA_ADPCM( &p_sys->i_frame_size, &p_sys->i_frame_samples,
                                  &p_sys->fmt ) )
             goto error;
@@ -339,6 +340,7 @@ static int Open( vlc_object_t * p_this )
         /* FIXME set end of area FIXME */
         goto error;
     case VLC_CODEC_GSM_MS:
+    case VLC_CODEC_ADPCM_G726:
         if( FrameInfo_MSGSM( &p_sys->i_frame_size, &p_sys->i_frame_samples,
                              &p_sys->fmt ) )
             goto error;
@@ -351,12 +353,13 @@ static int Open( vlc_object_t * p_this )
 
     if( p_sys->i_frame_size <= 0 || p_sys->i_frame_samples <= 0 )
     {
-        msg_Dbg( p_demux, "invalid frame size" );
+        msg_Dbg( p_demux, "invalid frame size: %i %i", p_sys->i_frame_size,
+                                                       p_sys->i_frame_samples );
         goto error;
     }
     if( p_sys->fmt.audio.i_rate <= 0 )
     {
-        msg_Dbg( p_demux, "invalid sample rate" );
+        msg_Dbg( p_demux, "invalid sample rate: %i", p_sys->fmt.audio.i_rate );
         goto error;
     }
 
@@ -385,6 +388,7 @@ static int Open( vlc_object_t * p_this )
     return VLC_SUCCESS;
 
 error:
+    msg_Err( p_demux, "An error occured during wav demuxing" );
     free( p_wf );
     free( p_sys );
     return VLC_EGENERIC;

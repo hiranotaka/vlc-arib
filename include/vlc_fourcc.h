@@ -110,6 +110,8 @@
 #define VLC_CODEC_MDEC      VLC_FOURCC('M','D','E','C')
 #define VLC_CODEC_VMDVIDEO  VLC_FOURCC('V','M','D','V')
 #define VLC_CODEC_CDG       VLC_FOURCC('C','D','G',' ')
+#define VLC_CODEC_FRWU      VLC_FOURCC('F','R','W','U')
+
 
 /* Planar YUV 4:2:0 Y:V:U */
 #define VLC_CODEC_YV12      VLC_FOURCC('Y','V','1','2')
@@ -218,8 +220,11 @@
 #define VLC_CODEC_ADPCM_XA  VLC_FOURCC('x','a',' ',' ')
 #define VLC_CODEC_ADPCM_ADX VLC_FOURCC('a','d','x',' ')
 #define VLC_CODEC_ADPCM_IMA_WS VLC_FOURCC('A','I','W','S')
-#define VLC_CODEC_VMDAUDIO  VLC_FOURCC('v','m','d','a')
 #define VLC_CODEC_ADPCM_G726 VLC_FOURCC('g','7','2','6')
+#define VLC_CODEC_ADPCM_SWF VLC_FOURCC('S','W','F','a')
+#define VLC_CODEC_ADPCM_MS  VLC_FOURCC('m','s',0x00,0x02)
+#define VLC_CODEC_ADPCM_IMA_WAV VLC_FOURCC('m','s',0x00,0x11)
+#define VLC_CODEC_VMDAUDIO  VLC_FOURCC('v','m','d','a')
 #define VLC_CODEC_AMR_NB    VLC_FOURCC('s','a','m','r')
 #define VLC_CODEC_AMR_WB    VLC_FOURCC('s','a','w','b')
 #define VLC_CODEC_ALAC      VLC_FOURCC('a','l','a','c')
@@ -230,6 +235,7 @@
 #define VLC_CODEC_WAVPACK   VLC_FOURCC('W','V','P','K')
 #define VLC_CODEC_GSM       VLC_FOURCC('g','s','m',' ')
 #define VLC_CODEC_GSM_MS    VLC_FOURCC('a','g','s','m')
+#define VLC_CODEC_ATRAC1    VLC_FOURCC('a','t','r','1')
 #define VLC_CODEC_ATRAC3    VLC_FOURCC('a','t','r','c')
 #define VLC_CODEC_SONIC     VLC_FOURCC('S','O','N','C')
 #define VLC_CODEC_IMC       VLC_FOURCC(0x1,0x4,0x0,0x0)
@@ -239,6 +245,7 @@
 #define VLC_CODEC_QCELP     VLC_FOURCC('Q','c','l','p')
 #define VLC_CODEC_302M      VLC_FOURCC('3','0','2','m')
 #define VLC_CODEC_DVD_LPCM  VLC_FOURCC('l','p','c','m')
+#define VLC_CODEC_DVDA_LPCM VLC_FOURCC('a','p','c','m')
 #define VLC_CODEC_BD_LPCM   VLC_FOURCC('b','p','c','m')
 #define VLC_CODEC_SDDS      VLC_FOURCC('s','d','d','s')
 #define VLC_CODEC_MIDI      VLC_FOURCC('M','I','D','I')
@@ -262,6 +269,7 @@
 #define VLC_CODEC_FI32      VLC_FOURCC('f','i','3','2')
 #define VLC_CODEC_FL32      VLC_FOURCC('f','l','3','2')
 #define VLC_CODEC_FL64      VLC_FOURCC('f','l','6','4')
+#define VLC_CODEC_TWINVQ    VLC_FOURCC('T','W','I','N')
 
 /* Subtitle */
 #define VLC_CODEC_SPU       VLC_FOURCC('s','p','u',' ')
@@ -277,6 +285,8 @@
 #define VLC_CODEC_USF       VLC_FOURCC('u','s','f',' ')
 #define VLC_CODEC_OGT       VLC_FOURCC('o','g','t',' ')
 #define VLC_CODEC_CVD       VLC_FOURCC('c','v','d',' ')
+/* Blu-ray Presentation Graphics */
+#define VLC_CODEC_BD_PG     VLC_FOURCC('b','d','p','g')
 
 
 /* Special endian dependant values
@@ -348,6 +358,34 @@ VLC_EXPORT( vlc_fourcc_t, vlc_fourcc_GetCodecAudio, ( vlc_fourcc_t i_fourcc, int
  * You may use UNKNOWN_ES for the ES category if you don't have the information.
  */
 VLC_EXPORT( const char *, vlc_fourcc_GetDescription, ( int i_cat, vlc_fourcc_t i_fourcc ) );
+
+/**
+ * It returns a list (terminated with the value 0) of YUV fourccs in
+ * decreasing priority order for the given chroma.
+ *
+ * It will always return a non NULL pointer that must not be freed.
+ */
+VLC_EXPORT( const vlc_fourcc_t *, vlc_fourcc_GetYUVFallback, ( vlc_fourcc_t ) );
+
+/**
+ * It returns a list (terminated with the value 0) of RGB fourccs in
+ * decreasing priority order for the given chroma.
+ *
+ * It will always return a non NULL pointer that must not be freed.
+ */
+VLC_EXPORT( const vlc_fourcc_t *, vlc_fourcc_GetRGBFallback, ( vlc_fourcc_t ) );
+
+/**
+ * It returns true if the given fourcc is YUV and false otherwise.
+ */
+VLC_EXPORT( bool, vlc_fourcc_IsYUV, ( vlc_fourcc_t ) );
+
+/**
+ * It returns true if the two fourccs are equivalent if their U&V planes are
+ * swapped.
+ */
+VLC_EXPORT( bool, vlc_fourcc_AreUVPlanesSwapped, (vlc_fourcc_t , vlc_fourcc_t ) );
+
 
 #endif /* _VLC_FOURCC_H */
 

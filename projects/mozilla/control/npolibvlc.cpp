@@ -42,7 +42,7 @@
 #define RETURN_ON_EXCEPTION(this,ex) \
     do { if( libvlc_exception_raised(&ex) ) \
     { \
-        NPN_SetException(this, libvlc_exception_get_message(&ex)); \
+        NPN_SetException(this, libvlc_errmsg()); \
         libvlc_exception_clear(&ex); \
         return INVOKERESULT_GENERIC_ERROR; \
     } } while(false)
@@ -75,6 +75,7 @@ const NPUTF8 * const LibvlcRootNPObject::propertyNames[] =
     "audio",
     "input",
     "playlist",
+    "subtitle",
     "video",
     "VersionInfo",
 };
@@ -85,6 +86,7 @@ enum LibvlcRootNPObjectPropertyIds
     ID_root_audio = 0,
     ID_root_input,
     ID_root_playlist,
+    ID_root_subtitle,
     ID_root_video,
     ID_root_VersionInfo,
 };
@@ -120,6 +122,14 @@ LibvlcRootNPObject::getProperty(int index, NPVariant &result)
                     playlistObj = NPN_CreateObject(_instance,
                           RuntimeNPClass<LibvlcPlaylistNPObject>::getClass());
                 OBJECT_TO_NPVARIANT(NPN_RetainObject(playlistObj), result);
+                return INVOKERESULT_NO_ERROR;
+            case ID_root_subtitle:
+                // create child object in lazyman fashion to avoid
+                // ownership problem with firefox
+                if( ! subtitleObj )
+                    subtitleObj = NPN_CreateObject(_instance,
+                             RuntimeNPClass<LibvlcSubtitleNPObject>::getClass());
+                OBJECT_TO_NPVARIANT(NPN_RetainObject(subtitleObj), result);
                 return INVOKERESULT_NO_ERROR;
             case ID_root_video:
                 // create child object in lazyman fashion to avoid
@@ -180,6 +190,7 @@ const NPUTF8 * const LibvlcAudioNPObject::propertyNames[] =
     "mute",
     "volume",
     "track",
+    "count",
     "channel",
 };
 COUNTNAMES(LibvlcAudioNPObject,propertyCount,propertyNames);
@@ -189,6 +200,7 @@ enum LibvlcAudioNPObjectPropertyIds
     ID_audio_mute,
     ID_audio_volume,
     ID_audio_track,
+    ID_audio_count,
     ID_audio_channel,
 };
 
@@ -206,15 +218,13 @@ LibvlcAudioNPObject::getProperty(int index, NPVariant &result)
         {
             case ID_audio_mute:
             {
-                bool muted = libvlc_audio_get_mute(p_plugin->getVLC(), &ex);
-                RETURN_ON_EXCEPTION(this,ex);
+                bool muted = libvlc_audio_get_mute(p_plugin->getVLC());
                 BOOLEAN_TO_NPVARIANT(muted, result);
                 return INVOKERESULT_NO_ERROR;
             }
             case ID_audio_volume:
             {
-                int volume = libvlc_audio_get_volume(p_plugin->getVLC(), &ex);
-                RETURN_ON_EXCEPTION(this,ex);
+                int volume = libvlc_audio_get_volume(p_plugin->getVLC());
                 INT32_TO_NPVARIANT(volume, result);
                 return INVOKERESULT_NO_ERROR;
             }
@@ -225,6 +235,17 @@ LibvlcAudioNPObject::getProperty(int index, NPVariant &result)
                 int track = libvlc_audio_get_track(p_md, &ex);
                 RETURN_ON_EXCEPTION(this,ex);
                 INT32_TO_NPVARIANT(track, result);
+                return INVOKERESULT_NO_ERROR;
+            }
+            case ID_audio_count:
+            {
+                libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
+                RETURN_ON_EXCEPTION(this,ex);
+                // get the number of audio track available
+                int i_track = libvlc_audio_get_track_count(p_md, &ex);
+                RETURN_ON_EXCEPTION(this,ex);
+                // return it
+                INT32_TO_NPVARIANT(i_track, result);
                 return INVOKERESULT_NO_ERROR;
             }
             case ID_audio_channel:
@@ -257,8 +278,7 @@ LibvlcAudioNPObject::setProperty(int index, const NPVariant &value)
                 if( NPVARIANT_IS_BOOLEAN(value) )
                 {
                     libvlc_audio_set_mute(p_plugin->getVLC(),
-                                          NPVARIANT_TO_BOOLEAN(value), &ex);
-                    RETURN_ON_EXCEPTION(this,ex);
+                                          NPVARIANT_TO_BOOLEAN(value));
                     return INVOKERESULT_NO_ERROR;
                 }
                 return INVOKERESULT_INVALID_VALUE;
@@ -300,12 +320,14 @@ LibvlcAudioNPObject::setProperty(int index, const NPVariant &value)
 const NPUTF8 * const LibvlcAudioNPObject::methodNames[] =
 {
     "toggleMute",
+    "description",
 };
 COUNTNAMES(LibvlcAudioNPObject,methodCount,methodNames);
 
 enum LibvlcAudioNPObjectMethodIds
 {
     ID_audio_togglemute,
+    ID_audio_description,
 };
 
 RuntimeNPObject::InvokeResult
@@ -324,12 +346,55 @@ LibvlcAudioNPObject::invoke(int index, const NPVariant *args,
             case ID_audio_togglemute:
                 if( argCount == 0 )
                 {
-                    libvlc_audio_toggle_mute(p_plugin->getVLC(), &ex);
-                    RETURN_ON_EXCEPTION(this,ex);
+                    libvlc_audio_toggle_mute(p_plugin->getVLC());
                     VOID_TO_NPVARIANT(result);
                     return INVOKERESULT_NO_ERROR;
                 }
                 return INVOKERESULT_NO_SUCH_METHOD;
+            case ID_audio_description:
+            {
+                if( argCount == 1)
+                {
+                    char *psz_name;
+                    int i_trackID, i_limit, i;
+                    libvlc_track_description_t *p_trackDesc;
+
+                    libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
+                    RETURN_ON_EXCEPTION(this,ex);
+
+                    /* get tracks description */
+                    p_trackDesc = libvlc_audio_get_track_description(p_md, &ex);
+                    RETURN_ON_EXCEPTION(this,ex);
+                    if( !p_trackDesc )
+                        return INVOKERESULT_GENERIC_ERROR;
+
+                    /* get the number of track available */
+                    i_limit = libvlc_audio_get_track_count(p_md, &ex);
+                    RETURN_ON_EXCEPTION(this,ex);
+
+                    /* check if a number is given by the user
+                     * and get the track number */
+                    if( isNumberValue(args[0]) )
+                        i_trackID = numberValue(args[0]);
+                    else
+                        return INVOKERESULT_INVALID_VALUE;
+
+                    /* if bad number is given return invalid value */
+                    if ( ( i_trackID > ( i_limit - 1 ) ) || ( i_trackID < 0 ) )
+                        return INVOKERESULT_INVALID_VALUE;
+
+                    /* get the good trackDesc */
+                    for( i = 0 ; i < i_trackID ; i++ )
+                    {
+                        p_trackDesc = p_trackDesc->p_next;
+                    }
+                    psz_name = p_trackDesc->psz_name;
+
+                    /* display the name of the track chosen */
+                    return invokeResultString( psz_name, result );
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
             default:
                 ;
         }
@@ -379,7 +444,7 @@ LibvlcInputNPObject::getProperty(int index, NPVariant &result)
         {
             if( index != ID_input_state )
             {
-                NPN_SetException(this, libvlc_exception_get_message(&ex));
+                NPN_SetException(this, libvlc_errmsg());
                 libvlc_exception_clear(&ex);
                 return INVOKERESULT_GENERIC_ERROR;
             }
@@ -519,9 +584,32 @@ LibvlcInputNPObject::setProperty(int index, const NPVariant &value)
 const NPUTF8 * const LibvlcInputNPObject::methodNames[] =
 {
     /* no methods */
+    "none",
+};
+COUNTNAMES(LibvlcInputNPObject,methodCount,methodNames);
+
+enum LibvlcInputNPObjectMethodIds
+{
+    ID_none,
 };
 
-COUNTNAMES(LibvlcInputNPObject,methodCount,methodNames);
+RuntimeNPObject::InvokeResult
+LibvlcInputNPObject::invoke(int index, const NPVariant *args,
+                                    uint32_t argCount, NPVariant &result)
+{
+    /* is plugin still running */
+    if( isPluginRunning() )
+    {
+        switch( index )
+        {
+            case ID_none:
+                return INVOKERESULT_NO_SUCH_METHOD;
+            default:
+                ;
+        }
+    }
+    return INVOKERESULT_GENERIC_ERROR;
+}
 
 /*
 ** implementation of libvlc playlist items object
@@ -730,27 +818,23 @@ LibvlcPlaylistNPObject::invoke(int index, const NPVariant *args,
             {
                 if( (argCount < 1) || (argCount > 3) )
                     return INVOKERESULT_NO_SUCH_METHOD;
-
-                char *url = NULL;
+                if( !NPVARIANT_IS_STRING(args[0]) )
+                    return INVOKERESULT_NO_SUCH_METHOD;
 
                 // grab URL
-                if( NPVARIANT_IS_STRING(args[0]) )
-                {
-                    char *s = stringValue(NPVARIANT_TO_STRING(args[0]));
-                    if( s )
-                    {
-                        url = p_plugin->getAbsoluteURL(s);
-                        if( url )
-                            free(s);
-                        else
-                            // problem with combining url, use argument
-                            url = s;
-                    }
-                    else
-                        return INVOKERESULT_OUT_OF_MEMORY;
-                }
-                else
+                if( NPVARIANT_IS_NULL(args[0]) )
                     return INVOKERESULT_NO_SUCH_METHOD;
+
+                char *s = stringValue(NPVARIANT_TO_STRING(args[0]));
+                if( !s )
+                    return INVOKERESULT_OUT_OF_MEMORY;
+
+                char *url = p_plugin->getAbsoluteURL(s);
+                if( url )
+                    free(s);
+                else
+                    // problem with combining url, use argument
+                    url = s;
 
                 char *name = NULL;
 
@@ -946,7 +1030,7 @@ void LibvlcPlaylistNPObject::parseOptions(const NPString &nps,
                             if( ! moreOptions )
                             {
                                 /* failed to allocate more memory */
-			        free(s);
+                                free(s);
                                 /* return what we got so far */
                                 *i_options = nOptions;
                                 *ppsz_options = options;
@@ -1023,12 +1107,175 @@ void LibvlcPlaylistNPObject::parseOptions(NPObject *obj, int *i_options,
                     }
 
                     options[nOptions++] = stringValue(value);
+                    NPN_ReleaseVariantValue(&value);
                 }
                 *i_options = nOptions;
                 *ppsz_options = options;
             }
         }
     }
+}
+
+/*
+** implementation of libvlc subtitle object
+*/
+
+const NPUTF8 * const LibvlcSubtitleNPObject::propertyNames[] =
+{
+    "track",
+    "count",
+};
+
+enum LibvlcSubtitleNPObjectPropertyIds
+{
+    ID_subtitle_track,
+    ID_subtitle_count,
+};
+COUNTNAMES(LibvlcSubtitleNPObject,propertyCount,propertyNames);
+
+RuntimeNPObject::InvokeResult
+LibvlcSubtitleNPObject::getProperty(int index, NPVariant &result)
+{
+    /* is plugin still running */
+    if( isPluginRunning() )
+    {
+        VlcPlugin* p_plugin = getPrivate<VlcPlugin>();
+        libvlc_exception_t ex;
+        libvlc_exception_init(&ex);
+
+        libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
+        RETURN_ON_EXCEPTION(this,ex);
+
+        switch( index )
+        {
+            case ID_subtitle_track:
+            {
+                /* get the current subtitle ID */
+                int i_spu = libvlc_video_get_spu(p_md, &ex);
+                RETURN_ON_EXCEPTION(this,ex);
+                /* return it */
+                INT32_TO_NPVARIANT(i_spu, result);
+                return INVOKERESULT_NO_ERROR;
+            }
+            case ID_subtitle_count:
+            {
+                /* get the number of subtitles available */
+                int i_spu = libvlc_video_get_spu_count(p_md, &ex);
+                RETURN_ON_EXCEPTION(this,ex);
+                /* return it */
+                INT32_TO_NPVARIANT(i_spu, result);
+                return INVOKERESULT_NO_ERROR;
+            }
+        }
+    }
+    return INVOKERESULT_GENERIC_ERROR;
+}
+
+RuntimeNPObject::InvokeResult
+LibvlcSubtitleNPObject::setProperty(int index, const NPVariant &value)
+{
+    /* is plugin still running */
+    if( isPluginRunning() )
+    {
+        VlcPlugin* p_plugin = getPrivate<VlcPlugin>();
+        libvlc_exception_t ex;
+        libvlc_exception_init(&ex);
+
+        libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
+        RETURN_ON_EXCEPTION(this,ex);
+
+        switch( index )
+        {
+            case ID_subtitle_track:
+            {
+                if( isNumberValue(value) )
+                {
+                    /* set the new subtitle track to show */
+                    libvlc_video_set_spu(p_md, numberValue(value), &ex);
+                    RETURN_ON_EXCEPTION(this,ex);
+
+                    return INVOKERESULT_NO_ERROR;
+                }
+                return INVOKERESULT_INVALID_VALUE;
+            }
+        }
+    }
+    return INVOKERESULT_GENERIC_ERROR;
+}
+
+const NPUTF8 * const LibvlcSubtitleNPObject::methodNames[] =
+{
+    "description"
+};
+COUNTNAMES(LibvlcSubtitleNPObject,methodCount,methodNames);
+
+enum LibvlcSubtitleNPObjectMethodIds
+{
+    ID_subtitle_description
+};
+
+RuntimeNPObject::InvokeResult
+LibvlcSubtitleNPObject::invoke(int index, const NPVariant *args,
+                            uint32_t argCount, NPVariant &result)
+{
+    /* is plugin still running */
+    if( isPluginRunning() )
+    {
+        VlcPlugin* p_plugin = getPrivate<VlcPlugin>();
+        libvlc_exception_t ex;
+        libvlc_exception_init(&ex);
+
+        libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
+        RETURN_ON_EXCEPTION(this,ex);
+
+        switch( index )
+        {
+            case ID_subtitle_description:
+            {
+                if( argCount == 1)
+                {
+                    char *psz_name;
+                    int i_spuID, i_limit, i;
+                    libvlc_track_description_t *p_spuDesc;
+
+                    /* get subtitles description */
+                    p_spuDesc = libvlc_video_get_spu_description(p_md, &ex);
+                    RETURN_ON_EXCEPTION(this,ex);
+                    if( !p_spuDesc )
+                        return INVOKERESULT_GENERIC_ERROR;
+
+                    /* get the number of subtitle available */
+                    i_limit = libvlc_video_get_spu_count(p_md, &ex);
+                    RETURN_ON_EXCEPTION(this,ex);
+
+                    /* check if a number is given by the user
+                     * and get the subtitle number */
+                    if( isNumberValue(args[0]) )
+                        i_spuID = numberValue(args[0]);
+                    else
+                        return INVOKERESULT_INVALID_VALUE;
+
+                    /* if bad number is given return invalid value */
+                    if ( ( i_spuID > ( i_limit -1 ) ) || ( i_spuID < 0 ) )
+                        return INVOKERESULT_INVALID_VALUE;
+
+                    /* get the good spuDesc */
+                    for( i = 0 ; i < i_spuID ; i++ )
+                    {
+                        p_spuDesc = p_spuDesc->p_next;
+                    }
+                    psz_name = p_spuDesc->psz_name;
+
+                    /* return the name of the track chosen */
+                    return invokeResultString(psz_name, result);
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            default:
+                return INVOKERESULT_NO_SUCH_METHOD;
+        }
+    }
+    return INVOKERESULT_GENERIC_ERROR;
 }
 
 /*
@@ -1043,7 +1290,8 @@ const NPUTF8 * const LibvlcVideoNPObject::propertyNames[] =
     "aspectRatio",
     "subtitle",
     "crop",
-    "teletext"
+    "teletext",
+    "marquee"
 };
 
 enum LibvlcVideoNPObjectPropertyIds
@@ -1054,7 +1302,8 @@ enum LibvlcVideoNPObjectPropertyIds
     ID_video_aspectratio,
     ID_video_subtitle,
     ID_video_crop,
-    ID_video_teletext
+    ID_video_teletext,
+    ID_video_marquee
 };
 COUNTNAMES(LibvlcVideoNPObject,propertyCount,propertyNames);
 
@@ -1126,6 +1375,14 @@ LibvlcVideoNPObject::getProperty(int index, NPVariant &result)
                 int i_page = libvlc_video_get_teletext(p_md, &ex);
                 RETURN_ON_EXCEPTION(this,ex);
                 INT32_TO_NPVARIANT(i_page, result);
+                return INVOKERESULT_NO_ERROR;
+            }
+            case ID_video_marquee:
+            {
+                if( ! marqueeObj )
+                    marqueeObj = NPN_CreateObject(_instance,
+                             RuntimeNPClass<LibvlcMarqueeNPObject>::getClass());
+               OBJECT_TO_NPVARIANT(NPN_RetainObject(marqueeObj), result);
                 return INVOKERESULT_NO_ERROR;
             }
         }
@@ -1232,14 +1489,18 @@ LibvlcVideoNPObject::setProperty(int index, const NPVariant &value)
 const NPUTF8 * const LibvlcVideoNPObject::methodNames[] =
 {
     "toggleFullscreen",
-    "toggleTeletext"
+    "toggleTeletext",
+    "deinterlaceEnable",
+    "deinterlaceDisable"
 };
 COUNTNAMES(LibvlcVideoNPObject,methodCount,methodNames);
 
 enum LibvlcVideoNPObjectMethodIds
 {
     ID_video_togglefullscreen,
-    ID_video_toggleteletext
+    ID_video_toggleteletext,
+    ID_video_deinterlaceenable,
+    ID_video_deinterlacedisable
 };
 
 RuntimeNPObject::InvokeResult
@@ -1259,6 +1520,7 @@ LibvlcVideoNPObject::invoke(int index, const NPVariant *args,
         switch( index )
         {
             case ID_video_togglefullscreen:
+            {
                 if( argCount == 0 )
                 {
                     p_plugin->toggle_fullscreen(&ex);
@@ -1267,7 +1529,9 @@ LibvlcVideoNPObject::invoke(int index, const NPVariant *args,
                     return INVOKERESULT_NO_ERROR;
                 }
                 return INVOKERESULT_NO_SUCH_METHOD;
+            }
             case ID_video_toggleteletext:
+            {
                 if( argCount == 0 )
                 {
                     libvlc_toggle_teletext(p_md, &ex);
@@ -1276,6 +1540,297 @@ LibvlcVideoNPObject::invoke(int index, const NPVariant *args,
                     return INVOKERESULT_NO_ERROR;
                 }
                 return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_video_deinterlacedisable:
+            {
+                libvlc_video_set_deinterlace(p_md, 0, "", &ex);
+                RETURN_ON_EXCEPTION(this,ex);
+                return INVOKERESULT_NO_ERROR;
+            }
+            case ID_video_deinterlaceenable:
+            {
+                if(argCount == 1)
+                {
+                    if( NPVARIANT_IS_STRING( args[0] ) )
+                    {
+                        /* get deinterlace mode from the user */
+                        char *psz_mode = stringValue( NPVARIANT_TO_STRING( args[0] ) );
+                        /* enable deinterlace filter if possible */
+                        libvlc_video_set_deinterlace(p_md, 1, psz_mode, &ex);
+                        free(psz_mode);
+                        RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                    {
+                        return INVOKERESULT_INVALID_VALUE;
+                    }
+                }
+            }
+            default:
+                return INVOKERESULT_NO_SUCH_METHOD;
+        }
+    }
+    return INVOKERESULT_GENERIC_ERROR;
+}
+
+/*
+** implementation of libvlc marquee object
+*/
+
+const NPUTF8 * const LibvlcMarqueeNPObject::propertyNames[] =
+{
+};
+
+enum LibvlcMarqueeNPObjectPropertyIds
+{
+};
+COUNTNAMES(LibvlcMarqueeNPObject,propertyCount,propertyNames);
+
+RuntimeNPObject::InvokeResult
+LibvlcMarqueeNPObject::getProperty(int index, NPVariant &result)
+{
+    /* is plugin still running */
+    if( isPluginRunning() )
+    {
+        VlcPlugin* p_plugin = getPrivate<VlcPlugin>();
+        libvlc_exception_t ex;
+        libvlc_exception_init(&ex);
+
+        libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
+        RETURN_ON_EXCEPTION(this,ex);
+
+        switch( index )
+        {
+        }
+    }
+    return INVOKERESULT_GENERIC_ERROR;
+}
+
+RuntimeNPObject::InvokeResult
+LibvlcMarqueeNPObject::setProperty(int index, const NPVariant &value)
+{
+    /* is plugin still running */
+    if( isPluginRunning() )
+    {
+        VlcPlugin* p_plugin = getPrivate<VlcPlugin>();
+        libvlc_exception_t ex;
+        libvlc_exception_init(&ex);
+
+        libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
+        RETURN_ON_EXCEPTION(this,ex);
+
+        switch( index )
+        {
+        }
+    }
+    return INVOKERESULT_GENERIC_ERROR;
+}
+
+const NPUTF8 * const LibvlcMarqueeNPObject::methodNames[] =
+{
+    "enable",
+    "disable",
+    "color",
+    "opacity",
+    "position",
+    "refresh",
+    "size",
+    "text",
+    "timeout",
+    "x",
+    "y"
+};
+COUNTNAMES(LibvlcMarqueeNPObject,methodCount,methodNames);
+
+enum LibvlcMarqueeNPObjectMethodIds
+{
+    ID_marquee_enable,
+    ID_marquee_disable,
+    ID_marquee_color,
+    ID_marquee_opacity,
+    ID_marquee_position,
+    ID_marquee_refresh,
+    ID_marquee_size,
+    ID_marquee_text,
+    ID_marquee_timeout,
+    ID_marquee_x,
+    ID_marquee_y
+};
+
+RuntimeNPObject::InvokeResult
+LibvlcMarqueeNPObject::invoke(int index, const NPVariant *args,
+                            uint32_t argCount, NPVariant &result)
+{
+    /* is plugin still running */
+    if( isPluginRunning() )
+    {
+        VlcPlugin* p_plugin = getPrivate<VlcPlugin>();
+        libvlc_exception_t ex;
+        libvlc_exception_init(&ex);
+
+        libvlc_media_player_t *p_md = p_plugin->getMD(&ex);
+        RETURN_ON_EXCEPTION(this,ex);
+
+        switch( index )
+        {
+            case ID_marquee_enable:
+            {
+                libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Enabled, true, &ex);
+                    RETURN_ON_EXCEPTION(this,ex);
+                return INVOKERESULT_NO_ERROR;
+            }
+            case ID_marquee_disable:
+            {
+                libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Enabled, false, &ex);
+                    RETURN_ON_EXCEPTION(this,ex);
+                return INVOKERESULT_NO_ERROR;
+            }
+            case ID_marquee_color:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_INT32( args[0] ) )
+                    {
+                        int i_color = NPVARIANT_TO_INT32( args[0] );
+                        libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Color, i_color, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_marquee_opacity:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_INT32( args[0] ) )
+                    {
+                        int i_opacity = NPVARIANT_TO_INT32( args[0] );
+                        libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Opacity, i_opacity, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_marquee_position:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_INT32( args[0] ) )
+                    {
+                        int i_position = NPVARIANT_TO_INT32( args[0] );
+                        libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Position, i_position, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_marquee_refresh:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_INT32( args[0] ) )
+                    {
+                        int i_refresh = NPVARIANT_TO_INT32( args[0] );
+                        libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Refresh, i_refresh, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_marquee_size:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_INT32( args[0] ) )
+                    {
+                        int i_size = NPVARIANT_TO_INT32( args[0] );
+                        libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Size, i_size, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_marquee_text:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_STRING( args[0] ) )
+                    {
+                        char *psz_text = stringValue( NPVARIANT_TO_STRING( args[0] ) );
+                        libvlc_video_set_marquee_option_as_string(p_md, libvlc_marquee_Text, psz_text, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        free(psz_text);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_marquee_timeout:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_INT32( args[0] ) )
+                    {
+                        int i_timeout = NPVARIANT_TO_INT32( args[0] );
+                        libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Timeout, i_timeout, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_marquee_x:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_INT32( args[0] ) )
+                    {
+                        int i_x = NPVARIANT_TO_INT32( args[0] );
+                        libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_X, i_x, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
+            case ID_marquee_y:
+            {
+                if( argCount == 1)
+                {
+                    if( NPVARIANT_IS_INT32( args[0] ) )
+                    {
+                        int i_y = NPVARIANT_TO_INT32( args[0] );
+                        libvlc_video_set_marquee_option_as_int(p_md, libvlc_marquee_Y, i_y, &ex);
+                            RETURN_ON_EXCEPTION(this,ex);
+                        return INVOKERESULT_NO_ERROR;
+                    }
+                    else
+                        return INVOKERESULT_GENERIC_ERROR;
+                }
+                return INVOKERESULT_NO_SUCH_METHOD;
+            }
             default:
                 return INVOKERESULT_NO_SUCH_METHOD;
         }

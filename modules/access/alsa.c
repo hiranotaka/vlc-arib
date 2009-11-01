@@ -263,8 +263,6 @@ static void DemuxClose( vlc_object_t *p_this )
 static int DemuxControl( demux_t *p_demux, int i_query, va_list args )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
-    bool *pb;
-    int64_t *pi64;
 
     switch( i_query )
     {
@@ -273,22 +271,19 @@ static int DemuxControl( demux_t *p_demux, int i_query, va_list args )
         case DEMUX_CAN_SEEK:
         case DEMUX_SET_PAUSE_STATE:
         case DEMUX_CAN_CONTROL_PACE:
-            pb = (bool*)va_arg( args, bool * );
-            *pb = false;
+            *va_arg( args, bool * ) = false;
             return VLC_SUCCESS;
 
         case DEMUX_GET_PTS_DELAY:
-            pi64 = (int64_t*)va_arg( args, int64_t * );
-            *pi64 = (int64_t)p_sys->i_cache * 1000;
+            *va_arg( args, int64_t * ) = (int64_t)p_sys->i_cache * 1000;
             return VLC_SUCCESS;
 
         case DEMUX_GET_TIME:
-            pi64 = (int64_t*)va_arg( args, int64_t * );
-            *pi64 = mdate();
+            *va_arg( args, int64_t * ) = mdate();
             return VLC_SUCCESS;
 
         case DEMUX_SET_NEXT_DEMUX_TIME:
-            p_sys->i_next_demux_date = (int64_t)va_arg( args, int64_t );
+            p_sys->i_next_demux_date = va_arg( args, int64_t );
             return VLC_SUCCESS;
 
         /* TODO implement others */
@@ -317,7 +312,7 @@ static int Demux( demux_t *p_demux )
         }
 
         /* Wait for data */
-        int i_wait = snd_pcm_wait( p_sys->p_alsa_pcm, 500 );
+        int i_wait = snd_pcm_wait( p_sys->p_alsa_pcm, 10 ); /* See poll() comment in oss.c */
         switch( i_wait )
         {
             case 1:
@@ -504,11 +499,7 @@ static int OpenAudioDevAlsa( demux_t *p_demux )
     }
 
     /* Set sample rate */
-#ifdef HAVE_ALSA_NEW_API
     i_err = snd_pcm_hw_params_set_rate_near( p_sys->p_alsa_pcm, p_hw_params, &p_sys->i_sample_rate, NULL );
-#else
-    i_err = snd_pcm_hw_params_set_rate_near( p_sys->p_alsa_pcm, p_hw_params, p_sys->i_sample_rate, NULL );
-#endif
     if( i_err < 0 )
     {
         msg_Err( p_demux, "ALSA: cannot set sample rate (%s)",
@@ -546,11 +537,7 @@ static int OpenAudioDevAlsa( demux_t *p_demux )
 
     /* Set period time */
     unsigned int period_time = buffer_time / 4;
-#ifdef HAVE_ALSA_NEW_API
     i_err = snd_pcm_hw_params_set_period_time_near( p_sys->p_alsa_pcm, p_hw_params, &period_time, 0 );
-#else
-    i_err = snd_pcm_hw_params_set_period_time_near( p_sys->p_alsa_pcm, p_hw_params, period_time, 0 );
-#endif
     if( i_err < 0 )
     {
         msg_Err( p_demux, "ALSA: cannot set period time (%s)",
@@ -559,11 +546,7 @@ static int OpenAudioDevAlsa( demux_t *p_demux )
     }
 
     /* Set buffer time */
-#ifdef HAVE_ALSA_NEW_API
     i_err = snd_pcm_hw_params_set_buffer_time_near( p_sys->p_alsa_pcm, p_hw_params, &buffer_time, 0 );
-#else
-    i_err = snd_pcm_hw_params_set_buffer_time_near( p_sys->p_alsa_pcm, p_hw_params, buffer_time, 0 );
-#endif
     if( i_err < 0 )
     {
         msg_Err( p_demux, "ALSA: cannot set buffer time (%s)",

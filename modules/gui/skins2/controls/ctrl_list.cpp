@@ -34,10 +34,7 @@
 #include "../events/evt_key.hpp"
 #include "../events/evt_mouse.hpp"
 #include "../events/evt_scroll.hpp"
-#include "vlc_keys.h"
-#ifdef sun
-#   include "solaris_specific.h" // for lrint
-#endif
+#include <vlc_keys.h>
 
 #define SCROLL_STEP 0.05f
 #define LINE_INTERVAL 1  // Number of pixels inserted between 2 lines
@@ -65,10 +62,7 @@ CtrlList::~CtrlList()
 {
     m_rList.getPositionVar().delObserver( this );
     m_rList.delObserver( this );
-    if( m_pImage )
-    {
-        delete m_pImage;
-    }
+    delete m_pImage;
 }
 
 
@@ -411,10 +405,7 @@ void CtrlList::autoScroll()
 
 void CtrlList::makeImage()
 {
-    if( m_pImage )
-    {
-        delete m_pImage;
-    }
+    delete m_pImage;
 
     // Get the size of the control
     const Position *pPos = getPosition();

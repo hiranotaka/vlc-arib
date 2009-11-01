@@ -74,7 +74,7 @@ struct decoder_sys_t
     const int16_t *p_logtos16;  /* used with m/alaw to int16_t */
     int i_bytespersample;
 
-    audio_date_t end_date;
+    date_t end_date;
 };
 
 static const int pi_channels_maps[] =
@@ -311,8 +311,8 @@ static int DecoderOpen( vlc_object_t *p_this )
         p_dec->fmt_out.audio.i_bitspersample = 16;
     }
 
-    aout_DateInit( &p_sys->end_date, p_dec->fmt_out.audio.i_rate );
-    aout_DateSet( &p_sys->end_date, 0 );
+    date_Init( &p_sys->end_date, p_dec->fmt_out.audio.i_rate, 1 );
+    date_Set( &p_sys->end_date, 0 );
     p_sys->i_bytespersample = ( p_dec->fmt_in.audio.i_bitspersample + 7 ) / 8;
 
     p_dec->pf_decode_audio = DecodeBlock;
@@ -337,11 +337,11 @@ static aout_buffer_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     p_block = *pp_block;
 
     if( p_block->i_pts != 0 &&
-        p_block->i_pts != aout_DateGet( &p_sys->end_date ) )
+        p_block->i_pts != date_Get( &p_sys->end_date ) )
     {
-        aout_DateSet( &p_sys->end_date, p_block->i_pts );
+        date_Set( &p_sys->end_date, p_block->i_pts );
     }
-    else if( !aout_DateGet( &p_sys->end_date ) )
+    else if( !date_Get( &p_sys->end_date ) )
     {
         /* We've just started the stream, wait for the first PTS. */
         block_Release( p_block );
@@ -370,15 +370,16 @@ static aout_buffer_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         return NULL;
     }
 
-    p_out->start_date = aout_DateGet( &p_sys->end_date );
-    p_out->end_date   = aout_DateIncrement( &p_sys->end_date, i_samples );
+    p_out->i_pts = date_Get( &p_sys->end_date );
+    p_out->i_length = date_Increment( &p_sys->end_date, i_samples )
+                      - p_out->i_pts;
 
     if( p_sys->p_logtos16 )
     {
         int16_t *s = (int16_t*)p_out->p_buffer;
         unsigned int i;
 
-        for( i = 0; i < p_out->i_nb_bytes / 2; i++ )
+        for( i = 0; i < p_out->i_buffer / 2; i++ )
         {
             *s++ = p_sys->p_logtos16[*p_block->p_buffer++];
             p_block->i_buffer--;
@@ -386,9 +387,9 @@ static aout_buffer_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     }
     else
     {
-        memcpy( p_out->p_buffer, p_block->p_buffer, p_out->i_nb_bytes );
-        p_block->p_buffer += p_out->i_nb_bytes;
-        p_block->i_buffer -= p_out->i_nb_bytes;
+        memcpy( p_out->p_buffer, p_block->p_buffer, p_out->i_buffer );
+        p_block->p_buffer += p_out->i_buffer;
+        p_block->i_buffer -= p_out->i_buffer;
     }
 
     return p_out;
@@ -1375,11 +1376,11 @@ static block_t *EncoderEncode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
     encoder_sys_t *p_sys = p_enc->p_sys;
     block_t *p_block = NULL;
 
-    if( !p_aout_buf || !p_aout_buf->i_nb_bytes ) return NULL;
+    if( !p_aout_buf || !p_aout_buf->i_buffer ) return NULL;
 
     if( p_sys->i_s16tolog )
     {
-        if( ( p_block = block_New( p_enc, p_aout_buf->i_nb_bytes / 2 ) ) )
+        if( ( p_block = block_New( p_enc, p_aout_buf->i_buffer / 2 ) ) )
         {
             int8_t *s = (int8_t*)p_block->p_buffer; // sink
             int16_t *aout = (int16_t*)p_aout_buf->p_buffer; // source
@@ -1387,7 +1388,7 @@ static block_t *EncoderEncode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
 
             if( p_sys->i_s16tolog == ALAW )
             {
-                for( i = 0; i < p_aout_buf->i_nb_bytes / 2; i++ )
+                for( i = 0; i < p_aout_buf->i_buffer / 2; i++ )
                 {
                     if( *aout >= 0)
                         *s++ = alaw_encode[*aout / 16];
@@ -1399,7 +1400,7 @@ static block_t *EncoderEncode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
             }
             else /* ULAW */
             {
-                for( i = 0; i < p_aout_buf->i_nb_bytes / 2; i++ )
+                for( i = 0; i < p_aout_buf->i_buffer / 2; i++ )
                 {
                     if( *aout >= 0)
                         *s++ = ulaw_encode[*aout / 4];
@@ -1411,15 +1412,15 @@ static block_t *EncoderEncode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
             }
         }
     }
-    else if( ( p_block = block_New( p_enc, p_aout_buf->i_nb_bytes ) ) )
+    else if( ( p_block = block_New( p_enc, p_aout_buf->i_buffer ) ) )
     {
         memcpy( p_block->p_buffer, p_aout_buf->p_buffer,
-                p_aout_buf->i_nb_bytes );
+                p_aout_buf->i_buffer );
     }
 
     if( p_block )
     {
-        p_block->i_dts = p_block->i_pts = p_aout_buf->start_date;
+        p_block->i_dts = p_block->i_pts = p_aout_buf->i_pts;
         p_block->i_length = (int64_t)p_aout_buf->i_nb_samples *
             (int64_t)1000000 / p_enc->fmt_in.audio.i_rate;
     }

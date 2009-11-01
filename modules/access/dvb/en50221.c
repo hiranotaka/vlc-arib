@@ -69,7 +69,7 @@
 #endif
 
 #ifdef ENABLE_HTTPD
-#   include "vlc_httpd.h"
+#   include <vlc_httpd.h>
 #endif
 
 #include "dvb.h"
@@ -79,6 +79,7 @@
 #undef DEBUG_TPDU
 #define HLCI_WAIT_CAM_READY 0
 #define CAM_PROG_MAX MAX_PROGRAMS
+//#define CAPMT_WAIT 100             /* uncomment this for slow CAMs */
 
 static void ResourceManagerOpen( access_t * p_access, int i_session_id );
 static void ApplicationInformationOpen( access_t * p_access, int i_session_id );
@@ -151,7 +152,7 @@ static uint8_t *SetLength( uint8_t *p_data, int i_length )
  * Transport layer
  */
 
-#define MAX_TPDU_SIZE  2048
+#define MAX_TPDU_SIZE  4096
 #define MAX_TPDU_DATA  (MAX_TPDU_SIZE - 4)
 
 #define DATA_INDICATOR 0x80
@@ -415,6 +416,8 @@ static int SPDUSend( access_t * p_access, int i_session_id,
 static void SessionOpen( access_t * p_access, uint8_t i_slot,
                          uint8_t *p_spdu, int i_size )
 {
+    VLC_UNUSED( i_size );
+
     access_sys_t *p_sys = p_access->p_sys;
     int i_session_id;
     int i_resource_id = ResourceIdToInt( &p_spdu[2] );
@@ -549,6 +552,9 @@ static void SessionCreate( access_t * p_access, int i_slot, int i_resource_id )
 static void SessionCreateResponse( access_t * p_access, uint8_t i_slot,
                                    uint8_t *p_spdu, int i_size )
 {
+    VLC_UNUSED( i_size );
+    VLC_UNUSED( i_slot );
+
     access_sys_t *p_sys = p_access->p_sys;
     int i_status = p_spdu[2];
     int i_resource_id = ResourceIdToInt( &p_spdu[3] );
@@ -908,6 +914,7 @@ static void ApplicationInformationEnterMenu( access_t * p_access,
 static void ApplicationInformationHandle( access_t * p_access, int i_session_id,
                                           uint8_t *p_apdu, int i_size )
 {
+    VLC_UNUSED(i_session_id);
     int i_tag = APDUGetTag( p_apdu, i_size );
 
     switch ( i_tag )
@@ -957,7 +964,7 @@ static void ApplicationInformationOpen( access_t * p_access, int i_session_id )
  * Conditional Access
  */
 
-#define MAX_CASYSTEM_IDS 16
+#define MAX_CASYSTEM_IDS 64
 
 typedef struct
 {
@@ -967,7 +974,7 @@ typedef struct
 static bool CheckSystemID( system_ids_t *p_ids, uint16_t i_id )
 {
     int i = 0;
-    if( !p_ids ) return true;
+    if( !p_ids ) return true;      /* dummy session for high-level CI intf */
 
     while ( p_ids->pi_system_ids[i] )
     {
@@ -1237,6 +1244,9 @@ static void CAPMTAdd( access_t * p_access, int i_session_id,
         return;
     }
  
+#ifdef CAPMT_WAIT
+    msleep( CAPMT_WAIT * 1000 );
+#endif
  
     msg_Dbg( p_access, "adding CAPMT for SID %d on session %d",
              p_pmt->i_program_number, i_session_id );
@@ -1643,6 +1653,8 @@ static char *MMIGetText( access_t *p_access, uint8_t **pp_apdu, int *pi_size )
 static void MMIHandleEnq( access_t *p_access, int i_session_id,
                           uint8_t *p_apdu, int i_size )
 {
+    VLC_UNUSED( i_size );
+
     access_sys_t *p_sys = p_access->p_sys;
     mmi_t *p_mmi = (mmi_t *)p_sys->p_sessions[i_session_id - 1].p_sys;
     int i_slot = p_sys->p_sessions[i_session_id - 1].i_slot;
@@ -1670,6 +1682,7 @@ static void MMIHandleEnq( access_t *p_access, int i_session_id,
 static void MMIHandleMenu( access_t *p_access, int i_session_id, int i_tag,
                            uint8_t *p_apdu, int i_size )
 {
+    VLC_UNUSED(i_size);
     access_sys_t *p_sys = p_access->p_sys;
     mmi_t *p_mmi = (mmi_t *)p_sys->p_sessions[i_session_id - 1].p_sys;
     int i_slot = p_sys->p_sessions[i_session_id - 1].i_slot;
@@ -2334,7 +2347,7 @@ static inline void *FixUTF8( char *p )
     return p;
 }
 
-char *dvbsi_to_utf8( char *psz_instring, size_t i_length )
+char *dvbsi_to_utf8( const char *psz_instring, size_t i_length )
 {
     const char *psz_encoding, *psz_stringstart;
     char *psz_outstring, *psz_tmp;

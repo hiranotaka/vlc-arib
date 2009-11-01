@@ -93,7 +93,7 @@ FileOpenPanel::FileOpenPanel( QWidget *_parent, intf_thread_t *_p_intf ) :
 
     /* Connects  */
     BUTTONACT( ui.fileBrowseButton, browseFile() );
-    BUTTONACT( ui.delFileButton, deleteFile() );
+    BUTTONACT( ui.removeFileButton, removeFile() );
 
     BUTTONACT( ui.subBrowseButton, browseFileSub() );
     CONNECT( ui.subCheckBox, toggled( bool ), this, toggleSubtitleFrame( bool ) );
@@ -102,6 +102,7 @@ FileOpenPanel::FileOpenPanel( QWidget *_parent, intf_thread_t *_p_intf ) :
     CONNECT( ui.subInput, textChanged( const QString& ), this, updateMRL() );
     CONNECT( ui.alignSubComboBox, currentIndexChanged( int ), this, updateMRL() );
     CONNECT( ui.sizeSubComboBox, currentIndexChanged( int ), this, updateMRL() );
+    updateButtons();
 }
 
 inline void FileOpenPanel::BuildOldPanel()
@@ -163,18 +164,20 @@ FileOpenPanel::~FileOpenPanel()
 
 void FileOpenPanel::browseFile()
 {
-    QStringList files = QFileDialog::getOpenFileNames( this );
-    foreach( const QString &file, files)
+    QStringList files = QFileDialog::getOpenFileNames( this, qtr( "Select one or multiple files" ), p_intf->p_sys->filepath) ;
+    foreach( const QString &file, files )
     {
         QListWidgetItem *item =
             new QListWidgetItem( toNativeSeparators( file ), ui.fileListWidg );
         item->setFlags( Qt::ItemIsEditable | Qt::ItemIsEnabled );
         ui.fileListWidg->addItem( item );
+        savedirpathFromFile( file );
     }
+    updateButtons();
     updateMRL();
 }
 
-void FileOpenPanel::deleteFile()
+void FileOpenPanel::removeFile()
 {
     int i = ui.fileListWidg->currentRow();
     if( i != -1 )
@@ -184,6 +187,7 @@ void FileOpenPanel::deleteFile()
     }
 
     updateMRL();
+    updateButtons();
 }
 
 /* Show a fileBrowser to select a subtitle */
@@ -241,7 +245,8 @@ void FileOpenPanel::updateMRL()
 /* Function called by Open Dialog when clicke on Play/Enqueue */
 void FileOpenPanel::accept()
 {
-    p_intf->p_sys->filepath = dialogBox->directory().absolutePath();
+    if( dialogBox )
+        p_intf->p_sys->filepath = dialogBox->directory().absolutePath();
     ui.fileListWidg->clear();
 }
 
@@ -250,6 +255,14 @@ void FileOpenPanel::clear()
 {
     ui.fileListWidg->clear();
     ui.subInput->clear();
+}
+
+/* Update buttons depending on current selection */
+void FileOpenPanel::updateButtons()
+{
+    bool b_has_files = ( ui.fileListWidg->count() > 0 );
+    ui.removeFileButton->setEnabled( b_has_files );
+    ui.subCheckBox->setEnabled( b_has_files );
 }
 
 /**************************************************************************
@@ -302,7 +315,7 @@ DiscOpenPanel::DiscOpenPanel( QWidget *_parent, intf_thread_t *_p_intf ) :
     BUTTONACT( ui.audioCDRadioButton, updateButtons() );
     BUTTONACT( ui.dvdsimple, updateButtons() );
     BUTTONACT( ui.browseDiscButton, browseDevice() );
-    BUTTON_SET_ACT_I( ui.ejectButton, "", eject, qtr( "Eject the disc" ),
+    BUTTON_SET_ACT_I( ui.ejectButton, "", toolbar/eject, qtr( "Eject the disc" ),
             eject() );
 
     CONNECT( ui.deviceCombo, editTextChanged( QString ), this, updateMRL());
@@ -404,7 +417,10 @@ void DiscOpenPanel::updateMRL()
         else
             mrl = "dvdsimple://";
         mrl += ui.deviceCombo->currentText();
-        emit methodChanged( "dvdnav-caching" );
+        if( !ui.dvdsimple->isChecked() )
+            emit methodChanged( "dvdnav-caching" );
+        else
+            emit methodChanged( "dvdread-caching" );
 
         if ( ui.titleSpin->value() > 0 ) {
             mrl += QString("@%1").arg( ui.titleSpin->value() );
@@ -425,6 +441,7 @@ void DiscOpenPanel::updateMRL()
     /* CDDA */
     } else {
         mrl = "cdda://" + ui.deviceCombo->currentText();
+        emit methodChanged( "cdda-caching" );
     }
 
     fileList << mrl; mrl = "";
@@ -550,12 +567,7 @@ void NetOpenPanel::updateProtocol( int idx_proto ) {
 void NetOpenPanel::updateMRL() {
     QString mrl = "";
     QString addr = ui.addressText->text();
-    addr = QUrl::toPercentEncoding( addr, ":/?#@!$&'()*+,;=" );
     int idx_proto = ui.protocolCombo->currentIndex();
-    int addr_is_multicast = addr.contains(QRegExp("^(22[4-9])|(23\\d)|(\\[?[fF]{2}[0-9a-fA-F]{2}:)"))?1:0;
-    int addr_is_ipv4 = addr.contains(QRegExp("^\\d{1,3}[.]\\d{1,3}[.]\\d{1,3}[.]\\d{1,3}"))?1:0;
-    int addr_is_ipv6 = addr.contains(QRegExp(":[a-fA-F0-9]{1,4}:"))?1:0;
-    int addr_has_port = addr.contains(QRegExp("[^:]{5}:\\d{1,5}$"))?1:0;
     if( addr.contains( "://"))
     {
         /* Match the correct item in the comboBox */
@@ -586,33 +598,41 @@ void NetOpenPanel::updateMRL() {
             mrl = "rtsp://" + addr;
             emit methodChanged("rtsp-caching");
             break;
-        case UDP_PROTO:
-            if(( addr_is_multicast ) || ( !addr_is_ipv4 && !addr_is_ipv6 ))
-                mrl = "udp://@";
-        else
-                    mrl = "udp://";
-            /* Add [] to IPv6 */
-            if ( addr_is_ipv6  && !addr.contains('[') )
-            {
-                mrl += "[" + addr + "]";
-            }
-            else mrl += addr;
-            if(!addr_has_port)
-                mrl += QString(":%1").arg( ui.portSpin->value() );
-            emit methodChanged("udp-caching");
-            break;
         case RTP_PROTO:
-            if(( addr_is_multicast ) || ( !addr_is_ipv4 && !addr_is_ipv6 ))
-                    mrl = "rtp://@";
-            else
-                    mrl = "rtp://";
-            if ( addr_is_ipv6 && !addr.contains('[') )
-                mrl += "[" + addr + "]"; /* Add [] to IPv6 */
-            else
+        case UDP_PROTO:
+            mrl = qfu(((idx_proto == RTP_PROTO) ? "rtp" : "udp"));
+            mrl += qfu( "://" );
+            if( addr[0] == ':' ) /* Port number without address */
                 mrl += addr;
-            if(!addr_has_port)
-                mrl += QString(":%1").arg( ui.portSpin->value() );
-            emit methodChanged("rtp-caching");
+            else
+            {
+                if( !addr.contains( "@" ) )
+                    mrl += qfu( "@" );
+                switch( addr.count( ":" ) )
+                {
+                    case 0: /* DNS or IPv4 literal, no port number */
+                        mrl += addr;
+                        mrl += QString(":%1").arg( ui.portSpin->value() );
+                        break;
+                    case 1: /* DNS or IPv4 literal plus port number */
+                        mrl += addr;
+                        break;
+                    default: /* IPv6 literal */
+                        if( !addr.contains( "]:" ) )
+                        {
+                            if( addr[0] != '[' ) /* Missing brackets */
+                                mrl += qfu( "[" ) + addr + qfu( "]" );
+                            else
+                                mrl += addr;
+                            mrl += QString(":%1").arg( ui.portSpin->value() );
+                        }
+                        else /* Brackets present, port present */
+                            mrl += addr;
+                        break;
+                }
+            }
+            emit methodChanged(idx_proto == RTP_PROTO
+                                   ? "rtp-caching" : "udp-caching");
             break;
         case RTMP_PROTO:
             mrl = "rtmp://" + addr;
@@ -662,13 +682,13 @@ void CaptureOpenPanel::initialize()
     ui.optionsBox->setLayout( stackedPropLayout );
 
     /* Creation and connections of the WIdgets in the stacked layout */
-#define addModuleAndLayouts( number, name, label )                    \
+#define addModuleAndLayouts( number, name, label, layout )            \
     QWidget * name ## DevPage = new QWidget( this );                  \
     QWidget * name ## PropPage = new QWidget( this );                 \
     stackedDevLayout->addWidget( name ## DevPage );        \
     stackedPropLayout->addWidget( name ## PropPage );      \
-    QGridLayout * name ## DevLayout = new QGridLayout;                \
-    QGridLayout * name ## PropLayout = new QGridLayout;               \
+    layout * name ## DevLayout = new layout;                \
+    layout * name ## PropLayout = new layout;               \
     name ## DevPage->setLayout( name ## DevLayout );                  \
     name ## PropPage->setLayout( name ## PropLayout );                \
     ui.deviceCombo->addItem( qtr( label ), QVariant( number ) );
@@ -680,7 +700,7 @@ void CaptureOpenPanel::initialize()
      * DirectShow Stuffs *
      *********************/
     if( module_exists( "dshow" ) ){
-    addModuleAndLayouts( DSHOW_DEVICE, dshow, "DirectShow" );
+    addModuleAndLayouts( DSHOW_DEVICE, dshow, "DirectShow", QGridLayout );
 
     /* dshow Main */
     int line = 0;
@@ -714,7 +734,7 @@ void CaptureOpenPanel::initialize()
      * BDA Stuffs *
      **************/
     if( module_exists( "bda" ) ){
-    addModuleAndLayouts( BDA_DEVICE, bda, "DVB DirectShow" );
+    addModuleAndLayouts( BDA_DEVICE, bda, "DVB DirectShow", QGridLayout );
 
     /* bda Main */
     QLabel *bdaTypeLabel = new QLabel( qtr( "DVB Type:" ) );
@@ -783,7 +803,7 @@ void CaptureOpenPanel::initialize()
      * V4L2*
      *******/
     if( module_exists( "v4l2" ) ){
-    addModuleAndLayouts( V4L2_DEVICE, v4l2, "Video for Linux 2" );
+    addModuleAndLayouts( V4L2_DEVICE, v4l2, "Video for Linux 2", QGridLayout );
 
     /* V4l Main panel */
     QLabel *v4l2VideoDeviceLabel = new QLabel( qtr( "Video device name" ) );
@@ -818,7 +838,7 @@ void CaptureOpenPanel::initialize()
      * V4L *
      *******/
     if( module_exists( "v4l" ) ){
-    addModuleAndLayouts( V4L_DEVICE, v4l, "Video for Linux" );
+    addModuleAndLayouts( V4L_DEVICE, v4l, "Video for Linux", QGridLayout );
 
     /* V4l Main panel */
     QLabel *v4lVideoDeviceLabel = new QLabel( qtr( "Video device name" ) );
@@ -863,7 +883,8 @@ void CaptureOpenPanel::initialize()
      * JACK *
      *******/
     if( module_exists( "jack" ) ){
-    addModuleAndLayouts( JACK_DEVICE, jack, "JACK Audio Connection Kit" );
+    addModuleAndLayouts( JACK_DEVICE, jack, "JACK Audio Connection Kit",
+                         QGridLayout);
 
     /* Jack Main panel */
     /* Channels */
@@ -917,7 +938,7 @@ void CaptureOpenPanel::initialize()
      * PVR      *
      ************/
     if( module_exists( "pvr" ) ){
-    addModuleAndLayouts( PVR_DEVICE, pvr, "PVR" );
+    addModuleAndLayouts( PVR_DEVICE, pvr, "PVR", QGridLayout );
 
     /* PVR Main panel */
     QLabel *pvrDeviceLabel = new QLabel( qtr( "Device name" ) );
@@ -973,7 +994,7 @@ void CaptureOpenPanel::initialize()
      * DVB Stuffs *
      **************/
     if( module_exists( "dvb" ) ){
-    addModuleAndLayouts( DVB_DEVICE, dvb, "DVB" );
+    addModuleAndLayouts( DVB_DEVICE, dvb, "DVB", QGridLayout );
 
     /* DVB Main */
     QLabel *dvbDeviceLabel = new QLabel( qtr( "Adapter card to tune" ) );
@@ -1057,7 +1078,7 @@ void CaptureOpenPanel::initialize()
     /**********
      * Screen *
      **********/
-    addModuleAndLayouts( SCREEN_DEVICE, screen, "Desktop" );
+    addModuleAndLayouts( SCREEN_DEVICE, screen, "Desktop", QGridLayout );
     QLabel *screenLabel = new QLabel( qtr( "Your display will be "
             "opened and played in order to stream or save it." ) );
     screenLabel->setWordWrap( true );
@@ -1122,6 +1143,7 @@ void CaptureOpenPanel::updateMRL()
             mrl += " :dvb-bandwidth=" +
                 QString::number( bdaBandBox->itemData(
                     bdaBandBox->currentIndex() ).toInt() );
+        emit methodChanged( "dvb-caching" );
         break;
     case DSHOW_DEVICE:
         fileList << "dshow://";
@@ -1131,19 +1153,19 @@ void CaptureOpenPanel::updateMRL()
             colon_escape( QString("%1").arg( adevDshowW->getValue() ) );
         if( dshowVSizeLine->isModified() )
             mrl += " :dshow-size=" + dshowVSizeLine->text();
+        emit methodChanged( "dshow-caching" );
         break;
 #else
     case V4L_DEVICE:
         fileList << "v4l://";
         mrl += " :v4l-vdev=" + v4lVideoDevice->text();
-        mrl += " :v4l-adev=" + v4lAudioDevice->text();
+        mrl += " :input-slave=alsa://" + v4lAudioDevice->text();
         mrl += " :v4l-norm=" + QString::number( v4lNormBox->currentIndex() );
         mrl += " :v4l-frequency=" + QString::number( v4lFreq->value() );
         break;
     case V4L2_DEVICE:
-        fileList << "v4l2://";
-        mrl += " :v4l2-dev=" + v4l2VideoDevice->text();
-        mrl += " :v4l2-adev=" + v4l2AudioDevice->text();
+        fileList << "v4l2://" + v4l2VideoDevice->text();
+        mrl += " :input-slave=alsa://" + v4l2AudioDevice->text();
         mrl += " :v4l2-standard=" + QString::number( v4l2StdBox->currentIndex() );
         break;
     case JACK_DEVICE:
@@ -1192,6 +1214,7 @@ void CaptureOpenPanel::updateMRL()
     case SCREEN_DEVICE:
         fileList << "screen://";
         mrl = " :screen-fps=" + QString::number( screenFPS->value() );
+        emit methodChanged( "screen-caching" );
         updateButtons();
         break;
     }
@@ -1282,6 +1305,7 @@ void CaptureOpenPanel::advancedDialog()
     /* New Adv Prop dialog */
     adv = new QDialog( this );
     adv->setWindowTitle( qtr( "Advanced Options" ) );
+    adv->setWindowRole( "vlc-advanced-options" );
 
     /* A main Layout with a Frame */
     QVBoxLayout *mainLayout = new QVBoxLayout( adv );

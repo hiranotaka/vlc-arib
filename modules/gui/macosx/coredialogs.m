@@ -75,8 +75,10 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     NSValue *o_value = [[o_notification userInfo] objectForKey:@"VLCDialogPointer"];
     NSString *o_type = [[o_notification userInfo] objectForKey:@"VLCDialogType"];
 
-    if( [o_type isEqualToString: @"dialog-fatal"] )
+    if( [o_type isEqualToString: @"dialog-error"] )
         [self showFatalDialog: o_value];
+    else if( [o_type isEqualToString: @"dialog-critical"] )
+        [self showFatalWaitDialog: o_value];
     else if( [o_type isEqualToString: @"dialog-question"] )
         [self showQuestionDialog: o_value];
     else if( [o_type isEqualToString: @"dialog-login"] )
@@ -90,19 +92,19 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
 -(void)showFatalDialog: (NSValue *)o_value
 {
     dialog_fatal_t *p_dialog = [o_value pointerValue];
-    /* do we need to block ? */
-    if( p_dialog->modal == YES )
-    {
-        NSAlert *o_alert;
-        o_alert = [NSAlert alertWithMessageText: [NSString stringWithUTF8String: p_dialog->title] defaultButton: _NS("OK") alternateButton: nil otherButton: nil informativeTextWithFormat: [NSString stringWithUTF8String: p_dialog->message]];
-        [o_alert setAlertStyle: NSCriticalAlertStyle];
-        [o_alert runModal];
-    }
-    else
-    {
-        [o_error_panel addError: [NSString stringWithUTF8String: p_dialog->title] withMsg: [NSString stringWithUTF8String: p_dialog->message]];
-        [o_error_panel showPanel];
-    }
+
+    [o_error_panel addError: [NSString stringWithUTF8String: p_dialog->title] withMsg: [NSString stringWithUTF8String: p_dialog->message]];
+    [o_error_panel showPanel];
+}
+
+-(void)showFatalWaitDialog: (NSValue *)o_value
+{
+    dialog_fatal_t *p_dialog = [o_value pointerValue];
+    NSAlert *o_alert;
+
+    o_alert = [NSAlert alertWithMessageText: [NSString stringWithUTF8String: p_dialog->title] defaultButton: _NS("OK") alternateButton: nil otherButton: nil informativeTextWithFormat: [NSString stringWithUTF8String: p_dialog->message]];
+    [o_alert setAlertStyle: NSCriticalAlertStyle];
+    [o_alert runModal];
 }
 
 -(void)showQuestionDialog: (NSValue *)o_value
@@ -234,12 +236,15 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
 {
     [super init];
 
-    nib_loaded = [NSBundle loadNibNamed:@"InteractionErrorPanel" owner:self];
-
-    /* init strings */
-    [o_window setTitle: _NS("Errors and Warnings")];
-    [o_cleanup_button setTitle: _NS("Clean up")];
-    [o_messages_btn setTitle: _NS("Show Details")];
+    if( !b_nib_loaded )
+    {
+        b_nib_loaded = [NSBundle loadNibNamed:@"ErrorPanel" owner:self];
+    
+        /* init strings */
+        [o_window setTitle: _NS("Errors and Warnings")];
+        [o_cleanup_button setTitle: _NS("Clean up")];
+        [o_messages_btn setTitle: _NS("Show Details")];
+    }
 
     /* init data sources */
     o_errors = [[NSMutableArray alloc] init];

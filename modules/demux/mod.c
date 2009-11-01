@@ -318,7 +318,9 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         pf = (double*) va_arg( args, double* );
         if( p_sys->i_length > 0 )
         {
-            *pf = (double)date_Get( &p_sys->pts ) / (double)p_sys->i_length;
+            double current = date_Get( &p_sys->pts );
+            double length = p_sys->i_length;
+            *pf = current / length;
             return VLC_SUCCESS;
         }
         return VLC_EGENERIC;
@@ -407,7 +409,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         if( i_num_instruments )
         {
             i_temp_index = 0;
-            for( int i = 0; i < i_num_instruments && i_temp_index < sizeof(psz_temp); i++ )
+            for( unsigned i = 0; i < i_num_instruments && i_temp_index < sizeof(psz_temp); i++ )
             {
                 char lBuffer[33];
                 ModPlug_InstrumentName( p_sys->f, i, lBuffer );
@@ -419,7 +421,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         }
 
         /* Make list of samples */
-        for( int i = 0; i < i_num_samples && i_temp_index < sizeof(psz_temp); i++ )
+        for( unsigned int i = 0; i < i_num_samples && i_temp_index < sizeof(psz_temp); i++ )
         {
             char psz_buffer[33];
             ModPlug_SampleName( p_sys->f, i, psz_buffer );

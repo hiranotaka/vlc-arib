@@ -5,6 +5,7 @@
  * $Id$
  *
  * Authors: Clément Stenac <zorglub@videolan.org>
+ *          Jakob Leben <jleben@videolan.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,7 +55,6 @@ enum {
     ItemUpdate_Type = QEvent::User + PLEventType + 2,
     ItemDelete_Type = QEvent::User + PLEventType + 3,
     ItemAppend_Type = QEvent::User + PLEventType + 4,
-    PLUpdate_Type   = QEvent::User + PLEventType + 5,
 };
 
 class PLEvent : public QEvent
@@ -87,51 +87,52 @@ friend class PLItem;
 
 public:
     PLModel( playlist_t *, intf_thread_t *,
-             playlist_item_t *, int, QObject *parent = 0 );
+             playlist_item_t *, QObject *parent = 0 );
     ~PLModel();
 
-    /* All types of lookups / QModel stuff */
+    /*** QModel subclassing ***/
+
+    /* Data structure */
     QVariant data( const QModelIndex &index, int role ) const;
-    Qt::ItemFlags flags( const QModelIndex &index ) const;
     QVariant headerData( int section, Qt::Orientation orientation,
                          int role = Qt::DisplayRole ) const;
-    QModelIndex index( int r, int c, const QModelIndex &parent ) const;
-    QModelIndex index( PLItem *, int c ) const;
-    int itemId( const QModelIndex &index ) const;
-    bool isCurrent( const QModelIndex &index );
-    QModelIndex parent( const QModelIndex &index ) const;
-    int childrenCount( const QModelIndex &parent = QModelIndex() ) const;
     int rowCount( const QModelIndex &parent = QModelIndex() ) const;
     int columnCount( const QModelIndex &parent = QModelIndex() ) const;
+    Qt::ItemFlags flags( const QModelIndex &index ) const;
+    QModelIndex index( int r, int c, const QModelIndex &parent ) const;
+    QModelIndex parent( const QModelIndex &index ) const;
 
-    /* Get current selection */
-    QStringList selectedURIs();
-
-    void rebuild(); void rebuild( playlist_item_t * );
-    bool hasRandom(); bool hasLoop(); bool hasRepeat();
-
-    /* Actions made by the views */
-    void popup( QModelIndex & index, QPoint &point, QModelIndexList list );
-    void doDelete( QModelIndexList selected );
-    void search( const QString& search_text );
-    void sort( int column, Qt::SortOrder order );
-    void removeItem( int );
-
-    /* DnD handling */
+    /* Drag and Drop */
     Qt::DropActions supportedDropActions() const;
     QMimeData* mimeData( const QModelIndexList &indexes ) const;
     bool dropMimeData( const QMimeData *data, Qt::DropAction action,
                       int row, int column, const QModelIndex &target );
     QStringList mimeTypes() const;
 
-    int shownFlags() { return rootItem->i_showflags;  }
+    /**** Custom ****/
+
+    /* Lookups */
+    QStringList selectedURIs();
+    bool hasRandom(); bool hasLoop(); bool hasRepeat();
+    QModelIndex index( PLItem *, int c ) const;
+    QModelIndex currentIndex( ) { return index( currentItem, 0 ); };
+    bool isCurrent( const QModelIndex &index ) const;
+    int itemId( const QModelIndex &index ) const;
+
+    /* Actions */
+    void popup( QModelIndex & index, QPoint &point, QModelIndexList list );
+    void doDelete( QModelIndexList selected );
+    void search( const QString& search_text );
+    void sort( int column, Qt::SortOrder order );
+    void sort( int i_root_id, int column, Qt::SortOrder order );
+    void removeItem( int );
+    void rebuild(); void rebuild( playlist_item_t *, bool b_first = false );
 
 private:
-    void addCallbacks();
-    void delCallbacks();
-    void customEvent( QEvent * );
 
+    /* General */
     PLItem *rootItem;
+    PLItem *currentItem;
 
     playlist_t *p_playlist;
     intf_thread_t *p_intf;
@@ -139,34 +140,44 @@ private:
 
     static QIcon icons[ITEM_TYPE_NUMBER];
 
-    /* Update processing */
-    void ProcessItemRemoval( int i_id );
-    void ProcessItemAppend( const playlist_add_t *p_add );
-
-    void UpdateTreeItem( PLItem *, bool, bool force = false );
-    void UpdateTreeItem( playlist_item_t *, PLItem *, bool, bool forc = false );
-    void UpdateNodeChildren( PLItem * );
-    void UpdateNodeChildren( playlist_item_t *, PLItem * );
+    /* Callbacks related */
+    void addCallbacks();
+    void delCallbacks();
+    void customEvent( QEvent * );
+    void processItemRemoval( int i_id );
+    void processItemAppend( const playlist_add_t *p_add );
 
     /* Actions */
     void recurseDelete( QList<PLItem*> children, QModelIndexList *fullList );
     void doDeleteItem( PLItem *item, QModelIndexList *fullList );
+    void updateTreeItem( PLItem * );
+    void removeItem ( PLItem * );
+    void takeItem( PLItem * ); //will not delete item
+    void insertChildren( PLItem *node, QList<PLItem*>& items, int i_pos );
+    void dropAppendCopy( QByteArray& data, PLItem *target );
+    void dropMove( QByteArray& data, PLItem *target, int new_pos );
+    /* The following actions will not signal the view! */
+    void updateChildren( PLItem * );
+    void updateChildren( playlist_item_t *, PLItem * );
 
     /* Popup */
-    int i_popup_item, i_popup_parent;
+    int i_popup_item, i_popup_parent, i_popup_column;
     QModelIndexList current_selection;
-    QSignalMapper *ContextUpdateMapper;
 
     /* Lookups */
-    PLItem *FindById( PLItem *, int );
-    PLItem *FindByInput( PLItem *, int );
-    PLItem *FindInner( PLItem *, int , bool );
+    PLItem *findById( PLItem *, int );
+    PLItem *findByInput( PLItem *, int );
+    PLItem *findInner( PLItem *, int , bool );
+    static inline PLItem *getItem( QModelIndex index );
+    int columnFromMeta( int meta_column ) const;
+    int columnToMeta( int column ) const;
     PLItem *p_cached_item;
     PLItem *p_cached_item_bi;
     int i_cached_id;
     int i_cached_input_id;
+
 signals:
-    void shouldRemove( int );
+    void currentChanged( const QModelIndex& );
 
 public slots:
     void activateItem( const QModelIndex &index );
@@ -182,9 +193,11 @@ private slots:
     void popupStream();
     void popupSave();
     void popupExplore();
-    void viewchanged( int );
-    void ProcessInputItemUpdate( int i_input_id );
-    void ProcessInputItemUpdate( input_thread_t* p_input );
+    void popupAddNode();
+    void popupSortAsc();
+    void popupSortDesc();
+    void processInputItemUpdate( input_item_t *);
+    void processInputItemUpdate( input_thread_t* p_input );
 };
 
 #endif

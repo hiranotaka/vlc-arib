@@ -49,89 +49,6 @@
 #include <vlc_charset.h>
 
 /**
- * Unescape URI encoded string
- * \return decoded duplicated string
- */
-char *unescape_URI_duplicate( const char *psz )
-{
-    char *psz_dup = strdup( psz );
-    unescape_URI( psz_dup );
-    return psz_dup;
-}
-
-/**
- * Unescape URI encoded string in place
- * \return nothing
- */
-void unescape_URI( char *psz )
-{
-    unsigned char *in = (unsigned char *)psz, *out = in, c;
-    if( psz == NULL )
-        return;
-
-    while( ( c = *in++ ) != '\0' )
-    {
-        switch( c )
-        {
-            case '%':
-            {
-                char val[5], *pval = val;
-                unsigned long cp;
-
-                switch( c = *in++ )
-                {
-                    case '\0':
-                        return;
-
-                    case 'u':
-                    case 'U':
-                        if( ( *pval++ = *in++ ) == '\0' )
-                            return;
-                        if( ( *pval++ = *in++ ) == '\0' )
-                            return;
-                        c = *in++;
-
-                    default:
-                        *pval++ = c;
-                        if( ( *pval++ = *in++ ) == '\0' )
-                            return;
-                        *pval = '\0';
-                }
-
-                cp = strtoul( val, NULL, 0x10 );
-                if( cp < 0x80 )
-                    *out++ = cp;
-                else
-                if( cp < 0x800 )
-                {
-                    *out++ = (( cp >>  6)         | 0xc0);
-                    *out++ = (( cp        & 0x3f) | 0x80);
-                }
-                else
-                {
-                    assert( cp < 0x10000 );
-                    *out++ = (( cp >> 12)         | 0xe0);
-                    *out++ = (((cp >>  6) & 0x3f) | 0x80);
-                    *out++ = (( cp        & 0x3f) | 0x80);
-                }
-                break;
-            }
-
-            /* + is not a special case - it means plus, not space. */
-
-            default:
-                /* Inserting non-ASCII or non-printable characters is unsafe,
-                 * and no sane browser will send these unencoded */
-                if( ( c < 32 ) || ( c > 127 ) )
-                    *out++ = '?';
-                else
-                    *out++ = c;
-        }
-    }
-    *out = '\0';
-}
-
-/**
  * Decode encoded URI component. See also decode_URI().
  * \return decoded duplicated string
  */
@@ -485,47 +402,36 @@ void resolve_xml_special_chars( char *psz_value )
  */
 char *convert_xml_special_chars( const char *psz_content )
 {
-    char *psz_temp = malloc( 6 * strlen( psz_content ) + 1 );
-    const char *p_from = psz_content;
+    assert( psz_content );
+
+    const size_t len = strlen( psz_content );
+    char *const psz_temp = malloc( 6 * len + 1 );
     char *p_to   = psz_temp;
 
-    while ( *p_from )
+    if( psz_temp == NULL )
+        return NULL;
+    for( size_t i = 0; i < len; i++ )
     {
-        if ( *p_from == '<' )
-        {
-            strcpy( p_to, "&lt;" );
-            p_to += 4;
-        }
-        else if ( *p_from == '>' )
-        {
-            strcpy( p_to, "&gt;" );
-            p_to += 4;
-        }
-        else if ( *p_from == '&' )
-        {
-            strcpy( p_to, "&amp;" );
-            p_to += 5;
-        }
-        else if( *p_from == '\"' )
-        {
-            strcpy( p_to, "&quot;" );
-            p_to += 6;
-        }
-        else if( *p_from == '\'' )
-        {
-            strcpy( p_to, "&#039;" );
-            p_to += 6;
-        }
-        else
-        {
-            *p_to = *p_from;
-            p_to++;
-        }
-        p_from++;
-    }
-    *p_to = '\0';
+        const char *str;
+        char c = psz_content[i];
 
-    return psz_temp;
+        switch ( c )
+        {
+            case '\"': str = "quot"; break;
+            case '&':  str = "amp";  break;
+            case '\'': str = "#39";  break;
+            case '<':  str = "lt";   break;
+            case '>':  str = "gt";   break;
+            default:
+                *(p_to++) = c;
+                continue;
+        }
+        p_to += sprintf( p_to, "&%s;", str );
+    }
+    *(p_to++) = '\0';
+
+    p_to = realloc( psz_temp, p_to - psz_temp );
+    return p_to ? p_to : psz_temp; /* cannot fail */
 }
 
 /* Base64 encoding */
@@ -875,14 +781,14 @@ char *__str_format_meta( vlc_object_t *p_object, const char *string )
                     if( p_item )
                     {
                         mtime_t i_duration = input_item_GetDuration( p_item );
-                        sprintf( buf, "%02d:%02d:%02d",
+                        snprintf( buf, 10, "%02d:%02d:%02d",
                                  (int)(i_duration/(3600000000)),
                                  (int)((i_duration/(60000000))%60),
                                  (int)((i_duration/1000000)%60) );
                     }
                     else
                     {
-                        sprintf( buf, b_empty_if_na ? "" : "--:--:--" );
+                        snprintf( buf, 10, b_empty_if_na ? "" : "--:--:--" );
                     }
                     INSERT_STRING_NO_FREE( buf );
                     break;
@@ -908,15 +814,15 @@ char *__str_format_meta( vlc_object_t *p_object, const char *string )
                     if( p_item && p_input )
                     {
                         mtime_t i_duration = input_item_GetDuration( p_item );
-                        int64_t i_time = var_GetInteger( p_input, "time" );
-                        sprintf( buf, "%02d:%02d:%02d",
+                        int64_t i_time = var_GetTime( p_input, "time" );
+                        snprintf( buf, 10, "%02d:%02d:%02d",
                      (int)( ( i_duration - i_time ) / 3600000000 ),
                      (int)( ( ( i_duration - i_time ) / 60000000 ) % 60 ),
                      (int)( ( ( i_duration - i_time ) / 1000000 ) % 60 ) );
                     }
                     else
                     {
-                        sprintf( buf, b_empty_if_na ? "" : "--:--:--" );
+                        snprintf( buf, 10, b_empty_if_na ? "" : "--:--:--" );
                     }
                     INSERT_STRING_NO_FREE( buf );
                     break;
@@ -945,7 +851,7 @@ char *__str_format_meta( vlc_object_t *p_object, const char *string )
                     }
                     else
                     {
-                        sprintf( buf, b_empty_if_na ? "" : "--.-%%" );
+                        snprintf( buf, 10, b_empty_if_na ? "" : "--.-%%" );
                     }
                     INSERT_STRING_NO_FREE( buf );
                     break;
@@ -976,15 +882,15 @@ char *__str_format_meta( vlc_object_t *p_object, const char *string )
                 case 'T':
                     if( p_input )
                     {
-                        int64_t i_time = var_GetInteger( p_input, "time" );
-                        sprintf( buf, "%02d:%02d:%02d",
+                        int64_t i_time = var_GetTime( p_input, "time" );
+                        snprintf( buf, 10, "%02d:%02d:%02d",
                             (int)( i_time / ( 3600000000 ) ),
                             (int)( ( i_time / ( 60000000 ) ) % 60 ),
                             (int)( ( i_time / 1000000 ) % 60 ) );
                     }
                     else
                     {
-                        sprintf( buf, b_empty_if_na ? "" :  "--:--:--" );
+                        snprintf( buf, 10, b_empty_if_na ? "" :  "--:--:--" );
                     }
                     INSERT_STRING_NO_FREE( buf );
                     break;
@@ -1162,15 +1068,37 @@ char *make_URI (const char *path)
     }
     else
 #endif
-#if 0
-    /* Windows UNC paths (file://host/share/path instead of file:///path) */
     if (!strncmp (path, "\\\\", 2))
-    {
-        path += 2;
-        buf = strdup ("file://");
+    {   /* Windows UNC paths */
+#ifndef WIN32
+        /* \\host\share\path -> smb://host/share/path */
+        if (strchr (path + 2, '\\') != NULL)
+        {   /* Convert antislashes to slashes */
+            char *dup = strdup (path);
+            if (dup == NULL)
+                return NULL;
+            for (size_t i = 2; dup[i]; i++)
+                if (dup[i] == '\\')
+                    dup[i] = DIR_SEP_CHAR;
+
+            char *ret = make_URI (dup);
+            free (dup);
+            return ret;
+        }
+# define SMB_SCHEME "smb"
+#else
+        /* \\host\share\path -> file://host/share/path */
+# define SMB_SCHEME "file"
+#endif
+        size_t hostlen = strcspn (path + 2, DIR_SEP);
+
+        buf = malloc (sizeof (SMB_SCHEME) + 3 + hostlen);
+        if (buf != NULL)
+            snprintf (buf, sizeof (SMB_SCHEME) + 3 + hostlen,
+                      SMB_SCHEME"://%s", path + 2);
+        path += 2 + hostlen;
     }
     else
-#endif
     if (path[0] != DIR_SEP_CHAR)
     {   /* Relative path: prepend the current working directory */
         char cwd[PATH_MAX];

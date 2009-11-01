@@ -45,6 +45,7 @@
 #include <QPushButton>
 #include <QVector>
 #include <QDialog>
+#include <QFontComboBox>
 
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -52,6 +53,27 @@ class QGroupBox;
 class QGridLayout;
 class QDialogButtonBox;
 class QVBoxLayout;
+
+/*******************************************************
+ * Simple widgets
+ *******************************************************/
+
+class InterfacePreviewWidget : public QLabel
+{
+    Q_OBJECT
+public:
+    InterfacePreviewWidget( QWidget * );
+public slots:
+    /* 0: sample_classic, aka VLC 0.8.6
+       1: sample_complete, aka MPC
+       2: sample_minimal, aka WMP12 minimal
+       3: sample_skins */
+    void setPreview( int );
+};
+
+/*******************************************************
+ * Variable controls
+ *******************************************************/
 
 class ConfigControl : public QObject
 {
@@ -184,14 +206,14 @@ public:
     BoolConfigControl( vlc_object_t *, module_config_t *, QWidget *,
                        QGridLayout *, int& );
     BoolConfigControl( vlc_object_t *, module_config_t *,
-                       QLabel *, QCheckBox*, bool );
+                       QLabel *, QAbstractButton*, bool );
     virtual ~BoolConfigControl() {};
     virtual int getValue();
     virtual void show() { checkbox->show(); }
     virtual void hide() { checkbox->hide(); }
     virtual int getType() { return CONFIG_ITEM_BOOL; }
 private:
-    QCheckBox *checkbox;
+    QAbstractButton *checkbox;
     void finish();
 };
 
@@ -312,20 +334,20 @@ public slots:
     virtual void updateField();
 };
 
-#if 0
-class FontConfigControl : public FileConfigControl
+class FontConfigControl : public VStringConfigControl
 {
     Q_OBJECT;
 public:
     FontConfigControl( vlc_object_t *, module_config_t *, QWidget *,
-                       QGridLayout *, int&, bool pwd );
+                       QGridLayout *, int&);
     FontConfigControl( vlc_object_t *, module_config_t *, QLabel *,
-                       QLineEdit *, QPushButton *, bool pwd );
+                       QFontComboBox *);
     virtual ~FontConfigControl() {};
-public slots:
-    virtual void updateField();
+    virtual QString getValue(){ return font->currentFont().family(); }
+protected:
+    QLabel *label;
+    QFontComboBox *font;
 };
-#endif
 
 class ModuleConfigControl : public VStringConfigControl
 {

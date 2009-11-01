@@ -31,6 +31,7 @@
 #include <vlc_plugin.h>
 
 #include <vlc_aout.h>
+#include <vlc_cpu.h>
 
 #include <pulse/pulseaudio.h>
 
@@ -97,7 +98,7 @@ static void uninit(aout_instance_t *p_aout);
 vlc_module_begin ()
     set_shortname( "Pulse Audio" )
     set_description( N_("Pulseaudio audio output") )
-    set_capability( "audio output", 40 )
+    set_capability( "audio output", 160 )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_AOUT )
     add_shortcut( "pulseaudio" )
@@ -165,11 +166,19 @@ static int Open ( vlc_object_t *p_this )
     }
 
     /* Add a quick command line info message */
-    msg_Info(p_aout, "No. of Audio Channels: %d", ss.channels);
+    msg_Dbg(p_aout, "%d audio channels", ss.channels);
 
     ss.rate = p_aout->output.output.i_rate;
-    ss.format = PA_SAMPLE_FLOAT32NE;
-    p_aout->output.output.i_format = VLC_CODEC_FL32;
+    if (HAVE_FPU)
+    {
+        ss.format = PA_SAMPLE_FLOAT32NE;
+        p_aout->output.output.i_format = VLC_CODEC_FL32;
+    }
+    else
+    {
+        ss.format = PA_SAMPLE_S16NE;
+        p_aout->output.output.i_format = VLC_CODEC_S16N;
+    }
 
     if (!pa_sample_spec_valid(&ss)) {
         msg_Err(p_aout,"Invalid sample spec");
@@ -181,7 +190,7 @@ static int Open ( vlc_object_t *p_this )
      */
     a.tlength = pa_bytes_per_second(&ss)/5;
     a.maxlength = a.tlength * 2;
-    a.prebuf = a.tlength;
+    a.prebuf = a.tlength / 2;
     a.minreq = a.tlength / 10;
 
     /* Buffer size is 20mS */
@@ -224,7 +233,7 @@ static int Open ( vlc_object_t *p_this )
     pa_threaded_mainloop_wait(p_sys->mainloop);
 
     if (pa_context_get_state(p_sys->context) != PA_CONTEXT_READY) {
-        msg_Err(p_aout, "Failed to connect to server: %s", pa_strerror(pa_context_errno(p_sys->context)));
+        msg_Dbg(p_aout, "Failed to connect to server: %s", pa_strerror(pa_context_errno(p_sys->context)));
         goto unlock_and_fail;
     }
 
@@ -288,7 +297,7 @@ unlock_and_fail:
     if (p_sys->mainloop)
         pa_threaded_mainloop_unlock(p_sys->mainloop);
 fail:
-    msg_Err(p_aout, "Pulse initialization failed");
+    msg_Dbg(p_aout, "Pulse initialization failed");
     uninit(p_aout);
     return VLC_EGENERIC;
 }
@@ -458,9 +467,9 @@ static void stream_request_cb(pa_stream *s, size_t length, void *userdata) {
 
         if ( p_buffer != NULL )
         {
-            PULSE_DEBUG( "Pulse stream request write buffer %d", p_buffer->i_nb_bytes);
-            pa_stream_write(p_sys->stream, p_buffer->p_buffer, p_buffer->i_nb_bytes, NULL, 0, PA_SEEK_RELATIVE);
-            length -= p_buffer->i_nb_bytes;
+            PULSE_DEBUG( "Pulse stream request write buffer %d", p_buffer->i_buffer);
+            pa_stream_write(p_sys->stream, p_buffer->p_buffer, p_buffer->i_buffer, NULL, 0, PA_SEEK_RELATIVE);
+            length -= p_buffer->i_buffer;
             aout_BufferFree( p_buffer );
         }
         else

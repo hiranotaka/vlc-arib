@@ -125,34 +125,7 @@ typedef int32_t vlc_fixed_t;
  * Main audio output structures
  *****************************************************************************/
 
-/** audio output buffer */
-struct aout_buffer_t
-{
-    uint8_t *               p_buffer;
-    int                     i_alloc_type;
-    /* i_size is the real size of the buffer (used for debug ONLY), i_nb_bytes
-     * is the number of significative bytes in it. */
-    size_t                  i_size, i_nb_bytes;
-    unsigned int            i_nb_samples;
-    mtime_t                 start_date, end_date;
-    bool                    b_discontinuity; /* Set on discontinuity (for non pcm stream) */
-
-    struct aout_buffer_t *  p_next;
-
-    /** Private data (aout_buffer_t will disappear soon so no need for an
-     * aout_buffer_sys_t type) */
-    void * p_sys;
-
-    /** This way the release can be overloaded */
-    void (*pf_release)( aout_buffer_t * );
-};
-
-#define aout_BufferFree( p_buffer ) do {                                    \
-    if( p_buffer != NULL && (p_buffer)->i_alloc_type == AOUT_ALLOC_HEAP )   \
-    {                                                                       \
-        free( p_buffer );                                                   \
-    }                                                                       \
-    p_buffer = NULL; } while(0)
+#define aout_BufferFree( buffer ) block_Release( buffer )
 
 /* Size of a frame for S/PDIF output. */
 #define AOUT_SPDIF_SIZE 6144
@@ -163,61 +136,24 @@ struct aout_buffer_t
 /* Max input rate factor (1/4 -> 4) */
 #define AOUT_MAX_INPUT_RATE (4)
 
-/** date incrementation helper structure without long-term
- * rounding errors
- */
-struct audio_date_t
-{
-    mtime_t  date;
-    uint32_t i_divider;
-    uint32_t i_remainder;
-};
-
 /** allocation of memory in the audio output */
 typedef struct aout_alloc_t
 {
-    int                     i_alloc_type;
+    bool                    b_alloc;
     int                     i_bytes_per_sec;
 } aout_alloc_t;
-
-#define AOUT_ALLOC_NONE     0
-#define AOUT_ALLOC_STACK    1
-#define AOUT_ALLOC_HEAP     2
-
-/** audio output mixer */
-typedef struct aout_mixer_t
-{
-    audio_sample_format_t   mixer;
-    aout_alloc_t            output_alloc;
-
-    module_t *              p_module;
-    struct aout_mixer_sys_t * p_sys;
-    void                 (* pf_do_work)( struct aout_instance_t *,
-                                         struct aout_buffer_t * );
-
-    /** If b_error == 1, there is no mixer. */
-    bool              b_error;
-    /** Multiplier used to raise or lower the volume of the sound in
-     * software. Beware, this creates sound distortion and should be avoided
-     * as much as possible. This isn't available for non-float32 mixer. */
-    float                   f_multiplier;
-} aout_mixer_t;
 
 /** audio output buffer FIFO */
 struct aout_fifo_t
 {
     aout_buffer_t *         p_first;
     aout_buffer_t **        pp_last;
-    audio_date_t            end_date;
+    date_t                  end_date;
 };
 
-/* */
-typedef struct
-{
-    vout_thread_t  *(*pf_request_vout)( void *,
-                                        vout_thread_t *, video_format_t *, bool b_recycle );
-    void *p_private;
-} aout_request_vout_t;
+/* FIXME to remove once aout.h is cleaned a bit more */
+#include <vlc_aout_mixer.h>
+#include <vlc_block.h>
 
 /** audio output filter */
 typedef struct aout_filter_owner_sys_t aout_filter_owner_sys_t;
@@ -226,25 +162,18 @@ struct aout_filter_t
 {
     VLC_COMMON_MEMBERS
 
-    audio_sample_format_t   input;
-    audio_sample_format_t   output;
-    aout_alloc_t            output_alloc;
-
     module_t *              p_module;
     aout_filter_sys_t       *p_sys;
 
+    es_format_t             fmt_in;
+    es_format_t             fmt_out;
+
+    aout_alloc_t            output_alloc;
+
     bool                    b_in_place;
-    bool                    b_continuity;
 
     void                    (*pf_do_work)( aout_instance_t *, aout_filter_t *,
                                            aout_buffer_t *, aout_buffer_t * );
-
-    /* Owner fieldS
-     * XXX You MUST not use them directly */
-
-    /* Vout callback
-     * XXX use aout_filter_RequestVout */
-    aout_request_vout_t request_vout;
 
     /* Private structure for the owner of the filter */
     aout_filter_owner_sys_t *p_owner;
@@ -253,59 +182,6 @@ struct aout_filter_t
 #define AOUT_RESAMPLING_NONE     0
 #define AOUT_RESAMPLING_UP       1
 #define AOUT_RESAMPLING_DOWN     2
-/** an input stream for the audio output */
-struct aout_input_t
-{
-    /* When this lock is taken, the pipeline cannot be changed by a
-     * third-party. */
-    vlc_mutex_t             lock;
-
-    audio_sample_format_t   input;
-    aout_alloc_t            input_alloc;
-
-    /* pre-filters */
-    aout_filter_t *         pp_filters[AOUT_MAX_FILTERS];
-    int                     i_nb_filters;
-
-    aout_filter_t *         p_playback_rate_filter;
-
-    /* resamplers */
-    aout_filter_t *         pp_resamplers[AOUT_MAX_FILTERS];
-    int                     i_nb_resamplers;
-    int                     i_resampling_type;
-    mtime_t                 i_resamp_start_date;
-    int                     i_resamp_start_drift;
-
-    aout_fifo_t             fifo;
-
-    /* Mixer information */
-    uint8_t *               p_first_byte_to_mix;
-    audio_replay_gain_t     replay_gain;
-    float                   f_multiplier;
-
-    /* If b_restart == 1, the input pipeline will be re-created. */
-    bool              b_restart;
-
-    /* If b_error == 1, there is no input pipeline. */
-    bool              b_error;
-
-    /* Did we just change the output format? (expect buffer inconsistencies) */
-    bool              b_changed;
-
-    /* last rate from input */
-    int               i_last_input_rate;
-
-    /* */
-    int               i_buffer_lost;
-
-    /* */
-    bool              b_paused;
-    mtime_t           i_pause_date;
-
-    /* */
-    bool                b_recycle_vout;
-    aout_request_vout_t request_vout;
- };
 
 /** an output stream for the audio output */
 typedef struct aout_output_t
@@ -316,7 +192,7 @@ typedef struct aout_output_t
     bool              b_starving;
 
     /* post-filters */
-    aout_filter_t *         pp_filters[AOUT_MAX_FILTERS];
+    filter_t *              pp_filters[AOUT_MAX_FILTERS];
     int                     i_nb_filters;
 
     aout_fifo_t             fifo;
@@ -326,7 +202,6 @@ typedef struct aout_output_t
     void                 (* pf_play)( aout_instance_t * );
     int                  (* pf_volume_get )( aout_instance_t *, audio_volume_t * );
     int                  (* pf_volume_set )( aout_instance_t *, audio_volume_t );
-    int                  (* pf_volume_infos )( aout_instance_t *, audio_volume_t * );
     int                     i_nb_samples;
 
     /* Current volume for the output - it's just a placeholder, the plug-in
@@ -362,7 +237,10 @@ struct aout_instance_t
     int                     i_nb_inputs;
 
     /* Mixer */
-    aout_mixer_t            mixer;
+    audio_sample_format_t   mixer_format;
+    aout_alloc_t            mixer_allocation;
+    float                   mixer_multiplier;
+    aout_mixer_t            *p_mixer;
 
     /* Output plug-in */
     aout_output_t           output;
@@ -382,13 +260,6 @@ static const uint32_t pi_vlc_chan_order_wg4[] =
 /*****************************************************************************
  * Prototypes
  *****************************************************************************/
-
-/* From common.c : */
-VLC_EXPORT( void, aout_DateInit, ( audio_date_t *, uint32_t ) );
-VLC_EXPORT( void, aout_DateSet, ( audio_date_t *, mtime_t ) );
-VLC_EXPORT( void, aout_DateMove, ( audio_date_t *, mtime_t ) );
-VLC_EXPORT( mtime_t, aout_DateGet, ( const audio_date_t * ) LIBVLC_USED);
-VLC_EXPORT( mtime_t, aout_DateIncrement, ( audio_date_t *, uint32_t ) );
 
 VLC_EXPORT( aout_buffer_t *, aout_OutputNextBuffer, ( aout_instance_t *, mtime_t, bool ) LIBVLC_USED );
 
@@ -445,26 +316,21 @@ VLC_EXPORT( void, aout_VolumeNoneInit, ( aout_instance_t * ) );
 VLC_EXPORT( int, __aout_VolumeGet, ( vlc_object_t *, audio_volume_t * ) );
 #define aout_VolumeSet(a, b) __aout_VolumeSet(VLC_OBJECT(a), b)
 VLC_EXPORT( int, __aout_VolumeSet, ( vlc_object_t *, audio_volume_t ) );
-#define aout_VolumeInfos(a, b) __aout_VolumeInfos(VLC_OBJECT(a), b)
-VLC_EXPORT( int, __aout_VolumeInfos, ( vlc_object_t *, audio_volume_t * ) );
 #define aout_VolumeUp(a, b, c) __aout_VolumeUp(VLC_OBJECT(a), b, c)
 VLC_EXPORT( int, __aout_VolumeUp, ( vlc_object_t *, int, audio_volume_t * ) );
 #define aout_VolumeDown(a, b, c) __aout_VolumeDown(VLC_OBJECT(a), b, c)
 VLC_EXPORT( int, __aout_VolumeDown, ( vlc_object_t *, int, audio_volume_t * ) );
-#define aout_VolumeMute(a, b) __aout_VolumeMute(VLC_OBJECT(a), b)
-VLC_EXPORT( int, __aout_VolumeMute, ( vlc_object_t *, audio_volume_t * ) );
+#define aout_ToggleMute(a, b) __aout_ToggleMute(VLC_OBJECT(a), b)
+VLC_EXPORT( int, __aout_ToggleMute, ( vlc_object_t *, audio_volume_t * ) );
 VLC_EXPORT( int, aout_FindAndRestart, ( vlc_object_t *, const char *, vlc_value_t, vlc_value_t, void * ) );
 VLC_EXPORT( int, aout_ChannelsRestart, ( vlc_object_t *, const char *, vlc_value_t, vlc_value_t, void * ) );
 
 VLC_EXPORT( void, aout_EnableFilter, (vlc_object_t *, const char *, bool ));
-
-#define aout_VisualNext(a) aout_VisualChange( VLC_OBJECT(a),1 )
-#define aout_VisualPrev(a) aout_VisualChange( VLC_OBJECT(a),-1 )
-
-VLC_EXPORT( char *, aout_VisualChange, (vlc_object_t *, int ) );
+#define aout_EnableFilter( o, n, b ) \
+        aout_EnableFilter( VLC_OBJECT(o), n, b )
 
 /* */
-VLC_EXPORT( vout_thread_t *, aout_filter_RequestVout, ( aout_filter_t *, vout_thread_t *p_vout, video_format_t *p_fmt ) );
+VLC_EXPORT( vout_thread_t *, aout_filter_RequestVout, ( filter_t *, vout_thread_t *p_vout, video_format_t *p_fmt ) );
 
 # ifdef __cplusplus
 }

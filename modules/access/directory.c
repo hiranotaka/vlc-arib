@@ -50,6 +50,12 @@
 #ifdef HAVE_DIRENT_H
 #   include <dirent.h>
 #endif
+#ifdef __sun__
+static inline int dirfd (DIR *dir)
+{
+    return dir->dd_fd;
+}
+#endif
 
 #include <vlc_charset.h>
 #include <vlc_url.h>
@@ -221,27 +227,6 @@ static void Close( vlc_object_t * p_this )
     free (p_sys);
 }
 
-/**
- * URI-encodes a file path. The only reserved characters is slash.
- */
-static char *encode_path (const char *path)
-{
-    static const char sep[]= "%2F";
-    char *enc = encode_URI_component (path), *ptr = enc;
-
-    if (enc == NULL)
-        return NULL;
-
-    /* Replace '%2F' with '/'. TODO: extend encode_URI*() */
-    /* (On Windows, both ':' and '\\' will be encoded) */
-    while ((ptr = strstr (ptr, sep)) != NULL)
-    {
-        *ptr++ = '/';
-        memmove (ptr, ptr + 2, strlen (ptr) - 1);
-    }
-    return enc;
-}
-
 /* Detect directories that recurse into themselves. */
 static bool has_inode_loop (const directory_t *dir)
 {
@@ -254,6 +239,7 @@ static bool has_inode_loop (const directory_t *dir)
             return true;
 #else
 # define fstat( fd, st ) (0)
+    VLC_UNUSED( dir );
 #endif
     return false;
 }
@@ -287,7 +273,7 @@ static block_t *Block (access_t *p_access)
         current->parent = NULL;
         current->handle = p_sys->handle;
         strcpy (current->path, p_access->psz_path);
-        current->uri = encode_path (current->path);
+        current->uri = make_URI (current->path);
         if ((current->uri == NULL)
          || fstat (dirfd (current->handle), &current->st))
         {
@@ -307,6 +293,7 @@ static block_t *Block (access_t *p_access)
     {   /* End of directory, go back to parent */
         closedir (current->handle);
         p_sys->current = current->parent;
+        free (current->uri);
         free (current);
 
         if (p_sys->current == NULL)
@@ -346,14 +333,20 @@ static block_t *Block (access_t *p_access)
 
     /* Skip current, parent and hidden directories */
     if (entry[0] == '.')
+    {
+        free (entry);
         return NULL;
+    }
     /* Handle recursion */
     if (p_sys->mode != MODE_COLLAPSE)
     {
         directory_t *sub = malloc (sizeof (*sub) + strlen (current->path) + 1
                                                  + strlen (entry));
         if (sub == NULL)
+        {
+            free (entry);
             return NULL;
+        }
         sprintf (sub->path, "%s/%s", current->path, entry);
 
         DIR *handle = utf8_opendir (sub->path);
@@ -373,7 +366,9 @@ static block_t *Block (access_t *p_access)
              || has_inode_loop (sub)
              || (sub->uri == NULL))
             {
+                free (entry);
                 closedir (handle);
+                free (sub->uri);
                 free (sub);
                 return NULL;
             }
@@ -382,9 +377,13 @@ static block_t *Block (access_t *p_access)
             /* Add node to xspf extension */
             char *old_xspf_extension = p_sys->psz_xspf_extension;
             if (old_xspf_extension == NULL)
+            {
+                free (entry);
                 goto fatal;
+            }
 
             char *title = convert_xml_special_chars (entry);
+            free (entry);
             if (title == NULL
              || asprintf (&p_sys->psz_xspf_extension, "%s"
                           "  <vlc:node title=\"%s\">\n", old_xspf_extension,
@@ -417,7 +416,10 @@ static block_t *Block (access_t *p_access)
 
                 if (type + extlen == end
                  && !strncasecmp (ext, type, extlen))
+                {
+                    free (entry);
                     return NULL;
+                }
 
                 if (*end == '\0')
                     break;
@@ -430,7 +432,7 @@ static block_t *Block (access_t *p_access)
     if (encoded == NULL)
         goto fatal;
     int len = asprintf (&entry,
-                        "  <track><location>file://%s/%s</location>\n" \
+                        "  <track><location>%s/%s</location>\n" \
                         "   <extension application=\"http://www.videolan.org/vlc/playlist/0\">\n" \
                         "    <vlc:id>%d</vlc:id>\n" \
                         "   </extension>\n" \
@@ -472,28 +474,22 @@ fatal:
  *****************************************************************************/
 static int Control( access_t *p_access, int i_query, va_list args )
 {
-    bool    *pb_bool;
-    int64_t *pi_64;
-
     switch( i_query )
     {
         /* */
         case ACCESS_CAN_SEEK:
         case ACCESS_CAN_FASTSEEK:
-            pb_bool = (bool*)va_arg( args, bool* );
-            *pb_bool = false;
+            *va_arg( args, bool* ) = false;
             break;
 
         case ACCESS_CAN_PAUSE:
         case ACCESS_CAN_CONTROL_PACE:
-            pb_bool = (bool*)va_arg( args, bool* );
-            *pb_bool = true;
+            *va_arg( args, bool* ) = true;
             break;
 
         /* */
         case ACCESS_GET_PTS_DELAY:
-            pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = DEFAULT_PTS_DELAY * 1000;
+            *va_arg( args, int64_t * ) = DEFAULT_PTS_DELAY * 1000;
             break;
 
         /* */

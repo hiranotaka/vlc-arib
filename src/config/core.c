@@ -47,7 +47,7 @@ int IsConfigStringType (int type)
     {
         CONFIG_ITEM_STRING, CONFIG_ITEM_FILE, CONFIG_ITEM_MODULE,
         CONFIG_ITEM_DIRECTORY, CONFIG_ITEM_MODULE_CAT, CONFIG_ITEM_PASSWORD,
-        CONFIG_ITEM_MODULE_LIST, CONFIG_ITEM_MODULE_LIST_CAT
+        CONFIG_ITEM_MODULE_LIST, CONFIG_ITEM_MODULE_LIST_CAT, CONFIG_ITEM_FONT
     };
 
     /* NOTE: this needs to be changed if we ever get more than 255 types */
@@ -409,6 +409,7 @@ void __config_PutFloat( vlc_object_t *p_this,
  *****************************************************************************/
 module_config_t *config_FindConfig( vlc_object_t *p_this, const char *psz_name )
 {
+    VLC_UNUSED(p_this);
     module_t *p_parser;
 
     if( !psz_name ) return NULL;
@@ -533,6 +534,7 @@ void config_UnsetCallbacks( module_config_t *p_new, size_t n )
  *****************************************************************************/
 void __config_ResetAll( vlc_object_t *p_this )
 {
+    VLC_UNUSED(p_this);
     module_t *p_module;
     module_t **list = module_list_get (NULL);
 

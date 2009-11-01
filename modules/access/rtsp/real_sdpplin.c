@@ -24,7 +24,7 @@
  */
 
 #include "real.h"
-#include "vlc_strings.h"
+#include <vlc_strings.h>
 #define BUFLEN 32000
 
 static inline char *nl(char *data) {
@@ -185,7 +185,6 @@ sdpplin_t *sdpplin_parse(char *data)
   char*             buf;
   char*             decoded;
   int               handled;
-  int               len;
 
   desc = calloc( 1, sizeof(sdpplin_t) );
   if( !desc )

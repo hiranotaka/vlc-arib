@@ -88,6 +88,7 @@ struct decoder_sys_t
      * Common properties
      */
     mtime_t i_pts;
+    mtime_t i_max_stop;
 
     /* decoder_sys_t is shared between decoder and spu units */
     vlc_mutex_t lock;
@@ -98,7 +99,6 @@ struct decoder_sys_t
      * Tiger properties
      */
     tiger_renderer    *p_tr;
-    subpicture_t      *p_spu_final;
     mtime_t            last_render_ts;
     bool               b_dirty;
 
@@ -344,7 +344,6 @@ static int OpenDecoder( vlc_object_t *p_this )
 {
     decoder_t     *p_dec = (decoder_t*)p_this;
     decoder_sys_t *p_sys;
-    int            i_ret;
 
     if( p_dec->fmt_in.i_codec != VLC_CODEC_KATE )
     {
@@ -373,6 +372,7 @@ static int OpenDecoder( vlc_object_t *p_this )
 #endif
     p_sys->b_ready = false;
     p_sys->i_pts = 0;
+    p_sys->i_max_stop = VLC_TS_INVALID;
 
     kate_comment_init( &p_sys->kc );
     kate_info_init( &p_sys->ki );
@@ -402,7 +402,7 @@ static int OpenDecoder( vlc_object_t *p_this )
 
     if( p_sys->b_use_tiger )
     {
-        i_ret = tiger_renderer_create( &p_sys->p_tr );
+        int i_ret = tiger_renderer_create( &p_sys->p_tr );
         if( i_ret < 0 )
         {
             msg_Warn ( p_dec, "Failed to create Tiger renderer, falling back to basic rendering" );
@@ -473,20 +473,18 @@ static subpicture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
     p_block = *pp_block;
 
-    if( p_block->i_flags & (BLOCK_FLAG_CORRUPTED) )
-    {
-        block_Release( p_block );
-        return NULL;
-    }
-
-    if( p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY) )
+    if( p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED) )
     {
 #ifdef HAVE_TIGER
-        /* Hmm, should we wait before flushing the renderer ? I think not, but not certain... */
-        vlc_mutex_lock( &p_sys->lock );
-        tiger_renderer_seek( p_sys->p_tr, 0 );
-        vlc_mutex_unlock( &p_sys->lock );
+        if( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY)
+        {
+            /* Hmm, should we wait before flushing the renderer ? I think not, but not certain... */
+            vlc_mutex_lock( &p_sys->lock );
+            tiger_renderer_seek( p_sys->p_tr, 0 );
+            vlc_mutex_unlock( &p_sys->lock );
+        }
 #endif
+        p_sys->i_max_stop = VLC_TS_INVALID;
         block_Release( p_block );
         return NULL;
     }
@@ -826,16 +824,6 @@ static void SubpictureReleaseRegions( subpicture_t *p_subpic )
     }
 }
 
-static void TigerPreRender( spu_t *p_spu, subpicture_t *p_subpic, const video_format_t *p_fmt )
-{
-    decoder_sys_t *p_sys = p_subpic->p_sys->p_dec_sys;
-
-    VLC_UNUSED( p_spu );
-    VLC_UNUSED( p_fmt );
-
-    p_sys->p_spu_final = p_subpic;
-}
-
 /*
  * We get premultiplied alpha, but VLC doesn't expect this, so we demultiply
  * alpha to avoid double multiply (and thus thinner text than we should)).
@@ -864,7 +852,7 @@ static void PostprocessTigerImage( plane_t *p_plane, unsigned int i_width )
             if( a )
             {
 #ifdef WORDS_BIGENDIAN
-                uint8_t tmp = pixel[2];
+                uint8_t tmp = p_pixel[2];
                 p_pixel[0] = p_pixel[3] * 255 / a;
                 p_pixel[3] = a;
                 p_pixel[2] = p_pixel[1] * 255 / a;
@@ -913,12 +901,6 @@ static void TigerUpdateRegions( spu_t *p_spu, subpicture_t *p_subpic, const vide
 
     /* remember what frame we've rendered already */
     p_sys->last_render_ts = ts;
-
-    if( p_subpic != p_sys->p_spu_final )
-    {
-        SubpictureReleaseRegions( p_subpic );
-        return;
-    }
 
     /* time in seconds from the start of the stream */
     t = (p_subpic->p_sys->i_start + ts - p_subpic->i_start ) / 1000000.0f;
@@ -1277,6 +1259,8 @@ static subpicture_t *DecodePacket( decoder_t *p_dec, kate_packet *p_kp, block_t 
         p_spu->p_sys->i_start = p_block->i_pts;
         DecSysHold( p_sys );
 
+        p_spu->i_stop = __MAX( p_sys->i_max_stop, p_spu->i_stop );
+        p_spu->b_ephemer = true;
         p_spu->b_absolute = true;
 
         /* add the event to tiger */
@@ -1285,7 +1269,6 @@ static subpicture_t *DecodePacket( decoder_t *p_dec, kate_packet *p_kp, block_t 
         vlc_mutex_unlock( &p_sys->lock );
 
         /* hookup render/update routines */
-        p_spu->pf_pre_render = TigerPreRender;
         p_spu->pf_update_regions = TigerUpdateRegions;
         p_spu->pf_destroy = TigerDestroySubpicture;
     }
@@ -1499,8 +1482,7 @@ static void DecSysRelease( decoder_sys_t *p_sys )
 #ifdef HAVE_TIGER
     if( p_sys->p_tr )
         tiger_renderer_destroy( p_sys->p_tr );
-    if( p_sys->psz_tiger_default_font_desc )
-        free( p_sys->psz_tiger_default_font_desc );
+    free( p_sys->psz_tiger_default_font_desc );
 #endif
 
     if (p_sys->b_ready)

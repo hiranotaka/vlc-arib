@@ -49,9 +49,8 @@ static void ChangeFiltersString( intf_thread_t *p_intf,
 {
     char *psz_parser, *psz_string;
     int i;
-    vlc_object_t *p_object = vlc_object_find( p_intf,
-                                VLC_OBJECT_AOUT, FIND_ANYWHERE );
-    aout_instance_t *p_aout = (aout_instance_t *)p_object;
+    aout_instance_t *p_aout = getAout();
+    vlc_object_t *p_object = VLC_OBJECT(p_aout);
     if( !p_object )
     {
         p_object = (vlc_object_t *)pl_Hold( p_intf );
@@ -99,14 +98,7 @@ static void ChangeFiltersString( intf_thread_t *p_intf,
          }
     }
 
-    var_SetString( p_object, "audio-filter", psz_string );
-    if( p_aout )
-    {
-        for( i = 0; i < p_aout->i_nb_inputs; i++ )
-        {
-            p_aout->pp_inputs[i]->b_restart = true;
-        }
-    }
+    aout_EnableFilter( p_object, psz_string, false);
     
     if( (BOOL)config_GetInt( p_object, "macosx-eq-keep" ) == YES )
     {
@@ -122,8 +114,7 @@ static bool GetFiltersStatus( intf_thread_t *p_intf,
                                  char *psz_name )
 {
     char *psz_parser, *psz_string;
-    vlc_object_t *p_object = vlc_object_find( p_intf,
-                                VLC_OBJECT_AOUT, FIND_ANYWHERE );
+    vlc_object_t *p_object = VLC_OBJECT(getAout());
     if( p_object == NULL )
         p_object = (vlc_object_t *)pl_Hold( p_intf );
 
@@ -178,8 +169,7 @@ static bool GetFiltersStatus( intf_thread_t *p_intf,
     bool b_2p;
     int i;
     bool b_enabled = GetFiltersStatus( p_intf, (char *)"equalizer" );
-    vlc_object_t *p_object = vlc_object_find( p_intf,
-                                              VLC_OBJECT_AOUT, FIND_ANYWHERE );
+    vlc_object_t *p_object = VLC_OBJECT(getAout());
 
     if( p_object == NULL )
         p_object = (vlc_object_t *)pl_Hold( p_intf );
@@ -234,29 +224,24 @@ static bool GetFiltersStatus( intf_thread_t *p_intf,
 - (IBAction)bandSliderUpdated:(id)sender
 {
     intf_thread_t *p_intf = VLCIntf;
-    vlc_object_t *p_object = vlc_object_find( p_intf,
-                                              VLC_OBJECT_AOUT, FIND_ANYWHERE );
+    vlc_object_t *p_object = VLC_OBJECT(getAout());
 
     if( p_object == NULL )
         p_object = (vlc_object_t *)pl_Hold( p_intf );
 
-    char psz_values[102];
-    memset( psz_values, 0, 102 );
+    const char *psz_values;
+    NSString *preset = [NSString stringWithFormat:@"%.1f", [o_slider_band1 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f ", [o_slider_band2 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f ", [o_slider_band3 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f ", [o_slider_band4 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f ", [o_slider_band5 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f ", [o_slider_band6 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f ", [o_slider_band7 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f ", [o_slider_band8 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f ", [o_slider_band9 floatValue] ];
+    preset = [preset stringByAppendingFormat:@"%.1f", [o_slider_band10 floatValue] ];
 
-    /* Write the new bands values */
-    /* TODO: write a generic code instead of ten times the same thing */
-
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band1 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band2 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band3 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band4 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band5 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band6 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band7 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band8 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band9 floatValue] );
-    sprintf( psz_values, "%s %.1f", psz_values, [o_slider_band10 floatValue] );
-
+    psz_values = [preset UTF8String];
     var_SetString( p_object, "equalizer-bands", psz_values );
 
     if( (BOOL)config_GetInt( p_intf, "macosx-eq-keep" ) == YES )
@@ -275,18 +260,19 @@ static bool GetFiltersStatus( intf_thread_t *p_intf,
 {
     intf_thread_t *p_intf = VLCIntf;
     int i;
-    vlc_object_t *p_object= vlc_object_find( p_intf,
-                                             VLC_OBJECT_AOUT, FIND_ANYWHERE );
+    vlc_object_t *p_object= VLC_OBJECT(getAout());
     if( p_object == NULL )
         p_object = (vlc_object_t *)pl_Hold( p_intf );
 
-    char psz_values[102];
-    memset( psz_values, 0, 102 );
-
     var_SetString( p_object , "equalizer-preset" , preset_list[[sender indexOfSelectedItem]] );
 
+    NSString *preset = @"";
+    const char *psz_values;
     for( i = 0; i < 10; i++ )
-        sprintf( psz_values, "%s %.1f", psz_values, eqz_preset_10b[[sender indexOfSelectedItem]]->f_amp[i] );
+    {
+        preset = [preset stringByAppendingFormat:@"%.1f ", eqz_preset_10b[[sender indexOfSelectedItem]]->f_amp[i] ];
+    }
+    psz_values = [preset UTF8String];
     var_SetString( p_object, "equalizer-bands", psz_values );
     var_SetFloat( p_object, "equalizer-preamp", eqz_preset_10b[[sender indexOfSelectedItem]]->f_preamp);
 
@@ -318,8 +304,7 @@ static bool GetFiltersStatus( intf_thread_t *p_intf,
     intf_thread_t *p_intf = VLCIntf;
     float f_preamp = [sender floatValue] ;
 
-    vlc_object_t *p_object = vlc_object_find( p_intf,
-                                              VLC_OBJECT_AOUT, FIND_ANYWHERE );
+    vlc_object_t *p_object = VLC_OBJECT(getAout());
     if( p_object == NULL )
         p_object = (vlc_object_t *)pl_Hold( p_intf );
 
@@ -357,21 +342,12 @@ static bool GetFiltersStatus( intf_thread_t *p_intf,
 {
     intf_thread_t *p_intf = VLCIntf;
     bool b_2p = [sender state] ? true : false;
-    vlc_object_t *p_object= vlc_object_find( p_intf,
-                                             VLC_OBJECT_AOUT, FIND_ANYWHERE );
-    aout_instance_t *p_aout = (aout_instance_t *)p_object;
+    aout_instance_t *p_aout = getAout();
+    vlc_object_t *p_object= VLC_OBJECT(p_aout);
     if( p_object == NULL )
         p_object = (vlc_object_t *)pl_Hold( p_intf );
 
     var_SetBool( p_object, "equalizer-2pass", b_2p );
-    if( ( [o_ckb_enable state] ) && ( p_aout != NULL ) )
-    {
-        int i;
-        for( i = 0; i < p_aout->i_nb_inputs; i++ )
-        {
-            p_aout->pp_inputs[i]->b_restart = true;
-        }
-    }
 
     if( (BOOL)config_GetInt( p_intf, "macosx-eq-keep" ) == YES )
     {
@@ -393,8 +369,7 @@ static bool GetFiltersStatus( intf_thread_t *p_intf,
 - (void)awakeFromNib
 {
     int i;
-    vlc_object_t *p_object= vlc_object_find( VLCIntf,
-                                             VLC_OBJECT_AOUT, FIND_ANYWHERE );
+    vlc_object_t *p_object= VLC_OBJECT(getAout());
     if( p_object == NULL )
         p_object = (vlc_object_t *)pl_Hold( VLCIntf );
 

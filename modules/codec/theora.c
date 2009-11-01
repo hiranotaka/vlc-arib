@@ -82,7 +82,7 @@ static void *ProcessPacket ( decoder_t *, ogg_packet *, block_t ** );
 static picture_t *DecodePacket( decoder_t *, ogg_packet * );
 
 static void ParseTheoraComments( decoder_t * );
-static void theora_CopyPicture( decoder_t *, picture_t *, yuv_buffer * );
+static void theora_CopyPicture( picture_t *, yuv_buffer * );
 
 static int  OpenEncoder( vlc_object_t *p_this );
 static void CloseEncoder( vlc_object_t *p_this );
@@ -498,7 +498,7 @@ static picture_t *DecodePacket( decoder_t *p_dec, ogg_packet *p_oggpacket )
     p_pic = decoder_NewPicture( p_dec );
     if( !p_pic ) return NULL;
 
-    theora_CopyPicture( p_dec, p_pic, &yuv );
+    theora_CopyPicture( p_pic, &yuv );
 
     p_pic->date = p_sys->i_pts;
 
@@ -553,7 +553,7 @@ static void CloseDecoder( vlc_object_t *p_this )
  * theora_CopyPicture: copy a picture from theora internal buffers to a
  *                     picture_t structure.
  *****************************************************************************/
-static void theora_CopyPicture( decoder_t *p_dec, picture_t *p_pic,
+static void theora_CopyPicture( picture_t *p_pic,
                                 yuv_buffer *yuv )
 {
     int i_plane, i_line, i_dst_stride, i_src_stride;
@@ -602,10 +602,9 @@ struct encoder_sys_t
 static int OpenEncoder( vlc_object_t *p_this )
 {
     encoder_t *p_enc = (encoder_t *)p_this;
-    encoder_sys_t *p_sys = p_enc->p_sys;
+    encoder_sys_t *p_sys;
     ogg_packet header;
     uint8_t *p_extra;
-    vlc_value_t val;
     int i_quality, i;
 
     if( p_enc->fmt_out.i_codec != VLC_CODEC_THEORA &&
@@ -615,7 +614,7 @@ static int OpenEncoder( vlc_object_t *p_this )
     }
 
     /* Allocate the memory needed to store the decoder's structure */
-    if( ( p_sys = (encoder_sys_t *)malloc(sizeof(encoder_sys_t)) ) == NULL )
+    if( ( p_sys = malloc(sizeof(encoder_sys_t)) ) == NULL )
         return VLC_ENOMEM;
     p_enc->p_sys = p_sys;
 
@@ -625,8 +624,7 @@ static int OpenEncoder( vlc_object_t *p_this )
 
     config_ChainParse( p_enc, ENC_CFG_PREFIX, ppsz_enc_options, p_enc->p_cfg );
 
-    var_Get( p_enc, ENC_CFG_PREFIX "quality", &val );
-    i_quality = val.i_int;
+    i_quality = var_GetInteger( p_enc, ENC_CFG_PREFIX "quality" );
     if( i_quality > 10 ) i_quality = 10;
     if( i_quality < 0 ) i_quality = 0;
 
@@ -698,7 +696,6 @@ static int OpenEncoder( vlc_object_t *p_this )
     p_sys->ti.noise_sensitivity = 1;
 
     theora_encode_init( &p_sys->td, &p_sys->ti );
-    theora_info_clear( &p_sys->ti );
     theora_comment_init( &p_sys->tc );
 
     /* Create and store headers */
@@ -818,6 +815,11 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pict )
     p_block = block_New( p_enc, oggpacket.bytes );
     memcpy( p_block->p_buffer, oggpacket.packet, oggpacket.bytes );
     p_block->i_dts = p_block->i_pts = p_pict->date;
+
+    if( theora_packet_iskeyframe( &oggpacket ) )
+    {
+        p_block->i_flags |= BLOCK_FLAG_TYPE_I;
+    }
 
     return p_block;
 }

@@ -44,8 +44,6 @@
 #include "configuration.h"
 #include "modules/modules.h"
 
-static char *ConfigKeyToString( int );
-
 static inline char *strdupnull (const char *src)
 {
     return src ? strdup (src) : NULL;
@@ -59,7 +57,7 @@ static char *config_GetConfigFile( vlc_object_t *obj )
     char *psz_file = config_GetPsz( obj, "config" );
     if( psz_file == NULL )
     {
-        char *psz_dir = config_GetUserConfDir();
+        char *psz_dir = config_GetUserDir( VLC_CONFIG_DIR );
 
         if( asprintf( &psz_file, "%s" DIR_SEP CONFIG_FILE, psz_dir ) == -1 )
             psz_file = NULL;
@@ -88,9 +86,12 @@ static FILE *config_OpenConfigFile( vlc_object_t *p_obj )
     {
         /* This is the fallback for pre XDG Base Directory
          * Specification configs */
+        char *home = config_GetUserDir(VLC_HOME_DIR);
         char *psz_old;
-        if( asprintf( &psz_old, "%s" DIR_SEP CONFIG_DIR DIR_SEP CONFIG_FILE,
-                      config_GetHomeDir() ) != -1 )
+
+        if( home != NULL
+         && asprintf( &psz_old, "%s/.vlc/" CONFIG_FILE,
+                      home ) != -1 )
         {
             p_stream = utf8_fopen( psz_old, "rt" );
             if( p_stream )
@@ -100,8 +101,8 @@ static FILE *config_OpenConfigFile( vlc_object_t *p_obj )
                 msg_Info( p_obj->p_libvlc, "Found old config file at %s. "
                           "VLC will now use %s.", psz_old, psz_filename );
                 char *psz_readme;
-                if( asprintf(&psz_readme,"%s"DIR_SEP CONFIG_DIR DIR_SEP"README",
-                              config_GetHomeDir() ) != -1 )
+                if( asprintf(&psz_readme,"%s/.vlc/README",
+                             home ) != -1 )
                 {
                     FILE *p_readme = utf8_fopen( psz_readme, "wt" );
                     if( p_readme )
@@ -117,9 +118,14 @@ static FILE *config_OpenConfigFile( vlc_object_t *p_obj )
                     }
                     free( psz_readme );
                 }
+                /* Remove the old configuration file so that --reset-config
+                 * can work properly. Fortunately, Linux allows removing
+                 * open files - with most filesystems. */
+                unlink( psz_old );
             }
             free( psz_old );
         }
+        free( home );
     }
 #endif
     free( psz_filename );
@@ -354,7 +360,7 @@ int config_CreateDir( vlc_object_t *p_this, const char *psz_dirname )
 }
 
 static int
-config_Write (FILE *file, const char *type, const char *desc,
+config_Write (FILE *file, const char *desc, const char *type,
               bool comment, const char *name, const char *fmt, ...)
 {
     va_list ap;
@@ -381,8 +387,8 @@ config_Write (FILE *file, const char *type, const char *desc,
 
 static int config_PrepareDir (vlc_object_t *obj)
 {
-    char *psz_configdir = config_GetUserConfDir ();
-    if (psz_configdir == NULL) /* XXX: This should never happen */
+    char *psz_configdir = config_GetUserDir (VLC_CONFIG_DIR);
+    if (psz_configdir == NULL)
         return -1;
 
     int ret = config_CreateDir (obj, psz_configdir);
@@ -430,12 +436,18 @@ static int SaveConfigFile( vlc_object_t *p_this, const char *psz_module_name,
     file = config_OpenConfigFile( p_this );
     if( file != NULL )
     {
-        /* look for file size */
-        fseek( file, 0L, SEEK_END );
-        i_sizebuf = ftell( file );
-        fseek( file, 0L, SEEK_SET );
-        if( i_sizebuf >= LONG_MAX )
-            i_sizebuf = 0;
+        struct stat st;
+
+        /* Some users make vlcrc read-only to prevent changes.
+         * The atomic replacement scheme breaks this "feature",
+         * so we check for read-only by hand. */
+        if (fstat (fileno (file), &st)
+         || !(st.st_mode & S_IWUSR))
+        {
+            msg_Err (p_this, "configuration file is read-only");
+            goto error;
+        }
+        i_sizebuf = ( st.st_size < LONG_MAX ) ? st.st_size : 0;
     }
 
     p_bigbuffer = p_index = malloc( i_sizebuf+1 );
@@ -512,13 +524,7 @@ static int SaveConfigFile( vlc_object_t *p_this, const char *psz_module_name,
         goto error;
     }
 
-    if (asprintf (&temporary, "%s.%u", permanent,
-#ifdef UNDER_CE
-                  GetCurrentProcessId ()
-#else
-                  getpid ()
-#endif
-                 ) == -1)
+    if (asprintf (&temporary, "%s.%u", permanent, getpid ()) == -1)
     {
         temporary = NULL;
         module_list_free (list);
@@ -680,7 +686,8 @@ static int SaveConfigFile( vlc_object_t *p_this, const char *psz_module_name,
 #ifndef WIN32
     fdatasync (fd); /* Flush from OS */
     /* Atomically replace the file... */
-    utf8_rename (temporary, permanent);
+    if (utf8_rename (temporary, permanent))
+        utf8_unlink (temporary);
     /* (...then synchronize the directory, err, TODO...) */
     /* ...and finally close the file */
     vlc_mutex_unlock (&lock);
@@ -689,7 +696,8 @@ static int SaveConfigFile( vlc_object_t *p_this, const char *psz_module_name,
 #ifdef WIN32
     /* Windows cannot remove open files nor overwrite existing ones */
     utf8_unlink (permanent);
-    utf8_rename (temporary, permanent);
+    if (utf8_rename (temporary, permanent))
+        utf8_unlink (temporary);
     vlc_mutex_unlock (&lock);
 #endif
 
@@ -740,69 +748,3 @@ int __config_SaveConfigFile( vlc_object_t *p_this, const char *psz_module_name )
 {
     return SaveConfigFile( p_this, psz_module_name, false );
 }
-
-int ConfigStringToKey( const char *psz_key )
-{
-    int i_key = 0;
-    size_t i;
-    const char *psz_parser = strchr( psz_key, '-' );
-    while( psz_parser && psz_parser != psz_key )
-    {
-        for( i = 0; i < vlc_num_modifiers; ++i )
-        {
-            if( !strncasecmp( vlc_modifiers[i].psz_key_string, psz_key,
-                              strlen( vlc_modifiers[i].psz_key_string ) ) )
-            {
-                i_key |= vlc_modifiers[i].i_key_code;
-            }
-        }
-        psz_key = psz_parser + 1;
-        psz_parser = strchr( psz_key, '-' );
-    }
-    for( i = 0; i < vlc_num_keys; ++i )
-    {
-        if( !strcasecmp( vlc_keys[i].psz_key_string, psz_key ) )
-        {
-            i_key |= vlc_keys[i].i_key_code;
-            break;
-        }
-    }
-    return i_key;
-}
-
-char *ConfigKeyToString( int i_key )
-{
-    // Worst case appears to be 45 characters:
-    // "Command-Meta-Ctrl-Shift-Alt-Browser Favorites"
-    enum { keylen=64 };
-    char *psz_key = malloc( keylen );
-    char *p;
-    size_t index;
-
-    if ( !psz_key )
-    {
-        return NULL;
-    }
-    *psz_key = '\0';
-    p = psz_key;
-
-    for( index = 0; index < vlc_num_modifiers; ++index )
-    {
-        if( i_key & vlc_modifiers[index].i_key_code )
-        {
-            p += snprintf( p, keylen-(psz_key-p), "%s-",
-                           vlc_modifiers[index].psz_key_string );
-        }
-    }
-    for( index = 0; index < vlc_num_keys; ++index )
-    {
-        if( (int)( i_key & ~KEY_MODIFIER ) == vlc_keys[index].i_key_code )
-        {
-            p += snprintf( p, keylen-(psz_key-p), "%s",
-                           vlc_keys[index].psz_key_string );
-            break;
-        }
-    }
-    return psz_key;
-}
-

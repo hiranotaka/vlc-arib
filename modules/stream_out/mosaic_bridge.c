@@ -157,7 +157,7 @@ vlc_module_begin ()
                  HEIGHT_LONGTEXT, true )
     add_string( CFG_PREFIX "sar", "1:1", NULL, RATIO_TEXT,
                 RATIO_LONGTEXT, false )
-    add_string( CFG_PREFIX "chroma", 0, NULL, CHROMA_TEXT, CHROMA_LONGTEXT,
+    add_string( CFG_PREFIX "chroma", NULL, NULL, CHROMA_TEXT, CHROMA_LONGTEXT,
                 false )
 
     add_module_list( CFG_PREFIX "vfilter", "video filter2",
@@ -271,6 +271,13 @@ static void Close( vlc_object_t * p_this )
 {
     sout_stream_t     *p_stream = (sout_stream_t*)p_this;
     sout_stream_sys_t *p_sys = p_stream->p_sys;
+
+    /* Delete the callbacks */
+    var_DelCallback( p_stream, CFG_PREFIX "height", HeightCallback, p_stream );
+    var_DelCallback( p_stream, CFG_PREFIX "width", WidthCallback, p_stream );
+    var_DelCallback( p_stream, CFG_PREFIX "alpha", alphaCallback, p_stream );
+    var_DelCallback( p_stream, CFG_PREFIX "x", xCallback, p_stream );
+    var_DelCallback( p_stream, CFG_PREFIX "y", yCallback, p_stream );
 
     p_stream->p_sout->i_out_pace_nocontrol--;
 
@@ -627,6 +634,7 @@ static picture_t *video_new_buffer( vlc_object_t *p_this,
                                     decoder_owner_sys_t *p_sys,
                                     es_format_t *fmt_out )
 {
+    VLC_UNUSED(p_this);
     if( fmt_out->video.i_width != p_sys->video.i_width ||
         fmt_out->video.i_height != p_sys->video.i_height ||
         fmt_out->video.i_chroma != p_sys->video.i_chroma ||

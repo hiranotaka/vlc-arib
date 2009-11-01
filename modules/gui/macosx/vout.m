@@ -44,13 +44,15 @@
 /* SystemUIMode */
 #import <Carbon/Carbon.h>
 
-#include <vlc_keys.h>
 
 #include "intf.h"
 #include "fspanel.h"
 #include "vout.h"
 #import "controls.h"
 #import "embeddedwindow.h"
+
+#include <vlc_common.h>
+#include <vlc_keys.h>
 
 /*****************************************************************************
  * DeviceCallback: Callback triggered when the video-device variable is changed
@@ -290,7 +292,7 @@ int DeviceCallback( vlc_object_t *p_this, const char *psz_variable,
 
     if( !p_vout ) return;
 
-    p_input = vlc_object_find( p_vout, VLC_OBJECT_INPUT, FIND_PARENT );
+    p_input = getInput();
 
     if( !p_input ) return;
 
@@ -434,9 +436,7 @@ int DeviceCallback( vlc_object_t *p_this, const char *psz_variable,
 {
     vlc_value_t val;
     if( !p_real_vout ) return;
-    var_Get( p_real_vout, "fullscreen", &val );
-    val.b_bool = !val.b_bool;
-    var_Set( p_real_vout, "fullscreen", val );
+    var_ToggleBool( p_real_vout, "fullscreen" );
 }
 
 - (BOOL)isFullscreen
@@ -458,7 +458,6 @@ int DeviceCallback( vlc_object_t *p_this, const char *psz_variable,
     if( !VLCIntf || !VLCIntf->p_sys )
         return;
 
-    UInt8 UsrActivity;
     if( VLCIntf->p_sys->i_play_status == PLAYING_S )
         UpdateSystemActivity( UsrActivity );
 }

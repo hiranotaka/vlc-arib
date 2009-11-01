@@ -37,6 +37,7 @@
 #include <vlc_osd.h>
 #include "../libvlc.h"
 #include "vout_internal.h"
+#include <vlc_image.h>
 
 #include <assert.h>
 #include <limits.h>
@@ -44,8 +45,9 @@
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
+
 /* Number of simultaneous subpictures */
-#define VOUT_MAX_SUBPICTURES (VOUT_MAX_PICTURES)
+#define VOUT_MAX_SUBPICTURES (__MAX(VOUT_MAX_PICTURES, SPU_MAX_PREPARE_TIME/5000))
 
 /* */
 typedef struct
@@ -148,7 +150,8 @@ static void SpuRenderRegion( spu_t *,
                              subpicture_t *, subpicture_region_t *,
                              const spu_scale_t scale_size,
                              const video_format_t *p_fmt,
-                             const spu_area_t *p_subtitle_area, int i_subtitle_area );
+                             const spu_area_t *p_subtitle_area, int i_subtitle_area,
+                             mtime_t render_date );
 
 static void UpdateSPU   ( spu_t *, vlc_object_t * );
 static int  CropCallback( vlc_object_t *, char const *,
@@ -174,7 +177,6 @@ static void SubFilterAllocationClean( filter_t * );
 /* */
 static void SpuRenderCreateAndLoadText( spu_t * );
 static void SpuRenderCreateAndLoadScale( spu_t * );
-static void SpuRenderCreateBlend( spu_t *, vlc_fourcc_t i_chroma, int i_aspect );
 static void FilterRelease( filter_t *p_filter );
 
 /*****************************************************************************
@@ -262,7 +264,7 @@ void spu_Destroy( spu_t *p_spu )
     var_DelCallback( p_spu, "sub-filter", SubFilterCallback, p_spu );
 
     if( p_sys->p_blend )
-        FilterRelease( p_sys->p_blend );
+        filter_DeleteBlend( p_sys->p_blend );
 
     if( p_sys->p_text )
         FilterRelease( p_sys->p_text );
@@ -350,13 +352,15 @@ void spu_DisplaySubpicture( spu_t *p_spu, subpicture_t *p_subpic )
 void spu_RenderSubpictures( spu_t *p_spu,
                             picture_t *p_pic_dst, const video_format_t *p_fmt_dst,
                             subpicture_t *p_subpic_list,
-                            const video_format_t *p_fmt_src, bool b_paused )
+                            const video_format_t *p_fmt_src,
+                            mtime_t render_subtitle_date )
 {
     spu_private_t *p_sys = p_spu->p;
 
+    const mtime_t render_osd_date = mdate();
+
     const int i_source_video_width  = p_fmt_src->i_width;
     const int i_source_video_height = p_fmt_src->i_height;
-    const mtime_t i_current_date = mdate();
 
     unsigned int i_subpicture;
     subpicture_t *pp_subpicture[VOUT_MAX_SUBPICTURES];
@@ -375,11 +379,7 @@ void spu_RenderSubpictures( spu_t *p_spu,
             p_subpic != NULL;
                 p_subpic = p_subpic->p_next )
     {
-        /* */
-        if( !b_paused && p_subpic->pf_pre_render )
-            p_subpic->pf_pre_render( p_spu, p_subpic, p_fmt_dst );
-
-        if( !b_paused && p_subpic->pf_update_regions )
+        if( p_subpic->pf_update_regions )
         {
             video_format_t fmt_org = *p_fmt_dst;
             fmt_org.i_width =
@@ -387,7 +387,8 @@ void spu_RenderSubpictures( spu_t *p_spu,
             fmt_org.i_height =
             fmt_org.i_visible_height = i_source_video_height;
 
-            p_subpic->pf_update_regions( p_spu, p_subpic, &fmt_org, i_current_date );
+            p_subpic->pf_update_regions( p_spu, p_subpic, &fmt_org,
+                                         p_subpic->b_subtitle ? render_subtitle_date : render_osd_date );
         }
 
         /* */
@@ -420,7 +421,7 @@ void spu_RenderSubpictures( spu_t *p_spu,
 
     /* Create the blending module */
     if( !p_sys->p_blend )
-        SpuRenderCreateBlend( p_spu, p_fmt_dst->i_chroma, p_fmt_dst->i_aspect );
+        p_spu->p->p_blend = filter_NewBlend( VLC_OBJECT(p_spu), p_fmt_dst );
 
     /* Process all subpictures and regions (in the right order) */
     for( unsigned int i_index = 0; i_index < i_subpicture; i_index++ )
@@ -505,7 +506,8 @@ void spu_RenderSubpictures( spu_t *p_spu,
             /* */
             SpuRenderRegion( p_spu, p_pic_dst, &area,
                              p_subpic, p_region, scale, p_fmt_dst,
-                             p_subtitle_area, i_subtitle_area );
+                             p_subtitle_area, i_subtitle_area,
+                             p_subpic->b_subtitle ? render_subtitle_date : render_osd_date );
 
             if( p_subpic->b_subtitle )
             {
@@ -540,12 +542,13 @@ void spu_RenderSubpictures( spu_t *p_spu,
  * to be removed if a newer one is available), which makes it a lot
  * more difficult to guess if a subpicture has to be rendered or not.
  *****************************************************************************/
-subpicture_t *spu_SortSubpictures( spu_t *p_spu, mtime_t display_date,
-                                   bool b_paused, bool b_subtitle_only )
+subpicture_t *spu_SortSubpictures( spu_t *p_spu, mtime_t render_subtitle_date,
+                                   bool b_subtitle_only )
 {
     spu_private_t *p_sys = p_spu->p;
     int i_channel;
     subpicture_t *p_subpic = NULL;
+    const mtime_t render_osd_date = mdate();
 
     /* Update sub-filter chain */
     vlc_mutex_lock( &p_sys->lock );
@@ -563,7 +566,7 @@ subpicture_t *spu_SortSubpictures( spu_t *p_spu, mtime_t display_date,
     }
 
     /* Run subpicture filters */
-    filter_chain_SubFilter( p_sys->p_chain, display_date );
+    filter_chain_SubFilter( p_sys->p_chain, render_osd_date );
 
     vlc_mutex_lock( &p_sys->lock );
 
@@ -575,8 +578,11 @@ subpicture_t *spu_SortSubpictures( spu_t *p_spu, mtime_t display_date,
         bool         pb_available_late[VOUT_MAX_SUBPICTURES];
         int          i_available = 0;
 
-        mtime_t      start_date = display_date;
-        mtime_t      ephemer_date = 0;
+        mtime_t      start_date = render_subtitle_date;
+        mtime_t      ephemer_subtitle_date = 0;
+        mtime_t      ephemer_osd_date = 0;
+        int64_t      i_ephemer_subtitle_order = INT64_MIN;
+        int64_t      i_ephemer_system_order = INT64_MIN;
         int i_index;
 
         /* Select available pictures */
@@ -599,25 +605,31 @@ subpicture_t *spu_SortSubpictures( spu_t *p_spu, mtime_t display_date,
             {
                 continue;
             }
-            if( display_date &&
-                display_date < p_current->i_start )
+            const mtime_t render_date = p_current->b_subtitle ? render_subtitle_date : render_osd_date;
+            if( render_date &&
+                render_date < p_current->i_start )
             {
                 /* Too early, come back next monday */
                 continue;
             }
 
-            if( p_current->i_start > ephemer_date )
-                ephemer_date = p_current->i_start;
+            mtime_t *pi_ephemer_date  = p_current->b_subtitle ? &ephemer_subtitle_date : &ephemer_osd_date;
+            int64_t *pi_ephemer_order = p_current->b_subtitle ? &i_ephemer_subtitle_order : &i_ephemer_system_order;
+            if( p_current->i_start >= *pi_ephemer_date )
+            {
+                *pi_ephemer_date = p_current->i_start;
+                if( p_current->i_order > *pi_ephemer_order )
+                    *pi_ephemer_order = p_current->i_order;
+            }
 
-            b_stop_valid = ( !p_current->b_ephemer || p_current->i_stop > p_current->i_start ) &&
-                           ( !p_current->b_subtitle || !b_paused ); /* XXX Assume that subtitle are pausable */
+            b_stop_valid = !p_current->b_ephemer || p_current->i_stop > p_current->i_start;
 
-            b_late = b_stop_valid && p_current->i_stop <= display_date;
+            b_late = b_stop_valid && p_current->i_stop <= render_date;
 
             /* start_date will be used for correct automatic overlap support
              * in case picture that should not be displayed anymore (display_time)
              * overlap with a picture to be displayed (p_current->i_start)  */
-            if( !b_late && !p_current->b_ephemer )
+            if( p_current->b_subtitle && !b_late && !p_current->b_ephemer )
                 start_date = p_current->i_start;
 
             /* */
@@ -638,20 +650,29 @@ subpicture_t *spu_SortSubpictures( spu_t *p_spu, mtime_t display_date,
             subpicture_t *p_current = p_available_subpic[i_index];
             bool b_late = pb_available_late[i_index];
 
-            if( ( b_late && p_current->i_stop <= __MAX( start_date, p_sys->i_last_sort_date ) ) ||
-                ( p_current->b_ephemer && p_current->i_start < ephemer_date ) )
+            const mtime_t stop_date = p_current->b_subtitle ? __MAX( start_date, p_sys->i_last_sort_date ) : render_osd_date;
+            const mtime_t ephemer_date = p_current->b_subtitle ? ephemer_subtitle_date : ephemer_osd_date;
+            const int64_t i_ephemer_order = p_current->b_subtitle ? i_ephemer_subtitle_order : i_ephemer_system_order;
+
+            /* Destroy late and obsolete ephemer subpictures */
+            bool b_rejet = b_late && p_current->i_stop <= stop_date;
+            if( p_current->b_ephemer )
             {
-                /* Destroy late and obsolete ephemer subpictures */
+                if( p_current->i_start < ephemer_date )
+                    b_rejet = true;
+                else if( p_current->i_start == ephemer_date &&
+                         p_current->i_order < i_ephemer_order )
+                    b_rejet = true;
+            }
+
+            if( b_rejet )
                 SpuHeapDeleteSubpicture( &p_sys->heap, p_current );
-            }
             else
-            {
                 SubpictureChain( &p_subpic, p_current );
-            }
         }
     }
 
-    p_sys->i_last_sort_date = display_date;
+    p_sys->i_last_sort_date = render_subtitle_date;
     vlc_mutex_unlock( &p_sys->lock );
 
     return p_subpic;
@@ -693,7 +714,6 @@ subpicture_t *subpicture_New( void )
     p_subpic->b_subtitle = false;
     p_subpic->i_alpha    = 0xFF;
     p_subpic->p_region   = NULL;
-    p_subpic->pf_render  = NULL;
     p_subpic->pf_destroy = NULL;
     p_subpic->p_sys      = NULL;
 
@@ -717,6 +737,56 @@ static void SubpictureChain( subpicture_t **pp_head, subpicture_t *p_subpic )
     p_subpic->p_next = *pp_head;
 
     *pp_head = p_subpic;
+}
+
+subpicture_t *subpicture_NewFromPicture( vlc_object_t *p_obj,
+                                         picture_t *p_picture, vlc_fourcc_t i_chroma )
+{
+    /* */
+    video_format_t fmt_in = p_picture->format;
+
+    /* */
+    video_format_t fmt_out;
+    fmt_out = fmt_in;
+    fmt_out.i_chroma = i_chroma;
+
+    /* */
+    image_handler_t *p_image = image_HandlerCreate( p_obj );
+    if( !p_image )
+        return NULL;
+
+    picture_t *p_pip = image_Convert( p_image, p_picture, &fmt_in, &fmt_out );
+
+    image_HandlerDelete( p_image );
+
+    if( !p_pip )
+        return NULL;
+
+    subpicture_t *p_subpic = subpicture_New();
+    if( !p_subpic )
+    {
+         picture_Release( p_pip );
+         return NULL;
+    }
+
+    p_subpic->i_original_picture_width  = fmt_out.i_width;
+    p_subpic->i_original_picture_height = fmt_out.i_height;
+
+    fmt_out.i_aspect = 0;
+    fmt_out.i_sar_num =
+    fmt_out.i_sar_den = 0;
+
+    p_subpic->p_region = subpicture_region_New( &fmt_out );
+    if( p_subpic->p_region )
+    {
+        picture_Release( p_subpic->p_region->p_picture );
+        p_subpic->p_region->p_picture = p_pip;
+    }
+    else
+    {
+        picture_Release( p_pip );
+    }
+    return p_subpic;
 }
 
 /*****************************************************************************
@@ -894,62 +964,6 @@ static void FilterRelease( filter_t *p_filter )
     vlc_object_release( p_filter );
 }
 
-static void SpuRenderCreateBlend( spu_t *p_spu, vlc_fourcc_t i_chroma, int i_aspect )
-{
-    filter_t *p_blend;
-
-    assert( !p_spu->p->p_blend );
-
-    p_spu->p->p_blend =
-    p_blend        = vlc_custom_create( p_spu, sizeof(filter_t),
-                                        VLC_OBJECT_GENERIC, "blend" );
-    if( !p_blend )
-        return;
-
-    es_format_Init( &p_blend->fmt_in, VIDEO_ES, 0 );
-
-    es_format_Init( &p_blend->fmt_out, VIDEO_ES, 0 );
-    p_blend->fmt_out.video.i_x_offset = 0;
-    p_blend->fmt_out.video.i_y_offset = 0;
-    p_blend->fmt_out.video.i_chroma = i_chroma;
-    p_blend->fmt_out.video.i_aspect = i_aspect;
-
-    /* The blend module will be loaded when needed with the real
-    * input format */
-    p_blend->p_module = NULL;
-
-    /* */
-    vlc_object_attach( p_blend, p_spu );
-}
-static void SpuRenderUpdateBlend( spu_t *p_spu, int i_out_width, int i_out_height,
-                                  const video_format_t *p_in_fmt )
-{
-    filter_t *p_blend = p_spu->p->p_blend;
-
-    assert( p_blend );
-
-    /* */
-    if( p_blend->p_module && p_blend->fmt_in.video.i_chroma != p_in_fmt->i_chroma )
-    {
-        /* The chroma is not the same, we need to reload the blend module
-         * XXX to match the old behaviour just test !p_blend->fmt_in.video.i_chroma */
-        module_unneed( p_blend, p_blend->p_module );
-        p_blend->p_module = NULL;
-    }
-
-    /* */
-    p_blend->fmt_in.video = *p_in_fmt;
-
-    /* */
-    p_blend->fmt_out.video.i_width =
-    p_blend->fmt_out.video.i_visible_width = i_out_width;
-    p_blend->fmt_out.video.i_height =
-    p_blend->fmt_out.video.i_visible_height = i_out_height;
-
-    /* */
-    if( !p_blend->p_module )
-        p_blend->p_module = module_need( p_blend, "video blending", NULL, false );
-}
 static void SpuRenderCreateAndLoadText( spu_t *p_spu )
 {
     filter_t *p_text;
@@ -1040,7 +1054,7 @@ static void SpuRenderCreateAndLoadScale( spu_t *p_spu )
 
 static void SpuRenderText( spu_t *p_spu, bool *pb_rerender_text,
                            subpicture_t *p_subpic, subpicture_region_t *p_region,
-                           int i_min_scale_ratio )
+                           int i_min_scale_ratio, mtime_t render_date )
 {
     filter_t *p_text = p_spu->p->p_text;
 
@@ -1069,7 +1083,7 @@ static void SpuRenderText( spu_t *p_spu, bool *pb_rerender_text,
      * the text over time.
      */
     var_SetTime( p_text, "spu-duration", p_subpic->i_stop - p_subpic->i_start );
-    var_SetTime( p_text, "spu-elapsed", mdate() - p_subpic->i_start );
+    var_SetTime( p_text, "spu-elapsed", render_date );
     var_SetBool( p_text, "text-rerender", false );
     var_SetInteger( p_text, "scale", i_min_scale_ratio );
 
@@ -1332,7 +1346,8 @@ static void SpuRenderRegion( spu_t *p_spu,
                              subpicture_t *p_subpic, subpicture_region_t *p_region,
                              const spu_scale_t scale_size,
                              const video_format_t *p_fmt,
-                             const spu_area_t *p_subtitle_area, int i_subtitle_area )
+                             const spu_area_t *p_subtitle_area, int i_subtitle_area,
+                             mtime_t render_date )
 {
     spu_private_t *p_sys = p_spu->p;
 
@@ -1352,7 +1367,8 @@ static void SpuRenderRegion( spu_t *p_spu,
     if( p_region->fmt.i_chroma == VLC_CODEC_TEXT )
     {
         const int i_min_scale_ratio = SCALE_UNIT; /* FIXME what is the right value? (scale_size is not) */
-        SpuRenderText( p_spu, &b_rerender_text, p_subpic, p_region, i_min_scale_ratio );
+        SpuRenderText( p_spu, &b_rerender_text, p_subpic, p_region,
+                       i_min_scale_ratio, render_date );
         b_restore_format = b_rerender_text;
 
         /* Check if the rendering has failed ... */
@@ -1579,19 +1595,15 @@ static void SpuRenderRegion( spu_t *p_spu,
     }
 
     /* Update the blender */
-    SpuRenderUpdateBlend( p_spu, p_fmt->i_width, p_fmt->i_height, &region_fmt );
-
-    if( p_sys->p_blend->p_module )
-    {
-        const int i_alpha = SpuRegionAlpha( p_subpic, p_region );
-
-        p_sys->p_blend->pf_video_blend( p_sys->p_blend, p_pic_dst,
-            p_region_picture, i_x_offset, i_y_offset, i_alpha );
-    }
-    else
+    if( filter_ConfigureBlend( p_spu->p->p_blend,
+                               p_fmt->i_width, p_fmt->i_height,
+                               &region_fmt ) ||
+        filter_Blend( p_spu->p->p_blend,
+                      p_pic_dst, i_x_offset, i_y_offset,
+                      p_region_picture, SpuRegionAlpha( p_subpic, p_region ) ) )
     {
         msg_Err( p_spu, "blending %4.4s to %4.4s failed",
-                 (char *)&p_sys->p_blend->fmt_out.video.i_chroma,
+                 (char *)&p_sys->p_blend->fmt_in.video.i_chroma,
                  (char *)&p_sys->p_blend->fmt_out.video.i_chroma );
     }
 

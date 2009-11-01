@@ -1,12 +1,212 @@
-Changes between 1.0.0-rc1 and 1.1.0-git:
-----------------------------------------
+Changes between 1.0.3 and 1.1.0-git:
+------------------------------------
+
+Access:
+ * Port of the screen module from Xlib to XCB
+ * Support for the sftp protocol
+ * Support for CDDB servers for Audio-CD on Windows version
+
+Decoders:
+ * Support for Atrac1
+ * HD dvb subtitles - Display Definition Segment support
+ * PGS subtitles for Blu-Ray
+ * Invmem modules improvements
+
+Demuxers:
+ * Support for ADPCM in .flv streams
+ * EXPERIMENTAL support for .aob files from DVD-Audio (MLP and LPCM)
+   (Full disc support is NOT present yet)
+ * Support for TwinVQ (.vqf) files
+ * Various EGP improvements
+
+Playlist:
+ * WPL playlist support
+ * ZPL playlist support
+ * Lua scripts for Mpora, Vimeo playback and Rockbox FM radios
+ * New Play-And-Pause function to stop playback on latest video image
+ * Podcast images are now displayed
+
+Audio filters:
+ * Chorus/Flanger audio filter
+ * 3F1R to stereo downmix filter
+ * Dolby mixer, parameterized equalizer, trivial mixer, scaletempo, bandlimited resampler,
+   linear resampler, ugly resampler, converter_float, converter_fixed, DTS to SPDIF and
+   A/52 to SPDIF filters have been upgraded to the "audio filter2" API
+ * NEON assembly audio converter module
+
+Encoders:
+ * x264, add psy-rd parameter and change default settings
+ * x264, add profile-limitter sameway as x264.eve has, for example
+    #transcode{vcodec=h264,venc=x264{profile=baseline,level=1.2},vb=384,width=320,height=176}
+ * x264, defaults to crf=23 as x264.exe-does, if bitrate is given,
+   uses ABR and if qp-value is set uses CQP
+ * libx264-version 0.76 or higher is required
+
+Video Output:
+ * Rewrite of the video output core and most video outputs
+ * Added desktop mode to the Direct3D output module. It differs from DirectX
+   desktop mode, because it hides the desktop icons, but reacts to mouse clicks.
+ * New x11 and xv modules based on XCB
+ * New deinterlacing modes based on yadif and yadif(x2)
+
+Visualisation:
+ * Support of .milk visualisation files using projectM libraries
+
+Service discovery:
+ * Service discovery for Picture/Music/Video user directories
+ * Service discovery based on libudev
+
+Stream output:
+ * New smem module, streaming to memory
 
 Mac OS X Interface:
  * Completely reworked user interface (based upon works from GSoC 2008)
 
+Windows port:
+ * Integration in Windows 7 taskbar
 
-Changes between 0.9.9a and 1.0.0-rc1:
-------------------------------------
+Maemo port:
+ * Multiple improvements for N900 compliance and efficiency
+
+Removed modules:
+ * csri
+ * galaktos
+ * showintf
+ * transrate
+ * Xlib x11, Xlib xvideo (use XCB instead)
+ * HAL (use libudev instead)
+ * gtk_main, gtk_main2, gnome_main, gnome_main2 and pda interfaces
+
+
+Changes between 1.0.2 and 1.0.3:
+--------------------------------
+
+Video outputs:
+ * Fix video quality when resizing the video on Windows Vista and 7, due to
+   regressions in most popular drivers
+ * New deinterlacers modules based on yadif and yadif(x2) algorithms
+
+Decoders:
+ * Windows version supports now natively the WMA Professional codec, as it
+   didn't work in the packaged version of 1.0.2
+ * Fix downmixing of particual 4.0 AC-3 audio tracks
+
+Encoders:
+ * x264 has profile-limitter, like:
+    #transcode{vcodec=h264,venc=x264{profile=baseline,level=12}..}
+
+Input:
+ * Update for appletrailers lua script
+ * Fixes on the RAR stream filter
+ * Fix for E-AC3 in ATSC/TS streams
+ * Various fixes for v4l and v4l2
+ * Fix a crash in mjpeg demuxer
+
+Service discovery:
+ * New udev module for linux
+
+Qt4 interface:
+ * Fixes on the playlist and the stream output panels
+
+Translations:
+ * French, Galician, Korean, Polish, Russian, Romanian, Slovak and Ukrainian updates
+
+
+Changes between 1.0.1 and 1.0.2:
+--------------------------------
+
+Decoders:
+ * Native support for WMA Professional, without the use of the Win32 dlls
+ * Fix issues in subtitles, especially SSA ones
+ * Various fixes on theora and ogg
+
+Demuxers:
+ * Various fixes for EPG support in MPEG-TS demuxer
+ * Fixes for potential stack overflow in .avi, .mp4 and .asf demuxers
+
+Access:
+ * Fixes for v4l2 devices
+ * Fixes for dvb-c channels-scanning
+
+Qt Interface:
+ * Fix some playlist sorting issues
+
+Mac OS X Interface:
+ * Fixed a crash when updating VLC
+ * Fixed a crash related to QTKit when opening video files (10.6 only)
+ * Added the ability to play 2nd media in sync to the primary item (input-slave)
+ * Added the "Quit after Playback" feature
+
+Mac OS X Port:
+ * The "Delete Preferences" script is now delivered as a Universal Binary
+   with native code for PowerPC, Intel and Intel 64bit
+ * Full 64bit runtime compatibility on both Mac OS X 10.5 and 10.6
+   - no support for Goom and SDL
+   - limited text rendering support
+   - This port is still considered as EXPERIMENTAL despite its binary release.
+
+Encoders:
+ * MPEG2 transrate stream output removed
+ * x264 default-values closer to x264.exe defaults.
+ * x264 rc-behaviour fixes:
+   - if user defines qp-value, CQP-mode is used
+   - otherwise if user defines vb=0, CRF-mode is used
+   - otherwise ABR-mode is used
+ * x264 set vbv-bufsize/vbv-maxsize better if user hasn't defined these:
+   - ABR mode set vbv-max-bitrate=bitrate
+   - vbv-bufsize is bitrate * seconds between keyframes (keyint/fps)
+
+
+Playlist:
+ * Lua scripts for Mpora and Vimeo playback
+
+Unix builds:
+ * Various fixes to enable 1.0 to build on Solaris and OpenBSD
+
+
+Changes between 1.0.0 and 1.0.1:
+--------------------------------
+
+Demuxers:
+ * Fix wmv/asf issues that caused audio to drop
+ * Various fixes for ac3, mp3, dts and stability for wav format
+ * Fix seek in RTSP in conformity to RFC 2326
+ * Fix Dailymotion access script
+ * Fix crashes in xspf files handler
+ * Fix seeking and timing issues in some flv files on Windows version
+
+Access:
+ * Add extra caching for files on network shares
+ * Prevent integer underflow in Real pseudo-RTSP module, discovered by tixxDZ, DZCORE Labs, Algeria
+
+Decoders:
+ * Fix seeking in mpeg2 video files
+ * Improve SSA subtitles rendering
+ * Update most codecs for the Windows and Mac version
+
+Muxers:
+ * Fix sound recording of .flv files with mp3 audio
+
+Qt Interface:
+ * Possibility to change the opacity level of the Fullscreen controller
+ * Fix various crashes and VIDEO_TS folders opening
+
+Mac OS X Interface:
+ * Added options to disable support for Apple Remote and Media Keys
+ * Fixed options for Volume, Last.fm password and Subtitle Encoding
+ * Fixed redraw issues when autosizing the video window
+ * Preferences panel now includes help through tool-tips
+ * More reliable Information and Messages panels
+ * Fix various crashes
+
+Windows port:
+ * The ZVBI module is now available for Windows, for complete teletext support
+
+Translations updates for Brazillian, French, German, Korean, Norwegian Nynorsk, Lithuanian
+
+
+Changes between 0.9.9a and 1.0.0:
+---------------------------------
 
 Important notes:
 ----------------
@@ -31,7 +231,7 @@ Decoders:
  * New QCELP (Qualcomm PureVoice) decoder
  * Improved Real Video 3.0 & 4.0 decoder
  * New WMA v1/2 fixed point integer decoder
- * Close Caption under SCTE-20 standard are now correctly decoded
+ * Closed Captions using the SCTE-20 standard are now correctly decoded
  * Improvement of WavPack decoder to support all integer modes and float mode
  * Corrections on 5.1 and 7.1 channel decoding and ordering
 
@@ -42,7 +242,7 @@ Demuxers:
  * Metadata for mod files are supported
  * GSM codecs in Wav files are supported
  * New raw audio demuxer supporting raw PCM streams
- * New dirac demuxer for raw dirac streams
+ * New Dirac demuxer for raw Dirac streams
 
 Encoders:
  * Dirac encoding using libdirac (supported in Ogg and in TS)
@@ -57,7 +257,9 @@ Access:
    OSS or Alsa audio input. Use --input-slave alsa:// or oss:// if needed.
  * DVB scanning on linux
  * EXPERIMENTAL Blu-Ray Disc and AVCHD Folders support
- * On-the-fly zip file decompression and browsing (MRL of the form zip://file.zip!/file.avi to specify the file - the development form of zip://file.zip|file.avi is not supported anymore)
+ * On-the-fly zip file decompression and browsing (MRL of the form
+   zip://file.zip!/file.avi to specify the file - the development form of
+   zip://file.zip|file.avi is not supported anymore)
  * Opening of any file descriptor using 'fd://'
  * MTP device access on Unix
  * CD-Text support on the cdda module (CD-Audio)
@@ -66,7 +268,7 @@ Access:
 Inputs:
  * Mouse cursor support in x11 and win32 screen modules
  * Screen module now features partial screen capture and mouse following on
-   Windows.
+   Windows and Mac OS X.
 
 Playlist:
  * Export the playlist in HTML
@@ -84,13 +286,13 @@ Linux/Windows interface:
     - Improvements on many dialogs
     - New dialog for plugins listing
     - Fixed-size mode for videos
-    - Better teletext, trickplay and encrypted streams control
+    - Better Teletext, trickplay and encrypted streams control
  * Better integration in GTK environments
 
 Mac OS X Interface:
  * Controllable by the Media Keys on modern Apple keyboards (brushed Aluminium)
  * Reveal-in-Finder functionality for locally stored items.
- * Easy addition of Subtitles through the Video menu
+ * Easy addition of subtitles through the Video menu
  * Additional usability improvements
 
 Stream output:
@@ -110,7 +312,8 @@ Windows CE Port:
 
 Mac OS X Port:
  * Speed improvements by using llvm-gcc
- * New Document icons by Dominic Spitaler
+ * New document icons by Dominic Spitaler
+ * Support for latest iSight models
 
 Audio output:
  * Removed obsolete Esound and aRts plugins
@@ -125,9 +328,11 @@ Video output:
  * Support for scaling and converting video chromas with FFMPEG imgresample was
    withdrawn due to bugs. Please use the newer FFMPEG swscale instead.
 
-Miscellanous:
+Miscellaneous:
  * Invmem, a fake codec to display images from external applications
 
+New Localization:
+ * Mongolian
 
 Changes between 0.9.9 and 0.9.9a:
 ---------------------------------
@@ -503,7 +708,7 @@ Interfaces:
      if libncursesw is available.
    * Some nice colors if the terminal supports it (most do)
  * Experimental Lua interface modules. See vlc -I lua and
-   share/lua/playlist/README.txt for more info.
+   share/lua/intf/README.txt for more info.
  * Unix
    * Option to allow only one running instance, using D-Bus interface.
    * D-Bus Interface implementing the MPRIS 

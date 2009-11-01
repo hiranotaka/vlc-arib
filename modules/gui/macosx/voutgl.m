@@ -34,6 +34,7 @@
 #include <stdlib.h>                                                /* free() */
 #include <string.h>
 
+#include <vlc_common.h>
 #include <vlc_keys.h>
 
 #include "intf.h"
@@ -103,7 +104,6 @@ static void aglUnlock ( vout_thread_t * p_vout );
 int OpenVideoGL  ( vlc_object_t * p_this )
 {
     vout_thread_t * p_vout = (vout_thread_t *) p_this;
-    vlc_value_t value_drawable;
 
     if( !CGDisplayUsesOpenGLAcceleration( kCGDirectMainDisplay ) )
     {
@@ -119,8 +119,9 @@ int OpenVideoGL  ( vlc_object_t * p_this )
     memset( p_vout->p_sys, 0, sizeof( vout_sys_t ) );
 
 #ifndef __x86_64__
-    var_Get( p_vout->p_libvlc, "drawable-agl", &value_drawable );
-    if( value_drawable.i_int != 0 )
+    int i_drawable_agl;
+    i_drawable_agl = var_GetInteger( p_vout->p_libvlc, "drawable-agl" );
+    if( i_drawable_agl > 0 )
     {
         static const GLint ATTRIBUTES[] = {
             AGL_WINDOW,
@@ -208,50 +209,34 @@ void CloseVideoGL ( vlc_object_t * p_this )
 {
     vout_thread_t * p_vout = (vout_thread_t *) p_this;
 
-    msg_Dbg( p_this, "Closing" );
 
 #ifndef __x86_64__
-    /* If the fullscreen window is still open, close it */
-    if( p_vout->b_fullscreen )
+    if( p_vout->p_sys->b_embedded )
     {
-        p_vout->i_changes |= VOUT_FULLSCREEN_CHANGE;
-        if( p_vout->p_sys->b_embedded )
+        /* If the fullscreen window is still open, close it */
+        if( p_vout->b_fullscreen )
         {
+            p_vout->i_changes |= VOUT_FULLSCREEN_CHANGE;
             aglManage( p_vout );
             var_SetBool( p_vout->p_parent, "fullscreen", false );
         }
-        else
-            Manage( p_vout );
-    }
-
-    if( p_vout->p_sys->b_embedded )
-    {
         if( p_vout->p_sys->agl_ctx )
         {
             aglEnd( p_vout );
             aglDestroyContext(p_vout->p_sys->agl_ctx);
         }
     }
-    else if(VLCIntf && vlc_object_alive (VLCIntf))
-    {
-        NSAutoreleasePool *o_pool = [[NSAutoreleasePool alloc] init];
-
-        /* Close the window */
-        [p_vout->p_sys->o_vout_view performSelectorOnMainThread:@selector(closeVout) withObject:NULL waitUntilDone:YES];
-
-        [o_pool release];
-    }
-#else
-	if(VLCIntf && vlc_object_alive (VLCIntf))
-    {
-        NSAutoreleasePool *o_pool = [[NSAutoreleasePool alloc] init];
-
-        /* Close the window */
-        [p_vout->p_sys->o_vout_view performSelectorOnMainThread:@selector(closeVout) withObject:NULL waitUntilDone:YES];
-
-        [o_pool release];
-    }
+    else
 #endif
+    if(VLCIntf && vlc_object_alive (VLCIntf))
+    {
+        NSAutoreleasePool *o_pool = [[NSAutoreleasePool alloc] init];
+
+        /* Close the window */
+        [p_vout->p_sys->o_vout_view performSelectorOnMainThread:@selector(closeVout) withObject:NULL waitUntilDone:YES];
+
+        [o_pool release];
+    }
     /* Clean up */
     free( p_vout->p_sys );
 }

@@ -28,9 +28,15 @@ pkginclude_HEADERS = \
 	../include/vlc/vlc.h \
 	../include/vlc/deprecated.h \
 	../include/vlc/libvlc.h \
-	../include/vlc/libvlc_structures.h \
-	../include/vlc/libvlc_media_list.h \
 	../include/vlc/libvlc_events.h \
+	../include/vlc/libvlc_media.h \
+	../include/vlc/libvlc_media_discoverer.h \
+	../include/vlc/libvlc_media_library.h \
+	../include/vlc/libvlc_media_list.h \
+	../include/vlc/libvlc_media_list_player.h \
+	../include/vlc/libvlc_media_list_view.h \
+	../include/vlc/libvlc_media_player.h \
+	../include/vlc/libvlc_structures.h \
 	../include/vlc/libvlc_vlm.h \
 	../include/vlc/mediacontrol.h \
 	../include/vlc/mediacontrol_structures.h \
@@ -40,7 +46,9 @@ pluginsinclude_HEADERS = \
 	../include/vlc_access.h \
 	../include/vlc_acl.h \
 	../include/vlc_aout.h \
+	../include/vlc_aout_mixer.h \
 	../include/vlc_arrays.h \
+	../include/vlc_art_finder.h \
 	../include/vlc_avcodec.h \
 	../include/vlc_bits.h \
 	../include/vlc_block.h \
@@ -51,6 +59,7 @@ pluginsinclude_HEADERS = \
 	../include/vlc_config.h \
 	../include/vlc_config_cat.h \
 	../include/vlc_configuration.h \
+	../include/vlc_cpu.h \
 	../include/vlc_dialog.h \
 	../include/vlc_demux.h \
 	../include/vlc_epg.h \
@@ -60,8 +69,10 @@ pluginsinclude_HEADERS = \
 	../include/vlc_filter.h \
 	../include/vlc_fourcc.h \
 	../include/vlc_gcrypt.h \
+	../include/vlc_http.h \
 	../include/vlc_httpd.h \
 	../include/vlc_image.h \
+	../include/vlc_inhibit.h \
 	../include/vlc_input.h \
 	../include/vlc_input_item.h \
 	../include/vlc_main.h \
@@ -69,13 +80,17 @@ pluginsinclude_HEADERS = \
 	../include/vlc_messages.h \
 	../include/vlc_meta.h \
 	../include/vlc_modules.h \
+	../include/vlc_mouse.h \
 	../include/vlc_mtime.h \
 	../include/vlc_objects.h \
 	../include/vlc_picture.h \
+	../include/vlc_picture_fifo.h \
+	../include/vlc_picture_pool.h \
 	../include/vlc_playlist.h \
 	../include/vlc_plugin.h \
 	../include/vlc_rand.h \
 	../include/vlc_services_discovery.h \
+	../include/vlc_sql.h \
 	../include/vlc_sout.h \
 	../include/vlc_stream.h \
 	../include/vlc_strings.h \
@@ -84,8 +99,10 @@ pluginsinclude_HEADERS = \
 	../include/vlc_url.h \
 	../include/vlc_variables.h \
 	../include/vlc_vlm.h \
+	../include/vlc_video_splitter.h \
 	../include/vlc_vout.h \
-	../include/vlc_window.h \
+	../include/vlc_vout_display.h \
+	../include/vlc_vout_window.h \
 	../include/vlc_xml.h \
 	$(NULL)
 
@@ -93,7 +110,6 @@ noinst_HEADERS = \
 	../include/mmx.h \
 	../include/vlc_codec_synchro.h \
 	../include/vlc_codecs.h \
-	../include/vlc_devices.h \
 	../include/vlc_fixups.h \
 	../include/vlc_interface.h \
 	../include/vlc_intf_strings.h \
@@ -105,6 +121,7 @@ noinst_HEADERS = \
 	../include/vlc_tls.h \
 	../include/vlc_update.h \
 	../include/vlc_vod.h \
+	../include/vlc_vout_wrapper.h \
 	$(NULL)
 
 ../include/vlc_about.h: Makefile.am $(top_srcdir)/COPYING $(top_srcdir)/THANKS $(top_srcdir)/AUTHORS
@@ -112,14 +129,17 @@ noinst_HEADERS = \
 	mkdir -p -- ../include
 	echo "/* Automatically generated file - DO NOT EDIT */" > "$@.tmp"
 	echo "static const char psz_license[] =" >> "$@.tmp"
-	cat $(top_srcdir)/COPYING | sed s/'"'/'\\"'/g | $(AWK) '{ print "\""$$0"\\n\"" }' >> "$@.tmp"
+	sed 's/"/\\"/g;s/^.*$$/\"&\\n\"/' "$(top_srcdir)/COPYING" >> "$@.tmp"
 	echo ";" >> "$@.tmp"
 	echo "static const char psz_thanks[] =" >> "$@.tmp"
-	grep -v '$$Id:'  $(top_srcdir)/THANKS | sed s/'"'/'\\"'/g | $(AWK) '{ print "\""$$0"\\n\"" }'|sed s/"<.*.> "// >> "$@.tmp"
+	sed '/\$$Id:/d;s/"/\\"/g;s/<.*.> //;s/^.*$$/\"&\\n\"/' \
+		"$(top_srcdir)/THANKS" >> "$@.tmp"
 	echo ";" >> "$@.tmp"
 	echo "static const char psz_authors[] =" >> "$@.tmp"
-	grep N: $(top_srcdir)/AUTHORS | cut -d" " -f 2- | sed s/'"'/'\\"'/g | $(AWK) '{ print "\""$$0"\\n\"" }' >> "$@.tmp"
+	sed -n '/^N: /{;s///;s/"/\\"/g;s/^.*$$/\"&\\n\"/;p;}' \
+		"$(top_srcdir)/AUTHORS" >> "$@.tmp"
 	echo ";" >> "$@.tmp"
+
 	mv -f -- "$@.tmp" "$@"
 
 ###############################################################################
@@ -152,6 +172,7 @@ AM_LDFLAGS += -avoid-version
 endif
 
 libvlccore_la_SOURCES = $(SOURCES_libvlc)
+nodist_libvlccore_la_SOURCES = revision.c
 libvlccore_la_CFLAGS = `$(VLC_CONFIG) --cflags libvlccore` \
 	-DMODULE_STRING=\"main\" \
 	-DLOCALEDIR=\"$(localedir)\" \
@@ -162,7 +183,7 @@ libvlccore_la_CFLAGS = `$(VLC_CONFIG) --cflags libvlccore` \
 libvlccore_la_LDFLAGS = `$(VLC_CONFIG) --ldflags libvlccore` $(AM_LDFLAGS) \
 	-no-undefined \
 	-export-symbols $(srcdir)/libvlccore.sym \
-	-version-info 3:0:0
+	-version-info 4:0:0
 libvlccore_la_LIBADD = `$(VLC_CONFIG) -libs libvlccore` $(AM_LIBADD) \
 	$(LTLIBINTL) ../compat/libcompat.la
 libvlccore_la_DEPENDENCIES = libvlccore.sym
@@ -175,6 +196,7 @@ libvlc_win32_rc.$(OBJEXT): $(top_builddir)/share/libvlc_win32_rc.rc
 	$(WINDRES) --include-dir $(top_srcdir)/share -i $< -o $@
 
 libvlc_la_SOURCES = $(SOURCES_libvlc_control)
+nodist_libvlc_la_SOURCES = revision.c
 libvlc_la_LIBADD = `$(VLC_CONFIG) -libs libvlc` \
 	libvlccore.la ../compat/libcompat.la
 libvlc_la_CFLAGS = `$(VLC_CONFIG) --cflags libvlc`
@@ -242,22 +264,26 @@ SOURCES_libvlc_beos = \
 	$(NULL)
 
 SOURCES_libvlc_darwin = \
+	config/dirs_macos.c \
 	misc/pthread.c \
 	misc/darwin_specific.c \
 	$(NULL)
 
 SOURCES_libvlc_linux = \
+	config/dirs_xdg.c \
 	misc/pthread.c \
 	misc/linux_specific.c \
 	$(NULL)
 
 SOURCES_libvlc_win32 = \
+	config/dirs_win.c \
 	misc/w32thread.c \
 	misc/win32_specific.c \
 	network/winsock.c \
 	$(NULL)
 
 SOURCES_libvlc_other = \
+	config/dirs_xdg.c \
 	misc/pthread.c \
 	misc/not_specific.c
 
@@ -329,12 +355,21 @@ SOURCES_libvlc_common = \
 	input/stream_memory.c \
 	input/subtitles.c \
 	input/var.c \
+	video_output/display.c \
+	video_output/display.h \
+	video_output/event.h \
+	video_output/inhibit.c \
+	video_output/inhibit.h \
+	video_output/snapshot.c \
+	video_output/snapshot.h \
+	video_output/statistic.h \
 	video_output/video_output.c \
 	video_output/vout_pictures.c \
 	video_output/vout_pictures.h \
 	video_output/video_text.c \
 	video_output/video_widgets.c \
 	video_output/vout_subpictures.c \
+	video_output/window.c \
 	video_output/vout_intf.c \
 	video_output/vout_internal.h \
 	video_output/vout_control.h \
@@ -370,6 +405,8 @@ SOURCES_libvlc_common = \
 	misc/block.c \
 	misc/fourcc.c \
 	misc/es_format.c \
+	misc/picture_fifo.c \
+	misc/picture_pool.c \
 	modules/modules.h \
 	modules/modules.c \
 	modules/cache.c \
@@ -379,12 +416,13 @@ SOURCES_libvlc_common = \
 	misc/stats.c \
 	misc/cpu.c \
 	misc/action.c \
+	misc/epg.c \
 	config/configuration.h \
 	config/core.c \
-	config/dirs.c \
 	config/chain.c \
 	config/file.c \
 	config/intf.c \
+	config/keys.c \
 	config/cmdline.c \
 	misc/events.c \
 	misc/image.c \
@@ -395,10 +433,13 @@ SOURCES_libvlc_common = \
 	misc/error.c \
 	misc/update.h \
 	misc/update.c \
+	misc/update_crypto.c \
 	misc/xml.c \
-	misc/devices.c \
 	extras/libc.c \
+	misc/filter.c \
 	misc/filter_chain.c \
+	misc/http_auth.c \
+	misc/sql.c \
 	$(NULL)
 
 SOURCES_libvlc_httpd = \
@@ -430,13 +471,20 @@ SOURCES_libvlc = \
 
 SOURCES_libvlc_control = \
 	control/libvlc_internal.h \
+	control/event_internal.h \
+	control/media_internal.h \
+	control/media_list_internal.h \
+	control/media_list_view_internal.h \
+	control/media_player_internal.h \
 	control/core.c \
+	control/error.c \
 	control/log.c \
 	control/playlist.c \
 	control/vlm.c \
 	control/video.c \
 	control/audio.c \
 	control/event.c \
+	control/event_async.c \
 	control/flat_media_list_view.c \
 	control/hierarchical_media_list_view.c \
 	control/hierarchical_node_media_list_view.c \
@@ -454,11 +502,53 @@ SOURCES_libvlc_control = \
 	control/media_discoverer.c
 
 ###############################################################################
+# GIT revision
+###############################################################################
+
+BUILT_SOURCES += stamp-revision
+CLEANFILES += revision.txt revision.c
+
+revision.c: revision.txt
+	rm -f -- revision.c
+	echo "const char psz_vlc_changeset[] = \"$$(cat revision.txt)\";" \
+		> revision.c
+
+revision.txt: Makefile.am
+	$(MAKE) stamp-revision
+	touch revision.txt
+
+stamp-revision:
+	rm -f -- revision.tmp
+	(git --git-dir="$(top_srcdir)/.git/" describe --tags --long \
+		--match '?.*.*' --always || echo exported) > revision.tmp
+	if diff revision.tmp revision.txt >/dev/null; then \
+		rm -f -- revision.tmp; \
+	else \
+		mv -f -- revision.tmp revision.txt; \
+	fi 2>&1
+
+###############################################################################
 # Unit/regression test
 ###############################################################################
 
 dist_check_SCRIPTS = check_symbols check_headers
 TESTS = check_symbols
+
+check_DATA = libvlc-headers.sym libvlc-sorted.sym
+CLEANFILES += $(check_DATA)
+
+libvlc-sorted.sym: libvlccore.sym
+	rm -f libvlc-sorted.sym
+	sort -fdu < "$(srcdir)/libvlccore.sym" > libvlc-sorted.sym
+
+libvlc-headers.sym:
+	rm -f libvlc-headers.sym
+	cat ${srcdir}/../include/vlc_*.h ${srcdir}/control/*.h | \
+	sed -n -e 's/^[ ]*VLC_EXPORT[ ]*([^,]*,\([^,]*\),.*/\1/p' | \
+	sed -e 's/[^a-zA-Z0-9_]*//' | \
+	sort -fdu > libvlc-headers.sym
+
+.PHONY: libvlc-headers.sym
 
 check-local:
 	for h in `echo $(pkginclude_HEADERS) | sed -e s,\.\./include/,,g`; \

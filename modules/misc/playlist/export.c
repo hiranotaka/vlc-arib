@@ -35,7 +35,7 @@
  * Prototypes
  ***************************************************************************/
 int Export_M3U    ( vlc_object_t *p_intf );
-int Export_Old    ( vlc_object_t *p_intf );
+int Export_M3U8   ( vlc_object_t *p_intf );
 int Export_HTML   ( vlc_object_t *p_intf );
 int xspf_export_playlist( vlc_object_t *p_intf );
 
@@ -53,10 +53,10 @@ vlc_module_begin ()
         set_callbacks( Export_M3U , NULL )
 
     add_submodule ()
-        set_description( N_("Old playlist export") )
-        add_shortcut( "export-old" )
+        set_description( N_("M3U8 playlist export") )
+        add_shortcut( "export-m3u8" )
         set_capability( "playlist export" , 0 )
-        set_callbacks( Export_Old , NULL )
+        set_callbacks( Export_M3U , NULL )
 
     add_submodule ()
         set_description( N_("XSPF playlist export") )

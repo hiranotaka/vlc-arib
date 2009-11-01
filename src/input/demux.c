@@ -37,7 +37,7 @@ static bool SkipAPETag( demux_t *p_demux );
  * demux_New:
  *  if s is NULL then load a access_demux
  *****************************************************************************/
-demux_t *__demux_New( vlc_object_t *p_obj,
+demux_t *__demux_New( vlc_object_t *p_obj, input_thread_t *p_parent_input,
                        const char *psz_access, const char *psz_demux,
                        const char *psz_path,
                        stream_t *s, es_out_t *out, bool b_quick )
@@ -48,6 +48,8 @@ demux_t *__demux_New( vlc_object_t *p_obj,
     const char *psz_module;
 
     if( p_demux == NULL ) return NULL;
+
+    p_demux->p_input = p_parent_input;
 
     /* Parse URL */
     p_demux->psz_access = strdup( psz_access );
@@ -99,10 +101,10 @@ demux_t *__demux_New( vlc_object_t *p_obj,
             { "flac", "flac" },
             { "dv",   "dv" },
             { "drc",  "dirac" },
-            { "m3u",  "playlist" },
+            { "m3u",  "m3u" },
+            { "m3u8", "m3u8" },
             { "mkv",  "mkv" }, { "mka",  "mkv" }, { "mks",  "mkv" },
             { "mp4",  "mp4" }, { "m4a",  "mp4" }, { "mov",  "mp4" }, { "moov", "mp4" },
-            { "mod",  "mod" }, { "it",  "mod" }, { "s3m",  "mod" }, { "xm",   "mod" },
             { "nsv",  "nsv" },
             { "ogg",  "ogg" }, { "ogm",  "ogg" }, /* legacy Ogg */
             { "oga",  "ogg" }, { "spx",  "ogg" }, { "ogv", "ogg" },
@@ -205,6 +207,15 @@ void demux_Delete( demux_t *p_demux )
 }
 
 /*****************************************************************************
+ * demux_GetParentInput:
+ *****************************************************************************/
+input_thread_t * demux_GetParentInput( demux_t *p_demux )
+{
+    return p_demux->p_input ? vlc_object_hold((vlc_object_t*)p_demux->p_input) : NULL;
+}
+
+
+/*****************************************************************************
  * demux_vaControlHelper:
  *****************************************************************************/
 int demux_vaControlHelper( stream_t *s,
@@ -234,7 +245,7 @@ int demux_vaControlHelper( stream_t *s,
 
         case DEMUX_GET_TIME:
             pi64 = (int64_t*)va_arg( args, int64_t * );
-            if( i_bitrate > 0 && i_end > i_start )
+            if( i_bitrate > 0 && i_tell >= i_start )
             {
                 *pi64 = INT64_C(8000000) * (i_tell - i_start) / i_bitrate;
                 return VLC_SUCCESS;
@@ -301,7 +312,7 @@ int demux_vaControlHelper( stream_t *s,
  ****************************************************************************/
 decoder_t *demux_PacketizerNew( demux_t *p_demux, es_format_t *p_fmt, const char *psz_msg )
 {
-    decoder_t *p_packetizer = vlc_object_create( p_demux, VLC_OBJECT_PACKETIZER );
+    decoder_t *p_packetizer = vlc_object_create( p_demux, VLC_OBJECT_DECODER );
 
     if( !p_packetizer )
     {
@@ -329,6 +340,7 @@ decoder_t *demux_PacketizerNew( demux_t *p_demux, es_format_t *p_fmt, const char
 
     return p_packetizer;
 }
+
 void demux_PacketizerDestroy( decoder_t *p_packetizer )
 {
     if( p_packetizer->p_module )

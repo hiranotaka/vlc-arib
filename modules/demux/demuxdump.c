@@ -57,7 +57,7 @@ vlc_module_begin ()
     set_capability( "demux", 0 )
     add_file( "demuxdump-file", "stream-demux.dump", NULL, FILE_TEXT,
               FILE_LONGTEXT, false )
-    add_bool( "demuxdump-append", 0, NULL, APPEND_TEXT, APPEND_LONGTEXT,
+    add_bool( "demuxdump-append", false, NULL, APPEND_TEXT, APPEND_LONGTEXT,
               false )
     set_callbacks( Open, Close )
     add_shortcut( "dump" )
@@ -175,7 +175,6 @@ static int Demux( demux_t *p_demux )
 
     int i_data;
 
-    /* I'm pretty sure that stream_Peek,stream_Read( , NULL ) would be faster*/
     i_data = stream_Read( p_demux->s, p_sys->buffer, DUMP_BLOCKSIZE );
     if ( i_data <= 0 )
         return i_data;

@@ -32,6 +32,7 @@
 #include <vlc_plugin.h>
 #include <vlc_interface.h>
 #include <vlc_playlist.h>
+#include <vlc_url.h>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <libnotify/notify.h>
@@ -54,7 +55,7 @@ vlc_module_begin ()
     set_description( N_("LibNotify Notification Plugin") )
 
     add_integer( "notify-timeout", 4000, NULL,
-                TIMEOUT_TEXT, TIMEOUT_LONGTEXT, true )
+                 TIMEOUT_TEXT, TIMEOUT_LONGTEXT, true )
 
     set_capability( "interface", 0 )
     set_callbacks( Open, Close )
@@ -153,16 +154,15 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
                        vlc_value_t oldval, vlc_value_t newval, void *param )
 {
     VLC_UNUSED(psz_var); VLC_UNUSED(oldval); VLC_UNUSED(newval);
-    char                psz_tmp[MAX_LENGTH];
-    char                psz_notify[MAX_LENGTH];
-    char                *psz_title      = NULL;
-    char                *psz_artist     = NULL;
-    char                *psz_album      = NULL;
-    char                *psz_arturl     = NULL;
-    input_thread_t      *p_input        =  playlist_CurrentInput(
-                                                    (playlist_t*) p_this );
-    intf_thread_t       *p_intf         = param;
-    intf_sys_t          *p_sys          = p_intf->p_sys;
+    char           psz_tmp[MAX_LENGTH];
+    char           psz_notify[MAX_LENGTH];
+    char           *psz_title;
+    char           *psz_artist;
+    char           *psz_album;
+    char           *psz_arturl;
+    input_thread_t *p_input = playlist_CurrentInput( (playlist_t*)p_this );
+    intf_thread_t  *p_intf  = param;
+    intf_sys_t     *p_sys   = p_intf->p_sys;
 
     if( !p_input )
         return VLC_SUCCESS;
@@ -176,39 +176,32 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
 
     /* Wait a tad so the meta has been fetched
      * FIXME that's awfully wrong */
-    msleep( 1000*4 );
+    msleep( 10000 );
 
     /* Playing something ... */
     input_item_t *p_input_item = input_GetItem( p_input );
-    psz_artist = input_item_GetArtist( p_input_item );
-    psz_album = input_item_GetAlbum( p_input_item );
     psz_title = input_item_GetTitleFbName( p_input_item );
 
+    /* We need at least a title */
     if( EMPTY_STR( psz_title ) )
-    {  /* Not enough metadata ... */
+    {
         free( psz_title );
-        free( psz_artist );
-        free( psz_album );
         vlc_object_release( p_input );
         return VLC_SUCCESS;
     }
-    if( EMPTY_STR( psz_artist ) )
-    {
-        free( psz_artist );
-        psz_artist = NULL;
-    }
-    if( EMPTY_STR( psz_album ) )
-    {
-        free( psz_album );
-        psz_album = NULL;
-    }
 
-    if( psz_artist && psz_album )
-        snprintf( psz_tmp, MAX_LENGTH, "<b>%s</b>\n%s\n[%s]",
-                  psz_title, psz_artist, psz_album );
-    else if( psz_artist )
-        snprintf( psz_tmp, MAX_LENGTH, "<b>%s</b>\n%s",
-                  psz_title, psz_artist );
+    psz_artist = input_item_GetArtist( p_input_item );
+    psz_album = input_item_GetAlbum( p_input_item );
+
+    if( !EMPTY_STR( psz_artist ) )
+    {
+        if( !EMPTY_STR( psz_album ) )
+            snprintf( psz_tmp, MAX_LENGTH, "<b>%s</b>\n%s\n[%s]",
+                      psz_title, psz_artist, psz_album );
+        else
+            snprintf( psz_tmp, MAX_LENGTH, "<b>%s</b>\n%s",
+                      psz_title, psz_artist );
+    }
     else
         snprintf( psz_tmp, MAX_LENGTH, "<b>%s</b>", psz_title );
 
@@ -221,12 +214,11 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
     vlc_object_release( p_input );
 
     if( psz_arturl && !strncmp( psz_arturl, "file://", 7 ) &&
-                strlen( psz_arturl ) > 7 )
+                decode_URI( psz_arturl + 7 ) )
     { /* scale the art to show it in notify popup */
         GError *p_error = NULL;
         pix = gdk_pixbuf_new_from_file_at_scale( &psz_arturl[7],
                                                  72, 72, TRUE, &p_error );
-        free( psz_arturl );
     }
     else /* else we show state-of-the art logo */
     {
@@ -238,6 +230,8 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
             free( psz_pixbuf );
         }
     }
+
+    free( psz_arturl );
 
     /* we need to replace '&' with '&amp;' because '&' is a keyword of
      * notification-daemon parser */
@@ -269,8 +263,9 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
     return VLC_SUCCESS;
 }
 
+/* libnotify callback, called when the "Next" button is pressed */
 static void Next( NotifyNotification *notification, gchar *psz, gpointer p )
-{ /* libnotify callback, called when the "Next" button is pressed */
+{
     vlc_object_t *p_object = (vlc_object_t*)p;
 
     VLC_UNUSED(psz);
@@ -280,8 +275,9 @@ static void Next( NotifyNotification *notification, gchar *psz, gpointer p )
     pl_Release( p_object );
 }
 
+/* libnotify callback, called when the "Previous" button is pressed */
 static void Prev( NotifyNotification *notification, gchar *psz, gpointer p )
-{ /* libnotify callback, called when the "Previous" button is pressed */
+{
     vlc_object_t *p_object = (vlc_object_t*)p;
 
     VLC_UNUSED(psz);
@@ -321,9 +317,9 @@ static int Notify( vlc_object_t *p_this, const char *psz_temp, GdkPixbuf *pix,
     if( p_sys->b_has_actions )
     {
       notify_notification_add_action( notification, "previous", _("Previous"), Prev,
-				                      (gpointer*)p_intf, NULL );
+                                      (gpointer*)p_intf, NULL );
       notify_notification_add_action( notification, "next", _("Next"), Next,
-				                      (gpointer*)p_intf, NULL );
+                                      (gpointer*)p_intf, NULL );
     }
 
     notify_notification_show( notification, NULL);

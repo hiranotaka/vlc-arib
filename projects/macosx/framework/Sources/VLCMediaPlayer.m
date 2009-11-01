@@ -32,6 +32,13 @@
 # include "config.h"
 #endif
 
+/* prevent system sleep */
+#import <CoreServices/CoreServices.h>
+/* FIXME: Ugly hack! */
+#ifdef __x86_64__
+#import <CoreServices/../Frameworks/OSServices.framework/Headers/Power.h>
+#endif
+
 #include <vlc/vlc.h>
 
 /* Notification Messages */
@@ -223,9 +230,7 @@ static void HandleMediaInstanceStateChanged(const libvlc_event_t * event, void *
     // Make sure that this instance has been associated with the drawing canvas.
     libvlc_exception_t ex;
     libvlc_exception_init( &ex );
-    libvlc_media_player_set_nsobject ((libvlc_media_player_t *)instance, 
-                                        aDrawable, 
-                                        &ex);
+    libvlc_media_player_set_nsobject(instance, aDrawable, &ex);
     catch_exception( &ex );
 }
 
@@ -233,10 +238,9 @@ static void HandleMediaInstanceStateChanged(const libvlc_event_t * event, void *
 {
     libvlc_exception_t ex;
     libvlc_exception_init( &ex );
-    libvlc_drawable_t ret = libvlc_media_player_get_drawable ((libvlc_media_player_t *)instance, 
-                                        &ex);
+    id ret = libvlc_media_player_get_nsobject(instance);
     catch_exception( &ex );
-    return (id)ret;
+    return ret;
 }
 
 - (VLCAudio *)audio
@@ -300,6 +304,22 @@ static void HandleMediaInstanceStateChanged(const libvlc_event_t * event, void *
     return result;
 }
 
+- (void)saveVideoSnapshotAt: (NSString *)path withWidth:(NSUInteger)width andHeight:(NSUInteger)height
+{
+    libvlc_exception_t ex;
+    libvlc_exception_init( &ex );
+    libvlc_video_take_snapshot( instance, [path UTF8String], width, height, &ex );
+    catch_exception( &ex );
+}
+
+- (void)setDeinterlaceFilter: (NSString *)name enabled: (BOOL)enabled
+{
+    libvlc_exception_t ex;
+    libvlc_exception_init( &ex );
+    libvlc_video_set_deinterlace( instance, (int)enabled , [name UTF8String], &ex );
+    catch_exception( &ex );
+}
+
 - (void)setRate:(float)value
 {
     libvlc_media_player_set_rate( instance, value, NULL );
@@ -321,7 +341,7 @@ static void HandleMediaInstanceStateChanged(const libvlc_event_t * event, void *
     NSSize result = NSMakeSize(libvlc_video_get_height((libvlc_media_player_t *)instance, &ex),
                                libvlc_video_get_width((libvlc_media_player_t *)instance, &ex));
     catch_exception( &ex );
-    return result;    
+    return result;
 }
 
 - (BOOL)hasVideoOut
@@ -467,24 +487,11 @@ static void HandleMediaInstanceStateChanged(const libvlc_event_t * event, void *
         return;
     }
 
-    // Return if there is no media available or if the stream is not paused or 
-    // playing something else
-    if (!media || (![self isPlaying] && [self state] != VLCMediaPlayerStatePaused))
-        return;
-
-    // Should never get here.
-    if (!instance)
-        return;
-
-
     // Pause the stream
     libvlc_exception_t ex;
     libvlc_exception_init( &ex );
     libvlc_media_player_pause( (libvlc_media_player_t *)instance, &ex );
     catch_exception( &ex );
-    
-    // TODO: Should we record the time in case the media instance is destroyed
-    // then rebuilt?
 }
 
 - (void)stop
@@ -498,11 +505,6 @@ static void HandleMediaInstanceStateChanged(const libvlc_event_t * event, void *
         [self performSelectorInBackground:@selector(stop) withObject:nil];
         return;
     }
-
-    // Return if there is no media available or if the system is not in play status 
-    // or pause status.
-    if (!media)
-        return;
     
     libvlc_exception_t ex;
     libvlc_exception_init( &ex );
@@ -528,6 +530,64 @@ static void HandleMediaInstanceStateChanged(const libvlc_event_t * event, void *
 - (void)rewindAtRate:(float)rate
 {
     [self setRate: -rate];
+}
+
+- (void)jumpBackward:(NSInteger)interval
+{
+    if( [self isSeekable] )
+    {
+        interval = interval * 1000000;
+        [self setTime: [VLCTime timeWithInt: ([[self time] intValue] - interval)]];
+    }
+}
+
+- (void)jumpForward:(NSInteger)interval
+{
+    if( [self isSeekable] )
+    {
+        interval = interval * 1000000;
+        [self setTime: [VLCTime timeWithInt: ([[self time] intValue] + interval)]];
+    }
+}
+
+- (void)extraShortJumpBackward
+{
+    [self jumpBackward:3];
+}
+
+- (void)extraShortJumpForward
+{
+    [self jumpForward:3];
+}
+
+- (void)shortJumpBackward
+{
+    [self jumpBackward:10];
+}
+
+- (void)shortJumpForward
+{
+    [self jumpForward:10];
+}
+
+- (void)mediumJumpBackward
+{
+    [self jumpBackward:60];
+}
+
+- (void)mediumJumpForward
+{
+    [self jumpForward:60];
+}
+
+- (void)longJumpBackward
+{
+    [self jumpBackward:300];
+}
+
+- (void)longJumpForward
+{
+    [self jumpForward:300];
 }
 
 + (NSSet *)keyPathsForValuesAffectingIsPlaying
@@ -603,7 +663,10 @@ static const VLCMediaPlayerState libvlc_to_local_state[] =
     return ret;
 }
 
-
+- (void *)libVLCMediaPlayer
+{
+    return instance;
+}
 @end
 
 @implementation VLCMediaPlayer (Private)
@@ -640,8 +703,9 @@ static const VLCMediaPlayerState libvlc_to_local_state[] =
     // Attach event observers into the media instance
     libvlc_event_manager_t * p_em = libvlc_media_player_event_manager( instance, &ex );
     libvlc_event_attach( p_em, libvlc_MediaPlayerPlaying,          HandleMediaInstanceStateChanged, self, &ex );
-    libvlc_event_attach( p_em, libvlc_MediaPlayerPaused,          HandleMediaInstanceStateChanged, self, &ex );
-    libvlc_event_attach( p_em, libvlc_MediaPlayerEndReached,      HandleMediaInstanceStateChanged, self, &ex );
+    libvlc_event_attach( p_em, libvlc_MediaPlayerPaused,           HandleMediaInstanceStateChanged, self, &ex );
+    libvlc_event_attach( p_em, libvlc_MediaPlayerEncounteredError, HandleMediaInstanceStateChanged, self, &ex );
+    libvlc_event_attach( p_em, libvlc_MediaPlayerEndReached,       HandleMediaInstanceStateChanged, self, &ex );
     /* FIXME: We may want to turn that off when none is interested by that */
     libvlc_event_attach( p_em, libvlc_MediaPlayerPositionChanged, HandleMediaPositionChanged,      self, &ex );
     libvlc_event_attach( p_em, libvlc_MediaPlayerTimeChanged,     HandleMediaTimeChanged,          self, &ex );
@@ -652,10 +716,11 @@ static const VLCMediaPlayerState libvlc_to_local_state[] =
 {
     libvlc_event_manager_t * p_em = libvlc_media_player_event_manager( instance, NULL );
     libvlc_event_detach( p_em, libvlc_MediaPlayerPlaying,          HandleMediaInstanceStateChanged, self, NULL );
-    libvlc_event_detach( p_em, libvlc_MediaPlayerPaused,          HandleMediaInstanceStateChanged, self, NULL );
-    libvlc_event_detach( p_em, libvlc_MediaPlayerEndReached,      HandleMediaInstanceStateChanged, self, NULL );
-    libvlc_event_detach( p_em, libvlc_MediaPlayerPositionChanged, HandleMediaPositionChanged,      self, NULL );
-    libvlc_event_detach( p_em, libvlc_MediaPlayerTimeChanged,     HandleMediaTimeChanged,          self, NULL );
+    libvlc_event_detach( p_em, libvlc_MediaPlayerPaused,           HandleMediaInstanceStateChanged, self, NULL );
+    libvlc_event_detach( p_em, libvlc_MediaPlayerEncounteredError, HandleMediaInstanceStateChanged, self, NULL );
+    libvlc_event_detach( p_em, libvlc_MediaPlayerEndReached,       HandleMediaInstanceStateChanged, self, NULL );
+    libvlc_event_detach( p_em, libvlc_MediaPlayerPositionChanged,  HandleMediaPositionChanged,      self, NULL );
+    libvlc_event_detach( p_em, libvlc_MediaPlayerTimeChanged,      HandleMediaTimeChanged,          self, NULL );
 }
 
 - (void)mediaPlayerTimeChanged:(NSNumber *)newTime
@@ -667,8 +732,16 @@ static const VLCMediaPlayerState libvlc_to_local_state[] =
     [self didChangeValueForKey:@"time"];
 }
 
+- (void)delaySleep
+{
+    UpdateSystemActivity(UsrActivity);
+}
+
 - (void)mediaPlayerPositionChanged:(NSNumber *)newPosition
 {
+    // This seems to be the most relevant place to delay sleeping and screen saver.
+    [self delaySleep];
+
     [self willChangeValueForKey:@"position"];
     position = [newPosition floatValue];
     [self didChangeValueForKey:@"position"];
@@ -680,4 +753,5 @@ static const VLCMediaPlayerState libvlc_to_local_state[] =
     cachedState = [newState intValue];
     [self didChangeValueForKey:@"state"];
 }
+
 @end

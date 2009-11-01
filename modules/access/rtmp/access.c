@@ -45,6 +45,16 @@
     "Caching value for RTMP streams. This " \
     "value should be set in milliseconds." )
 
+#define SWFURL_TEXT N_("Default SWF Referrer URL")
+#define SWFURL_LONGTEXT N_("The SFW URL to use as referrer when connecting to "\
+                           "the server. This is the SWF file that contained "  \
+                           "the stream.")
+
+#define PAGEURL_TEXT N_("Default Page Referrer URL")
+#define PAGEURL_LONGTEXT N_("The Page URL to use as referrer when connecting to "  \
+                            "the server. This is the page housing the SWF "    \
+                            "file.")
+
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
@@ -56,6 +66,10 @@ vlc_module_begin ()
 
     add_integer( "rtmp-caching", DEFAULT_PTS_DELAY / 1000, NULL, CACHING_TEXT,
                  CACHING_LONGTEXT, true )
+    add_string( "rtmp-swfurl", "file:///player.swf", NULL, SWFURL_TEXT,
+                SWFURL_LONGTEXT, true )
+    add_string( "rtmp-pageurl", "file:///player.htm", NULL, PAGEURL_TEXT,
+                PAGEURL_LONGTEXT, true )
 
     set_capability( "access", 0 )
     set_callbacks( Open, Close )
@@ -123,13 +137,15 @@ static int Open( vlc_object_t *p_this )
     p_sys->p_thread->psz_application = strndup( p_sys->p_thread->url.psz_path + 1, length_path - length_media_name - 2 );
     p_sys->p_thread->psz_media = strdup( p_sys->p_thread->url.psz_path + ( length_path - length_media_name ) );
 
+    p_sys->p_thread->psz_swf_url = var_CreateGetString( p_access, "rtmp-swfurl" );
+    p_sys->p_thread->psz_page_url = var_CreateGetString( p_access, "rtmp-pageurl" );
+
     msg_Dbg( p_access, "rtmp: host='%s' port=%d path='%s'",
              p_sys->p_thread->url.psz_host, p_sys->p_thread->url.i_port, p_sys->p_thread->url.psz_path );
 
     if( p_sys->p_thread->url.psz_username && *p_sys->p_thread->url.psz_username )
     {
-        msg_Dbg( p_access, "      user='%s', pwd='%s'",
-                 p_sys->p_thread->url.psz_username, p_sys->p_thread->url.psz_password );
+        msg_Dbg( p_access, "      user='%s'", p_sys->p_thread->url.psz_username );
     }
 
     /* Initialize thread variables */
@@ -186,7 +202,7 @@ static int Open( vlc_object_t *p_this )
             goto error2;
         }
 
-        p_sys->p_thread->fd = net_Accept( p_access, p_fd_listen, -1 );
+        p_sys->p_thread->fd = net_Accept( p_access, p_fd_listen );
 
         net_ListenClose( p_fd_listen );
 
@@ -223,6 +239,10 @@ static int Open( vlc_object_t *p_this )
         if( rtmp_connect_active( p_sys->p_thread ) < 0 )
         {
             msg_Err( p_access, "connect active failed");
+            /* Kill the running thread */
+            vlc_object_kill( p_sys->p_thread );
+            block_FifoWake( p_sys->p_thread->p_fifo_input );
+            vlc_thread_join( p_sys->p_thread );
             goto error2;
         }
     }
@@ -240,8 +260,13 @@ error2:
     vlc_cond_destroy( &p_sys->p_thread->wait );
     vlc_mutex_destroy( &p_sys->p_thread->lock );
 
+    block_FifoRelease( p_sys->p_thread->p_fifo_input );
+    block_FifoRelease( p_sys->p_thread->p_empty_blocks );
+
     free( p_sys->p_thread->psz_application );
     free( p_sys->p_thread->psz_media );
+    free( p_sys->p_thread->psz_swf_url );
+    free( p_sys->p_thread->psz_page_url );
 
     net_Close( p_sys->p_thread->fd );
 error:
@@ -292,6 +317,8 @@ static void Close( vlc_object_t * p_this )
     vlc_UrlClean( &p_sys->p_thread->url );
     free( p_sys->p_thread->psz_application );
     free( p_sys->p_thread->psz_media );
+    free( p_sys->p_thread->psz_swf_url );
+    free( p_sys->p_thread->psz_page_url );
 
     vlc_object_detach( p_sys->p_thread );
     vlc_object_release( p_sys->p_thread );

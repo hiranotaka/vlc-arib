@@ -41,9 +41,8 @@ CAtmoExternalCaptureInput::CAtmoExternalCaptureInput(CAtmoDynData *pAtmoDynData)
 
 CAtmoExternalCaptureInput::~CAtmoExternalCaptureInput(void)
 {
-   /* if there is still an unprocessed bufferpicture do kill it */
-   if(m_pCurrentFramePixels != NULL)
-      free(m_pCurrentFramePixels);
+    /* if there is still an unprocessed bufferpicture do kill it */
+    free( m_pCurrentFramePixels );
 
 #if defined(_ATMO_VLC_PLUGIN_)
     vlc_cond_destroy( &m_WakeupCond );
@@ -107,6 +106,7 @@ void CAtmoExternalCaptureInput::DeliverNewSourceDataPaket(BITMAPINFOHEADER *bmpI
         memcpy(m_pCurrentFramePixels,pixelData,PixelDataSize);
     }
 #if defined(_ATMO_VLC_PLUGIN_)
+#error This makes no sense!
    vlc_mutex_lock( &m_WakeupLock );
    vlc_cond_signal( &m_WakeupCond );
    vlc_mutex_unlock( &m_WakeupLock );
@@ -140,15 +140,6 @@ DWORD CAtmoExternalCaptureInput::Execute(void)
           i++;
           if(i == 100) {
              i = 0;
-#if !defined(WIN32)
-/* kludge for pthreads? using the same condition variable too often results in hanging the pthread
-   call inside vlc_cond_timedwait...
-*/
-#ifdef _ATMO_KLUDGE_
-             vlc_cond_destroy( &m_WakeupCond );
-             vlc_cond_init( &m_WakeupCond );
-#endif
-#endif
           }
     }
     vlc_mutex_unlock( &m_WakeupLock );
@@ -183,8 +174,10 @@ DWORD CAtmoExternalCaptureInput::Execute(void) {
 void CAtmoExternalCaptureInput::WaitForNextFrame(DWORD timeout)
 {
     this->m_FrameArrived = ATMO_FALSE;
+#error m_FrameArrived is not protected (no, volatile does not work)
     for(DWORD i=0;(i<timeout) && !m_FrameArrived;i++)
 #if defined (_ATMO_VLC_PLUGIN_)
+#error A condition variable or a semaphore is needed.
         msleep(1000);
 #else
         Sleep(1);

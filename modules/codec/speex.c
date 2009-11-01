@@ -1,7 +1,7 @@
 /*****************************************************************************
  * speex.c: speex decoder/packetizer/encoder module making use of libspeex.
  *****************************************************************************
- * Copyright (C) 2003-2008 the VideoLAN team
+ * Copyright (C) 2003-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
@@ -165,7 +165,7 @@ struct decoder_sys_t
     /*
      * Common properties
      */
-    audio_date_t end_date;
+    date_t end_date;
 
 };
 
@@ -203,20 +203,19 @@ static block_t *Encode   ( encoder_t *, aout_buffer_t * );
 static int OpenDecoder( vlc_object_t *p_this )
 {
     decoder_t *p_dec = (decoder_t*)p_this;
-    decoder_sys_t *p_sys = p_dec->p_sys;
+    decoder_sys_t *p_sys;
 
     if( p_dec->fmt_in.i_codec != VLC_CODEC_SPEEX )
         return VLC_EGENERIC;
 
     /* Allocate the memory needed to store the decoder's structure */
-    if( ( p_dec->p_sys = p_sys =
-          (decoder_sys_t *)malloc(sizeof(decoder_sys_t)) ) == NULL )
+    if( ( p_dec->p_sys = p_sys = malloc(sizeof(decoder_sys_t)) ) == NULL )
         return VLC_ENOMEM;
     p_dec->p_sys->bits.buf_size = 0;
     p_dec->p_sys->b_packetizer = false;
     p_dec->p_sys->rtp_rate = p_dec->fmt_in.audio.i_rate;
 
-    aout_DateSet( &p_sys->end_date, 0 );
+    date_Set( &p_sys->end_date, 0 );
 
     /* Set output properties */
     p_dec->fmt_out.i_cat = AUDIO_ES;
@@ -490,7 +489,7 @@ static int ProcessInitialHeader( decoder_t *p_dec, ogg_packet *p_oggpacket )
     p_dec->fmt_out.audio.i_channels = p_header->nb_channels;
     p_dec->fmt_out.audio.i_rate = p_header->rate;
 
-    aout_DateInit( &p_sys->end_date, p_header->rate );
+    date_Init( &p_sys->end_date, p_header->rate, 1 );
 
     return VLC_SUCCESS;
 }
@@ -506,12 +505,12 @@ static void *ProcessPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
 
     /* Date management */
     if( p_block && p_block->i_pts > 0 && 
-        p_block->i_pts != aout_DateGet( &p_sys->end_date ) )
+        p_block->i_pts != date_Get( &p_sys->end_date ) )
     {
-        aout_DateSet( &p_sys->end_date, p_block->i_pts );
+        date_Set( &p_sys->end_date, p_block->i_pts );
     }
 
-    if( !aout_DateGet( &p_sys->end_date ) )
+    if( !date_Get( &p_sys->end_date ) )
     {
         /* We've just started the stream, wait for the first PTS. */
         if( p_block ) block_Release( p_block );
@@ -661,7 +660,7 @@ static aout_buffer_t *DecodeRtpSpeexPacket( decoder_t *p_dec, block_t **pp_block
 	}
 	p_dec->fmt_out.audio.i_bytes_per_frame = i_speex_frame_size;
 
-	aout_DateInit(&p_sys->end_date, p_sys->p_header->rate);
+	date_Init(&p_sys->end_date, p_sys->p_header->rate, 1);
     }
 
     /* 
@@ -675,8 +674,8 @@ static aout_buffer_t *DecodeRtpSpeexPacket( decoder_t *p_dec, block_t **pp_block
     }
     *pp_block = NULL;
 
-    if ( !aout_DateGet( &p_sys->end_date ) )
-        aout_DateSet( &p_sys->end_date, p_speex_bit_block->i_dts );
+    if ( !date_Get( &p_sys->end_date ) )
+        date_Set( &p_sys->end_date, p_speex_bit_block->i_dts );
 
     /*
       Ask for a new audio output buffer and make sure
@@ -684,7 +683,7 @@ static aout_buffer_t *DecodeRtpSpeexPacket( decoder_t *p_dec, block_t **pp_block
     */
     p_aout_buffer = decoder_NewAudioBuffer( p_dec, 
         p_sys->p_header->frame_size );
-    if ( !p_aout_buffer || p_aout_buffer->i_nb_bytes == 0 )
+    if ( !p_aout_buffer || p_aout_buffer->i_buffer == 0 )
     {
         msg_Err(p_dec, "Oops: No new buffer was returned!");
 	return NULL;
@@ -712,9 +711,9 @@ static aout_buffer_t *DecodeRtpSpeexPacket( decoder_t *p_dec, block_t **pp_block
     /* 
       Handle date management on the audio output buffer. 
     */
-    p_aout_buffer->start_date = aout_DateGet( &p_sys->end_date );
-    p_aout_buffer->end_date = aout_DateIncrement( &p_sys->end_date, 
-        p_sys->p_header->frame_size );
+    p_aout_buffer->i_pts = date_Get( &p_sys->end_date );
+    p_aout_buffer->i_length = date_Increment( &p_sys->end_date,
+        p_sys->p_header->frame_size ) - p_aout_buffer->i_pts;
     
     
     p_sys->i_frame_in_packet++;
@@ -772,9 +771,10 @@ static aout_buffer_t *DecodePacket( decoder_t *p_dec, ogg_packet *p_oggpacket )
                                      &p_sys->stereo );
 
         /* Date management */
-        p_aout_buffer->start_date = aout_DateGet( &p_sys->end_date );
-        p_aout_buffer->end_date =
-            aout_DateIncrement( &p_sys->end_date, p_sys->p_header->frame_size );
+        p_aout_buffer->i_pts = date_Get( &p_sys->end_date );
+        p_aout_buffer->i_length =
+            date_Increment( &p_sys->end_date, p_sys->p_header->frame_size )
+            - p_aout_buffer->i_pts;
 
         p_sys->i_frame_in_packet++;
 
@@ -794,12 +794,12 @@ static block_t *SendPacket( decoder_t *p_dec, block_t *p_block )
     decoder_sys_t *p_sys = p_dec->p_sys;
 
     /* Date management */
-    p_block->i_dts = p_block->i_pts = aout_DateGet( &p_sys->end_date );
+    p_block->i_dts = p_block->i_pts = date_Get( &p_sys->end_date );
 
     if( p_sys->i_headers >= p_sys->p_header->extra_headers + 2 )
     {
         p_block->i_length =
-            aout_DateIncrement( &p_sys->end_date,
+            date_Increment( &p_sys->end_date,
                                 p_sys->p_header->frame_size ) -
             p_block->i_pts;
     }
@@ -1038,7 +1038,7 @@ static block_t *Encode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
     int i_samples = p_aout_buf->i_nb_samples;
     int i_samples_delay = p_sys->i_samples_delay;
 
-    p_sys->i_pts = p_aout_buf->start_date -
+    p_sys->i_pts = p_aout_buf->i_pts -
                 (mtime_t)1000000 * (mtime_t)p_sys->i_samples_delay /
                 (mtime_t)p_enc->fmt_in.audio.i_rate;
 

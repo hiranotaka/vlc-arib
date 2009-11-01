@@ -524,8 +524,8 @@ VLC_EXPORT( int,  input_Start, ( input_thread_t * ) );
 
 VLC_EXPORT( void, input_Stop, ( input_thread_t *, bool b_abort ) );
 
-#define input_Read(a,b,c) __input_Read(VLC_OBJECT(a),b, c)
-VLC_EXPORT( int, __input_Read, ( vlc_object_t *, input_item_t *, bool ) );
+#define input_Read(a,b) __input_Read(VLC_OBJECT(a),b)
+VLC_EXPORT( int, __input_Read, ( vlc_object_t *, input_item_t * ) );
 
 VLC_EXPORT( int, input_vaControl,( input_thread_t *, int i_query, va_list  ) );
 
@@ -568,12 +568,12 @@ static inline int input_AddSubtitle( input_thread_t *p_input, const char *psz_ur
 static inline vout_thread_t *input_GetVout( input_thread_t *p_input )
 {
      vout_thread_t **pp_vout, *p_vout;
-     unsigned i_vout;
+     size_t i_vout;
 
      if( input_Control( p_input, INPUT_GET_VOUTS, &pp_vout, &i_vout ) )
          return NULL;
 
-     for( unsigned i = 1; i < i_vout; i++ )
+     for( size_t i = 1; i < i_vout; i++ )
          vlc_object_release( (vlc_object_t *)(pp_vout[i]) );
 
      p_vout = (i_vout >= 1) ? pp_vout[0] : NULL;
@@ -612,5 +612,19 @@ VLC_EXPORT( void, input_SplitMRL, ( const char **ppsz_access, const char **ppsz_
  * This function creates a sane filename path.
  */
 VLC_EXPORT( char *, input_CreateFilename, ( vlc_object_t *, const char *psz_path, const char *psz_prefix, const char *psz_extension ) );
+
+/**
+ * This function detaches resources from a dead input.
+ *
+ * It MUST be called on a dead input (p_input->b_dead true) otherwise
+ * it will assert.
+ * It does not support concurrent calls.
+ */
+VLC_EXPORT(input_resource_t *, input_DetachResource, ( input_thread_t * ) );
+
+/**
+ * This function releases the input resource.
+ */
+VLC_EXPORT(void, input_resource_Delete, ( input_resource_t * ) );
 
 #endif

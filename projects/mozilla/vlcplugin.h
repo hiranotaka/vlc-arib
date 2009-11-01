@@ -92,7 +92,8 @@ public:
     {
         if( !libvlc_media_player )
         {
-             libvlc_exception_raise(ex,"no mediaplayer");
+             libvlc_exception_raise(ex);
+             libvlc_printerr("no mediaplayer");
         }
         return libvlc_media_player;
     }
@@ -141,6 +142,7 @@ public:
     int      b_stream;
     int      b_autoplay;
     int      b_toolbar;
+    char *   psz_text;
     char *   psz_target;
 
     void playlist_play(libvlc_exception_t *ex)
@@ -193,7 +195,7 @@ public:
     void set_fullscreen( int, libvlc_exception_t * );
     int  get_fullscreen( libvlc_exception_t * );
 
-    int  player_has_vout( libvlc_exception_t * );
+    bool  player_has_vout( libvlc_exception_t * );
 
 private:
     bool playlist_select(int,libvlc_exception_t *);

@@ -28,18 +28,20 @@
 
 #include <vlc_common.h>
 #include <vlc_aout.h>
+#include <vlc_playlist.h>
 #include "volume.hpp"
 
 Volume::Volume( intf_thread_t *pIntf ): VarPercent( pIntf )
 {
     // Initial value
     audio_volume_t val;
-    aout_VolumeGet( getIntf(), &val );
+
+    aout_VolumeGet( getIntf()->p_sys->p_playlist, &val );
     VarPercent::set( val * 2.0 / AOUT_VOLUME_MAX );
 }
 
 
-void Volume::set( float percentage )
+void Volume::set( float percentage, bool updateVLC )
 {
     // Avoid looping forever...
     if( (int)(get() * AOUT_VOLUME_MAX) !=
@@ -47,7 +49,9 @@ void Volume::set( float percentage )
     {
         VarPercent::set( percentage );
 
-        aout_VolumeSet( getIntf(), (int)(get() * AOUT_VOLUME_MAX / 2.0) );
+        if( updateVLC )
+            aout_VolumeSet( getIntf()->p_sys->p_playlist,
+                            (int)(get() * AOUT_VOLUME_MAX / 2.0) );
     }
 }
 

@@ -35,6 +35,7 @@
 #include <assert.h>
 #include <unistd.h> /* fsync() */
 #include <signal.h>
+#include <errno.h>
 
 #include <sched.h>
 #ifdef __linux__
@@ -88,6 +89,7 @@ static void
 vlc_thread_fatal (const char *action, int error,
                   const char *function, const char *file, unsigned line)
 {
+    int canc = vlc_savecancel ();
     fprintf (stderr, "LibVLC fatal error %s (%d) in thread %lu ",
              action, error, vlc_threadid ());
     vlc_trace (function, file, line);
@@ -118,6 +120,7 @@ vlc_thread_fatal (const char *action, int error,
 #endif
     fflush (stderr);
 
+    vlc_restorecancel (canc);
     abort ();
 }
 
@@ -141,9 +144,11 @@ void vlc_mutex_init( vlc_mutex_t *p_mutex )
 
     if( pthread_mutexattr_init( &attr ) )
         abort();
-#ifndef NDEBUG
+#ifdef NDEBUG
+    pthread_mutexattr_settype( &attr, PTHREAD_MUTEX_NORMAL );
+#else
     /* Create error-checking mutex to detect problems more easily. */
-# if defined (__GLIBC__) && (__GLIBC_MINOR__ < 6)
+# if defined (__GLIBC__) && (__GLIBC__ == 2) && (__GLIBC_MINOR__ < 6)
     pthread_mutexattr_setkind_np( &attr, PTHREAD_MUTEX_ERRORCHECK_NP );
 # else
     pthread_mutexattr_settype( &attr, PTHREAD_MUTEX_ERRORCHECK );
@@ -162,7 +167,7 @@ void vlc_mutex_init_recursive( vlc_mutex_t *p_mutex )
     pthread_mutexattr_t attr;
 
     pthread_mutexattr_init( &attr );
-#if defined (__GLIBC__) && (__GLIBC_MINOR__ < 6)
+#if defined (__GLIBC__) && (__GLIBC__ == 2) && (__GLIBC_MINOR__ < 6)
     pthread_mutexattr_setkind_np( &attr, PTHREAD_MUTEX_RECURSIVE_NP );
 #else
     pthread_mutexattr_settype( &attr, PTHREAD_MUTEX_RECURSIVE );
@@ -356,7 +361,7 @@ void vlc_cond_wait (vlc_cond_t *p_condvar, vlc_mutex_t *p_mutex)
 int vlc_cond_timedwait (vlc_cond_t *p_condvar, vlc_mutex_t *p_mutex,
                         mtime_t deadline)
 {
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(__powerpc__) && !defined( __ppc__ ) && !defined( __ppc64__ )
     /* mdate() is mac_absolute_time on OSX, which we must convert to do
      * the same base than gettimeofday() which pthread_cond_timedwait
      * relies on. */
@@ -373,6 +378,93 @@ int vlc_cond_timedwait (vlc_cond_t *p_condvar, vlc_mutex_t *p_mutex,
     if (val != ETIMEDOUT)
         VLC_THREAD_ASSERT ("timed-waiting on condition");
     return val;
+}
+
+/**
+ * Initializes a semaphore.
+ */
+void vlc_sem_init (vlc_sem_t *sem, unsigned value)
+{
+    if (sem_init (sem, 0, value))
+        abort ();
+}
+
+/**
+ * Destroys a semaphore.
+ */
+void vlc_sem_destroy (vlc_sem_t *sem)
+{
+    int val = sem_destroy (sem);
+    VLC_THREAD_ASSERT ("destroying semaphore");
+}
+
+/**
+ * Increments the value of a semaphore.
+ */
+int vlc_sem_post (vlc_sem_t *sem)
+{
+    int val = sem_post (sem);
+    if (val != EOVERFLOW)
+        VLC_THREAD_ASSERT ("unlocking semaphore");
+    return val;
+}
+
+/**
+ * Atomically wait for the semaphore to become non-zero (if needed),
+ * then decrements it.
+ */
+void vlc_sem_wait (vlc_sem_t *sem)
+{
+    int val;
+    do
+        val = sem_wait (sem);
+    while (val == EINTR);
+    VLC_THREAD_ASSERT ("locking semaphore");
+}
+
+/**
+ * Initializes a read/write lock.
+ */
+void vlc_rwlock_init (vlc_rwlock_t *lock)
+{
+    if (pthread_rwlock_init (lock, NULL))
+        abort ();
+}
+
+/**
+ * Destroys an initialized unused read/write lock.
+ */
+void vlc_rwlock_destroy (vlc_rwlock_t *lock)
+{
+    int val = pthread_rwlock_destroy (lock);
+    VLC_THREAD_ASSERT ("destroying R/W lock");
+}
+
+/**
+ * Acquires a read/write lock for reading. Recursion is allowed.
+ */
+void vlc_rwlock_rdlock (vlc_rwlock_t *lock)
+{
+    int val = pthread_rwlock_rdlock (lock);
+    VLC_THREAD_ASSERT ("acquiring R/W lock for reading");
+}
+
+/**
+ * Acquires a read/write lock for writing. Recursion is not allowed.
+ */
+void vlc_rwlock_wrlock (vlc_rwlock_t *lock)
+{
+    int val = pthread_rwlock_wrlock (lock);
+    VLC_THREAD_ASSERT ("acquiring R/W lock for writing");
+}
+
+/**
+ * Releases a read/write lock.
+ */
+void vlc_rwlock_unlock (vlc_rwlock_t *lock)
+{
+    int val = pthread_rwlock_unlock (lock);
+    VLC_THREAD_ASSERT ("releasing R/W lock");
 }
 
 /**
@@ -414,6 +506,31 @@ int vlc_threadvar_set (vlc_threadvar_t key, void *value)
 void *vlc_threadvar_get (vlc_threadvar_t key)
 {
     return pthread_getspecific (key);
+}
+
+static bool rt_priorities = false;
+static int rt_offset;
+
+void vlc_threads_setup (libvlc_int_t *p_libvlc)
+{
+    static vlc_mutex_t lock = VLC_STATIC_MUTEX;
+    static bool initialized = false;
+
+    vlc_mutex_lock (&lock);
+    /* Initializes real-time priorities before any thread is created,
+     * just once per process. */
+    if (!initialized)
+    {
+#ifndef __APPLE__
+        if (config_GetInt (p_libvlc, "rt-priority"))
+#endif
+        {
+            rt_offset = config_GetInt (p_libvlc, "rt-offset");
+            rt_priorities = true;
+        }
+        initialized = true;
+    }
+    vlc_mutex_unlock (&lock);
 }
 
 /**
@@ -459,8 +576,9 @@ int vlc_clone (vlc_thread_t *p_handle, void * (*entry) (void *), void *data,
 #if defined (_POSIX_PRIORITY_SCHEDULING) && (_POSIX_PRIORITY_SCHEDULING >= 0) \
  && defined (_POSIX_THREAD_PRIORITY_SCHEDULING) \
  && (_POSIX_THREAD_PRIORITY_SCHEDULING >= 0)
+    if (rt_priorities)
     {
-        struct sched_param sp = { .sched_priority = priority, };
+        struct sched_param sp = { .sched_priority = priority + rt_offset, };
         int policy;
 
         if (sp.sched_priority <= 0)
@@ -513,18 +631,42 @@ void vlc_cancel (vlc_thread_t thread_id)
 }
 
 /**
- * Waits for a thread to complete (if needed), and destroys it.
+ * Waits for a thread to complete (if needed), then destroys it.
  * This is a cancellation point; in case of cancellation, the join does _not_
  * occur.
+ * @warning
+ * A thread cannot join itself (normally VLC will abort if this is attempted).
+ * Also, a detached thread <b>cannot</b> be joined.
  *
  * @param handle thread handle
  * @param p_result [OUT] pointer to write the thread return value or NULL
- * @return 0 on success, a standard error code otherwise.
  */
 void vlc_join (vlc_thread_t handle, void **result)
 {
     int val = pthread_join (handle, result);
     VLC_THREAD_ASSERT ("joining thread");
+}
+
+/**
+ * Detaches a thread. When the specified thread completes, it will be
+ * automatically destroyed (in particular, its stack will be reclaimed),
+ * instead of waiting for another thread to call vlc_join(). If the thread has
+ * already completed, it will be destroyed immediately.
+ *
+ * When a thread performs some work asynchronously and may complete much
+ * earlier than it can be joined, detaching the thread can save memory.
+ * However, care must be taken that any resources used by a detached thread
+ * remains valid until the thread completes. This will typically involve some
+ * kind of thread-safe signaling.
+ *
+ * A thread may detach itself.
+ *
+ * @param handle thread handle
+ */
+void vlc_detach (vlc_thread_t handle)
+{
+    int val = pthread_detach (handle);
+    VLC_THREAD_ASSERT ("detaching thread");
 }
 
 /**
@@ -582,4 +724,176 @@ void vlc_control_cancel (int cmd, ...)
 {
     (void) cmd;
     assert (0);
+}
+
+
+struct vlc_timer
+{
+    vlc_thread_t thread;
+    vlc_mutex_t  lock;
+    vlc_cond_t   wait;
+    void       (*func) (void *);
+    void        *data;
+    mtime_t      value, interval;
+    unsigned     users;
+    unsigned     overruns;
+};
+
+static void *vlc_timer_do (void *data)
+{
+    struct vlc_timer *timer = data;
+
+    timer->func (timer->data);
+
+    vlc_mutex_lock (&timer->lock);
+    assert (timer->users > 0);
+    if (--timer->users == 0)
+        vlc_cond_signal (&timer->wait);
+    vlc_mutex_unlock (&timer->lock);
+    return NULL;
+}
+
+static void *vlc_timer_thread (void *data)
+{
+    struct vlc_timer *timer = data;
+    mtime_t value, interval;
+
+    vlc_mutex_lock (&timer->lock);
+    value = timer->value;
+    interval = timer->interval;
+    vlc_mutex_unlock (&timer->lock);
+
+    for (;;)
+    {
+         vlc_thread_t th;
+
+         mwait (value);
+
+         vlc_mutex_lock (&timer->lock);
+         if (vlc_clone (&th, vlc_timer_do, timer, VLC_THREAD_PRIORITY_INPUT))
+             timer->overruns++;
+         else
+         {
+             vlc_detach (th);
+             timer->users++;
+         }
+         vlc_mutex_unlock (&timer->lock);
+
+         if (interval == 0)
+             return NULL;
+
+         value += interval;
+    }
+}
+
+/**
+ * Initializes an asynchronous timer.
+ * @warning Asynchronous timers are processed from an unspecified thread.
+ * Also, multiple occurences of an interval timer can run concurrently.
+ *
+ * @param id pointer to timer to be initialized
+ * @param func function that the timer will call
+ * @param data parameter for the timer function
+ * @return 0 on success, a system error code otherwise.
+ */
+int vlc_timer_create (vlc_timer_t *id, void (*func) (void *), void *data)
+{
+    struct vlc_timer *timer = malloc (sizeof (*timer));
+
+    if (timer == NULL)
+        return ENOMEM;
+    vlc_mutex_init (&timer->lock);
+    vlc_cond_init (&timer->wait);
+    assert (func);
+    timer->func = func;
+    timer->data = data;
+    timer->value = 0;
+    timer->interval = 0;
+    timer->users = 0;
+    timer->overruns = 0;
+    *id = timer;
+    return 0;
+}
+
+/**
+ * Destroys an initialized timer. If needed, the timer is first disarmed.
+ * This function is undefined if the specified timer is not initialized.
+ *
+ * @warning This function <b>must</b> be called before the timer data can be
+ * freed and before the timer callback function can be unloaded.
+ *
+ * @param timer timer to destroy
+ */
+void vlc_timer_destroy (vlc_timer_t timer)
+{
+    vlc_timer_schedule (timer, false, 0, 0);
+    vlc_mutex_lock (&timer->lock);
+    while (timer->users != 0)
+        vlc_cond_wait (&timer->wait, &timer->lock);
+    vlc_mutex_unlock (&timer->lock);
+
+    vlc_cond_destroy (&timer->wait);
+    vlc_mutex_destroy (&timer->lock);
+    free (timer);
+}
+
+/**
+ * Arm or disarm an initialized timer.
+ * This functions overrides any previous call to itself.
+ *
+ * @note A timer can fire later than requested due to system scheduling
+ * limitations. An interval timer can fail to trigger sometimes, either because
+ * the system is busy or suspended, or because a previous iteration of the
+ * timer is still running. See also vlc_timer_getoverrun().
+ *
+ * @param timer initialized timer
+ * @param absolute the timer value origin is the same as mdate() if true,
+ *                 the timer value is relative to now if false.
+ * @param value zero to disarm the timer, otherwise the initial time to wait
+ *              before firing the timer.
+ * @param interval zero to fire the timer just once, otherwise the timer
+ *                 repetition interval.
+ */
+void vlc_timer_schedule (vlc_timer_t timer, bool absolute,
+                         mtime_t value, mtime_t interval)
+{
+    static vlc_mutex_t lock = VLC_STATIC_MUTEX;
+
+    vlc_mutex_lock (&lock);
+    vlc_mutex_lock (&timer->lock);
+    if (timer->value)
+    {
+        vlc_mutex_unlock (&timer->lock);
+        vlc_cancel (timer->thread);
+        vlc_join (timer->thread, NULL);
+        vlc_mutex_lock (&timer->lock);
+        timer->value = 0;
+    }
+    if ((value != 0)
+     && (vlc_clone (&timer->thread, vlc_timer_thread, timer,
+                    VLC_THREAD_PRIORITY_INPUT) == 0))
+    {
+        timer->value = (absolute ? 0 : mdate ()) + value;
+        timer->interval = interval;
+    }
+    vlc_mutex_unlock (&timer->lock);
+    vlc_mutex_unlock (&lock);
+}
+
+/**
+ * Fetch and reset the overrun counter for a timer.
+ * @param timer initialized timer
+ * @return the timer overrun counter, i.e. the number of times that the timer
+ * should have run but did not since the last actual run. If all is well, this
+ * is zero.
+ */
+unsigned vlc_timer_getoverrun (vlc_timer_t timer)
+{
+    unsigned ret;
+
+    vlc_mutex_lock (&timer->lock);
+    ret = timer->overruns;
+    timer->overruns = 0;
+    vlc_mutex_unlock (&timer->lock);
+    return ret;
 }

@@ -49,7 +49,7 @@
     #endif
 #endif
 
-#include "vlc_httpd.h"
+#include <vlc_httpd.h>
 
 #define DEFAULT_PORT        8080
 #define DEFAULT_SSL_PORT    8443
@@ -102,8 +102,8 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_SOUT_ACO )
     add_string( SOUT_CFG_PREFIX "user", "", NULL,
                 USER_TEXT, USER_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "pwd", "", NULL,
-                PASS_TEXT, PASS_LONGTEXT, true )
+    add_password( SOUT_CFG_PREFIX "pwd", "", NULL,
+                  PASS_TEXT, PASS_LONGTEXT, true )
     add_string( SOUT_CFG_PREFIX "mime", "", NULL,
                 MIME_TEXT, MIME_LONGTEXT, true )
     add_string( SOUT_CFG_PREFIX "cert", "vlc.pem", NULL,
@@ -165,12 +165,11 @@ static int Open( vlc_object_t *p_this )
     char                *psz_bind_addr;
     int                 i_bind_port;
     char                *psz_file_name;
-    char                *psz_user = NULL;
-    char                *psz_pwd = NULL;
-    char                *psz_mime = NULL;
+    char                *psz_user;
+    char                *psz_pwd;
+    char                *psz_mime;
     char                *psz_cert = NULL, *psz_key = NULL, *psz_ca = NULL,
                         *psz_crl = NULL;
-    vlc_value_t         val;
 
     if( !( p_sys = p_access->p_sys =
                 malloc( sizeof( sout_access_out_sys_t ) ) ) )
@@ -179,7 +178,7 @@ static int Open( vlc_object_t *p_this )
     config_ChainParse( p_access, SOUT_CFG_PREFIX, ppsz_sout_options, p_access->p_cfg );
 
     /* p_access->psz_path = "hostname:port/filename" */
-    psz_bind_addr = psz_parser = strdup( p_access->psz_path );
+    psz_bind_addr = strdup( p_access->psz_path );
 
     i_bind_port = 0;
 
@@ -217,10 +216,10 @@ static int Open( vlc_object_t *p_this )
     /* SSL support */
     if( p_access->psz_access && !strcmp( p_access->psz_access, "https" ) )
     {
-        psz_cert = config_GetPsz( p_this, SOUT_CFG_PREFIX"cert" );
-        psz_key = config_GetPsz( p_this, SOUT_CFG_PREFIX"key" );
-        psz_ca = config_GetPsz( p_this, SOUT_CFG_PREFIX"ca" );
-        psz_crl = config_GetPsz( p_this, SOUT_CFG_PREFIX"crl" );
+        psz_cert = var_CreateGetNonEmptyString( p_this, SOUT_CFG_PREFIX"cert" );
+        psz_key = var_CreateGetNonEmptyString( p_this, SOUT_CFG_PREFIX"key" );
+        psz_ca = var_CreateGetNonEmptyString( p_this, SOUT_CFG_PREFIX"ca" );
+        psz_crl = var_CreateGetNonEmptyString( p_this, SOUT_CFG_PREFIX"crl" );
 
         if( i_bind_port <= 0 )
             i_bind_port = DEFAULT_SSL_PORT;
@@ -251,30 +250,16 @@ static int Open( vlc_object_t *p_this )
     }
     free( psz_parser );
 
+    psz_user = var_GetNonEmptyString( p_access, SOUT_CFG_PREFIX "user" );
+    psz_pwd = var_GetNonEmptyString( p_access, SOUT_CFG_PREFIX "pwd" );
     if( p_access->psz_access && !strcmp( p_access->psz_access, "mmsh" ) )
     {
         psz_mime = strdup( "video/x-ms-asf-stream" );
     }
     else
     {
-        var_Get( p_access, SOUT_CFG_PREFIX "mime", &val );
-        if( *val.psz_string )
-            psz_mime = val.psz_string;
-        else
-            free( val.psz_string );
+        psz_mime = var_GetNonEmptyString( p_access, SOUT_CFG_PREFIX "mime" );
     }
-
-    var_Get( p_access, SOUT_CFG_PREFIX "user", &val );
-    if( *val.psz_string )
-        psz_user = val.psz_string;
-    else
-        free( val.psz_string );
-
-    var_Get( p_access, SOUT_CFG_PREFIX "pwd", &val );
-    if( *val.psz_string )
-        psz_pwd = val.psz_string;
-    else
-        free( val.psz_string );
 
     p_sys->p_httpd_stream =
         httpd_StreamNew( p_sys->p_httpd_host, psz_file_name, psz_mime,

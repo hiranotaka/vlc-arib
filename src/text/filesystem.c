@@ -85,11 +85,20 @@ static int convert_path (const char *restrict path, wchar_t *restrict wpath)
  *
  * @param filename file path to open (with UTF-8 encoding)
  * @param flags open() flags, see the C library open() documentation
- * @param mode file permissions if creating a new file
  * @return a file handle on success, -1 on error (see errno).
+ * @note Contrary to standard open(), this function returns file handles
+ * with the close-on-exec flag enabled.
  */
-int utf8_open (const char *filename, int flags, mode_t mode)
+int utf8_open (const char *filename, int flags, ...)
 {
+    unsigned int mode = 0;
+    va_list ap;
+
+    va_start (ap, flags);
+    if (flags & O_CREAT)
+        mode = va_arg (ap, unsigned int);
+    va_end (ap);
+
 #ifdef UNDER_CE
     /*_open translates to wchar internally on WinCE*/
     return _open (filename, flags, mode);
@@ -339,8 +348,7 @@ int utf8_loaddir( DIR *dir, char ***namelist,
 
         for( i = 0; i < num; i++ )
             free( tab[i] );
-        if( tab != NULL )
-            free( tab );
+        free( tab );
         }
     }
     return -1;

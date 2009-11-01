@@ -48,7 +48,7 @@
  *****************************************************************************/
 int vlclua_pushvalue( lua_State *L, int i_type, vlc_value_t val )
 {
-    switch( i_type &= 0xf0 )
+    switch( i_type &= VLC_VAR_CLASS )
     {
         case VLC_VAR_VOID:
             vlclua_error( L );
@@ -98,7 +98,7 @@ int vlclua_pushvalue( lua_State *L, int i_type, vlc_value_t val )
 
 static int vlclua_tovalue( lua_State *L, int i_type, vlc_value_t *val )
 {
-    switch( i_type & 0xf0 )
+    switch( i_type & VLC_VAR_CLASS )
     {
         case VLC_VAR_VOID:
             break;
@@ -238,7 +238,7 @@ static int vlclua_libvlc_command( lua_State *L )
     val_arg.psz_string = strdup( luaL_optstring( L, 2, "" ) );
     lua_pop( L, 2 );
     int i_type = var_Type( p_this->p_libvlc, psz_cmd );
-    if( ! i_type & VLC_VAR_ISCOMMAND )
+    if( ! (i_type & VLC_VAR_ISCOMMAND) )
     {
         free( val_arg.psz_string );
         return luaL_error( L, "libvlc's \"%s\" is not a command",

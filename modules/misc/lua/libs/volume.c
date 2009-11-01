@@ -45,13 +45,14 @@
 
 #include "../vlc.h"
 #include "../libs.h"
+#include "playlist.h"
 
 /*****************************************************************************
  * Volume related
  *****************************************************************************/
 static int vlclua_volume_set( lua_State *L )
 {
-    vlc_object_t *p_this = vlclua_get_this( L );
+    playlist_t *p_this = vlclua_get_playlist_internal( L );
     int i_volume = luaL_checkint( L, 1 );
     /* Do we need to check that i_volume is in the AOUT_VOLUME_MIN->MAX range?*/
     return vlclua_push_ret( L, aout_VolumeSet( p_this, i_volume ) );
@@ -59,7 +60,7 @@ static int vlclua_volume_set( lua_State *L )
 
 static int vlclua_volume_get( lua_State *L )
 {
-    vlc_object_t *p_this = vlclua_get_this( L );
+    playlist_t *p_this = vlclua_get_playlist_internal( L );
     audio_volume_t i_volume;
     if( aout_VolumeGet( p_this, &i_volume ) == VLC_SUCCESS )
         lua_pushnumber( L, i_volume );
@@ -71,7 +72,7 @@ static int vlclua_volume_get( lua_State *L )
 static int vlclua_volume_up( lua_State *L )
 {
     audio_volume_t i_volume;
-    aout_VolumeUp( vlclua_get_this( L ),
+    aout_VolumeUp( vlclua_get_playlist_internal( L ),
                    luaL_optint( L, 1, 1 ),
                    &i_volume );
     lua_pushnumber( L, i_volume );
@@ -81,7 +82,7 @@ static int vlclua_volume_up( lua_State *L )
 static int vlclua_volume_down( lua_State *L )
 {
     audio_volume_t i_volume;
-    aout_VolumeDown( vlclua_get_this( L ),
+    aout_VolumeDown( vlclua_get_playlist_internal( L ),
                      luaL_optint( L, 1, 1 ),
                      &i_volume );
     lua_pushnumber( L, i_volume );

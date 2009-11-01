@@ -33,6 +33,8 @@
 
 #include <vlc_intf_strings.h>
 #include <vlc_services_discovery.h>
+#include <vlc_aout.h>
+#include <vlc_vout.h>
 
 #include "menus.hpp"
 
@@ -84,7 +86,7 @@ QMenu *QVLCMenu::recentsMenu = NULL;
  * Add static entries to DP in menus
  ***************************************************************************/
 void addDPStaticEntry( QMenu *menu,
-                       const QString text,
+                       const QString& text,
                        const char *icon,
                        const char *member,
                        const char *shortcut = NULL )
@@ -113,7 +115,7 @@ void addDPStaticEntry( QMenu *menu,
  ***/
 QAction* addMIMStaticEntry( intf_thread_t *p_intf,
                             QMenu *menu,
-                            const QString text,
+                            const QString& text,
                             const char *icon,
                             const char *member,
                             bool bStatic = false )
@@ -220,6 +222,7 @@ static int VideoAutoMenuBuilder( vout_thread_t *p_object,
     PUSH_VAR( "video-on-top" );
 #ifdef WIN32
     PUSH_VAR( "directx-wallpaper" );
+    PUSH_VAR( "direct3d-desktop" );
 #endif
     PUSH_VAR( "video-snapshot" );
     PUSH_VAR( "zoom" );
@@ -227,6 +230,7 @@ static int VideoAutoMenuBuilder( vout_thread_t *p_object,
     PUSH_VAR( "aspect-ratio" );
     PUSH_VAR( "crop" );
     PUSH_VAR( "deinterlace" );
+    PUSH_VAR( "deinterlace-mode" );
     PUSH_VAR( "postprocess" );
 
     return VLC_SUCCESS;
@@ -304,17 +308,17 @@ QMenu *QVLCMenu::FileMenu( intf_thread_t *p_intf, QWidget *parent )
     QMenu *menu = new QMenu( parent );
 
     addDPStaticEntry( menu, qtr( "&Open File..." ),
-        ":/file-asym", SLOT( simpleOpenDialog() ), "Ctrl+O" );
+        ":/type/file-asym", SLOT( simpleOpenDialog() ), "Ctrl+O" );
     addDPStaticEntry( menu, qtr( "Advanced Open File..." ),
-        ":/file-asym", SLOT( openFileDialog() ), "Ctrl+Shift+O" );
+        ":/type/file-asym", SLOT( openFileDialog() ), "Ctrl+Shift+O" );
     addDPStaticEntry( menu, qtr( I_OPEN_FOLDER ),
-        ":/folder-grey", SLOT( PLOpenDir() ), "Ctrl+F" );
+        ":/type/folder-grey", SLOT( PLOpenDir() ), "Ctrl+F" );
     addDPStaticEntry( menu, qtr( "Open &Disc..." ),
-        ":/disc", SLOT( openDiscDialog() ), "Ctrl+D" );
+        ":/type/disc", SLOT( openDiscDialog() ), "Ctrl+D" );
     addDPStaticEntry( menu, qtr( "Open &Network Stream..." ),
-        ":/network", SLOT( openNetDialog() ), "Ctrl+N" );
+        ":/type/network", SLOT( openNetDialog() ), "Ctrl+N" );
     addDPStaticEntry( menu, qtr( "Open &Capture Device..." ),
-        ":/capture-card", SLOT( openCaptureDialog() ),
+        ":/type/capture-card", SLOT( openCaptureDialog() ),
         "Ctrl+C" );
 
     menu->addSeparator();
@@ -327,7 +331,6 @@ QMenu *QVLCMenu::FileMenu( intf_thread_t *p_intf, QWidget *parent )
         updateRecents( p_intf );
         menu->addMenu( recentsMenu );
     }
-    menu->addMenu( SDMenu( p_intf, menu ) );
     menu->addSeparator();
 
     addDPStaticEntry( menu, qtr( I_PL_SAVE ), "", SLOT( saveAPlaylist() ),
@@ -338,13 +341,13 @@ QMenu *QVLCMenu::FileMenu( intf_thread_t *p_intf, QWidget *parent )
     addDPStaticEntry( menu, qtr( "Conve&rt / Save..." ), "",
         SLOT( openAndTranscodingDialogs() ), "Ctrl+R" );
     addDPStaticEntry( menu, qtr( "&Streaming..." ),
-        ":/stream", SLOT( openAndStreamingDialogs() ),
+        ":/menu/stream", SLOT( openAndStreamingDialogs() ),
         "Ctrl+S" );
     menu->addSeparator();
 #endif
 
     addDPStaticEntry( menu, qtr( "&Quit" ) ,
-        ":/quit", SLOT( quit() ), "Ctrl+Q" );
+        ":/menu/quit", SLOT( quit() ), "Ctrl+Q" );
     return menu;
 }
 
@@ -353,16 +356,16 @@ QMenu *QVLCMenu::FileMenu( intf_thread_t *p_intf, QWidget *parent )
  **/
 QMenu *QVLCMenu::ToolsMenu( QMenu *menu )
 {
-    addDPStaticEntry( menu, qtr( "&Effects and Filters"), ":/settings",
+    addDPStaticEntry( menu, qtr( "&Effects and Filters"), ":/menu/settings",
             SLOT( extendedDialog() ), "Ctrl+E" );
 
-    addDPStaticEntry( menu, qtr( "&Track Synchronization"), ":/settings",
+    addDPStaticEntry( menu, qtr( "&Track Synchronization"), ":/menu/settings",
             SLOT( synchroDialog() ), "" );
 
-    addDPStaticEntry( menu, qtr( I_MENU_INFO ) , ":/info",
+    addDPStaticEntry( menu, qtr( I_MENU_INFO ) , ":/menu/info",
         SLOT( mediaInfoDialog() ), "Ctrl+I" );
     addDPStaticEntry( menu, qtr( I_MENU_CODECINFO ) ,
-        ":/info", SLOT( mediaCodecDialog() ), "Ctrl+J" );
+        ":/menu/info", SLOT( mediaCodecDialog() ), "Ctrl+J" );
 
     addDPStaticEntry( menu, qtr( I_MENU_BOOKMARK ),"",
                       SLOT( bookmarksDialog() ), "Ctrl+B" );
@@ -372,7 +375,7 @@ QMenu *QVLCMenu::ToolsMenu( QMenu *menu )
 #endif
 
     addDPStaticEntry( menu, qtr( I_MENU_MSG ),
-        ":/messages", SLOT( messagesDialog() ),
+        ":/menu/messages", SLOT( messagesDialog() ),
         "Ctrl+M" );
 
     addDPStaticEntry( menu, qtr( "Plu&gins and extensions" ),
@@ -380,7 +383,7 @@ QMenu *QVLCMenu::ToolsMenu( QMenu *menu )
     menu->addSeparator();
 
     addDPStaticEntry( menu, qtr( "&Preferences" ),
-        ":/preferences", SLOT( prefsDialog() ), "Ctrl+P" );
+        ":/menu/preferences", SLOT( prefsDialog() ), "Ctrl+P" );
 
     return menu;
 }
@@ -402,7 +405,7 @@ QMenu *QVLCMenu::ViewMenu( intf_thread_t *p_intf,
 
     QMenu *menu = new QMenu( qtr( "V&iew" ), mi );
 
-    QAction *act = menu->addAction( QIcon( ":/playlist_menu" ),
+    QAction *act = menu->addAction( QIcon( ":/menu/playlist_menu" ),
             qtr( "Play&list" ), mi,
             SLOT( togglePlaylist() ), qtr( "Ctrl+L" ) );
 
@@ -463,7 +466,7 @@ QMenu *QVLCMenu::ViewMenu( intf_thread_t *p_intf,
 
     menu->addSeparator();
     addDPStaticEntry( menu, qtr( "Customi&ze Interface..." ),
-        ":/preferences", SLOT( toolbarDialog() ) );
+        ":/menu/preferences", SLOT( toolbarDialog() ) );
     menu->addSeparator();
 
     return menu;
@@ -558,6 +561,7 @@ QMenu *QVLCMenu::VideoMenu( intf_thread_t *p_intf, QMenu *current )
         ACT_ADDCHECK( current, "video-on-top", qtr( "Always &On Top" ) );
 #ifdef WIN32
         ACT_ADDCHECK( current, "directx-wallpaper", qtr( "DirectX Wallpaper" ) );
+        ACT_ADDCHECK( current, "direct3d-desktop", qtr( "Direct3D Desktop mode" ) );
 #endif
         ACT_ADD( current, "video-snapshot", qtr( "Sna&pshot" ) );
 
@@ -568,6 +572,7 @@ QMenu *QVLCMenu::VideoMenu( intf_thread_t *p_intf, QMenu *current )
         ACT_ADDMENU( current, "aspect-ratio", qtr( "&Aspect Ratio" ) );
         ACT_ADDMENU( current, "crop", qtr( "&Crop" ) );
         ACT_ADDMENU( current, "deinterlace", qtr( "&Deinterlace" ) );
+        ACT_ADDMENU( current, "deinterlace-mode", qtr( "&Deinterlace mode" ) );
         ACT_ADDMENU( current, "postprocess", qtr( "&Post processing" ) );
     }
 
@@ -660,15 +665,6 @@ QMenu *QVLCMenu::SDMenu( intf_thread_t *p_intf, QWidget *parent )
     char **ppsz_name = ppsz_names, **ppsz_longname = ppsz_longnames;
     for( ; *ppsz_name; ppsz_name++, ppsz_longname++ )
     {
-        QAction *a = new QAction( qfu( *ppsz_longname ), menu );
-        a->setCheckable( true );
-        if( playlist_IsServicesDiscoveryLoaded( THEPL, *ppsz_name ) )
-            a->setChecked( true );
-        CONNECT( a, triggered(), THEDP->SDMapper, map() );
-        THEDP->SDMapper->setMapping( a, QString( *ppsz_name ) );
-        menu->addAction( a );
-
-        /* Special case for podcast */
         if( !strcmp( *ppsz_name, "podcast" ) )
         {
             QAction *b = new QAction( qtr( "Configure podcasts..." ), menu );
@@ -691,13 +687,13 @@ QMenu *QVLCMenu::HelpMenu( QWidget *parent )
 {
     QMenu *menu = new QMenu( parent );
     addDPStaticEntry( menu, qtr( "&Help..." ) ,
-        ":/help", SLOT( helpDialog() ), "F1" );
+        ":/menu/help", SLOT( helpDialog() ), "F1" );
 #ifdef UPDATE_CHECK
     addDPStaticEntry( menu, qtr( "Check for &Updates..." ) , "",
                       SLOT( updateDialog() ) );
 #endif
     menu->addSeparator();
-    addDPStaticEntry( menu, qtr( I_MENU_ABOUT ), ":/info",
+    addDPStaticEntry( menu, qtr( I_MENU_ABOUT ), ":/menu/info",
             SLOT( aboutDialog() ), "Shift+F1" );
     return menu;
 }
@@ -729,12 +725,12 @@ void QVLCMenu::PopupPlayEntries( QMenu *menu,
     {
         action = menu->addAction( qtr( "Play" ),
                 ActionsManager::getInstance( p_intf ), SLOT( play() ) );
-        action->setIcon( QIcon( ":/play" ) );
+        action->setIcon( QIcon( ":/menu/play" ) );
     }
     else
     {
          addMIMStaticEntry( p_intf, menu, qtr( "Pause" ),
-                    ":/pause", SLOT( togglePlayPause() ) );
+                    ":/menu/pause", SLOT( togglePlayPause() ) );
     }
 }
 
@@ -745,7 +741,7 @@ void QVLCMenu::PopupMenuControlEntries( QMenu *menu, intf_thread_t *p_intf )
     /* Faster/Slower */
     action = menu->addAction( qtr( "&Faster" ), THEMIM->getIM(),
                               SLOT( faster() ) );
-    action->setIcon( QIcon( ":/faster") );
+    action->setIcon( QIcon( ":/toolbar/faster") );
     action->setData( STATIC_ENTRY );
 
     action = menu->addAction( qtr( "Faster (fine)" ), THEMIM->getIM(),
@@ -762,19 +758,19 @@ void QVLCMenu::PopupMenuControlEntries( QMenu *menu, intf_thread_t *p_intf )
 
     action = menu->addAction( qtr( "Slo&wer" ), THEMIM->getIM(),
                               SLOT( slower() ) );
-    action->setIcon( QIcon( ":/slower") );
+    action->setIcon( QIcon( ":/toolbar/slower") );
     action->setData( STATIC_ENTRY );
 
     menu->addSeparator();
 
     action = menu->addAction( qtr( "&Jump Forward" ), THEMIM->getIM(),
              SLOT( jumpFwd() ) );
-    action->setIcon( QIcon( ":/skip_fw") );
+    action->setIcon( QIcon( ":/toolbar/skip_fw") );
     action->setData( STATIC_ENTRY );
 
     action = menu->addAction( qtr( "Jump Bac&kward" ), THEMIM->getIM(),
              SLOT( jumpBwd() ) );
-    action->setIcon( QIcon( ":/skip_back") );
+    action->setIcon( QIcon( ":/toolbar/skip_back") );
     action->setData( STATIC_ENTRY );
     addDPStaticEntry( menu, qtr( I_MENU_GOTOTIME ),"",
                       SLOT( gotoTimeDialog() ), "Ctrl+T" );
@@ -787,7 +783,7 @@ void QVLCMenu::PopupMenuPlaylistControlEntries( QMenu *menu,
 {
     bool bEnable = THEMIM->getInput() != NULL;
     QAction *action =
-            addMIMStaticEntry( p_intf, menu, qtr( "&Stop" ), ":/stop",
+            addMIMStaticEntry( p_intf, menu, qtr( "&Stop" ), ":/menu/stop",
                                SLOT( stop() ), true );
     /* Disable Stop in the right-click popup menu */
     if( !bEnable )
@@ -795,9 +791,9 @@ void QVLCMenu::PopupMenuPlaylistControlEntries( QMenu *menu,
 
     /* Next / Previous */
     addMIMStaticEntry( p_intf, menu, qtr( "Pre&vious" ),
-        ":/previous", SLOT( prev() ) );
+        ":/menu/previous", SLOT( prev() ) );
     addMIMStaticEntry( p_intf, menu, qtr( "Ne&xt" ),
-        ":/next", SLOT( next() ) );
+        ":/menu/next", SLOT( next() ) );
     menu->addSeparator();
 }
 
@@ -805,15 +801,15 @@ void QVLCMenu::PopupMenuStaticEntries( QMenu *menu )
 {
     QMenu *openmenu = new QMenu( qtr( "Open Media" ), menu );
     addDPStaticEntry( openmenu, qtr( "&Open File..." ),
-        ":/file-asym", SLOT( openFileDialog() ) );
+        ":/type/file-asym", SLOT( openFileDialog() ) );
     addDPStaticEntry( openmenu, qtr( I_OPEN_FOLDER ),
-        ":/folder-grey", SLOT( PLOpenDir() ) );
+        ":/type/folder-grey", SLOT( PLOpenDir() ) );
     addDPStaticEntry( openmenu, qtr( "Open &Disc..." ),
-        ":/disc", SLOT( openDiscDialog() ) );
+        ":/type/disc", SLOT( openDiscDialog() ) );
     addDPStaticEntry( openmenu, qtr( "Open &Network..." ),
-        ":/network", SLOT( openNetDialog() ) );
+        ":/type/network", SLOT( openNetDialog() ) );
     addDPStaticEntry( openmenu, qtr( "Open &Capture Device..." ),
-        ":/capture-card", SLOT( openCaptureDialog() ) );
+        ":/type/capture-card", SLOT( openCaptureDialog() ) );
     menu->addMenu( openmenu );
 
     menu->addSeparator();
@@ -823,7 +819,7 @@ void QVLCMenu::PopupMenuStaticEntries( QMenu *menu )
     menu->addMenu( helpmenu );
 #endif
 
-    addDPStaticEntry( menu, qtr( "Quit" ), ":/quit",
+    addDPStaticEntry( menu, qtr( "Quit" ), ":/menu/quit",
                       SLOT( quit() ), "Ctrl+Q" );
 }
 
@@ -893,8 +889,7 @@ void QVLCMenu::MiscPopupMenu( intf_thread_t *p_intf )
 void QVLCMenu::PopupMenu( intf_thread_t *p_intf, bool show )
 {
     /* Delete old popup if there is one */
-    if( p_intf->p_sys->p_popup_menu )
-        delete p_intf->p_sys->p_popup_menu;
+    delete p_intf->p_sys->p_popup_menu;
 
     if( !show )
     {
@@ -971,11 +966,10 @@ void QVLCMenu::PopupMenu( intf_thread_t *p_intf, bool show )
         /* In skins interface, append some items */
         if( !mi )
         {
-
-            vlc_object_t *p_object = ( vlc_object_t* )
-                vlc_object_find_name( p_intf, "skins2", FIND_PARENT );
-            if( p_object )
+            if( p_intf->p_sys->b_isDialogProvider )
             {
+                vlc_object_t* p_object = p_intf->p_parent;
+
                 objects.clear(); varnames.clear();
                 objects.push_back( p_object );
                 varnames.push_back( "intf-skins" );
@@ -985,8 +979,6 @@ void QVLCMenu::PopupMenu( intf_thread_t *p_intf, bool show )
                 objects.push_back( p_object );
                 varnames.push_back( "intf-skins-interactive" );
                 Populate( p_intf, submenu, varnames, objects );
-
-                vlc_object_release( p_object );
             }
             else
                 msg_Warn( p_intf, "could not find parent interface" );
@@ -1008,6 +1000,7 @@ void QVLCMenu::PopupMenu( intf_thread_t *p_intf, bool show )
 #undef ACT_ADDMENU
 #undef ACT_ADDCHECK
 
+#ifndef HAVE_MAEMO
 /************************************************************************
  * Systray Menu                                                         *
  ************************************************************************/
@@ -1025,13 +1018,13 @@ void QVLCMenu::updateSystrayMenu( MainInterface *mi,
     /* Hide / Show VLC and cone */
     if( mi->isVisible() || b_force_visible )
     {
-        sysMenu->addAction( QIcon( ":/vlc16.png" ),
+        sysMenu->addAction( QIcon( ":/logo/vlc16.png" ),
                             qtr( "Hide VLC media player in taskbar" ), mi,
                             SLOT( toggleUpdateSystrayMenu() ) );
     }
     else
     {
-        sysMenu->addAction( QIcon( ":/vlc16.png" ),
+        sysMenu->addAction( QIcon( ":/logo/vlc16.png" ),
                             qtr( "Show VLC media player" ), mi,
                             SLOT( toggleUpdateSystrayMenu() ) );
     }
@@ -1043,13 +1036,14 @@ void QVLCMenu::updateSystrayMenu( MainInterface *mi,
 
     sysMenu->addSeparator();
     addDPStaticEntry( sysMenu, qtr( "&Open Media" ),
-            ":/file-wide", SLOT( openFileDialog() ) );
+            ":/type/file-wide", SLOT( openFileDialog() ) );
     addDPStaticEntry( sysMenu, qtr( "&Quit" ) ,
-            ":/quit", SLOT( quit() ) );
+            ":/menu/quit", SLOT( quit() ) );
 
     /* Set the menu */
     mi->getSysTray()->setContextMenu( sysMenu );
 }
+#endif
 
 #undef CREATE_POPUP
 #undef POPUP_BOILERPLATE
@@ -1257,6 +1251,19 @@ void QVLCMenu::UpdateItem( intf_thread_t *p_intf, QMenu *menu,
 
 #undef TEXT_OR_VAR
 
+/** HACK for the navigation submenu:
+ * "title %2i" variables take the value 0 if not set
+ */
+static bool CheckTitle( vlc_object_t *p_object, const char *psz_var )
+{
+    int i_title = 0;
+    if( sscanf( psz_var, "title %2i", &i_title ) <= 0 )
+        return true;
+
+    int i_current_title = var_GetInteger( p_object, "title" );
+    return ( i_title == i_current_title );
+}
+
 
 int QVLCMenu::CreateChoicesMenu( QMenu *submenu, const char *psz_var,
         vlc_object_t *p_object, bool b_root )
@@ -1325,7 +1332,8 @@ int QVLCMenu::CreateChoicesMenu( QMenu *submenu, const char *psz_var,
                 else menutext.sprintf( "%d", CURVAL.i_int );
                 CreateAndConnect( submenu, psz_var, menutext, "", ITEM_RADIO,
                         p_object, CURVAL, i_type,
-                        CURVAL.i_int == val.i_int );
+                        ( CURVAL.i_int == val.i_int )
+                        && CheckTitle( p_object, psz_var ) );
                 break;
 
             case VLC_VAR_FLOAT:
@@ -1352,7 +1360,7 @@ int QVLCMenu::CreateChoicesMenu( QMenu *submenu, const char *psz_var,
 }
 
 void QVLCMenu::CreateAndConnect( QMenu *menu, const char *psz_var,
-        QString text, QString help,
+        const QString& text, const QString& help,
         int i_item_type, vlc_object_t *p_obj,
         vlc_value_t val, int i_val_type,
         bool checked )
@@ -1386,6 +1394,10 @@ void QVLCMenu::CreateAndConnect( QMenu *menu, const char *psz_var,
 
     MenuItemData *itemData = new MenuItemData( THEDP->menusMapper, p_obj, i_val_type,
             val, psz_var );
+
+    /* remove previous signal-slot connection(s) if any */
+    action->disconnect( );
+
     CONNECT( action, triggered(), THEDP->menusMapper, map() );
     THEDP->menusMapper->setMapping( action, itemData );
 

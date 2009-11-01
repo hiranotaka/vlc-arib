@@ -36,15 +36,20 @@
 #include <QProgressDialog>
 #include <QMutex>
 
-DialogHandler::DialogHandler (intf_thread_t *intf)
-    : intf (intf),
-      message (VLC_OBJECT(intf), "dialog-fatal", VLC_VAR_ADDRESS),
-      login (VLC_OBJECT(intf), "dialog-login", VLC_VAR_ADDRESS),
-      question (VLC_OBJECT(intf), "dialog-question", VLC_VAR_ADDRESS),
-      progressBar (VLC_OBJECT(intf), "dialog-progress-bar", VLC_VAR_ADDRESS)
+DialogHandler::DialogHandler (intf_thread_t *intf, QObject *_parent)
+    : intf (intf), QObject( _parent ),
+      critical (VLC_OBJECT(intf), "dialog-critical"),
+      login (VLC_OBJECT(intf), "dialog-login"),
+      question (VLC_OBJECT(intf), "dialog-question"),
+      progressBar (VLC_OBJECT(intf), "dialog-progress-bar")
 {
-    connect (&message, SIGNAL(pointerChanged(vlc_object_t *, void *)),
-             SLOT(displayMessage(vlc_object_t *, void *)),
+    var_Create (intf, "dialog-error", VLC_VAR_ADDRESS);
+    var_AddCallback (intf, "dialog-error", error, this);
+    connect (this, SIGNAL(error(const QString &, const QString &)),
+             SLOT(displayError(const QString &, const QString &)));
+
+    connect (&critical, SIGNAL(pointerChanged(vlc_object_t *, void *)),
+             SLOT(displayCritical(vlc_object_t *, void *)),
              Qt::BlockingQueuedConnection);
     connect (&login, SIGNAL(pointerChanged(vlc_object_t *, void *)),
              SLOT(requestLogin(vlc_object_t *, void *)),
@@ -65,19 +70,33 @@ DialogHandler::DialogHandler (intf_thread_t *intf)
 DialogHandler::~DialogHandler (void)
 {
     dialog_Unregister (intf);
+
+    var_DelCallback (intf, "dialog-error", error, this);
+    var_Destroy (intf, "dialog-error");
 }
 
-void DialogHandler::displayMessage (vlc_object_t *, void *value)
+int DialogHandler::error (vlc_object_t *obj, const char *,
+                          vlc_value_t, vlc_value_t value, void *data)
 {
-     const dialog_fatal_t *dialog = (const dialog_fatal_t *)value;
+    const dialog_fatal_t *dialog = (const dialog_fatal_t *)value.p_address;
+    DialogHandler *self = static_cast<DialogHandler *>(data);
 
-    if (dialog->modal)
-        QMessageBox::critical (NULL, qfu(dialog->title), qfu(dialog->message),
-                               QMessageBox::Ok);
-    else
-    if (config_GetInt (intf, "qt-error-dialogs"))
-        ErrorsDialog::getInstance (intf)->addError(qfu(dialog->title),
-                                                   qfu(dialog->message));
+    if (config_GetInt (obj, "qt-error-dialogs"))
+        emit self->error (qfu(dialog->title), qfu(dialog->message));
+    return VLC_SUCCESS;
+}
+
+void DialogHandler::displayError (const QString& title, const QString& message)
+{
+    ErrorsDialog::getInstance (intf)->addError(title, message);
+}
+
+void DialogHandler::displayCritical (vlc_object_t *, void *value)
+{
+    const dialog_fatal_t *dialog = (const dialog_fatal_t *)value;
+
+    QMessageBox::critical (NULL, qfu(dialog->title), qfu(dialog->message),
+                           QMessageBox::Ok);
 }
 
 void DialogHandler::requestLogin (vlc_object_t *, void *value)
@@ -87,6 +106,7 @@ void DialogHandler::requestLogin (vlc_object_t *, void *value)
     QLayout *layout = new QVBoxLayout (dialog);
 
     dialog->setWindowTitle (qfu(data->title));
+    dialog->setWindowRole ("vlc-login");
     layout->setMargin (2);
 
     /* User name and password fields */
@@ -138,9 +158,8 @@ void DialogHandler::requestAnswer (vlc_object_t *, void *value)
         ? box->addButton ("&" + qfu(data->yes), QMessageBox::YesRole) : NULL;
     QAbstractButton *no = (data->no != NULL)
         ? box->addButton ("&" + qfu(data->no), QMessageBox::NoRole) : NULL;
-    QAbstractButton *cancel = (data->cancel != NULL)
-        ? box->addButton ("&" + qfu(data->cancel), QMessageBox::RejectRole)
-        : NULL;
+    if (data->cancel != NULL)
+        box->addButton ("&" + qfu(data->cancel), QMessageBox::RejectRole);
 
     box->exec ();
 
@@ -167,6 +186,7 @@ QVLCProgressDialog::QVLCProgressDialog (DialogHandler *parent,
 {
     if (data->title != NULL)
         setWindowTitle (qfu(data->title));
+    setWindowRole ("vlc-progress");
     setMinimumDuration (0);
 
     connect (this, SIGNAL(progressed(int)), SLOT(setValue(int)));

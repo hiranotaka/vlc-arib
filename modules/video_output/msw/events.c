@@ -41,14 +41,14 @@
 #include <vlc_interface.h>
 #include <vlc_playlist.h>
 #include <vlc_vout.h>
-#include <vlc_window.h>
+#include <vlc_vout_window.h>
 
 #include <windows.h>
 #include <tchar.h>
 #include <windowsx.h>
 #include <shellapi.h>
 
-#ifdef MODULE_NAME_IS_vout_directx
+#ifdef MODULE_NAME_IS_directx
 #include <ddraw.h>
 #endif
 #ifdef MODULE_NAME_IS_direct3d
@@ -58,7 +58,7 @@
 #include <GL/gl.h>
 #endif
 
-#include "vlc_keys.h"
+#include <vlc_keys.h>
 #include "vout.h"
 
 #ifdef UNDER_CE
@@ -73,22 +73,58 @@
     BOOL SHFullScreen(HWND hwndRequester, DWORD dwState);
 #endif*/
 
-
 /*****************************************************************************
  * Local prototypes.
  *****************************************************************************/
-static int  DirectXCreateWindow( vout_thread_t *p_vout );
-static void DirectXCloseWindow ( vout_thread_t *p_vout );
-static long FAR PASCAL DirectXEventProc( HWND, UINT, WPARAM, LPARAM );
+#define WM_VLC_HIDE_MOUSE   (WM_APP + 0)
+#define WM_VLC_SHOW_MOUSE   (WM_APP + 1)
+#define WM_VLC_CHANGE_TEXT  (WM_APP + 2)
 
-static int Control( vout_thread_t *p_vout, int i_query, va_list args );
-static int vaControlParentWindow( vout_thread_t *, int, va_list );
+struct event_thread_t
+{
+    vout_thread_t *p_vout;
+
+    /* */
+    vlc_thread_t thread;
+    vlc_mutex_t  lock;
+    vlc_cond_t   wait;
+    bool         b_ready;
+    bool         b_done;
+    bool         b_error;
+
+    /* */
+    bool use_desktop;
+    bool use_overlay;
+
+    /* Mouse */
+    volatile bool    b_cursor_hidden;
+    volatile mtime_t i_lastmoved;
+    mtime_t          i_mouse_hide_timeout;
+
+    /* Title */
+    char *psz_title;
+
+    int               i_window_style;
+    vout_window_cfg_t wnd_cfg;
+
+    /* */
+    unsigned i_changes;
+
+    /* */
+    vout_window_t *parent_window;
+    HWND hparent;
+    HWND hwnd;
+    HWND hvideownd;
+    HWND hfswnd;
+};
+
+static int  DirectXCreateWindow( event_thread_t * );
+static void DirectXCloseWindow ( event_thread_t * );
+static long FAR PASCAL DirectXEventProc( HWND, UINT, WPARAM, LPARAM );
 
 static void DirectXPopupMenu( event_thread_t *p_event, bool b_open )
 {
-    vlc_value_t val;
-    val.b_bool = b_open;
-    var_Set( p_event->p_libvlc, "intf-popupmenu", val );
+    var_SetBool( p_event->p_vout->p_libvlc, "intf-popupmenu", b_open );
 }
 
 static int DirectXConvertKey( int i_key );
@@ -101,9 +137,10 @@ static int DirectXConvertKey( int i_key );
  * The main goal of this thread is to isolate the Win32 PeekMessage function
  * because this one can block for a long time.
  *****************************************************************************/
-void* EventThread( vlc_object_t *p_this )
+static void *EventThread( void *p_this )
 {
     event_thread_t *p_event = (event_thread_t *)p_this;
+    vout_thread_t *p_vout = p_event->p_vout;
     MSG msg;
     POINT old_mouse_pos = {0,0}, mouse_pos;
     vlc_value_t val;
@@ -111,20 +148,24 @@ void* EventThread( vlc_object_t *p_this )
     HMODULE hkernel32;
     int canc = vlc_savecancel ();
 
-    /* Initialisation */
-    p_event->p_vout->pf_control = Control;
-
+    vlc_mutex_lock( &p_event->lock );
     /* Create a window for the video */
     /* Creating a window under Windows also initializes the thread's event
      * message queue */
-    if( DirectXCreateWindow( p_event->p_vout ) )
+    if( DirectXCreateWindow( p_event ) )
+        p_event->b_error = true;
+
+    p_event->b_ready = true;
+    vlc_cond_signal( &p_event->wait );
+
+    const bool b_error = p_event->b_error;
+    vlc_mutex_unlock( &p_event->lock );
+
+    if( b_error )
     {
-        vlc_restorecancel (canc);
+        vlc_restorecancel( canc );
         return NULL;
     }
-
-    /* Signal the creation of the window */
-    SetEvent( p_event->window_ready );
 
 #ifndef UNDER_CE
     /* Set power management stuff */
@@ -139,28 +180,42 @@ void* EventThread( vlc_object_t *p_this )
             /* Prevent monitor from powering off */
             OurSetThreadExecutionState( ES_DISPLAY_REQUIRED | ES_CONTINUOUS );
         else
-            msg_Dbg( p_event, "no support for SetThreadExecutionState()" );
+            msg_Dbg( p_vout, "no support for SetThreadExecutionState()" );
     }
 #endif
 
     /* Main loop */
     /* GetMessage will sleep if there's no message in the queue */
-    while( vlc_object_alive (p_event) && GetMessage( &msg, 0, 0, 0 ) )
+    for( ;; )
     {
+        if( !GetMessage( &msg, 0, 0, 0 ) )
+        {
+            vlc_mutex_lock( &p_event->lock );
+            p_event->b_done = true;
+            vlc_mutex_unlock( &p_event->lock );
+            break;
+        }
+
         /* Check if we are asked to exit */
-        if( !vlc_object_alive (p_event) )
+        vlc_mutex_lock( &p_event->lock );
+        const bool b_done = p_event->b_done;
+        vlc_mutex_unlock( &p_event->lock );
+        if( b_done )
             break;
 
+        /* */
         switch( msg.message )
         {
 
         case WM_MOUSEMOVE:
+            vlc_mutex_lock( &p_event->lock );
             vout_PlacePicture( p_event->p_vout,
-                               p_event->p_vout->p_sys->i_window_width,
-                               p_event->p_vout->p_sys->i_window_height,
+                               p_event->wnd_cfg.width,
+                               p_event->wnd_cfg.height,
                                &i_x, &i_y, &i_width, &i_height );
+            vlc_mutex_unlock( &p_event->lock );
 
-            if( msg.hwnd == p_event->p_vout->p_sys->hvideownd )
+            if( msg.hwnd == p_event->hvideownd )
             {
                 /* Child window */
                 i_x = i_y = 0;
@@ -186,26 +241,26 @@ void* EventThread( vlc_object_t *p_this )
                 (abs(mouse_pos.y - old_mouse_pos.y)) > 2 ) )
             {
                 GetCursorPos( &old_mouse_pos );
-                p_event->p_vout->p_sys->i_lastmoved = mdate();
+                p_event->i_lastmoved = mdate();
 
-                if( p_event->p_vout->p_sys->b_cursor_hidden )
+                if( p_event->b_cursor_hidden )
                 {
-                    p_event->p_vout->p_sys->b_cursor_hidden = 0;
+                    p_event->b_cursor_hidden = 0;
                     ShowCursor( TRUE );
                 }
             }
             break;
 
         case WM_VLC_HIDE_MOUSE:
-            if( p_event->p_vout->p_sys->b_cursor_hidden ) break;
-            p_event->p_vout->p_sys->b_cursor_hidden = true;
+            if( p_event->b_cursor_hidden ) break;
+            p_event->b_cursor_hidden = true;
             GetCursorPos( &old_mouse_pos );
             ShowCursor( FALSE );
             break;
 
         case WM_VLC_SHOW_MOUSE:
-            if( !p_event->p_vout->p_sys->b_cursor_hidden ) break;
-            p_event->p_vout->p_sys->b_cursor_hidden = false;
+            if( !p_event->b_cursor_hidden ) break;
+            p_event->b_cursor_hidden = false;
             GetCursorPos( &old_mouse_pos );
             ShowCursor( TRUE );
             break;
@@ -226,7 +281,9 @@ void* EventThread( vlc_object_t *p_this )
             break;
 
         case WM_LBUTTONDBLCLK:
-            p_event->p_vout->p_sys->i_changes |= VOUT_FULLSCREEN_CHANGE;
+            vlc_mutex_lock( &p_event->lock );
+            p_event->i_changes |= VOUT_FULLSCREEN_CHANGE;
+            vlc_mutex_unlock( &p_event->lock );
             break;
 
         case WM_MBUTTONDOWN:
@@ -283,7 +340,7 @@ void* EventThread( vlc_object_t *p_this )
                     val.i_int |= KEY_MODIFIER_ALT;
                 }
 
-                var_Set( p_event->p_libvlc, "key-pressed", val );
+                var_Set( p_vout->p_libvlc, "key-pressed", val );
             }
             break;
 
@@ -311,57 +368,35 @@ void* EventThread( vlc_object_t *p_this )
                     val.i_int |= KEY_MODIFIER_ALT;
                 }
 
-                var_Set( p_event->p_libvlc, "key-pressed", val );
+                var_Set( p_vout->p_libvlc, "key-pressed", val );
             }
             break;
 
         case WM_VLC_CHANGE_TEXT:
-            var_Get( p_event->p_vout, "video-title", &val );
-            if( !val.psz_string || !*val.psz_string ) /* Default video title */
+        {
+            vlc_mutex_lock( &p_event->lock );
+            wchar_t *pwz_title = NULL;
+            if( p_event->psz_title )
             {
-                free( val.psz_string );
-
-#ifdef MODULE_NAME_IS_wingdi
-                val.psz_string = strdup( VOUT_TITLE " (WinGDI output)" );
-#endif
-#ifdef MODULE_NAME_IS_wingapi
-                val.psz_string = strdup( VOUT_TITLE " (WinGAPI output)" );
-#endif
-#ifdef MODULE_NAME_IS_glwin32
-                val.psz_string = strdup( VOUT_TITLE " (OpenGL output)" );
-#endif
-#ifdef MODULE_NAME_IS_direct3d
-                val.psz_string = strdup( VOUT_TITLE " (Direct3D output)" );
-#endif
-#ifdef MODULE_NAME_IS_vout_directx
-                if( p_event->p_vout->p_sys->b_using_overlay ) val.psz_string =
-                    strdup( VOUT_TITLE " (hardware YUV overlay DirectX output)" );
-                else if( p_event->p_vout->p_sys->b_hw_yuv ) val.psz_string =
-                    strdup( VOUT_TITLE " (hardware YUV DirectX output)" );
-                else val.psz_string =
-                    strdup( VOUT_TITLE " (software RGB DirectX output)" );
-#endif
-            }
-
-#ifdef UNICODE
-            {
-                wchar_t *psz_title = malloc( strlen(val.psz_string) * 2 + 2 );
-                if( psz_title )
+                const size_t i_length = strlen(p_event->psz_title);
+                pwz_title = malloc( 2 * (i_length + 1) );
+                if( pwz_title )
                 {
-                    mbstowcs( psz_title, val.psz_string, strlen(val.psz_string)*2);
-                    psz_title[strlen(val.psz_string)] = 0;
-                    free( val.psz_string ); val.psz_string = (char *)psz_title;
+                    mbstowcs( pwz_title, p_event->psz_title, 2 * i_length );
+                    pwz_title[i_length] = 0;
                 }
             }
-#endif
+            vlc_mutex_unlock( &p_event->lock );
 
-            SetWindowText( p_event->p_vout->p_sys->hwnd,
-                           (LPCTSTR)val.psz_string );
-            if( p_event->p_vout->p_sys->hfswnd )
-                SetWindowText( p_event->p_vout->p_sys->hfswnd,
-                               (LPCTSTR)val.psz_string );
-            free( val.psz_string );
+            if( pwz_title )
+            {
+                SetWindowText( p_event->hwnd, (LPCTSTR)pwz_title );
+                if( p_event->hfswnd )
+                    SetWindowText( p_event->hfswnd, (LPCTSTR)pwz_title );
+                free( pwz_title );
+            }
             break;
+        }
 
         default:
             /* Messages we don't handle directly are dispatched to the
@@ -375,19 +410,16 @@ void* EventThread( vlc_object_t *p_this )
     } /* End Main loop */
 
     /* Check for WM_QUIT if we created the window */
-    if( !p_event->p_vout->p_sys->hparent && msg.message == WM_QUIT )
+    if( !p_event->hparent && msg.message == WM_QUIT )
     {
-        msg_Warn( p_event, "WM_QUIT... should not happen!!" );
-        p_event->p_vout->p_sys->hwnd = NULL; /* Window already destroyed */
+        msg_Warn( p_vout, "WM_QUIT... should not happen!!" );
+        p_event->hwnd = NULL; /* Window already destroyed */
     }
 
-    msg_Dbg( p_event, "DirectXEventThread terminating" );
+    msg_Dbg( p_vout, "DirectXEventThread terminating" );
 
-    /* clear the changes formerly signaled */
-    p_event->p_vout->p_sys->i_changes = 0;
-
-    DirectXCloseWindow( p_event->p_vout );
-    vlc_restorecancel (canc);
+    DirectXCloseWindow( p_event );
+    vlc_restorecancel(canc);
     return NULL;
 }
 
@@ -401,13 +433,14 @@ void* EventThread( vlc_object_t *p_this )
  * the video will be displayed. This window will also allow us to capture the
  * events.
  *****************************************************************************/
-static int DirectXCreateWindow( vout_thread_t *p_vout )
+static int DirectXCreateWindow( event_thread_t *p_event )
 {
+    vout_thread_t *p_vout = p_event->p_vout;
     HINSTANCE  hInstance;
     HMENU      hMenu;
     RECT       rect_window;
     WNDCLASS   wc;                            /* window class components */
-    HICON      vlc_icon = NULL;
+    HICON      vlc_icon;
     char       vlc_path[MAX_PATH+1];
     int        i_style, i_stylex;
 
@@ -416,17 +449,29 @@ static int DirectXCreateWindow( vout_thread_t *p_vout )
     /* Get this module's instance */
     hInstance = GetModuleHandle(NULL);
 
-    /* If an external window was specified, we'll draw in it. */
-    p_vout->p_sys->parent_window =
-        vout_RequestHWND( p_vout, &p_vout->p_sys->i_window_x,
-                            &p_vout->p_sys->i_window_y,
-                            &p_vout->p_sys->i_window_width,
-                            &p_vout->p_sys->i_window_height );
-    if( p_vout->p_sys->parent_window )
-        p_vout->p_sys->hparent = p_vout->p_sys->parent_window->handle.hwnd;
-
-    /* We create the window ourself, there is no previous window proc. */
-    p_vout->p_sys->pf_wndproc = NULL;
+    #ifdef MODULE_NAME_IS_direct3d
+    if( !p_event->use_desktop )
+    {
+    #endif
+        /* If an external window was specified, we'll draw in it. */
+        p_event->parent_window = vout_window_New( VLC_OBJECT(p_vout), NULL, &p_event->wnd_cfg );
+        if( p_event->parent_window )
+            p_event->hparent = p_event->parent_window->handle.hwnd;
+        else
+            p_event->hparent = NULL;
+    #ifdef MODULE_NAME_IS_direct3d
+    }
+    else
+    {
+        /* Find Program Manager */
+        HWND hwnd = FindWindow( _T("Progman"), NULL );
+        if( hwnd ) hwnd = FindWindowEx( hwnd, NULL, _T("SHELLDLL_DefView"), NULL );
+        if( hwnd ) hwnd = FindWindowEx( hwnd, NULL, _T("SysListView32"), NULL );
+        if( !hwnd )
+            msg_Err( p_vout, "Couldn't find desktop icon window. Desktop mode can't be established." );
+        p_event->hparent = hwnd;
+    }
+    #endif
 
     /* Get the Icon from the main app */
     vlc_icon = NULL;
@@ -487,8 +532,8 @@ static int DirectXCreateWindow( vout_thread_t *p_vout )
      * the window corresponding to the useable surface we want */
     rect_window.top    = 10;
     rect_window.left   = 10;
-    rect_window.right  = rect_window.left + p_vout->p_sys->i_window_width;
-    rect_window.bottom = rect_window.top + p_vout->p_sys->i_window_height;
+    rect_window.right  = rect_window.left + p_event->wnd_cfg.width;
+    rect_window.bottom = rect_window.top  + p_event->wnd_cfg.height;
 
     if( var_GetBool( p_vout, "video-deco" ) )
     {
@@ -506,51 +551,51 @@ static int DirectXCreateWindow( vout_thread_t *p_vout )
                       // It messes up the fullscreen window.
     }
 
-    if( p_vout->p_sys->hparent )
+    if( p_event->hparent )
     {
         i_style = WS_VISIBLE|WS_CLIPCHILDREN|WS_CHILD;
         i_stylex = 0;
     }
 
-    p_vout->p_sys->i_window_style = i_style;
+    p_event->i_window_style = i_style;
 
     /* Create the window */
-    p_vout->p_sys->hwnd =
+    p_event->hwnd =
         CreateWindowEx( WS_EX_NOPARENTNOTIFY | i_stylex,
                     _T("VLC DirectX"),               /* name of window class */
                     _T(VOUT_TITLE) _T(" (DirectX Output)"),  /* window title */
                     i_style,                                 /* window style */
-                    (p_vout->p_sys->i_window_x < 0) ? CW_USEDEFAULT :
-                        (UINT)p_vout->p_sys->i_window_x,   /* default X coordinate */
-                    (p_vout->p_sys->i_window_y < 0) ? CW_USEDEFAULT :
-                        (UINT)p_vout->p_sys->i_window_y,   /* default Y coordinate */
+                    (p_event->wnd_cfg.x < 0) ? CW_USEDEFAULT :
+                        (UINT)p_event->wnd_cfg.x,   /* default X coordinate */
+                    (p_event->wnd_cfg.y < 0) ? CW_USEDEFAULT :
+                        (UINT)p_event->wnd_cfg.y,   /* default Y coordinate */
                     rect_window.right - rect_window.left,    /* window width */
                     rect_window.bottom - rect_window.top,   /* window height */
-                    p_vout->p_sys->hparent,                 /* parent window */
+                    p_event->hparent,                       /* parent window */
                     NULL,                          /* no menu in this window */
                     hInstance,            /* handle of this program instance */
-                    (LPVOID)p_vout );            /* send p_vout to WM_CREATE */
+                    (LPVOID)p_event );           /* send p_vout to WM_CREATE */
 
-    if( !p_vout->p_sys->hwnd )
+    if( !p_event->hwnd )
     {
         msg_Warn( p_vout, "DirectXCreateWindow create window FAILED (err=%lu)", GetLastError() );
         return VLC_EGENERIC;
     }
 
-    if( p_vout->p_sys->hparent )
+    if( p_event->hparent )
     {
         LONG i_style;
 
         /* We don't want the window owner to overwrite our client area */
-        i_style = GetWindowLong( p_vout->p_sys->hparent, GWL_STYLE );
+        i_style = GetWindowLong( p_event->hparent, GWL_STYLE );
 
         if( !(i_style & WS_CLIPCHILDREN) )
             /* Hmmm, apparently this is a blocking call... */
-            SetWindowLong( p_vout->p_sys->hparent, GWL_STYLE,
+            SetWindowLong( p_event->hparent, GWL_STYLE,
                            i_style | WS_CLIPCHILDREN );
 
         /* Create our fullscreen window */
-        p_vout->p_sys->hfswnd =
+        p_event->hfswnd =
             CreateWindowEx( WS_EX_APPWINDOW, _T("VLC DirectX"),
                             _T(VOUT_TITLE) _T(" (DirectX Output)"),
                             WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN|WS_SIZEBOX,
@@ -558,9 +603,13 @@ static int DirectXCreateWindow( vout_thread_t *p_vout )
                             CW_USEDEFAULT, CW_USEDEFAULT,
                             NULL, NULL, hInstance, NULL );
     }
+    else
+    {
+        p_event->hfswnd = NULL;
+    }
 
     /* Append a "Always On Top" entry in the system menu */
-    hMenu = GetSystemMenu( p_vout->p_sys->hwnd, FALSE );
+    hMenu = GetSystemMenu( p_event->hwnd, FALSE );
     AppendMenu( hMenu, MF_SEPARATOR, 0, _T("") );
     AppendMenu( hMenu, MF_STRING | MF_UNCHECKED,
                        IDM_TOGGLE_ON_TOP, _T("Always on &Top") );
@@ -568,23 +617,23 @@ static int DirectXCreateWindow( vout_thread_t *p_vout )
     /* Create video sub-window. This sub window will always exactly match
      * the size of the video, which allows us to use crazy overlay colorkeys
      * without having them shown outside of the video area. */
-    p_vout->p_sys->hvideownd =
+    p_event->hvideownd =
     CreateWindow( _T("VLC DirectX video"), _T(""),   /* window class */
         WS_CHILD,                   /* window style, not visible initially */
         0, 0,
-        p_vout->render.i_width,         /* default width */
+        p_vout->render.i_width,          /* default width */
         p_vout->render.i_height,        /* default height */
-        p_vout->p_sys->hwnd,                    /* parent window */
+        p_event->hwnd,                   /* parent window */
         NULL, hInstance,
-        (LPVOID)p_vout );            /* send p_vout to WM_CREATE */
+        (LPVOID)p_event );    /* send p_vout to WM_CREATE */
 
-    if( !p_vout->p_sys->hvideownd )
+    if( !p_event->hvideownd )
         msg_Warn( p_vout, "can't create video sub-window" );
     else
         msg_Dbg( p_vout, "created video sub-window" );
 
     /* Now display the window */
-    ShowWindow( p_vout->p_sys->hwnd, SW_SHOW );
+    ShowWindow( p_event->hwnd, SW_SHOW );
 
     return VLC_SUCCESS;
 }
@@ -594,190 +643,23 @@ static int DirectXCreateWindow( vout_thread_t *p_vout )
  *****************************************************************************
  * This function returns all resources allocated by DirectXCreateWindow.
  *****************************************************************************/
-static void DirectXCloseWindow( vout_thread_t *p_vout )
+static void DirectXCloseWindow( event_thread_t *p_event )
 {
+    vout_thread_t *p_vout = p_event->p_vout;
     msg_Dbg( p_vout, "DirectXCloseWindow" );
 
-    DestroyWindow( p_vout->p_sys->hwnd );
-    if( p_vout->p_sys->hfswnd ) DestroyWindow( p_vout->p_sys->hfswnd );
+    DestroyWindow( p_event->hwnd );
+    if( p_event->hfswnd ) DestroyWindow( p_event->hfswnd );
 
-    vout_ReleaseWindow( p_vout->p_sys->parent_window );
-    p_vout->p_sys->hwnd = NULL;
+    #ifdef MODULE_NAME_IS_direct3d
+    if( !p_event->use_desktop )
+    #endif
+        vout_window_Delete( p_event->parent_window );
+    p_event->hwnd = NULL;
 
     /* We don't unregister the Window Class because it could lead to race
      * conditions and it will be done anyway by the system when the app will
      * exit */
-}
-
-/*****************************************************************************
- * UpdateRects: update clipping rectangles
- *****************************************************************************
- * This function is called when the window position or size are changed, and
- * its job is to update the source and destination RECTs used to display the
- * picture.
- *****************************************************************************/
-void UpdateRects( vout_thread_t *p_vout, bool b_force )
-{
-#define rect_src p_vout->p_sys->rect_src
-#define rect_src_clipped p_vout->p_sys->rect_src_clipped
-#define rect_dest p_vout->p_sys->rect_dest
-#define rect_dest_clipped p_vout->p_sys->rect_dest_clipped
-
-    int i_width, i_height, i_x, i_y;
-
-    RECT  rect;
-    POINT point;
-
-    /* Retrieve the window size */
-    GetClientRect( p_vout->p_sys->hwnd, &rect );
-
-    /* Retrieve the window position */
-    point.x = point.y = 0;
-    ClientToScreen( p_vout->p_sys->hwnd, &point );
-
-    /* If nothing changed, we can return */
-    if( !b_force
-         && p_vout->p_sys->i_window_width == rect.right
-         && p_vout->p_sys->i_window_height == rect.bottom
-         && p_vout->p_sys->i_window_x == point.x
-         && p_vout->p_sys->i_window_y == point.y )
-    {
-        return;
-    }
-
-    /* Update the window position and size */
-    p_vout->p_sys->i_window_x = point.x;
-    p_vout->p_sys->i_window_y = point.y;
-    p_vout->p_sys->i_window_width = rect.right;
-    p_vout->p_sys->i_window_height = rect.bottom;
-
-    vout_PlacePicture( p_vout, rect.right, rect.bottom,
-                       &i_x, &i_y, &i_width, &i_height );
-
-    if( p_vout->p_sys->hvideownd )
-        SetWindowPos( p_vout->p_sys->hvideownd, 0,
-                      i_x, i_y, i_width, i_height,
-                      SWP_NOCOPYBITS|SWP_NOZORDER|SWP_ASYNCWINDOWPOS );
-
-    /* Destination image position and dimensions */
-    rect_dest.left = point.x + i_x;
-    rect_dest.right = rect_dest.left + i_width;
-    rect_dest.top = point.y + i_y;
-    rect_dest.bottom = rect_dest.top + i_height;
-
-#ifdef MODULE_NAME_IS_vout_directx
-    /* Apply overlay hardware constraints */
-    if( p_vout->p_sys->b_using_overlay )
-    {
-        if( p_vout->p_sys->i_align_dest_boundary )
-            rect_dest.left = ( rect_dest.left +
-                p_vout->p_sys->i_align_dest_boundary / 2 ) &
-                ~p_vout->p_sys->i_align_dest_boundary;
-
-        if( p_vout->p_sys->i_align_dest_size )
-            rect_dest.right = (( rect_dest.right - rect_dest.left +
-                p_vout->p_sys->i_align_dest_size / 2 ) &
-                ~p_vout->p_sys->i_align_dest_size) + rect_dest.left;
-    }
-
-    /* UpdateOverlay directdraw function doesn't automatically clip to the
-     * display size so we need to do it otherwise it will fail */
-
-    /* Clip the destination window */
-    if( !IntersectRect( &rect_dest_clipped, &rect_dest,
-                        &p_vout->p_sys->rect_display ) )
-    {
-        SetRectEmpty( &rect_src_clipped );
-        return;
-    }
-
-#if 0
-    msg_Dbg( p_vout, "DirectXUpdateRects image_dst_clipped coords:"
-                     " %i,%i,%i,%i",
-                     rect_dest_clipped.left, rect_dest_clipped.top,
-                     rect_dest_clipped.right, rect_dest_clipped.bottom );
-#endif
-
-#else /* MODULE_NAME_IS_vout_directx */
-
-    /* AFAIK, there are no clipping constraints in Direct3D, OpenGL and GDI */
-    rect_dest_clipped = rect_dest;
-
-#endif
-
-    /* the 2 following lines are to fix a bug when clicking on the desktop */
-    if( (rect_dest_clipped.right - rect_dest_clipped.left)==0 ||
-        (rect_dest_clipped.bottom - rect_dest_clipped.top)==0 )
-    {
-        SetRectEmpty( &rect_src_clipped );
-        return;
-    }
-
-    /* src image dimensions */
-    rect_src.left = 0;
-    rect_src.top = 0;
-    rect_src.right = p_vout->render.i_width;
-    rect_src.bottom = p_vout->render.i_height;
-
-    /* Clip the source image */
-    rect_src_clipped.left = p_vout->fmt_out.i_x_offset +
-      (rect_dest_clipped.left - rect_dest.left) *
-      p_vout->fmt_out.i_visible_width / (rect_dest.right - rect_dest.left);
-    rect_src_clipped.right = p_vout->fmt_out.i_x_offset +
-      p_vout->fmt_out.i_visible_width -
-      (rect_dest.right - rect_dest_clipped.right) *
-      p_vout->fmt_out.i_visible_width / (rect_dest.right - rect_dest.left);
-    rect_src_clipped.top = p_vout->fmt_out.i_y_offset +
-      (rect_dest_clipped.top - rect_dest.top) *
-      p_vout->fmt_out.i_visible_height / (rect_dest.bottom - rect_dest.top);
-    rect_src_clipped.bottom = p_vout->fmt_out.i_y_offset +
-      p_vout->fmt_out.i_visible_height -
-      (rect_dest.bottom - rect_dest_clipped.bottom) *
-      p_vout->fmt_out.i_visible_height / (rect_dest.bottom - rect_dest.top);
-
-#ifdef MODULE_NAME_IS_vout_directx
-    /* Apply overlay hardware constraints */
-    if( p_vout->p_sys->b_using_overlay )
-    {
-        if( p_vout->p_sys->i_align_src_boundary )
-            rect_src_clipped.left = ( rect_src_clipped.left +
-                p_vout->p_sys->i_align_src_boundary / 2 ) &
-                ~p_vout->p_sys->i_align_src_boundary;
-
-        if( p_vout->p_sys->i_align_src_size )
-            rect_src_clipped.right = (( rect_src_clipped.right -
-                rect_src_clipped.left +
-                p_vout->p_sys->i_align_src_size / 2 ) &
-                ~p_vout->p_sys->i_align_src_size) + rect_src_clipped.left;
-    }
-#endif
-
-#if 0
-    msg_Dbg( p_vout, "DirectXUpdateRects image_src_clipped"
-                     " coords: %i,%i,%i,%i",
-                     rect_src_clipped.left, rect_src_clipped.top,
-                     rect_src_clipped.right, rect_src_clipped.bottom );
-#endif
-
-#ifdef MODULE_NAME_IS_vout_directx
-    /* The destination coordinates need to be relative to the current
-     * directdraw primary surface (display) */
-    rect_dest_clipped.left -= p_vout->p_sys->rect_display.left;
-    rect_dest_clipped.right -= p_vout->p_sys->rect_display.left;
-    rect_dest_clipped.top -= p_vout->p_sys->rect_display.top;
-    rect_dest_clipped.bottom -= p_vout->p_sys->rect_display.top;
-
-    if( p_vout->p_sys->b_using_overlay )
-        DirectDrawUpdateOverlay( p_vout );
-#endif
-
-    /* Signal the change in size/position */
-    p_vout->p_sys->i_changes |= DX_POSITION_CHANGE;
-
-#undef rect_src
-#undef rect_src_clipped
-#undef rect_dest
-#undef rect_dest_clipped
 }
 
 /*****************************************************************************
@@ -794,25 +676,27 @@ void UpdateRects( vout_thread_t *p_vout, bool b_force )
 static long FAR PASCAL DirectXEventProc( HWND hwnd, UINT message,
                                          WPARAM wParam, LPARAM lParam )
 {
-    vout_thread_t *p_vout;
+    event_thread_t *p_event;
 
     if( message == WM_CREATE )
     {
         /* Store p_vout for future use */
-        p_vout = (vout_thread_t *)((CREATESTRUCT *)lParam)->lpCreateParams;
-        SetWindowLongPtr( hwnd, GWLP_USERDATA, (LONG_PTR)p_vout );
+        p_event = (event_thread_t *)((CREATESTRUCT *)lParam)->lpCreateParams;
+        SetWindowLongPtr( hwnd, GWLP_USERDATA, (LONG_PTR)p_event );
         return TRUE;
     }
     else
     {
-        p_vout = (vout_thread_t *)GetWindowLongPtr( hwnd, GWLP_USERDATA );
-        if( !p_vout )
+        LONG_PTR p_user_data = GetWindowLongPtr( hwnd, GWLP_USERDATA );
+        p_event = (event_thread_t *)p_user_data;
+        if( !p_event )
         {
             /* Hmmm mozilla does manage somehow to save the pointer to our
              * windowproc and still calls it after the vout has been closed. */
             return DefWindowProc(hwnd, message, wParam, lParam);
         }
     }
+    vout_thread_t *p_vout = p_event->p_vout;
 
 #ifndef UNDER_CE
     /* Catch the screensaver and the monitor turn-off */
@@ -824,15 +708,20 @@ static long FAR PASCAL DirectXEventProc( HWND hwnd, UINT message,
     }
 #endif
 
-    if( hwnd == p_vout->p_sys->hvideownd )
+    if( hwnd == p_event->hvideownd )
     {
+#ifdef MODULE_NAME_IS_directx
+        vlc_mutex_lock( &p_event->lock );
+        const bool use_overlay = p_event->use_overlay;
+        vlc_mutex_unlock( &p_event->lock );
+#endif
+
         switch( message )
         {
-#ifdef MODULE_NAME_IS_vout_directx
+#ifdef MODULE_NAME_IS_directx
         case WM_ERASEBKGND:
         /* For overlay, we need to erase background */
-            return !p_vout->p_sys->b_using_overlay ?
-                1 : DefWindowProc(hwnd, message, wParam, lParam);
+            return !use_overlay ? 1 : DefWindowProc(hwnd, message, wParam, lParam);
         case WM_PAINT:
         /*
         ** For overlay, DefWindowProc() will erase dirty regions
@@ -841,7 +730,7 @@ static long FAR PASCAL DirectXEventProc( HWND hwnd, UINT message,
         ** regular interval, therefore dirty regions can be ignored
         ** to minimize repaint.
         */
-            if( !p_vout->p_sys->b_using_overlay )
+            if( !use_overlay )
             {
                 ValidateRect(hwnd, NULL);
             }
@@ -896,13 +785,10 @@ static long FAR PASCAL DirectXEventProc( HWND hwnd, UINT message,
         {
             case IDM_TOGGLE_ON_TOP:            /* toggle the "on top" status */
             {
-                vlc_value_t val;
                 msg_Dbg( p_vout, "WinProc WM_SYSCOMMAND: IDM_TOGGLE_ON_TOP");
 
                 /* Change the current value */
-                var_Get( p_vout, "video-on-top", &val );
-                val.b_bool = !val.b_bool;
-                var_Set( p_vout, "video-on-top", val );
+                var_ToggleBool( p_vout, "video-on-top" );
                 return 0;
             }
         }
@@ -915,18 +801,17 @@ static long FAR PASCAL DirectXEventProc( HWND hwnd, UINT message,
 
     case WM_KILLFOCUS:
 #ifdef MODULE_NAME_IS_wingapi
-        p_vout->p_sys->b_focus = false;
-        if( !p_vout->p_sys->b_parent_focus ) GXSuspend();
+        GXSuspend();
 #endif
 #ifdef UNDER_CE
-        if( hwnd == p_vout->p_sys->hfswnd )
+        if( hwnd == p_event->hfswnd )
         {
             HWND htbar = FindWindow( _T("HHTaskbar"), NULL );
             ShowWindow( htbar, SW_SHOW );
         }
 
-        if( !p_vout->p_sys->hparent ||
-            hwnd == p_vout->p_sys->hfswnd )
+        if( !p_event->hparent ||
+            hwnd == p_event->hfswnd )
         {
             SHFullScreen( hwnd, SHFS_SHOWSIPBUTTON );
         }
@@ -935,22 +820,25 @@ static long FAR PASCAL DirectXEventProc( HWND hwnd, UINT message,
 
     case WM_SETFOCUS:
 #ifdef MODULE_NAME_IS_wingapi
-        p_vout->p_sys->b_focus = true;
         GXResume();
 #endif
 #ifdef UNDER_CE
-        if( p_vout->p_sys->hparent &&
-            hwnd != p_vout->p_sys->hfswnd && p_vout->b_fullscreen )
-            p_vout->p_sys->i_changes |= VOUT_FULLSCREEN_CHANGE;
+        if( p_event->hparent &&
+            hwnd != p_event->hfswnd && p_vout->b_fullscreen )
+        {
+            vlc_mutex_lock( &p_event->lock );
+            p_event->i_changes |= VOUT_FULLSCREEN_CHANGE;
+            vlc_mutex_unlock( &p_event->lock );
+        }
 
-        if( hwnd == p_vout->p_sys->hfswnd )
+        if( hwnd == p_event->hfswnd )
         {
             HWND htbar = FindWindow( _T("HHTaskbar"), NULL );
             ShowWindow( htbar, SW_HIDE );
         }
 
-        if( !p_vout->p_sys->hparent ||
-            hwnd == p_vout->p_sys->hfswnd )
+        if( !p_event->hparent ||
+            hwnd == p_event->hfswnd )
         {
             SHFullScreen( hwnd, SHFS_HIDESIPBUTTON );
         }
@@ -979,7 +867,7 @@ static struct
     { VK_F12, KEY_F12 },
 
     { VK_RETURN, KEY_ENTER },
-    { VK_SPACE, KEY_SPACE },
+    { VK_SPACE, ' ' },
     { VK_ESCAPE, KEY_ESC },
 
     { VK_LEFT, KEY_LEFT },
@@ -1032,233 +920,89 @@ static int DirectXConvertKey( int i_key )
     return 0;
 }
 
-/*****************************************************************************
- * Control: control facility for the vout
- *****************************************************************************/
-static int Control( vout_thread_t *p_vout, int i_query, va_list args )
+void EventThreadMouseAutoHide( event_thread_t *p_event )
 {
-    unsigned int *pi_width, *pi_height;
-	bool b_bool;
-    RECT rect_window;
-    POINT point;
+    vout_thread_t *p_vout = p_event->p_vout;
 
-    switch( i_query )
+    if( p_vout->b_fullscreen &&
+        !p_event->b_cursor_hidden &&
+        (mdate() - p_event->i_lastmoved) > p_event->i_mouse_hide_timeout )
     {
-    case VOUT_SET_SIZE:
-        if( p_vout->p_sys->parent_window )
-            return vaControlParentWindow( p_vout, i_query, args );
+        /* Hide the cursor only if it is inside our window */
+        POINT point;
+        GetCursorPos( &point );
 
-        /* Update dimensions */
-        rect_window.top = rect_window.left = 0;
-        rect_window.right  = va_arg( args, unsigned int );
-        rect_window.bottom = va_arg( args, unsigned int );
-        if( !rect_window.right ) rect_window.right = p_vout->i_window_width;
-        if( !rect_window.bottom ) rect_window.bottom = p_vout->i_window_height;
-        AdjustWindowRect( &rect_window, p_vout->p_sys->i_window_style, 0 );
-
-        SetWindowPos( p_vout->p_sys->hwnd, 0, 0, 0,
-                      rect_window.right - rect_window.left,
-                      rect_window.bottom - rect_window.top, SWP_NOMOVE );
-
-        return VLC_SUCCESS;
-
-    case VOUT_SET_STAY_ON_TOP:
-        if( p_vout->p_sys->hparent && !var_GetBool( p_vout, "fullscreen" ) )
-            return vaControlParentWindow( p_vout, i_query, args );
-
-        p_vout->p_sys->b_on_top_change = true;
-        return VLC_SUCCESS;
-
-    default:
-        return VLC_EGENERIC;
-    }
-}
-
-
-/* Internal wrapper over GetWindowPlacement */
-static WINDOWPLACEMENT getWindowState(HWND hwnd)
-{
-    WINDOWPLACEMENT window_placement;
-    window_placement.length = sizeof(WINDOWPLACEMENT);
-    GetWindowPlacement( hwnd, &window_placement );
-    return window_placement;
-}
-
-/* Internal wrapper to call vout_ControlWindow for hparent */
-static int vaControlParentWindow( vout_thread_t *p_vout, int i_query,
-                                   va_list args )
-{
-    return vout_ControlWindow( p_vout->p_sys->parent_window, i_query, args );
-}
-
-static int ControlParentWindow( vout_thread_t *p_vout, int i_query, ... )
-{
-    va_list args;
-    int ret;
-
-    va_start( args, i_query );
-    ret = vaControlParentWindow( p_vout, i_query, args );
-    va_end( args );
-    return ret;
-}
-
-void Win32ToggleFullscreen( vout_thread_t *p_vout )
-{
-    HWND hwnd = (p_vout->p_sys->hparent && p_vout->p_sys->hfswnd) ?
-        p_vout->p_sys->hfswnd : p_vout->p_sys->hwnd;
-
-    /* Save the current windows placement/placement to restore
-       when fullscreen is over */
-    WINDOWPLACEMENT window_placement = getWindowState( hwnd );
-
-    p_vout->b_fullscreen = ! p_vout->b_fullscreen;
-
-    /* We want to go to Fullscreen */
-    if( p_vout->b_fullscreen )
-    {
-        msg_Dbg( p_vout, "entering fullscreen mode" );
-
-        /* Change window style, no borders and no title bar */
-        int i_style = WS_CLIPCHILDREN | WS_VISIBLE;
-        SetWindowLong( hwnd, GWL_STYLE, i_style );
-
-        if( p_vout->p_sys->hparent )
+        HWND hwnd = WindowFromPoint(point);
+        if( hwnd == p_event->hwnd || hwnd == p_event->hvideownd )
         {
-#ifdef UNDER_CE
-            POINT point = {0,0};
-            RECT rect;
-            ClientToScreen( p_vout->p_sys->hwnd, &point );
-            GetClientRect( p_vout->p_sys->hwnd, &rect );
-            SetWindowPos( hwnd, 0, point.x, point.y,
-                          rect.right, rect.bottom,
-                          SWP_NOZORDER|SWP_FRAMECHANGED );
-#else
-            /* Retrieve current window position so fullscreen will happen
-            *on the right screen */
-            HMONITOR hmon = MonitorFromWindow(p_vout->p_sys->hparent,
-                                            MONITOR_DEFAULTTONEAREST);
-            MONITORINFO mi = {sizeof(mi)};
-            if (GetMonitorInfo(hmon, &mi))
-            SetWindowPos( hwnd, 0,
-                            mi.rcMonitor.left,
-                            mi.rcMonitor.top,
-                            mi.rcMonitor.right - mi.rcMonitor.left,
-                            mi.rcMonitor.bottom - mi.rcMonitor.top,
-                            SWP_NOZORDER|SWP_FRAMECHANGED );
-#endif
+            PostMessage( p_event->hwnd, WM_VLC_HIDE_MOUSE, 0, 0 );
         }
         else
         {
-            /* Maximize non embedded window */
-            ShowWindow( hwnd, SW_SHOWMAXIMIZED );
-        }
-
-        if( p_vout->p_sys->hparent )
-        {
-            /* Hide the previous window */
-            RECT rect;
-            GetClientRect( hwnd, &rect );
-            SetParent( p_vout->p_sys->hwnd, hwnd );
-            SetWindowPos( p_vout->p_sys->hwnd, 0, 0, 0,
-                          rect.right, rect.bottom,
-                          SWP_NOZORDER|SWP_FRAMECHANGED );
-
-#ifdef UNDER_CE
-            HWND topLevelParent = GetParent( p_vout->p_sys->hparent );
-#else
-            HWND topLevelParent = GetAncestor( p_vout->p_sys->hparent, GA_ROOT );
-#endif
-            ShowWindow( topLevelParent, SW_HIDE );
-        }
-
-        SetForegroundWindow( hwnd );
-    }
-    else
-    {
-        msg_Dbg( p_vout, "leaving fullscreen mode" );
-        /* Change window style, no borders and no title bar */
-        SetWindowLong( hwnd, GWL_STYLE, p_vout->p_sys->i_window_style );
-
-        if( p_vout->p_sys->hparent )
-        {
-            RECT rect;
-            GetClientRect( p_vout->p_sys->hparent, &rect );
-            SetParent( p_vout->p_sys->hwnd, p_vout->p_sys->hparent );
-            SetWindowPos( p_vout->p_sys->hwnd, 0, 0, 0,
-                          rect.right, rect.bottom,
-                          SWP_NOZORDER|SWP_FRAMECHANGED );
-
-#ifdef UNDER_CE
-            HWND topLevelParent = GetParent( p_vout->p_sys->hparent );
-#else
-            HWND topLevelParent = GetAncestor( p_vout->p_sys->hparent, GA_ROOT );
-#endif
-            ShowWindow( topLevelParent, SW_SHOW );
-            SetForegroundWindow( p_vout->p_sys->hparent );
-            ShowWindow( hwnd, SW_HIDE );
-        }
-        else
-        {
-            /* return to normal window for non embedded vout */
-            SetWindowPlacement( hwnd, &window_placement );
-            ShowWindow( hwnd, SW_SHOWNORMAL );
-        }
-
-        /* Make sure the mouse cursor is displayed */
-        PostMessage( p_vout->p_sys->hwnd, WM_VLC_SHOW_MOUSE, 0, 0 );
-    }
-
-    /* Update the object variable and trigger callback */
-    var_SetBool( p_vout, "fullscreen", p_vout->b_fullscreen );
-}
-
-void DisableScreensaver( vout_thread_t *p_vout )
-{
-    /* disable screensaver by temporarily changing system settings */
-    p_vout->p_sys->i_spi_lowpowertimeout = 0;
-    p_vout->p_sys->i_spi_powerofftimeout = 0;
-    p_vout->p_sys->i_spi_screensavetimeout = 0;
-    if( var_GetBool( p_vout, "disable-screensaver" ) )
-    {
-        msg_Dbg(p_vout, "disabling screen saver");
-        SystemParametersInfo(SPI_GETLOWPOWERTIMEOUT,
-            0, &(p_vout->p_sys->i_spi_lowpowertimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_lowpowertimeout ) {
-            SystemParametersInfo(SPI_SETLOWPOWERTIMEOUT, 0, NULL, 0);
-        }
-        SystemParametersInfo(SPI_GETPOWEROFFTIMEOUT, 0,
-            &(p_vout->p_sys->i_spi_powerofftimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_powerofftimeout ) {
-            SystemParametersInfo(SPI_SETPOWEROFFTIMEOUT, 0, NULL, 0);
-        }
-        SystemParametersInfo(SPI_GETSCREENSAVETIMEOUT, 0,
-            &(p_vout->p_sys->i_spi_screensavetimeout), 0);
-        if( 0 != p_vout->p_sys->i_spi_screensavetimeout ) {
-            SystemParametersInfo(SPI_SETSCREENSAVETIMEOUT, 0, NULL, 0);
+            p_event->i_lastmoved = mdate();
         }
     }
 }
-
-void RestoreScreensaver( vout_thread_t *p_vout )
+void EventThreadMouseShow( event_thread_t *p_event )
 {
-    /* restore screensaver system settings */
-    if( 0 != p_vout->p_sys->i_spi_lowpowertimeout ) {
-        SystemParametersInfo(SPI_SETLOWPOWERTIMEOUT,
-            p_vout->p_sys->i_spi_lowpowertimeout, NULL, 0);
-    }
-    if( 0 != p_vout->p_sys->i_spi_powerofftimeout ) {
-        SystemParametersInfo(SPI_SETPOWEROFFTIMEOUT,
-            p_vout->p_sys->i_spi_powerofftimeout, NULL, 0);
-    }
-    if( 0 != p_vout->p_sys->i_spi_screensavetimeout ) {
-        SystemParametersInfo(SPI_SETSCREENSAVETIMEOUT,
-            p_vout->p_sys->i_spi_screensavetimeout, NULL, 0);
-    }
+    PostMessage( p_event->hwnd, WM_VLC_SHOW_MOUSE, 0, 0 );
+}
+void EventThreadUpdateTitle( event_thread_t *p_event, const char *psz_fallback )
+{
+    char *psz_title = var_GetNonEmptyString( p_event->p_vout, "video-title" );
+    if( !psz_title )
+        psz_title = strdup( psz_fallback );
+    if( !psz_title )
+        return;
+
+    vlc_mutex_lock( &p_event->lock );
+    free( p_event->psz_title );
+    p_event->psz_title = psz_title;
+    vlc_mutex_unlock( &p_event->lock );
+
+    PostMessage( p_event->hwnd, WM_VLC_CHANGE_TEXT, 0, 0 );
+}
+unsigned EventThreadRetreiveChanges( event_thread_t *p_event )
+{
+    vlc_mutex_lock( &p_event->lock );
+    unsigned i_changes = p_event->i_changes;
+    p_event->i_changes = 0;
+    vlc_mutex_unlock( &p_event->lock );
+
+    return i_changes;
+}
+int EventThreadGetWindowStyle( event_thread_t *p_event )
+{
+    /* No need to lock, it is serialized by EventThreadStart */
+    return p_event->i_window_style;
 }
 
-int CreateEventThread( vout_thread_t *p_vout )
+void EventThreadUpdateWindowPosition( event_thread_t *p_event, bool *pb_changed,
+                                      int x, int y, int w, int h )
 {
-    /* Create the Vout EventThread, this thread is created by us to isolate
+    vlc_mutex_lock( &p_event->lock );
+    *pb_changed = x != p_event->wnd_cfg.x ||
+                  y != p_event->wnd_cfg.y ||
+                  w != p_event->wnd_cfg.width ||
+                  h != p_event->wnd_cfg.height;
+
+    p_event->wnd_cfg.x      = x;
+    p_event->wnd_cfg.y      = y;
+    p_event->wnd_cfg.width  = y;
+    p_event->wnd_cfg.height = h;
+    vlc_mutex_unlock( &p_event->lock );
+}
+
+void EventThreadUseOverlay( event_thread_t *p_event, bool b_used )
+{
+    vlc_mutex_lock( &p_event->lock );
+    p_event->use_overlay = b_used;
+    vlc_mutex_unlock( &p_event->lock );
+}
+
+event_thread_t *EventThreadCreate( vout_thread_t *p_vout, const vout_window_cfg_t *p_wnd_cfg )
+{
+     /* Create the Vout EventThread, this thread is created by us to isolate
      * the Win32 PeekMessage function calls. We want to do this because
      * Windows can stay blocked inside this call for a long time, and when
      * this happens it thus blocks vlc's video_output thread.
@@ -1266,61 +1010,90 @@ int CreateEventThread( vout_thread_t *p_vout )
      * window (because PeekMessage has to be called from the same thread which
      * created the window). */
     msg_Dbg( p_vout, "creating Vout EventThread" );
-    p_vout->p_sys->p_event =
-        vlc_object_create( p_vout, sizeof(event_thread_t) );
-    p_vout->p_sys->p_event->p_vout = p_vout;
-    p_vout->p_sys->p_event->window_ready = CreateEvent( NULL, TRUE, FALSE, NULL );
-    if( vlc_thread_create( p_vout->p_sys->p_event, "Vout Events Thread",
-                           EventThread, 0 ) )
-    {
-        msg_Err( p_vout, "cannot create Vout EventThread" );
-        CloseHandle( p_vout->p_sys->p_event->window_ready );
-        vlc_object_release( p_vout->p_sys->p_event );
-        p_vout->p_sys->p_event = NULL;
-        return 0;
-    }
-    WaitForSingleObject( p_vout->p_sys->p_event->window_ready, INFINITE );
-    CloseHandle( p_vout->p_sys->p_event->window_ready );
+    event_thread_t *p_event = malloc( sizeof(*p_event) );
+    if( !p_event )
+        return NULL;
 
-    if( p_vout->p_sys->p_event->b_error )
-    {
-        msg_Err( p_vout, "Vout EventThread failed" );
-        return 0;
-    }
+    p_event->p_vout = p_vout;
+    vlc_mutex_init( &p_event->lock );
+    vlc_cond_init( &p_event->wait );
 
-    vlc_object_attach( p_vout->p_sys->p_event, p_vout );
-
-    msg_Dbg( p_vout, "Vout EventThread running" );
-    return 1;
+    p_event->b_cursor_hidden      = false;
+    p_event->i_lastmoved          = mdate();
+    p_event->i_mouse_hide_timeout =
+        var_GetInteger(p_vout, "mouse-hide-timeout") * 1000;
+    p_event->psz_title = NULL;
+    p_event->wnd_cfg = *p_wnd_cfg;
+   
+    return p_event;
 }
 
-void StopEventThread( vout_thread_t *p_vout )
+void EventThreadDestroy( event_thread_t *p_event )
 {
-    if( p_vout->b_fullscreen )
-    {
-        msg_Dbg( p_vout, "Quitting fullscreen" );
-        Win32ToggleFullscreen( p_vout );
-        /* Force fullscreen in the core for the next video */
-        var_SetBool( p_vout, "fullscreen", true );
-    }
-
-    if( p_vout->p_sys->p_event )
-    {
-        vlc_object_detach( p_vout->p_sys->p_event );
-
-        /* Kill Vout EventThread */
-        vlc_object_kill( p_vout->p_sys->p_event );
-
-        /* we need to be sure Vout EventThread won't stay stuck in
-         * GetMessage, so we send a fake message */
-        if( p_vout->p_sys->hwnd )
-        {
-            PostMessage( p_vout->p_sys->hwnd, WM_NULL, 0, 0);
-        }
-
-        vlc_thread_join( p_vout->p_sys->p_event );
-        vlc_object_release( p_vout->p_sys->p_event );
-    }
-
-    vlc_mutex_destroy( &p_vout->p_sys->lock );
+    free( p_event->psz_title );
+    vlc_cond_destroy( &p_event->wait );
+    vlc_mutex_destroy( &p_event->lock );
+    free( p_event );
 }
+
+int EventThreadStart( event_thread_t *p_event, event_hwnd_t *p_hwnd, const event_cfg_t *p_cfg )
+{
+    p_event->use_desktop = p_cfg->use_desktop;
+    p_event->use_overlay = p_cfg->use_overlay;
+
+    p_event->i_changes = 0;
+
+    p_event->b_ready = false;
+    p_event->b_done  = false;
+    p_event->b_error = false;
+
+    if( vlc_clone( &p_event->thread, EventThread, p_event,
+                   VLC_THREAD_PRIORITY_LOW ) )
+    {
+        msg_Err( p_event->p_vout, "cannot create Vout EventThread" );
+        return VLC_EGENERIC;
+    }
+
+    vlc_mutex_lock( &p_event->lock );
+    while( !p_event->b_ready )
+        vlc_cond_wait( &p_event->wait, &p_event->lock );
+    const bool b_error = p_event->b_error;
+    vlc_mutex_unlock( &p_event->lock );
+
+    if( b_error )
+    {
+        vlc_join( p_event->thread, NULL );
+        p_event->b_ready = false;
+        return VLC_EGENERIC;
+    }
+    msg_Dbg( p_event->p_vout, "Vout EventThread running" );
+
+    if( !p_event->use_desktop )
+        p_hwnd->parent_window = p_event->parent_window;
+    else
+        p_hwnd->parent_window = NULL;
+    p_hwnd->hparent       = p_event->hparent;
+    p_hwnd->hwnd          = p_event->hwnd;
+    p_hwnd->hvideownd     = p_event->hvideownd;
+    p_hwnd->hfswnd        = p_event->hfswnd;
+    return VLC_SUCCESS;
+}
+
+void EventThreadStop( event_thread_t *p_event )
+{
+    if( !p_event->b_ready )
+        return;
+
+    vlc_mutex_lock( &p_event->lock );
+    p_event->b_done = true;
+    vlc_mutex_unlock( &p_event->lock );
+
+    /* we need to be sure Vout EventThread won't stay stuck in
+     * GetMessage, so we send a fake message */
+    if( p_event->hwnd )
+        PostMessage( p_event->hwnd, WM_NULL, 0, 0);
+
+    vlc_join( p_event->thread, NULL );
+    p_event->b_ready = false;
+}
+

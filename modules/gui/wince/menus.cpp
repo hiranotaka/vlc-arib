@@ -136,7 +136,7 @@ void PopupMenu( intf_thread_t *p_intf, HWND p_parent, POINT point )
         pi_objects[i++] = p_object;
         ppsz_varnames[i] = "zoom";
         pi_objects[i++] = p_object;
-        ppsz_varnames[i] = "deinterlace";
+        ppsz_varnames[i] = "deinterlace-mode";
         pi_objects[i++] = p_object;
         ppsz_varnames[i] = "aspect-ratio";
         pi_objects[i++] = p_object;
@@ -328,7 +328,7 @@ void RefreshVideoMenu( intf_thread_t *p_intf, HMENU hMenu )
 #endif
         ppsz_varnames[i] = "zoom";
         pi_objects[i++] = p_object;
-        ppsz_varnames[i] = "deinterlace";
+        ppsz_varnames[i] = "deinterlace-mode";
         pi_objects[i++] = p_object;
         ppsz_varnames[i] = "aspect-ratio";
         pi_objects[i++] = p_object;
@@ -673,6 +673,7 @@ HMENU CreateChoicesMenu( intf_thread_t *p_intf,
             AppendMenu( hSubMenu, MF_STRING, ++(*pi_item_id),
                         _FROMMB(text_list.p_list->p_values[i].psz_string ?
                           text_list.p_list->p_values[i].psz_string : psz_tmp));
+            free( psz_tmp );
             pMenuItemExt = new MenuItemExt( p_intf, *pi_item_id, psz_var,
                 p_object, val_list.p_list->p_values[i], i_type );
             p_menu_list->push_back( pMenuItemExt );

@@ -21,10 +21,19 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#include "libvlc_internal.h"
-#include <vlc/libvlc.h>
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
 #include <assert.h>
-#include "vlc_arrays.h"
+
+#include <vlc/libvlc.h>
+#include <vlc/libvlc_media.h>
+#include <vlc/libvlc_media_list.h>
+#include <vlc/libvlc_media_list_view.h>
+
+#include "media_list_view_internal.h"
+
 
 //#define DEBUG_FLAT_VIEW
 
@@ -146,7 +155,7 @@ import_mlist_rec( libvlc_media_list_view_t * p_mlv,
         libvlc_media_list_t * p_submlist;
         p_md = libvlc_media_list_item_at_index( p_mlist, i, p_e );
         vlc_array_append( &p_mlv->p_this_view_data->array, p_md );
-        p_submlist = libvlc_media_subitems( p_md, p_e );
+        p_submlist = libvlc_media_subitems( p_md );
         if( p_submlist )
         {
             libvlc_media_list_lock( p_submlist );

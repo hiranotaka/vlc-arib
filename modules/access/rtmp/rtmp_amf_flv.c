@@ -15,9 +15,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -33,6 +33,7 @@
 #include <vlc_network.h> /* DOWN: #include <network.h> */
 #include <vlc_url.h>
 #include <vlc_block.h>
+#include <vlc_rand.h>
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -338,11 +339,14 @@ rtmp_handshake_active( vlc_object_t *p_this, int fd )
     int i;
 
     p_write[0] = RTMP_HANDSHAKE;
-    for( i = 0; i < RTMP_HANDSHAKE_BODY_SIZE; i++ )
-        p_write[i + 1] = i & 0xFF;
+
+    for( i = 0; i < 8; i++ )
+        p_write[i + 1] = 0x00;
+
+    vlc_rand_bytes( p_write+1+8, RTMP_HANDSHAKE_BODY_SIZE-8 );
 
     /* Send handshake*/
-    i_ret = net_Write( p_this, fd, NULL, p_write, RTMP_HANDSHAKE_BODY_SIZE + 1 );
+    i_ret = net_Write( p_this, fd, NULL, p_write, RTMP_HANDSHAKE_BODY_SIZE+1 );
     if( i_ret != RTMP_HANDSHAKE_BODY_SIZE + 1 )
     {
         msg_Err( p_this, "failed to send handshake" );
@@ -423,10 +427,10 @@ rtmp_connect_active( rtmp_control_thread_t *p_thread )
     free( tmp_buffer );
 
     tmp_buffer = amf_encode_object_variable( "swfUrl",
-         AMF_DATATYPE_STRING, "file:///mac.flv" );
+         AMF_DATATYPE_STRING, p_thread->psz_swf_url );
     rtmp_body_append( rtmp_body, tmp_buffer,
         AMF_DATATYPE_SIZE_OBJECT_VARIABLE + strlen( "swfUrl" ) +
-        AMF_DATATYPE_SIZE_STRING + strlen( "file:///mac.flv" ) );
+        AMF_DATATYPE_SIZE_STRING + strlen( p_thread->psz_swf_url ) );
     free( tmp_buffer );
 
     if( asprintf( &tmp_url, "rtmp://%s", p_thread->url.psz_buffer ) == -1 )
@@ -472,10 +476,10 @@ rtmp_connect_active( rtmp_control_thread_t *p_thread )
     free( tmp_buffer );
 
     tmp_buffer = amf_encode_object_variable( "pageUrl",
-        AMF_DATATYPE_STRING, "file:///mac.html" );
+        AMF_DATATYPE_STRING, p_thread->psz_page_url );
     rtmp_body_append( rtmp_body, tmp_buffer,
         AMF_DATATYPE_SIZE_OBJECT_VARIABLE + strlen( "pageUrl" ) +
-        AMF_DATATYPE_SIZE_STRING + strlen( "file:///mac.html" ) );
+        AMF_DATATYPE_SIZE_STRING + strlen( p_thread->psz_page_url ) );
     free( tmp_buffer );
 
     tmp_buffer = amf_encode_object_variable( "objectEncoding",

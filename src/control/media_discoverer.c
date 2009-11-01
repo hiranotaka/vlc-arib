@@ -21,10 +21,33 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#include "libvlc_internal.h"
-#include <vlc/libvlc.h>
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
 #include <assert.h>
-#include "vlc_services_discovery.h"
+
+#include <vlc/libvlc.h>
+#include <vlc/libvlc_media.h>
+#include <vlc/libvlc_media_list.h>
+#include <vlc/libvlc_media_discoverer.h>
+#include <vlc/libvlc_events.h>
+
+#include <vlc_services_discovery.h>
+
+#include "libvlc_internal.h"
+#include "media_internal.h" // libvlc_media_new_from_input_item()
+#include "media_list_internal.h" // _libvlc_media_list_add_media()
+
+struct libvlc_media_discoverer_t
+{
+    libvlc_event_manager_t * p_event_manager;
+    libvlc_instance_t *      p_libvlc_instance;
+    services_discovery_t *   p_sd;
+    libvlc_media_list_t *    p_mlist;
+    bool                     running;
+    vlc_dictionary_t         catname_to_submedialist;
+};
 
 /*
  * Private functions
@@ -57,7 +80,7 @@ static void services_discovery_item_added( const vlc_event_t * p_event,
         {
             libvlc_media_t * p_catmd;
             p_catmd = libvlc_media_new_as_node( p_mdis->p_libvlc_instance, psz_cat, NULL );
-            p_mlist = libvlc_media_subitems( p_catmd, NULL );
+            p_mlist = libvlc_media_subitems( p_catmd );
             p_mlist->b_read_only = true;
 
             /* Insert the newly created mlist in our dictionary */
@@ -155,7 +178,8 @@ libvlc_media_discoverer_new_from_name( libvlc_instance_t * p_inst,
     p_mdis = malloc(sizeof(libvlc_media_discoverer_t));
     if( !p_mdis )
     {
-        libvlc_exception_raise( p_e, "Not enough memory" );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Not enough memory" );
         return NULL;
     }
 
@@ -179,7 +203,8 @@ libvlc_media_discoverer_new_from_name( libvlc_instance_t * p_inst,
     if( !p_mdis->p_sd )
     {
         libvlc_media_list_release( p_mdis->p_mlist );
-        libvlc_exception_raise( p_e, "Can't find the services_discovery module named '%s'", psz_name );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "%s: no such discovery module found", psz_name );
         free( p_mdis );
         return NULL;
     }
@@ -205,7 +230,8 @@ libvlc_media_discoverer_new_from_name( libvlc_instance_t * p_inst,
     if( !vlc_sd_Start( p_mdis->p_sd, psz_name ) )
     {
         libvlc_media_list_release( p_mdis->p_mlist );
-        libvlc_exception_raise( p_e, "Can't start the services_discovery module named '%s'", psz_name );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "%s: internal module error", psz_name );
         free( p_mdis );
         return NULL;
     }

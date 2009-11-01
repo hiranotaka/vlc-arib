@@ -33,6 +33,7 @@
 
 #include <vlc_common.h>
 #include "libvlc.h"
+#include <vlc_charset.h>
 
 #include "vlc_interface.h"
 
@@ -382,7 +383,7 @@ void __config_ChainParse( vlc_object_t *p_this, const char *psz_prefix,
                                     NULL, 0 );
                 break;
             case VLC_VAR_FLOAT:
-                val.f_float = atof( cfg->psz_value ? cfg->psz_value : "0" );
+                val.f_float = us_atof( cfg->psz_value ? cfg->psz_value : "0" );
                 break;
             case VLC_VAR_STRING:
             case VLC_VAR_MODULE:
@@ -410,6 +411,26 @@ void __config_ChainParse( vlc_object_t *p_this, const char *psz_prefix,
         msg_Dbg( p_this, "set config option: %s to %s", psz_name,
                  cfg->psz_value ? cfg->psz_value : "(null)" );
     }
+}
+
+config_chain_t *config_ChainDuplicate( const config_chain_t *p_src )
+{
+    config_chain_t *p_dst = NULL;
+    config_chain_t **pp_last = &p_dst;
+
+    for( ; p_src != NULL; p_src = p_src->p_next )
+    {
+        config_chain_t *p = malloc( sizeof(*p) );
+        if( !p )
+            break;
+        p->p_next    = NULL;
+        p->psz_name  = p_src->psz_name  ? strdup( p_src->psz_name )  : NULL;
+        p->psz_value = p_src->psz_value ? strdup( p_src->psz_value ) : NULL;
+
+        *pp_last = p;
+        pp_last = &p->p_next;
+    }
+    return p_dst;
 }
 
 char *config_StringUnescape( char *psz_string )

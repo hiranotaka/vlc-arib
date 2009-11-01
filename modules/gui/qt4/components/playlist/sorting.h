@@ -24,15 +24,15 @@
 /* You can use these numbers with | and & to determine what you want to show */
 enum
 {
-    COLUMN_NUMBER       = 0x0001,
-    COLUMN_TITLE        = 0x0002,
-    COLUMN_DURATION     = 0x0004,
-    COLUMN_ARTIST       = 0x0008,
-    COLUMN_GENRE        = 0x0010,
-    COLUMN_ALBUM        = 0x0020,
-    COLUMN_TRACK_NUMBER = 0x0040,
-    COLUMN_DESCRIPTION  = 0x0080,
-    COLUMN_URI          = 0x0100,
+    COLUMN_TITLE          = 0x0001,
+    COLUMN_DURATION       = 0x0002,
+    COLUMN_ARTIST         = 0x0004,
+    COLUMN_GENRE          = 0x0008,
+    COLUMN_ALBUM          = 0x0010,
+    COLUMN_TRACK_NUMBER   = 0x0020,
+    COLUMN_DESCRIPTION    = 0x0040,
+    COLUMN_URI            = 0x0080,
+    COLUMN_NUMBER         = 0x0100,
 
     /* Add new entries here and update the COLUMN_END value*/
 
@@ -42,7 +42,7 @@ enum
 #define COLUMN_DEFAULT (COLUMN_TITLE|COLUMN_DURATION|COLUMN_ALBUM)
 
 /* Return the title of a column */
-static const char * psz_column_title( uint32_t i_column )
+static inline const char * psz_column_title( uint32_t i_column )
 {
     switch( i_column )
     {
@@ -61,7 +61,7 @@ static const char * psz_column_title( uint32_t i_column )
 
 /* Return the meta data associated with an item for a column
  * Returned value has to be freed */
-static char * psz_column_meta( input_item_t *p_item, uint32_t i_column )
+static inline char * psz_column_meta( input_item_t *p_item, uint32_t i_column )
 {
     int i_duration;
     char psz_duration[MSTRTIME_MAX_SIZE];

@@ -85,12 +85,14 @@ static const char *FindFallbackEncoding (const char *locale)
     // -> Latin-1 instead
 
     /* Cyrillic alphabet languages (ISO-8859-5) */
-    static const char cyrillic[] = "be" "bg" "mk" "ru" "sr";
+    static const char cyrillic[] = "be" "bg" "mk" "ru" "sr" "mn";
+    // FIXME: cyrillic only true for mn in Mongolia
     if (!locale_match (cyrillic, locale))
         return "CP1251"; // KOI8, ISO-8859-5 and CP1251 are incompatible(?)
 
     /* Arabic (ISO-8859-6) */
-    if (!locale_match ("ar", locale))
+    static const char arabic[] = "ar" "fa";
+    if (!locale_match (arabic, locale))
         // FIXME: someone check if we should return CP1256 or ISO-8859-6
         return "CP1256"; // CP1256 is(?) more common, but incompatible(?)
 
@@ -143,10 +145,12 @@ static const char *FindFallbackEncoding (const char *locale)
 
     // Korean
     if (!locale_match ("ko", locale))
-        return "EUC-KR";
+        return "CP949"; // Microsoft non-standard superset of EUC-KR
 
     // Thai
-    if (!locale_match ("th", locale))
+    static const char thai[] = "th" "km" "lo";
+    //FIXME: afaik, khmer and lao are/were not in windows and are close to tahi
+    if (!locale_match (thai, locale))
         return "TIS-620";
 
     // Vietnamese (FIXME: more infos needed)

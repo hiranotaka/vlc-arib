@@ -99,15 +99,6 @@ extern void Deactivate ( vlc_object_t * );
     "If you graphics card provides several adaptors, this option allows you " \
     "to choose which one will be used (you shouldn't have to change this).")
 
-#define ALT_FS_TEXT N_("Alternate fullscreen method")
-#define ALT_FS_LONGTEXT N_( \
-    "There are two ways to make a fullscreen window, unfortunately each one " \
-    "has its drawbacks.\n" \
-    "1) Let the window manager handle your fullscreen window (default), but " \
-    "things like taskbars will likely show on top of the video.\n" \
-    "2) Completely bypass the window manager, but then nothing will be able " \
-    "to show on top of the video.")
-
 #define DISPLAY_TEXT N_("X11 display name")
 #define DISPLAY_LONGTEXT N_( \
     "Specify the X11 hardware display you want to use. By default VLC will " \
@@ -122,11 +113,6 @@ extern void Deactivate ( vlc_object_t * );
 #define SHM_LONGTEXT N_( \
     "Use shared memory to communicate between VLC and the X server.")
 
-#define SCREEN_TEXT N_("Screen to be used for fullscreen mode.")
-#define SCREEN_LONGTEXT N_( \
-    "Choose the screen you want to use in fullscreen mode. For instance " \
-    "set it to 0 for first screen, 1 for the second.")
-
 #define MODE_TEXT N_("Deinterlace mode")
 #define MODE_LONGTEXT N_("You can choose the default deinterlace mode")
 
@@ -137,13 +123,9 @@ vlc_module_begin ()
     set_shortname( "XVMC" )
     add_string( "xvmc-display", NULL, NULL, DISPLAY_TEXT, DISPLAY_LONGTEXT, true )
     add_integer( "xvmc-adaptor", -1, NULL, ADAPTOR_TEXT, ADAPTOR_LONGTEXT, true )
-    add_bool( "xvmc-altfullscreen", 0, NULL, ALT_FS_TEXT, ALT_FS_LONGTEXT, true )
     add_string( "xvmc-chroma", NULL, NULL, CHROMA_TEXT, CHROMA_LONGTEXT, true )
 #ifdef HAVE_SYS_SHM_H
-    add_bool( "xvmc-shm", 1, NULL, SHM_TEXT, SHM_LONGTEXT, true )
-#endif
-#ifdef HAVE_XINERAMA
-    add_integer ( "xvmc-xineramascreen", -1, NULL, SCREEN_TEXT, SCREEN_LONGTEXT, true )
+    add_bool( "xvmc-shm", true, NULL, SHM_TEXT, SHM_LONGTEXT, true )
 #endif
     add_string( "xvmc-deinterlace-mode", "bob", NULL, MODE_TEXT, MODE_LONGTEXT, false )
     add_string( "xvmc-crop-style", "eq", NULL, CROP_TEXT, CROP_LONGTEXT, false )
@@ -237,6 +219,7 @@ static void init_xx44_palette( xx44_palette_t *p, unsigned num_entries )
 static void dispose_xx44_palette(xx44_palette_t *p)
 {
     /* Nothing to do */
+    VLC_UNUSED(p);
 }
 
 static void colorToPalette( const uint32_t *icolor, unsigned char *palette_p,
@@ -254,7 +237,7 @@ static void colorToPalette( const uint32_t *icolor, unsigned char *palette_p,
             case 'Y':
             default:  *palette_p = color->y; break;
         }
-        *palette_p++;
+        palette_p++;
     }
 }
 
@@ -277,6 +260,7 @@ void xx44_to_xvmc_palette( const xx44_palette_t *p,unsigned char *xvmc_palette,
     }
 }
 
+#if 0
 static int xx44_paletteIndex( xx44_palette_t *p, int color, uint32_t clut )
 {
     unsigned int i;
@@ -305,7 +289,9 @@ static int xx44_paletteIndex( xx44_palette_t *p, int color, uint32_t clut )
     p->lookup_cache[color] = p->max_used++;
     return p->lookup_cache[color];
 }
+#endif
 
+#if 0
 static void memblend_xx44( uint8_t *mem, uint8_t val,
                            size_t size, uint8_t mask )
 {
@@ -322,11 +308,20 @@ static void memblend_xx44( uint8_t *mem, uint8_t val,
         mem++;
     }
 }
+#endif
 
 void blend_xx44( uint8_t *dst_img, subpicture_t *sub_img,
                  int dst_width, int dst_height, int dst_pitch,
                  xx44_palette_t *palette, int ia44 )
 {
+    VLC_UNUSED(dst_img);
+    VLC_UNUSED(sub_img);
+    VLC_UNUSED(dst_width);
+    VLC_UNUSED(dst_height);
+    VLC_UNUSED(dst_pitch);
+    VLC_UNUSED(palette);
+    VLC_UNUSED(ia44);
+#if 0
     int src_width;
     int src_height;
     int mask;
@@ -340,7 +335,6 @@ void blend_xx44( uint8_t *dst_img, subpicture_t *sub_img,
     int clip_right;
     int i_len, i_color;
     uint16_t *p_source = NULL;
-#if 0
     if (!sub_img)
         return;
 
@@ -486,6 +480,7 @@ int xxmc_xvmc_surface_valid( vout_thread_t *p_vout, XvMCSurface *surf )
     return ret;
 }
 
+#if 0
 static void xxmc_xvmc_dump_subpictures( vout_thread_t *p_vout )
 {
     int i;
@@ -498,6 +493,7 @@ static void xxmc_xvmc_dump_subpictures( vout_thread_t *p_vout )
                          handler->subValid[i]);
     }
 }
+#endif
 
 XvMCSubpicture *xxmc_xvmc_alloc_subpicture( vout_thread_t *p_vout,
                     XvMCContext *context, unsigned short width,
@@ -771,8 +767,7 @@ int checkXvMCCap( vout_thread_t *p_vout )
     }
     else
     {
-        if( p_vout->p_sys->xvmc_cap )
-            free( p_vout->p_sys->xvmc_cap );
+        free( p_vout->p_sys->xvmc_cap );
         p_vout->p_sys->xvmc_cap = NULL;
         msg_Err( p_vout, "use of direct XvMC context on a remote display failed"
                          " falling back to XV." );
@@ -1012,8 +1007,7 @@ void xxmc_dispose_context( vout_thread_t *p_vout )
         }
 
         msg_Dbg( p_vout, "freeing up XvMC surfaces and subpictures" );
-        if( p_vout->p_sys->xvmc_palette )
-            free( p_vout->p_sys->xvmc_palette );
+        free( p_vout->p_sys->xvmc_palette );
         dispose_xx44_palette( &p_vout->p_sys->palette );
         xxmc_xvmc_destroy_subpictures( p_vout );
         xxmc_xvmc_destroy_surfaces( p_vout );
@@ -1265,6 +1259,8 @@ static int xxmc_xvmc_update_context( vout_thread_t *p_vout,
 void xxmc_do_update_frame( picture_t *picture, uint32_t width, uint32_t height,
         double ratio, int format, int flags)
 {
+    VLC_UNUSED(ratio);
+    VLC_UNUSED(flags);
     vout_thread_t *p_vout = picture->p_sys->p_vout;
     int indextime = 0;
     int status = 0;

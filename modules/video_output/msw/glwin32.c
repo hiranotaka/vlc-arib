@@ -102,38 +102,16 @@ static int OpenVideo( vlc_object_t *p_this )
     p_vout->pf_end = End;
     p_vout->pf_manage = Manage;
     p_vout->pf_swap = FirstSwap;
+    p_vout->pf_control = Control;
 
-    p_vout->p_sys->hwnd = p_vout->p_sys->hvideownd = NULL;
-    p_vout->p_sys->hparent = p_vout->p_sys->hfswnd = NULL;
-    p_vout->p_sys->i_changes = 0;
-    vlc_mutex_init( &p_vout->p_sys->lock );
-    SetRectEmpty( &p_vout->p_sys->rect_display );
-    SetRectEmpty( &p_vout->p_sys->rect_parent );
+    if( CommonInit( p_vout ) )
+        goto error;
 
-    var_Create( p_vout, "video-title", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
+    return VLC_SUCCESS;
 
-    p_vout->p_sys->b_cursor_hidden = 0;
-    p_vout->p_sys->i_lastmoved = mdate();
-    p_vout->p_sys->i_mouse_hide_timeout =
-        var_GetInteger(p_vout, "mouse-hide-timeout") * 1000;
-
-    /* Set main window's size */
-    p_vout->p_sys->i_window_width = p_vout->i_window_width;
-    p_vout->p_sys->i_window_height = p_vout->i_window_height;
-
-    if ( CreateEventThread( p_vout ) )
-    {
-        /* Variable to indicate if the window should be on top of others */
-        /* Trigger a callback right now */
-        var_TriggerCallback( p_vout, "video-on-top" );
-
-        return VLC_SUCCESS;
-    }
-    else
-    {
-        CloseVideo( VLC_OBJECT(p_vout) );
-        return VLC_EGENERIC;
-    }
+error:
+    CloseVideo( VLC_OBJECT(p_vout) );
+    return VLC_EGENERIC;
 }
 
 /*****************************************************************************
@@ -145,7 +123,7 @@ static int Init( vout_thread_t *p_vout )
     int iFormat;
 
     /* Change the window title bar text */
-    PostMessage( p_vout->p_sys->hwnd, WM_VLC_CHANGE_TEXT, 0, 0 );
+    EventThreadUpdateTitle( p_vout->p_sys->p_event, VOUT_TITLE " (OpenGL output)" );
 
     p_vout->p_sys->hGLDC = GetDC( p_vout->p_sys->hvideownd );
 
@@ -191,10 +169,9 @@ static void CloseVideo( vlc_object_t *p_this )
 {
     vout_thread_t * p_vout = (vout_thread_t *)p_this;
 
-    StopEventThread( p_vout );
+    CommonClean( p_vout );
 
     free( p_vout->p_sys );
-    p_vout->p_sys = NULL;
 }
 
 /*****************************************************************************
@@ -205,166 +182,13 @@ static void CloseVideo( vlc_object_t *p_this )
  *****************************************************************************/
 static int Manage( vout_thread_t *p_vout )
 {
-    int i_width = p_vout->p_sys->rect_dest.right -
-        p_vout->p_sys->rect_dest.left;
-    int i_height = p_vout->p_sys->rect_dest.bottom -
-        p_vout->p_sys->rect_dest.top;
+    vout_sys_t *p_sys = p_vout->p_sys;
+
+    const int i_width  = p_sys->rect_dest.right - p_sys->rect_dest.left;
+    const int i_height = p_sys->rect_dest.bottom - p_sys->rect_dest.top;
     glViewport( 0, 0, i_width, i_height );
 
-    /* If we do not control our window, we check for geometry changes
-     * ourselves because the parent might not send us its events. */
-    vlc_mutex_lock( &p_vout->p_sys->lock );
-    if( p_vout->p_sys->hparent && !p_vout->b_fullscreen )
-    {
-        RECT rect_parent;
-        POINT point;
-
-        vlc_mutex_unlock( &p_vout->p_sys->lock );
-
-        GetClientRect( p_vout->p_sys->hparent, &rect_parent );
-        point.x = point.y = 0;
-        ClientToScreen( p_vout->p_sys->hparent, &point );
-        OffsetRect( &rect_parent, point.x, point.y );
-
-        if( !EqualRect( &rect_parent, &p_vout->p_sys->rect_parent ) )
-        {
-            p_vout->p_sys->rect_parent = rect_parent;
-
-            /* This one is to force the update even if only
-             * the position has changed */
-            SetWindowPos( p_vout->p_sys->hwnd, 0, 1, 1,
-                          rect_parent.right - rect_parent.left,
-                          rect_parent.bottom - rect_parent.top, 0 );
-
-            SetWindowPos( p_vout->p_sys->hwnd, 0, 0, 0,
-                          rect_parent.right - rect_parent.left,
-                          rect_parent.bottom - rect_parent.top, 0 );
-        }
-    }
-    else
-    {
-        vlc_mutex_unlock( &p_vout->p_sys->lock );
-    }
-
-    /* autoscale toggle */
-    if( p_vout->i_changes & VOUT_SCALE_CHANGE )
-    {
-        p_vout->i_changes &= ~VOUT_SCALE_CHANGE;
-
-        p_vout->b_autoscale = var_GetBool( p_vout, "autoscale" );
-        p_vout->i_zoom = (int) ZOOM_FP_FACTOR;
-
-        UpdateRects( p_vout, true );
-    }
-
-    /* scaling factor */
-    if( p_vout->i_changes & VOUT_ZOOM_CHANGE )
-    {
-        p_vout->i_changes &= ~VOUT_ZOOM_CHANGE;
-
-        p_vout->b_autoscale = false;
-        p_vout->i_zoom =
-            (int)( ZOOM_FP_FACTOR * var_GetFloat( p_vout, "scale" ) );
-        UpdateRects( p_vout, true );
-    }
-
-    /* Check for cropping / aspect changes */
-    if( p_vout->i_changes & VOUT_CROP_CHANGE ||
-        p_vout->i_changes & VOUT_ASPECT_CHANGE )
-    {
-        p_vout->i_changes &= ~VOUT_CROP_CHANGE;
-        p_vout->i_changes &= ~VOUT_ASPECT_CHANGE;
-
-        p_vout->fmt_out.i_x_offset = p_vout->fmt_in.i_x_offset;
-        p_vout->fmt_out.i_y_offset = p_vout->fmt_in.i_y_offset;
-        p_vout->fmt_out.i_visible_width = p_vout->fmt_in.i_visible_width;
-        p_vout->fmt_out.i_visible_height = p_vout->fmt_in.i_visible_height;
-        p_vout->fmt_out.i_aspect = p_vout->fmt_in.i_aspect;
-        p_vout->fmt_out.i_sar_num = p_vout->fmt_in.i_sar_num;
-        p_vout->fmt_out.i_sar_den = p_vout->fmt_in.i_sar_den;
-        p_vout->output.i_aspect = p_vout->fmt_in.i_aspect;
-        UpdateRects( p_vout, true );
-    }
-
-    /* We used to call the Win32 PeekMessage function here to read the window
-     * messages. But since window can stay blocked into this function for a
-     * long time (for example when you move your window on the screen), I
-     * decided to isolate PeekMessage in another thread. */
-
-    /*
-     * Fullscreen change
-     */
-    if( p_vout->i_changes & VOUT_FULLSCREEN_CHANGE
-        || p_vout->p_sys->i_changes & VOUT_FULLSCREEN_CHANGE )
-    {
-        Win32ToggleFullscreen( p_vout );
-
-        p_vout->i_changes &= ~VOUT_FULLSCREEN_CHANGE;
-        p_vout->p_sys->i_changes &= ~VOUT_FULLSCREEN_CHANGE;
-    }
-
-    /*
-     * Pointer change
-     */
-    if( p_vout->b_fullscreen && !p_vout->p_sys->b_cursor_hidden &&
-        (mdate() - p_vout->p_sys->i_lastmoved) >
-            p_vout->p_sys->i_mouse_hide_timeout )
-    {
-        POINT point;
-        HWND hwnd;
-
-        /* Hide the cursor only if it is inside our window */
-        GetCursorPos( &point );
-        hwnd = WindowFromPoint(point);
-        if( hwnd == p_vout->p_sys->hwnd || hwnd == p_vout->p_sys->hvideownd )
-        {
-            PostMessage( p_vout->p_sys->hwnd, WM_VLC_HIDE_MOUSE, 0, 0 );
-        }
-        else
-        {
-            p_vout->p_sys->i_lastmoved = mdate();
-        }
-    }
-
-    /*
-     * "Always on top" status change
-     */
-    if( p_vout->p_sys->b_on_top_change )
-    {
-        vlc_value_t val;
-        HMENU hMenu = GetSystemMenu( p_vout->p_sys->hwnd, FALSE );
-
-        var_Get( p_vout, "video-on-top", &val );
-
-        /* Set the window on top if necessary */
-        if( val.b_bool && !( GetWindowLong( p_vout->p_sys->hwnd, GWL_EXSTYLE )
-                           & WS_EX_TOPMOST ) )
-        {
-            CheckMenuItem( hMenu, IDM_TOGGLE_ON_TOP,
-                           MF_BYCOMMAND | MFS_CHECKED );
-            SetWindowPos( p_vout->p_sys->hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                          SWP_NOSIZE | SWP_NOMOVE );
-        }
-        else
-        /* The window shouldn't be on top */
-        if( !val.b_bool && ( GetWindowLong( p_vout->p_sys->hwnd, GWL_EXSTYLE )
-                           & WS_EX_TOPMOST ) )
-        {
-            CheckMenuItem( hMenu, IDM_TOGGLE_ON_TOP,
-                           MF_BYCOMMAND | MFS_UNCHECKED );
-            SetWindowPos( p_vout->p_sys->hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
-                          SWP_NOSIZE | SWP_NOMOVE );
-        }
-
-        p_vout->p_sys->b_on_top_change = false;
-    }
-
-    /* Check if the event thread is still running */
-    if( !vlc_object_alive (p_vout->p_sys->p_event) )
-    {
-        return VLC_EGENERIC; /* exit */
-    }
-
+    CommonManage( p_vout );
     return VLC_SUCCESS;
 }
 

@@ -7,7 +7,7 @@
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2.0
+ * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
@@ -15,7 +15,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
+ * You should have received a copy of the GNU General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  ****************************************************************************/
@@ -29,100 +29,129 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_vout.h>
-#include <vlc_window.h>
+#include <vlc_vout_window.h>
 
-static int  OpenXID (vlc_object_t *);
-static int  OpenHWND (vlc_object_t *);
-static void Close (vlc_object_t *);
-
-#define XID_TEXT N_("ID of the video output X window")
-#define XID_LONGTEXT N_( \
-    "VLC can embed its video output in an existing X11 window. " \
-    "This is the X identifier of that window (0 means none).")
+static int  Open (vlc_object_t *);
+static void Close(vlc_object_t *);
 
 /*
  * Module descriptor
  */
 vlc_module_begin ()
     set_shortname (N_("Drawable"))
-    set_description (N_("Embedded X window video"))
+    set_description (N_("Embedded window video"))
     set_category (CAT_VIDEO)
     set_subcategory (SUBCAT_VIDEO_VOUT)
-    set_capability ("xwindow", 70)
-    set_callbacks (OpenXID, Close)
-    add_integer ("drawable-xid", 0, NULL, XID_TEXT, XID_LONGTEXT, true)
-        change_unsaveable ()
-        /*change_integer_range (0, 0xffffffff)*/
-
-    add_submodule ()
-        set_description (N_("Embedded Windows video"))
-        set_capability ("hwnd", 70)
-        set_callbacks (OpenHWND, Close)
-
+    set_capability ("vout window hwnd", 70)
+    set_callbacks (Open, Close)
+    //add_integer ("drawable-hwnd", 0, NULL, HWN_TEXT, HWND_LONGTEXT, true) /* How to ? */
+    //    change_unsaveable ()
 vlc_module_end ()
 
 static int Control (vout_window_t *, int, va_list);
 
+static vlc_mutex_t serializer = VLC_STATIC_MUTEX;
+
 /**
  * Find the drawable set by libvlc application.
  */
-static int Open (vlc_object_t *obj, const char *varname, bool ptr)
+static int Open (vlc_object_t *obj)
 {
     vout_window_t *wnd = (vout_window_t *)obj;
-    vlc_value_t val;
+    void **used, *val;
+    size_t n = 0;
 
-    if (var_Create (obj, varname, VLC_VAR_DOINHERIT
-                                  | (ptr ? VLC_VAR_ADDRESS : VLC_VAR_INTEGER)))
+    if (var_Create (obj->p_libvlc, "hwnd-in-use", VLC_VAR_ADDRESS)
+     || var_Create (obj, "drawable-hwnd", VLC_VAR_DOINHERIT | VLC_VAR_ADDRESS))
         return VLC_ENOMEM;
-    var_Get (obj, varname, &val);
-    var_Destroy (obj, varname);
 
-    if (ptr ? (val.p_address == NULL) : (val.i_int == 0))
+    val = var_GetAddress (obj, "drawable-hwnd");
+    var_Destroy (obj, "drawable-hwn");
+
+    /* Keep a list of busy drawables, so we don't overlap videos if there are
+     * more than one video track in the stream. */
+    vlc_mutex_lock (&serializer);
+    /* TODO: per-type list of busy drawables */
+    used = var_GetAddress (obj->p_libvlc, "drawables-in-use");
+    if (used != NULL)
+    {
+        while (used[n] != NULL)
+        {
+            if (used[n] == val)
+                goto skip;
+            n++;
+        }
+    }
+
+    used = realloc (used, sizeof (*used) * (n + 2));
+    if (used != NULL)
+    {
+        used[n] = val;
+        used[n + 1] = NULL;
+        var_SetAddress (obj->p_libvlc, "hwnd-in-use", used);
+    }
+    else
+    {
+skip:
+        msg_Warn (wnd, "HWND %p is busy", val);
+        val = NULL;
+    }
+    vlc_mutex_unlock (&serializer);
+
+    if (val == NULL)
         return VLC_EGENERIC;
 
-    if (ptr)
-        wnd->handle.hwnd = val.p_address;
-    else
-        wnd->handle.xid = val.i_int;
-
-    /* FIXME: check that X server matches --x11-display (if specified) */
-    /* FIXME: get window size (in platform-dependent ways) */
-
+    wnd->handle.hwnd = val;
     wnd->control = Control;
+    wnd->sys = val;
     return VLC_SUCCESS;
 }
-
-static int  OpenXID (vlc_object_t *obj)
-{
-    return Open (obj, "drawable-xid", false);
-}
-
-static int  OpenHWND (vlc_object_t *obj)
-{
-    return Open (obj, "drawable-hwnd", true);
-}
-
 
 /**
  * Release the drawable.
  */
 static void Close (vlc_object_t *obj)
 {
-    (void)obj;
+    vout_window_t *wnd = (vout_window_t *)obj;
+    void **used, *val = wnd->sys;
+    size_t n = 0;
+
+    /* Remove this drawable from the list of busy ones */
+    vlc_mutex_lock (&serializer);
+    used = var_GetAddress (obj->p_libvlc, "hwnd-in-use");
+    assert (used);
+    while (used[n] != val)
+    {
+        assert (used[n]);
+        n++;
+    }
+    do
+        used[n] = used[n + 1];
+    while (used[++n] != NULL);
+
+    if (n == 0)
+         var_SetAddress (obj->p_libvlc, "hwnd-in-use", NULL);
+    vlc_mutex_unlock (&serializer);
+
+    if (n == 0)
+        free (used);
+    /* Variables are reference-counted... */
+    var_Destroy (obj->p_libvlc, "hwnd-in-use");
 }
 
 
 static int Control (vout_window_t *wnd, int query, va_list ap)
 {
+    VLC_UNUSED( ap );
+
     switch (query)
     {
-        case VOUT_SET_SIZE: /* not allowed */
-        case VOUT_SET_STAY_ON_TOP: /* not allowed either, would be ugly */
+        case VOUT_WINDOW_SET_SIZE:   /* not allowed */
+        case VOUT_WINDOW_SET_ON_TOP: /* not allowed either, would be ugly */
+            return VLC_EGENERIC;
+        default:
+            msg_Warn (wnd, "unsupported control query %d", query);
             return VLC_EGENERIC;
     }
-
-    msg_Warn (wnd, "unsupported control query %d", query);
-    return VLC_EGENERIC;
 }
 

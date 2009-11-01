@@ -214,13 +214,27 @@ VLC_EXPORT( int,    __config_SaveConfigFile, ( vlc_object_t *, const char * ) );
 VLC_EXPORT( void,   __config_ResetAll, ( vlc_object_t * ) );
 
 VLC_EXPORT( module_config_t *, config_FindConfig,( vlc_object_t *, const char * ) LIBVLC_USED );
-
 VLC_EXPORT(const char *, config_GetDataDir, ( void ) LIBVLC_USED);
 VLC_EXPORT(const char *, config_GetConfDir, ( void ) LIBVLC_USED);
-VLC_EXPORT(const char *, config_GetHomeDir, ( void ) LIBVLC_USED);
-VLC_EXPORT(char *, config_GetUserConfDir, ( void ) LIBVLC_USED);
-VLC_EXPORT(char *, config_GetUserDataDir, ( void ) LIBVLC_USED);
-VLC_EXPORT(char *, config_GetCacheDir, ( void ) LIBVLC_USED);
+
+typedef enum vlc_userdir
+{
+    VLC_HOME_DIR, /* User's home */
+    VLC_CONFIG_DIR, /* VLC-specific configuration directory */
+    VLC_DATA_DIR, /* VLC-specific data directory */
+    VLC_CACHE_DIR, /* VLC-specific user cached data directory */
+    /* Generic directories (same as XDG) */
+    VLC_DESKTOP_DIR=0x80,
+    VLC_DOWNLOAD_DIR,
+    VLC_TEMPLATES_DIR,
+    VLC_PUBLICSHARE_DIR,
+    VLC_DOCUMENTS_DIR,
+    VLC_MUSIC_DIR,
+    VLC_PICTURES_DIR,
+    VLC_VIDEOS_DIR,
+} vlc_userdir_t;
+
+VLC_EXPORT(char *, config_GetUserDir, ( vlc_userdir_t ) LIBVLC_USED);
 
 VLC_EXPORT( void,       __config_AddIntf,    ( vlc_object_t *, const char * ) );
 VLC_EXPORT( void,       __config_RemoveIntf, ( vlc_object_t *, const char * ) );
@@ -277,6 +291,11 @@ VLC_EXPORT( char *, config_ChainCreate, ( char **ppsz_name, config_chain_t **pp_
  * (Including the head)
  */
 VLC_EXPORT( void, config_ChainDestroy, ( config_chain_t * ) );
+
+/**
+ * This function will duplicate a linked list of config_chain_t
+ */
+VLC_EXPORT( config_chain_t *, config_ChainDuplicate, ( const config_chain_t * ) );
 
 /**
  * This function will unescape a string in place and will return a pointer on

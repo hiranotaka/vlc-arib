@@ -46,28 +46,25 @@ public class Logger
         this.libvlc = jvlc.getLibvlc();
         libvlc_exception_t exception = new libvlc_exception_t();
         this.logInstance = jvlc.getLibvlc().libvlc_log_open(jvlc.getInstance(), exception);
-        if (exception.raised == 1)
+        if (exception.b_raised == 1)
         {
-            throw new RuntimeException("Native exception thrown: " + exception.message);
+            throw new RuntimeException("Native exception thrown");
         }
     }
     
     public void clear()
     {
-        libvlc_exception_t exception = new libvlc_exception_t();    
-        libvlc.libvlc_log_clear(logInstance, exception);
+        libvlc.libvlc_log_clear(logInstance);
     }
     
     public void close()
     {
-        libvlc_exception_t exception = new libvlc_exception_t();    
-        libvlc.libvlc_log_close(logInstance, exception);
+        libvlc.libvlc_log_close(logInstance);
     }
     
     public int count()
     {
-        libvlc_exception_t exception = new libvlc_exception_t();    
-        return libvlc.libvlc_log_count(logInstance, exception);
+        return libvlc.libvlc_log_count(logInstance);
     }
     
     public Iterator<LoggerMessage> iterator()

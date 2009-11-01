@@ -1,7 +1,7 @@
 /*****************************************************************************
  * ps.c: Program Stream demux module for VLC.
  *****************************************************************************
- * Copyright (C) 2004 the VideoLAN team
+ * Copyright (C) 2004-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
@@ -63,6 +63,7 @@ vlc_module_begin ()
 
     add_bool( "ps-trust-timestamps", true, NULL, TIME_TEXT,
                  TIME_LONGTEXT, true )
+        change_safe ()
 
     add_submodule ()
     set_description( N_("MPEG-PS demuxer") )
@@ -85,6 +86,8 @@ struct demux_sys_t
     int64_t     i_length;
     int         i_time_track;
     int64_t     i_current_pts;
+
+    int         i_aob_mlp_count;
 
     bool  b_lost_sync;
     bool  b_have_pack;
@@ -134,6 +137,7 @@ static int OpenCommon( vlc_object_t *p_this, bool b_force )
     p_sys->i_length   = -1;
     p_sys->i_current_pts = (mtime_t) 0;
     p_sys->i_time_track = -1;
+    p_sys->i_aob_mlp_count = 0;
 
     p_sys->b_lost_sync = false;
     p_sys->b_have_pack = false;
@@ -354,6 +358,19 @@ static int Demux( demux_t *p_demux )
     default:
         if( (i_id = ps_pkt_id( p_pkt )) >= 0xc0 )
         {
+            /* Small heuristic to improve MLP detection from AOB */
+            if( i_id == 0xa001 &&
+                p_sys->i_aob_mlp_count < 500 )
+            {
+                p_sys->i_aob_mlp_count++;
+            }
+            else if( i_id == 0xbda1 &&
+                     p_sys->i_aob_mlp_count > 0 )
+            {
+                p_sys->i_aob_mlp_count--;
+                i_id = 0xa001;
+            }
+
             bool b_new = false;
             ps_track_t *tk = &p_sys->tk[PS_ID_TO_TK(i_id)];
 
@@ -439,7 +456,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             i64 = stream_Size( p_demux->s );
             if( i64 > 0 )
             {
-                *pf = (double)stream_Tell( p_demux->s ) / (double)i64;
+                double current = stream_Tell( p_demux->s );
+                *pf = current / (double)i64;
             }
             else
             {

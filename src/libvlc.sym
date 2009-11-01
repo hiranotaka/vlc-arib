@@ -1,3 +1,7 @@
+libvlc_errmsg
+libvlc_clearerr
+libvlc_printerr
+libvlc_vprinterr
 libvlc_add_intf
 libvlc_audio_output_device_count
 libvlc_audio_output_device_id
@@ -27,7 +31,6 @@ libvlc_event_manager_release
 libvlc_event_send
 libvlc_event_type_name
 libvlc_exception_clear
-libvlc_exception_get_message
 libvlc_exception_init
 libvlc_exception_raise
 libvlc_exception_raised
@@ -38,7 +41,6 @@ libvlc_get_fullscreen
 libvlc_get_input_thread
 libvlc_get_log_verbosity
 libvlc_get_version
-libvlc_get_vlc_id
 libvlc_get_vlc_instance
 libvlc_log_clear
 libvlc_log_close
@@ -49,7 +51,7 @@ libvlc_log_iterator_has_next
 libvlc_log_iterator_next
 libvlc_log_open
 libvlc_media_add_option
-libvlc_media_add_option_untrusted
+libvlc_media_add_option_flag
 libvlc_media_discoverer_event_manager
 libvlc_media_discoverer_is_running
 libvlc_media_discoverer_localized_name
@@ -84,6 +86,7 @@ libvlc_media_list_item_at_index
 libvlc_media_list_lock
 libvlc_media_list_media
 libvlc_media_list_new
+libvlc_media_list_player_event_manager
 libvlc_media_list_player_get_state
 libvlc_media_list_player_is_playing
 libvlc_media_list_player_new
@@ -92,9 +95,11 @@ libvlc_media_list_player_pause
 libvlc_media_list_player_play
 libvlc_media_list_player_play_item
 libvlc_media_list_player_play_item_at_index
+libvlc_media_list_player_previous
 libvlc_media_list_player_release
 libvlc_media_list_player_set_media_list
 libvlc_media_list_player_set_media_player
+libvlc_media_list_player_set_playback_mode
 libvlc_media_list_player_stop
 libvlc_media_list_release
 libvlc_media_list_remove_index
@@ -119,12 +124,12 @@ libvlc_media_new
 libvlc_media_new_as_node
 libvlc_media_new_from_input_item
 libvlc_media_player_can_pause
+libvlc_media_player_next_frame
 libvlc_media_player_event_manager
 libvlc_media_player_get_agl
 libvlc_media_player_get_chapter
 libvlc_media_player_get_chapter_count
 libvlc_media_player_get_chapter_count_for_title
-libvlc_media_player_get_drawable
 libvlc_media_player_get_fps
 libvlc_media_player_get_hwnd
 libvlc_media_player_get_length
@@ -150,7 +155,6 @@ libvlc_media_player_release
 libvlc_media_player_retain
 libvlc_media_player_set_agl
 libvlc_media_player_set_chapter
-libvlc_media_player_set_drawable
 libvlc_media_player_set_hwnd
 libvlc_media_player_set_media
 libvlc_media_player_set_nsobject
@@ -179,6 +183,8 @@ libvlc_video_get_aspect_ratio
 libvlc_video_get_chapter_description
 libvlc_video_get_crop_geometry
 libvlc_video_get_height
+libvlc_video_get_marquee_option_as_int
+libvlc_video_get_marquee_option_as_string
 libvlc_video_get_scale
 libvlc_video_get_spu
 libvlc_video_get_spu_count
@@ -191,6 +197,11 @@ libvlc_video_get_track_description
 libvlc_video_get_width
 libvlc_video_set_aspect_ratio
 libvlc_video_set_crop_geometry
+libvlc_video_set_deinterlace
+libvlc_video_set_marquee_option_as_int
+libvlc_video_set_marquee_option_as_string
+libvlc_video_set_key_input
+libvlc_video_set_mouse_input
 libvlc_video_set_scale
 libvlc_video_set_spu
 libvlc_video_set_subtitle_file
@@ -202,6 +213,7 @@ libvlc_vlm_add_vod
 libvlc_vlm_add_input
 libvlc_vlm_change_media
 libvlc_vlm_del_media
+libvlc_vlm_get_event_manager
 libvlc_vlm_get_media_instance_chapter
 libvlc_vlm_get_media_instance_length
 libvlc_vlm_get_media_instance_position

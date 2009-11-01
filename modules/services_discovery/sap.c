@@ -128,18 +128,18 @@ vlc_module_begin ()
 
     add_string( "sap-addr", NULL, NULL,
                 SAP_ADDR_TEXT, SAP_ADDR_LONGTEXT, true )
-    add_bool( "sap-ipv4", 1 , NULL,
+    add_bool( "sap-ipv4", true, NULL,
                SAP_IPV4_TEXT,SAP_IPV4_LONGTEXT, true )
-    add_bool( "sap-ipv6", 1 , NULL,
+    add_bool( "sap-ipv6", true, NULL,
               SAP_IPV6_TEXT, SAP_IPV6_LONGTEXT, true )
     add_integer( "sap-timeout", 1800, NULL,
                  SAP_TIMEOUT_TEXT, SAP_TIMEOUT_LONGTEXT, true )
-    add_bool( "sap-parse", 1 , NULL,
+    add_bool( "sap-parse", true, NULL,
                SAP_PARSE_TEXT,SAP_PARSE_LONGTEXT, true )
-    add_bool( "sap-strict", 0 , NULL,
+    add_bool( "sap-strict", false, NULL,
                SAP_STRICT_TEXT,SAP_STRICT_LONGTEXT, true )
 #if 0
-    add_bool( "sap-cache", 0 , NULL,
+    add_bool( "sap-cache", false, NULL,
                SAP_CACHE_TEXT,SAP_CACHE_LONGTEXT, true )
 #endif
     add_obsolete_bool( "sap-timeshift" ) /* Redumdant since 1.0.0 */
@@ -468,11 +468,10 @@ static void Close( vlc_object_t *p_this )
 static void CloseDemux( vlc_object_t *p_this )
 {
     demux_t *p_demux = (demux_t *)p_this;
-    if( p_demux->p_sys )
-    {
-        if( p_demux->p_sys->p_sdp ) { FreeSDP( p_demux->p_sys->p_sdp ); p_demux->p_sys->p_sdp = NULL; }
-        free( p_demux->p_sys );
-    }
+
+    if( p_demux->p_sys->p_sdp )
+        FreeSDP( p_demux->p_sys->p_sdp );
+    free( p_demux->p_sys );
 }
 
 /*****************************************************************************
@@ -651,8 +650,7 @@ static int Demux( demux_t *p_demux )
     input_thread_t *p_input;
     input_item_t *p_parent_input;
 
-    p_input = (input_thread_t *)vlc_object_find( p_demux, VLC_OBJECT_INPUT,
-                                                 FIND_PARENT );
+    p_input = demux_GetParentInput( p_demux );
     assert( p_input );
     if( !p_input )
     {
@@ -681,6 +679,7 @@ static int Demux( demux_t *p_demux )
     p_parent_input->i_type = ITEM_TYPE_NET;
 
     vlc_mutex_unlock( &p_parent_input->lock );
+    vlc_object_release( p_input );
     return VLC_SUCCESS;
 }
 

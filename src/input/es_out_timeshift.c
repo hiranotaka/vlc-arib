@@ -336,7 +336,7 @@ es_out_t *input_EsOutTimeshiftNew( input_thread_t *p_input, es_out_t *p_next_out
 
     char *psz_tmp_path = var_CreateGetNonEmptyString( p_input, "input-timeshift-path" );
     p_sys->psz_tmp_path = GetTmpPath( psz_tmp_path );
-    msg_Dbg( p_input, "using timeshift  path '%s'", p_sys->psz_tmp_path );
+    msg_Dbg( p_input, "using timeshift path '%s'", p_sys->psz_tmp_path );
 
 #if 0
 #define S(t) msg_Err( p_input, "SIZEOF("#t")=%d", sizeof(t) )
@@ -599,6 +599,7 @@ static int ControlLocked( es_out_t *p_out, int i_query, va_list args )
     case ES_OUT_SET_GROUP_EPG:
     case ES_OUT_SET_ES_SCRAMBLED_STATE:
     case ES_OUT_DEL_GROUP:
+    case ES_OUT_SET_META:
     case ES_OUT_SET_ES:
     case ES_OUT_RESTART_ES:
     case ES_OUT_SET_ES_DEFAULT:
@@ -1172,7 +1173,7 @@ static void TsStoragePopCmd( ts_storage_t *p_storage, ts_cmd_t *p_cmd, bool b_fl
                 p_block->i_flags    = block.i_flags;
                 p_block->i_length   = block.i_length;
                 p_block->i_rate     = block.i_rate;
-                p_block->i_samples  = block.i_samples;
+                p_block->i_nb_samples = block.i_nb_samples;
                 p_block->i_buffer = fread( p_block->p_buffer, 1, block.i_buffer, p_storage->p_filer );
             }
             p_cmd->send.p_block = p_block;
@@ -1315,10 +1316,12 @@ static int CmdInitControl( ts_cmd_t *p_cmd, int i_query, va_list args, bool b_co
     case ES_OUT_RESET_PCR:           /* no arg */
         break;
 
-    case ES_OUT_SET_GROUP_META:  /* arg1=int i_group arg2=vlc_meta_t* */
+    case ES_OUT_SET_META:        /* arg1=const vlc_meta_t* */
+    case ES_OUT_SET_GROUP_META:  /* arg1=int i_group arg2=const vlc_meta_t* */
     {
-        p_cmd->control.int_meta.i_int = (int)va_arg( args, int );
-        vlc_meta_t *p_meta = (vlc_meta_t*)va_arg( args, vlc_meta_t * );
+        if( i_query == ES_OUT_SET_GROUP_META )
+            p_cmd->control.int_meta.i_int = (int)va_arg( args, int );
+        const vlc_meta_t *p_meta = va_arg( args, const vlc_meta_t * );
 
         if( b_copy )
         {
@@ -1329,15 +1332,16 @@ static int CmdInitControl( ts_cmd_t *p_cmd, int i_query, va_list args, bool b_co
         }
         else
         {
-            p_cmd->control.int_meta.p_meta = p_meta;
+            /* The cast is only needed to avoid warning */
+            p_cmd->control.int_meta.p_meta = (vlc_meta_t*)p_meta;
         }
         break;
     }
 
-    case ES_OUT_SET_GROUP_EPG:   /* arg1=int i_group arg2=vlc_epg_t* */
+    case ES_OUT_SET_GROUP_EPG:   /* arg1=int i_group arg2=const vlc_epg_t* */
     {
         p_cmd->control.int_epg.i_int = (int)va_arg( args, int );
-        vlc_epg_t *p_epg = (vlc_epg_t*)va_arg( args, vlc_epg_t * );
+        const vlc_epg_t *p_epg = va_arg( args, const vlc_epg_t * );
 
         if( b_copy )
         {
@@ -1358,7 +1362,8 @@ static int CmdInitControl( ts_cmd_t *p_cmd, int i_query, va_list args, bool b_co
         }
         else
         {
-            p_cmd->control.int_epg.p_epg = p_epg;
+            /* The cast is only needed to avoid warning */
+            p_cmd->control.int_epg.p_epg = (vlc_epg_t*)p_epg;
         }
         break;
     }
@@ -1447,17 +1452,20 @@ static int CmdExecuteControl( es_out_t *p_out, ts_cmd_t *p_cmd )
     case ES_OUT_RESET_PCR:           /* no arg */
         return es_out_Control( p_out, i_query );
 
-    case ES_OUT_SET_GROUP_META:  /* arg1=int i_group arg2=vlc_meta_t* */
+    case ES_OUT_SET_GROUP_META:  /* arg1=int i_group arg2=const vlc_meta_t* */
         return es_out_Control( p_out, i_query, p_cmd->control.int_meta.i_int,
                                                p_cmd->control.int_meta.p_meta );
 
-    case ES_OUT_SET_GROUP_EPG:   /* arg1=int i_group arg2=vlc_epg_t* */
+    case ES_OUT_SET_GROUP_EPG:   /* arg1=int i_group arg2=const vlc_epg_t* */
         return es_out_Control( p_out, i_query, p_cmd->control.int_epg.i_int,
                                                p_cmd->control.int_epg.p_epg );
 
     case ES_OUT_SET_ES_SCRAMBLED_STATE: /* arg1=int es_out_id_t* arg2=bool */
         return es_out_Control( p_out, i_query, p_cmd->control.es_bool.p_es->p_es,
                                                p_cmd->control.es_bool.b_bool );
+
+    case ES_OUT_SET_META:  /* arg1=const vlc_meta_t* */
+        return es_out_Control( p_out, i_query, p_cmd->control.int_meta.p_meta );
 
     /* Modified control */
     case ES_OUT_SET_ES:      /* arg1= es_out_id_t*                   */
@@ -1488,7 +1496,8 @@ static int CmdExecuteControl( es_out_t *p_out, ts_cmd_t *p_cmd )
 }
 static void CmdCleanControl( ts_cmd_t *p_cmd )
 {
-    if( p_cmd->control.i_query == ES_OUT_SET_GROUP_META &&
+    if( ( p_cmd->control.i_query == ES_OUT_SET_GROUP_META ||
+          p_cmd->control.i_query == ES_OUT_SET_META ) &&
         p_cmd->control.int_meta.p_meta )
     {
         vlc_meta_Delete( p_cmd->control.int_meta.p_meta );

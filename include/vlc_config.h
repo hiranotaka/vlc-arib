@@ -42,7 +42,7 @@
  * XXX the numerical value is 0 because of historical reason and will change.*/
 #define VLC_TS_INVALID (0)
 
-#define CLOCK_FREQ 1000000
+#define CLOCK_FREQ INT64_C(1000000)
 
 /* When creating or destroying threads in blocking mode, delay to poll thread
  * status */
@@ -130,6 +130,14 @@
 
 /* Max acceptable resampling (in %) */
 #define AOUT_MAX_RESAMPLING             10
+
+/*****************************************************************************
+ * SPU configuration
+ *****************************************************************************/
+
+/* Buffer must avoid arriving more than SPU_MAX_PREPARE_TIME in advanced to
+ * the SPU */
+#define SPU_MAX_PREPARE_TIME ((mtime_t)(0.5*CLOCK_FREQ))
 
 /*****************************************************************************
  * Video configuration

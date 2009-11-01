@@ -69,6 +69,45 @@ static void vlm_Destructor( vlm_t *p_vlm );
 static void* Manage( void * );
 static int vlm_MediaVodControl( void *, vod_media_t *, const char *, int, va_list );
 
+static int InputEventPreparse( vlc_object_t *p_this, char const *psz_cmd,
+                               vlc_value_t oldval, vlc_value_t newval, void *p_data )
+{
+    VLC_UNUSED(p_this); VLC_UNUSED(psz_cmd); VLC_UNUSED(oldval);
+    vlc_sem_t *p_sem_preparse = p_data;
+
+    if( newval.i_int == INPUT_EVENT_DEAD ||
+        newval.i_int == INPUT_EVENT_ITEM_META )
+        vlc_sem_post( p_sem_preparse );
+
+    return VLC_SUCCESS;
+}
+
+static int InputEvent( vlc_object_t *p_this, char const *psz_cmd,
+                       vlc_value_t oldval, vlc_value_t newval,
+                       void *p_data )
+{
+    VLC_UNUSED(psz_cmd);
+    VLC_UNUSED(oldval);
+    input_thread_t *p_input = (input_thread_t *)p_this;
+    vlm_t *p_vlm = libvlc_priv( p_input->p_libvlc )->p_vlm;
+    vlm_media_sys_t *p_media = p_data;
+    const char *psz_instance_name = NULL;
+
+    if( newval.i_int == INPUT_EVENT_STATE )
+    {
+        for( int i = 0; i < p_media->i_instance; i++ )
+        {
+            if( p_media->instance[i]->p_input == p_input )
+            {
+                psz_instance_name = p_media->instance[i]->psz_name;
+                break;
+            }
+        }
+        vlm_SendEventMediaInstanceState( p_vlm, p_media->cfg.id, p_media->cfg.psz_name, psz_instance_name, var_GetInteger( p_input, "state" ) );
+    }
+    return VLC_SUCCESS;
+}
+
 /*****************************************************************************
  * vlm_New:
  *****************************************************************************/
@@ -168,14 +207,13 @@ void vlm_Delete( vlm_t *p_vlm )
  *****************************************************************************/
 static void vlm_Destructor( vlm_t *p_vlm )
 {
-    libvlc_priv (p_vlm->p_libvlc)->p_vlm = NULL;
-
     vlm_ControlInternal( p_vlm, VLM_CLEAR_MEDIAS );
     TAB_CLEAN( p_vlm->i_media, p_vlm->media );
 
     vlm_ControlInternal( p_vlm, VLM_CLEAR_SCHEDULES );
     TAB_CLEAN( p_vlm->schedule, p_vlm->schedule );
 
+    libvlc_priv(p_vlm->p_libvlc)->p_vlm = NULL;
     vlc_object_kill( p_vlm );
     /*vlc_cancel( p_vlm->thread ); */
     vlc_join( p_vlm->thread, NULL );
@@ -531,10 +569,21 @@ static int vlm_OnMediaUpdate( vlm_t *p_vlm, vlm_media_sys_t *p_media )
             if( asprintf( &psz_header, _("Media: %s"), p_cfg->psz_name ) == -1 )
                 psz_header = NULL;
 
-            if( (p_input = input_CreateAndStart( p_vlm->p_libvlc, p_media->vod.p_item, psz_header ) ) )
+            p_input = input_Create( p_vlm->p_libvlc, p_media->vod.p_item, psz_header, NULL );
+            if( p_input )
             {
-                while( !p_input->b_eof && !p_input->b_error )
-                    msleep( 100000 );
+                vlc_sem_t sem_preparse;
+                vlc_sem_init( &sem_preparse, 0 );
+                var_AddCallback( p_input, "intf-event", InputEventPreparse, &sem_preparse );
+
+                if( !input_Start( p_input ) )
+                {
+                    while( !p_input->b_dead && ( !p_cfg->vod.psz_mux || !input_item_IsPreparsed( p_media->vod.p_item ) ) )
+                        vlc_sem_wait( &sem_preparse );
+                }
+
+                var_DelCallback( p_input, "intf-event", InputEventPreparse, &sem_preparse );
+                vlc_sem_destroy( &sem_preparse );
 
                 input_Stop( p_input, false );
                 vlc_thread_join( p_input );
@@ -546,17 +595,19 @@ static int vlm_OnMediaUpdate( vlm_t *p_vlm, vlm_media_sys_t *p_media )
             {
                 input_item_t item;
                 es_format_t es, *p_es = &es;
-                char fourcc[5];
+                union { char text[5]; uint32_t value; } fourcc;
 
-                sprintf( fourcc, "%4.4s", p_cfg->vod.psz_mux );
-                fourcc[0] = tolower(fourcc[0]); fourcc[1] = tolower(fourcc[1]);
-                fourcc[2] = tolower(fourcc[2]); fourcc[3] = tolower(fourcc[3]);
+                sprintf( fourcc.text, "%4.4s", p_cfg->vod.psz_mux );
+                fourcc.text[0] = tolower(fourcc.text[0]);
+                fourcc.text[1] = tolower(fourcc.text[1]);
+                fourcc.text[2] = tolower(fourcc.text[2]);
+                fourcc.text[3] = tolower(fourcc.text[3]);
 
                 /* XXX: Don't do it that way, but properly use a new input item ref. */
                 item = *p_media->vod.p_item;
                 item.i_es = 1;
                 item.es = &p_es;
-                es_format_Init( &es, VIDEO_ES, *((int *)fourcc) );
+                es_format_Init( &es, VIDEO_ES, fourcc.value );
 
                 p_media->vod.p_media =
                     p_vlm->p_vod->pf_media_new( p_vlm->p_vod, p_cfg->psz_name, &item );
@@ -771,7 +822,7 @@ static vlm_media_instance_sys_t *vlm_MediaInstanceNew( vlm_t *p_vlm, const char 
 
     return p_instance;
 }
-static void vlm_MediaInstanceDelete( vlm_t *p_vlm, int64_t id, vlm_media_instance_sys_t *p_instance, const char *psz_name )
+static void vlm_MediaInstanceDelete( vlm_t *p_vlm, int64_t id, vlm_media_instance_sys_t *p_instance, vlm_media_sys_t *p_media )
 {
     input_thread_t *p_input = p_instance->p_input;
     if( p_input )
@@ -784,13 +835,15 @@ static void vlm_MediaInstanceDelete( vlm_t *p_vlm, int64_t id, vlm_media_instanc
         p_resource = input_DetachResource( p_input );
         input_resource_Delete( p_resource );
 
+        var_DelCallback( p_instance->p_input, "intf-event", InputEvent, p_media );
         vlc_object_release( p_input );
 
-        vlm_SendEventMediaInstanceStopped( p_vlm, id, psz_name );
+        vlm_SendEventMediaInstanceStopped( p_vlm, id, p_media->cfg.psz_name );
     }
     if( p_instance->p_input_resource )
         input_resource_Delete( p_instance->p_input_resource );
 
+    TAB_REMOVE( p_media->i_instance, p_media->instance, p_instance );
     vlc_gc_decref( p_instance->p_item );
     free( p_instance->psz_name );
     free( p_instance );
@@ -866,6 +919,7 @@ static int vlm_ControlMediaInstanceStart( vlm_t *p_vlm, int64_t id, const char *
 
         p_instance->p_input_resource = input_DetachResource( p_input );
 
+        var_DelCallback( p_instance->p_input, "intf-event", InputEvent, p_media );
         vlc_object_release( p_input );
 
         if( !p_instance->b_sout_keep )
@@ -883,17 +937,21 @@ static int vlm_ControlMediaInstanceStart( vlm_t *p_vlm, int64_t id, const char *
     {
         p_instance->p_input = input_Create( p_vlm->p_libvlc, p_instance->p_item,
                                             psz_log, p_instance->p_input_resource );
-        if( p_instance->p_input && input_Start( p_instance->p_input ) )
+        if( p_instance->p_input )
         {
-            vlc_object_release( p_instance->p_input );
-            p_instance->p_input = NULL;
+            var_AddCallback( p_instance->p_input, "intf-event", InputEvent, p_media );
+            if( input_Start( p_instance->p_input ) != VLC_SUCCESS )
+            {
+                var_DelCallback( p_instance->p_input, "intf-event", InputEvent, p_media );
+                vlc_object_release( p_instance->p_input );
+                p_instance->p_input = NULL;
+            }
         }
         p_instance->p_input_resource = NULL;
 
         if( !p_instance->p_input )
         {
-            TAB_REMOVE( p_media->i_instance, p_media->instance, p_instance );
-            vlm_MediaInstanceDelete( p_vlm, id, p_instance, p_media->cfg.psz_name );
+            vlm_MediaInstanceDelete( p_vlm, id, p_instance, p_media );
         }
         else
         {
@@ -917,9 +975,7 @@ static int vlm_ControlMediaInstanceStop( vlm_t *p_vlm, int64_t id, const char *p
     if( !p_instance )
         return VLC_EGENERIC;
 
-    TAB_REMOVE( p_media->i_instance, p_media->instance, p_instance );
-
-    vlm_MediaInstanceDelete( p_vlm, id, p_instance, p_media->cfg.psz_name );
+    vlm_MediaInstanceDelete( p_vlm, id, p_instance, p_media );
 
     return VLC_SUCCESS;
 }

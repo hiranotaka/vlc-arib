@@ -48,8 +48,8 @@
 /*****************************************************************************
  * dummy_Run
  *****************************************************************************/
-int dummy_Run( visual_effect_t * p_effect, aout_instance_t *p_aout,
-               aout_buffer_t * p_buffer , picture_t * p_picture)
+int dummy_Run( visual_effect_t * p_effect, vlc_object_t *p_aout,
+               const block_t * p_buffer , picture_t * p_picture)
 {
     VLC_UNUSED(p_effect); VLC_UNUSED(p_aout); VLC_UNUSED(p_buffer);
     VLC_UNUSED(p_picture);
@@ -59,8 +59,8 @@ int dummy_Run( visual_effect_t * p_effect, aout_instance_t *p_aout,
 /*****************************************************************************
  * spectrum_Run: spectrum analyser
  *****************************************************************************/
-int spectrum_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
-                 aout_buffer_t * p_buffer , picture_t * p_picture)
+int spectrum_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
+                 const block_t * p_buffer , picture_t * p_picture)
 {
     spectrum_data *p_data = p_effect->p_data;
     float p_output[FFT_BUFFER_SIZE];  /* Raw FFT Result  */
@@ -100,9 +100,7 @@ int spectrum_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
     int16_t  *p_buffs;                    /* int16_t converted buffer */
     int16_t  *p_s16_buff;                 /* int16_t converted buffer */
 
-    p_s16_buff = malloc(
-              p_buffer->i_nb_samples * p_effect->i_nb_chans * sizeof(int16_t));
-
+    p_s16_buff = malloc( p_buffer->i_nb_samples * p_effect->i_nb_chans * sizeof(int16_t));
     if( !p_s16_buff )
         return -1;
 
@@ -174,7 +172,11 @@ int spectrum_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
     {
         p_output[i]  = 0;
         p_buffer1[i] = *p_buffs;
-        p_buffs      = p_buffs + p_effect->i_nb_chans;
+
+        p_buffs += p_effect->i_nb_chans;
+        if( p_buffs >= &p_s16_buff[p_buffer->i_nb_samples * p_effect->i_nb_chans] )
+            p_buffs = p_s16_buff;
+
     }
     fft_perform( p_buffer1, p_output, p_state);
     for( i = 0; i< FFT_BUFFER_SIZE ; i++ )
@@ -335,8 +337,8 @@ int spectrum_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
 /*****************************************************************************
  * spectrometer_Run: derivative spectrum analysis
  *****************************************************************************/
-int spectrometer_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
-                 aout_buffer_t * p_buffer , picture_t * p_picture)
+int spectrometer_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
+                     const block_t * p_buffer , picture_t * p_picture)
 {
 #define Y(R,G,B) ((uint8_t)( (R * .299) + (G * .587) + (B * .114) ))
 #define U(R,G,B) ((uint8_t)( (R * -.169) + (G * -.332) + (B * .500) + 128 ))
@@ -393,13 +395,11 @@ int spectrometer_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
             (float*)p_buffer->p_buffer;
 
     int16_t  *p_buffs;                    /* int16_t converted buffer */
-    int16_t  *p_s16_buff = NULL;                /* int16_t converted buffer */
+    int16_t  *p_s16_buff;                /* int16_t converted buffer */
 
     i_line = 0;
 
-    p_s16_buff = (int16_t*)malloc(
-              p_buffer->i_nb_samples * p_effect->i_nb_chans * sizeof(int16_t));
-
+    p_s16_buff = malloc( p_buffer->i_nb_samples * p_effect->i_nb_chans * sizeof(int16_t) );
     if( !p_s16_buff )
         return -1;
 
@@ -477,15 +477,21 @@ int spectrometer_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
         return -1;
     }
     p_buffs = p_s16_buff;
-    for ( i = 0 ; i < FFT_BUFFER_SIZE ; i++)
+    for ( i = 0 ; i < FFT_BUFFER_SIZE; i++)
     {
         p_output[i]    = 0;
         p_buffer1[i] = *p_buffs;
-        p_buffs      = p_buffs + p_effect->i_nb_chans;
+
+        p_buffs += p_effect->i_nb_chans;
+        if( p_buffs >= &p_s16_buff[p_buffer->i_nb_samples * p_effect->i_nb_chans] )
+            p_buffs = p_s16_buff;
     }
     fft_perform( p_buffer1, p_output, p_state);
-    for(i= 0; i< FFT_BUFFER_SIZE ; i++ )
-        p_dest[i] = ( (int) sqrt( p_output [ i ] ) ) >> 8;
+    for(i = 0; i < FFT_BUFFER_SIZE; i++)
+    {
+        int sqrti = sqrt(p_output[i]);
+        p_dest[i] = sqrti >> 8;
+    }
 
     i_nb_bands *= i_sections;
 
@@ -501,9 +507,10 @@ int spectrometer_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
         y >>=7;/* remove some noise */
         if( y != 0)
         {
-            height[i] = (int)log(y)* y_scale;
-               if(height[i] > 150)
-                  height[i] = 150;
+            int logy = log(y);
+            height[i] = logy * y_scale;
+            if(height[i] > 150)
+                height[i] = 150;
         }
         else
         {
@@ -788,190 +795,194 @@ int spectrometer_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
 /*****************************************************************************
  * scope_Run: scope effect
  *****************************************************************************/
-int scope_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
-              aout_buffer_t * p_buffer , picture_t * p_picture)
+int scope_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
+              const block_t * p_buffer , picture_t * p_picture)
 {
     VLC_UNUSED(p_aout);
+
     int i_index;
     float *p_sample ;
     uint8_t *ppp_area[2][3];
 
-
-        for( i_index = 0 ; i_index < 2 ; i_index++ )
+    for( i_index = 0 ; i_index < 2 ; i_index++ )
+    {
+        for( int j = 0 ; j < 3 ; j++ )
         {
-            int j;
-            for( j = 0 ; j < 3 ; j++ )
-            {
-                ppp_area[i_index][j] =
-                    p_picture->p[j].p_pixels + i_index * p_picture->p[j].i_lines
-                                / 2 * p_picture->p[j].i_pitch;
-            }
+            ppp_area[i_index][j] =
+                p_picture->p[j].p_pixels + i_index * p_picture->p[j].i_lines
+                / 2 * p_picture->p[j].i_pitch;
         }
+    }
 
-        for( i_index = 0, p_sample = (float *)p_buffer->p_buffer;
-             i_index < p_effect->i_width;
-             i_index++ )
-        {
-            uint8_t i_value;
+    for( i_index = 0, p_sample = (float *)p_buffer->p_buffer;
+            i_index < __MIN( p_effect->i_width, (int)p_buffer->i_nb_samples );
+            i_index++ )
+    {
+        uint8_t i_value;
 
-            /* Left channel */
-            i_value =  (*p_sample++ +1) * 127;
-            *(ppp_area[0][0]
-               + p_picture->p[0].i_pitch * i_index / p_effect->i_width
-               + p_picture->p[0].i_lines * i_value / 512
-                   * p_picture->p[0].i_pitch) = 0xbf;
-            *(ppp_area[0][1]
+        /* Left channel */
+        i_value =  p_sample[p_effect->i_idx_left] * 127;
+        *(ppp_area[0][0]
+                + p_picture->p[0].i_pitch * i_index / p_effect->i_width
+                + p_picture->p[0].i_lines * i_value / 512
+                * p_picture->p[0].i_pitch) = 0xbf;
+        *(ppp_area[0][1]
                 + p_picture->p[1].i_pitch * i_index / p_effect->i_width
                 + p_picture->p[1].i_lines * i_value / 512
-                   * p_picture->p[1].i_pitch) = 0xff;
+                * p_picture->p[1].i_pitch) = 0xff;
 
 
-           /* Right channel */
-           i_value = ( *p_sample++ +1 ) * 127;
-           *(ppp_area[1][0]
-              + p_picture->p[0].i_pitch * i_index / p_effect->i_width
-              + p_picture->p[0].i_lines * i_value / 512
-                 * p_picture->p[0].i_pitch) = 0x9f;
-           *(ppp_area[1][2]
-              + p_picture->p[2].i_pitch * i_index / p_effect->i_width
-              + p_picture->p[2].i_lines * i_value / 512
+        /* Right channel */
+        i_value = p_sample[p_effect->i_idx_right] * 127;
+        *(ppp_area[1][0]
+                + p_picture->p[0].i_pitch * i_index / p_effect->i_width
+                + p_picture->p[0].i_lines * i_value / 512
+                * p_picture->p[0].i_pitch) = 0x9f;
+        *(ppp_area[1][2]
+                + p_picture->p[2].i_pitch * i_index / p_effect->i_width
+                + p_picture->p[2].i_lines * i_value / 512
                 * p_picture->p[2].i_pitch) = 0xdd;
-        }
-        return 0;
+
+        p_sample += p_effect->i_nb_chans;
+    }
+    return 0;
 }
 
 
 /*****************************************************************************
  * vuMeter_Run: vu meter effect
  *****************************************************************************/
-int vuMeter_Run(visual_effect_t * p_effect, aout_instance_t *p_aout,
-              aout_buffer_t * p_buffer , picture_t * p_picture)
+int vuMeter_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
+                const block_t * p_buffer , picture_t * p_picture)
 {
-        VLC_UNUSED(p_aout);
-        int i, j;
-        float *p_sample = (float *)p_buffer->p_buffer;
-        float i_value_l = 0;
-        float i_value_r = 0;
+    VLC_UNUSED(p_aout);
+    int j;
+    float i_value_l = 0;
+    float i_value_r = 0;
+
+    /* Compute the peack values */
+    for ( unsigned i = 0 ; i < p_buffer->i_nb_samples; i++ )
+    {
+        const float *p_sample = (float *)p_buffer->p_buffer;
         float ch;
 
-        /* Compute the peack values */
-        for ( i = 0 ; i < 1024; i++ )
-        {
-                ch = (*p_sample++) * 256;
-                if (ch > i_value_l)
-                        i_value_l = ch;
+        ch = p_sample[p_effect->i_idx_left] * 256;
+        if (ch > i_value_l)
+            i_value_l = ch;
 
-                ch = (*p_sample++) * 256;
-                if (ch > i_value_r)
-                        i_value_r = ch;
-        }
+        ch = p_sample[p_effect->i_idx_right] * 256;
+        if (ch > i_value_r)
+            i_value_r = ch;
 
-        i_value_l = abs(i_value_l);
-        i_value_r = abs(i_value_r);
+        p_sample += p_effect->i_nb_chans;
+    }
 
-        /* Stay under maximum value admited */
-        if ( i_value_l > 200 * M_PI_2 )
-                i_value_l = 200 * M_PI_2;
-        if ( i_value_r > 200 * M_PI_2 )
-                i_value_r = 200 * M_PI_2;
+    i_value_l = abs(i_value_l);
+    i_value_r = abs(i_value_r);
 
-        float *i_value;
+    /* Stay under maximum value admited */
+    if ( i_value_l > 200 * M_PI_2 )
+        i_value_l = 200 * M_PI_2;
+    if ( i_value_r > 200 * M_PI_2 )
+        i_value_r = 200 * M_PI_2;
 
-        if( !p_effect->p_data )
-        {
-                /* Allocate memory to save hand positions */
-                p_effect->p_data = (void *)malloc( 2 * sizeof(float) );
-                i_value = p_effect->p_data;
-                i_value[0] = i_value_l;
-                i_value[1] = i_value_r;
-        }
+    float *i_value;
+
+    if( !p_effect->p_data )
+    {
+        /* Allocate memory to save hand positions */
+        p_effect->p_data = (void *)malloc( 2 * sizeof(float) );
+        i_value = p_effect->p_data;
+        i_value[0] = i_value_l;
+        i_value[1] = i_value_r;
+    }
+    else
+    {
+        /* Make the hands go down slowly if the current values are slower
+           than the previous */
+        i_value = p_effect->p_data;
+
+        if ( i_value_l > i_value[0] - 6 )
+            i_value[0] = i_value_l;
         else
+            i_value[0] = i_value[0] - 6;
+
+        if ( i_value_r > i_value[1] - 6 )
+            i_value[1] = i_value_r;
+        else
+            i_value[1] = i_value[1] - 6;
+    }
+
+    int x, y, k;
+    float teta;
+    float teta_grad;
+
+    for ( j = 0; j < 2; j++ )
+    {
+        /* Draw the two scales */
+        k = 0;
+        teta_grad = GRAD_ANGLE_MIN;
+        for ( teta = -M_PI_4; teta <= M_PI_4; teta = teta + 0.003 )
         {
-                /* Make the hands go down slowly if the current values are slower
-                than the previous */
-                i_value = p_effect->p_data;
-
-                if ( i_value_l > i_value[0] - 6 )
-                        i_value[0] = i_value_l;
-                else
-                        i_value[0] = i_value[0] - 6;
-
-                if ( i_value_r > i_value[1] - 6 )
-                        i_value[1] = i_value_r;
-                else
-                        i_value[1] = i_value[1] - 6;
+            for ( unsigned i = 140; i <= 150; i++ )
+            {
+                y = i * cos(teta) + 20;
+                x = i * sin(teta) + 150 + 240 * j;
+                /* Compute the last color for the gradation */
+                if (teta >= teta_grad + GRAD_INCR && teta_grad <= GRAD_ANGLE_MAX)
+                {
+                    teta_grad = teta_grad + GRAD_INCR;
+                    k = k + 5;
+                }
+                *(p_picture->p[0].p_pixels +
+                        (p_picture->p[0].i_lines - y - 1 ) * p_picture->p[0].i_pitch
+                        + x ) = 0x45;
+                *(p_picture->p[1].p_pixels +
+                        (p_picture->p[1].i_lines - y / 2 - 1 ) * p_picture->p[1].i_pitch
+                        + x / 2 ) = 0x0;
+                *(p_picture->p[2].p_pixels +
+                        (p_picture->p[2].i_lines - y / 2 - 1 ) * p_picture->p[2].i_pitch
+                        + x / 2 ) = 0x4D + k;
+            }
         }
 
-        int x, y, k;
-        float teta;
-        float teta_grad;
-
-        for ( j = 0; j < 2; j++ )
+        /* Draw the two hands */
+        teta = (float)i_value[j] / 200 - M_PI_4;
+        for ( int i = 0; i <= 150; i++ )
         {
-                /* Draw the two scales */
-                k = 0;
-                teta_grad = GRAD_ANGLE_MIN;
-                for ( teta = -M_PI_4; teta <= M_PI_4; teta = teta + 0.003 )
-                {
-                        for ( i = 140; i <= 150; i++ )
-                        {
-                                y = i * cos(teta) + 20;
-                                x = i * sin(teta) + 150 + 240 * j;
-                                /* Compute the last color for the gradation */
-                                if (teta >= teta_grad + GRAD_INCR && teta_grad <= GRAD_ANGLE_MAX)
-                                {
-                                        teta_grad = teta_grad + GRAD_INCR;
-                                        k = k + 5;
-                                }
-                                *(p_picture->p[0].p_pixels +
-                                 (p_picture->p[0].i_lines - y - 1 ) * p_picture->p[0].i_pitch
-                                 + x ) = 0x45;
-                                *(p_picture->p[1].p_pixels +
-                                 (p_picture->p[1].i_lines - y / 2 - 1 ) * p_picture->p[1].i_pitch
-                                 + x / 2 ) = 0x0;
-                                *(p_picture->p[2].p_pixels +
-                                 (p_picture->p[2].i_lines - y / 2 - 1 ) * p_picture->p[2].i_pitch
-                                 + x / 2 ) = 0x4D + k;
-                        }
-                }
-
-                /* Draw the two hands */
-                teta = (float)i_value[j] / 200 - M_PI_4;
-                for ( i = 0; i <= 150; i++ )
-                {
-                        y = i * cos(teta) + 20;
-                        x = i * sin(teta) + 150 + 240 * j;
-                        *(p_picture->p[0].p_pixels +
-                         (p_picture->p[0].i_lines - y - 1 ) * p_picture->p[0].i_pitch
-                         + x ) = 0xAD;
-                        *(p_picture->p[1].p_pixels +
-                         (p_picture->p[1].i_lines - y / 2 - 1 ) * p_picture->p[1].i_pitch
-                         + x / 2 ) = 0xFC;
-                        *(p_picture->p[2].p_pixels +
-                         (p_picture->p[2].i_lines - y / 2 - 1 ) * p_picture->p[2].i_pitch
-                         + x / 2 ) = 0xAC;
-                }
-
-                /* Draw the hand bases */
-                for ( teta = -M_PI_2; teta <= M_PI_2 + 0.01; teta = teta + 0.003 )
-                {
-                        for ( i = 0; i < 10; i++ )
-                        {
-                                y = i * cos(teta) + 20;
-                                x = i * sin(teta) + 150 + 240 * j;
-                                *(p_picture->p[0].p_pixels +
-                                 (p_picture->p[0].i_lines - y - 1 ) * p_picture->p[0].i_pitch
-                                 + x ) = 0xFF;
-                                *(p_picture->p[1].p_pixels +
-                                 (p_picture->p[1].i_lines - y / 2 - 1 ) * p_picture->p[1].i_pitch
-                                 + x / 2 ) = 0x80;
-                                *(p_picture->p[2].p_pixels +
-                                 (p_picture->p[2].i_lines - y / 2 - 1 ) * p_picture->p[2].i_pitch
-                                 + x / 2 ) = 0x80;
-                        }
-                }
-
+            y = i * cos(teta) + 20;
+            x = i * sin(teta) + 150 + 240 * j;
+            *(p_picture->p[0].p_pixels +
+                    (p_picture->p[0].i_lines - y - 1 ) * p_picture->p[0].i_pitch
+                    + x ) = 0xAD;
+            *(p_picture->p[1].p_pixels +
+                    (p_picture->p[1].i_lines - y / 2 - 1 ) * p_picture->p[1].i_pitch
+                    + x / 2 ) = 0xFC;
+            *(p_picture->p[2].p_pixels +
+                    (p_picture->p[2].i_lines - y / 2 - 1 ) * p_picture->p[2].i_pitch
+                    + x / 2 ) = 0xAC;
         }
 
-        return 0;
+        /* Draw the hand bases */
+        for ( teta = -M_PI_2; teta <= M_PI_2 + 0.01; teta = teta + 0.003 )
+        {
+            for ( int i = 0; i < 10; i++ )
+            {
+                y = i * cos(teta) + 20;
+                x = i * sin(teta) + 150 + 240 * j;
+                *(p_picture->p[0].p_pixels +
+                        (p_picture->p[0].i_lines - y - 1 ) * p_picture->p[0].i_pitch
+                        + x ) = 0xFF;
+                *(p_picture->p[1].p_pixels +
+                        (p_picture->p[1].i_lines - y / 2 - 1 ) * p_picture->p[1].i_pitch
+                        + x / 2 ) = 0x80;
+                *(p_picture->p[2].p_pixels +
+                        (p_picture->p[2].i_lines - y / 2 - 1 ) * p_picture->p[2].i_pitch
+                        + x / 2 ) = 0x80;
+            }
+        }
+
+    }
+
+    return 0;
 }

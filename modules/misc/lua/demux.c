@@ -28,6 +28,8 @@
 # include "config.h"
 #endif
 
+#include <assert.h>
+
 #include <vlc_common.h>
 #include <vlc_demux.h>
 #include <vlc_url.h>
@@ -72,10 +74,12 @@ static int vlclua_demux_peek( lua_State *L )
 static int vlclua_demux_read( lua_State *L )
 {
     demux_t *p_demux = (demux_t *)vlclua_get_this( L );
-    uint8_t *p_read;
+    const uint8_t *p_read;
     int n = luaL_checkint( L, 1 );
-    int i_read = stream_Read( p_demux->s, &p_read, n );
+    int i_read = stream_Peek( p_demux->s, &p_read, n );
     lua_pushlstring( L, (const char *)p_read, i_read );
+    int i_seek = stream_Read( p_demux->s, NULL, i_read );
+    assert(i_read==i_seek);
     return 1;
 }
 
@@ -136,8 +140,7 @@ static int probe_luascript( vlc_object_t *p_this, const char * psz_filename,
     {
         msg_Warn( p_demux, "Error loading script %s: %s", psz_filename,
                   lua_tostring( L, lua_gettop( L ) ) );
-        lua_pop( L, 1 );
-        return VLC_EGENERIC;
+        goto error;
     }
 
     lua_getglobal( L, "probe" );
@@ -146,8 +149,7 @@ static int probe_luascript( vlc_object_t *p_this, const char * psz_filename,
     {
         msg_Warn( p_demux, "Error while runing script %s, "
                   "function probe() not found", psz_filename );
-        lua_pop( L, 1 );
-        return VLC_EGENERIC;
+        goto error;
     }
 
     if( lua_pcall( L, 0, 1, 0 ) )
@@ -155,23 +157,23 @@ static int probe_luascript( vlc_object_t *p_this, const char * psz_filename,
         msg_Warn( p_demux, "Error while runing script %s, "
                   "function probe(): %s", psz_filename,
                   lua_tostring( L, lua_gettop( L ) ) );
-        lua_pop( L, 1 );
-        return VLC_EGENERIC;
+        goto error;
     }
 
     if( lua_gettop( L ) )
     {
-        int i_ret = VLC_EGENERIC;
         if( lua_toboolean( L, 1 ) )
         {
             msg_Dbg( p_demux, "Lua playlist script %s's "
                      "probe() function was successful", psz_filename );
-            i_ret = VLC_SUCCESS;
+            lua_pop( L, 1 );
+            return VLC_SUCCESS;
         }
-        lua_pop( L, 1 );
-
-        return i_ret;
     }
+
+error:
+    lua_pop( L, 1 );
+    FREENULL( p_demux->p_sys->psz_filename );
     return VLC_EGENERIC;
 }
 
@@ -244,8 +246,7 @@ static int Demux( demux_t *p_demux )
     lua_State *L = p_demux->p_sys->L;
     char *psz_filename = p_demux->p_sys->psz_filename;
 
-    input_thread_t *p_input_thread = (input_thread_t *)
-        vlc_object_find( p_demux, VLC_OBJECT_INPUT, FIND_PARENT );
+    input_thread_t *p_input_thread = demux_GetParentInput( p_demux );
     input_item_t *p_current_input = input_GetItem( p_input_thread );
     playlist_t *p_playlist = pl_Hold( p_demux );
 

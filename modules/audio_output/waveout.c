@@ -1,10 +1,11 @@
 /*****************************************************************************
  * waveout.c : Windows waveOut plugin for vlc
  *****************************************************************************
- * Copyright (C) 2001 the VideoLAN team
+ * Copyright (C) 2001-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
+ *          André Weber
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -125,14 +126,13 @@ static void Probe        ( aout_instance_t * );
 static int OpenWaveOut   ( aout_instance_t *, uint32_t,
                            int, int, int, int, bool );
 static int OpenWaveOutPCM( aout_instance_t *, uint32_t,
-                           int*, int, int, int, bool );
+                           vlc_fourcc_t*, int, int, int, bool );
 static int PlayWaveOut   ( aout_instance_t *, HWAVEOUT, WAVEHDR *,
                            aout_buffer_t *, bool );
 
 static void CALLBACK WaveOutCallback ( HWAVEOUT, UINT, DWORD, DWORD, DWORD );
 static void* WaveOutThread( vlc_object_t * );
 
-static int VolumeInfos( aout_instance_t *, audio_volume_t * );
 static int VolumeGet( aout_instance_t *, audio_volume_t * );
 static int VolumeSet( aout_instance_t *, audio_volume_t );
 
@@ -168,7 +168,7 @@ vlc_module_begin ()
     set_capability( "audio output", 50 )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_AOUT )
-    add_bool( "waveout-float32", 1, 0, FLOAT_TEXT, FLOAT_LONGTEXT, true )
+    add_bool( "waveout-float32", true, NULL, FLOAT_TEXT, FLOAT_LONGTEXT, true )
 
     add_string( "waveout-audio-device", "wavemapper", NULL,
                  DEVICE_TEXT, DEVICE_LONG, false )
@@ -392,7 +392,6 @@ static int Open( vlc_object_t *p_this )
             if( waveOutGetVolume( p_aout->output.p_sys->h_waveout, &i_dummy )
                 == MMSYSERR_NOERROR )
             {
-                p_aout->output.pf_volume_infos = VolumeInfos;
                 p_aout->output.pf_volume_get = VolumeGet;
                 p_aout->output.pf_volume_set = VolumeSet;
             }
@@ -455,7 +454,7 @@ static int Open( vlc_object_t *p_this )
 static void Probe( aout_instance_t * p_aout )
 {
     vlc_value_t val, text;
-    int i_format;
+    vlc_fourcc_t i_format;
     unsigned int i_physical_channels;
 
     var_Create( p_aout, "audio-device", VLC_VAR_INTEGER | VLC_VAR_HASCHOICE );
@@ -803,7 +802,8 @@ static int OpenWaveOut( aout_instance_t *p_aout, uint32_t i_device_id, int i_for
 /*****************************************************************************
  * OpenWaveOutPCM: open a PCM waveout sound device
  ****************************************************************************/
-static int OpenWaveOutPCM( aout_instance_t *p_aout, uint32_t i_device_id, int *i_format,
+static int OpenWaveOutPCM( aout_instance_t *p_aout, uint32_t i_device_id,
+                           vlc_fourcc_t *i_format,
                            int i_channels, int i_nb_channels, int i_rate,
                            bool b_probe )
 {
@@ -1062,8 +1062,7 @@ static void* WaveOutThread( vlc_object_t *p_this )
 
                 if( p_buffer )
                 {
-                    mtime_t buffer_length = (p_buffer->end_date
-                                             - p_buffer->start_date);
+                    mtime_t buffer_length = p_buffer->i_length;
                     next_date = next_date + buffer_length;
                     i_buffer_length = buffer_length/1000;
                 }
@@ -1072,7 +1071,7 @@ static void* WaveOutThread( vlc_object_t *p_this )
                 if( p_buffer && p_sys->b_chan_reorder )
                 {
                     aout_ChannelReorder( p_buffer->p_buffer,
-                        p_buffer->i_nb_bytes,
+                        p_buffer->i_buffer,
                         p_sys->waveformat.Format.nChannels,
                         p_sys->pi_chan_table,
                         p_sys->waveformat.Format.wBitsPerSample );
@@ -1108,12 +1107,6 @@ static void* WaveOutThread( vlc_object_t *p_this )
 #undef waveout_warn
     vlc_restorecancel (canc);
     return NULL;
-}
-
-static int VolumeInfos( aout_instance_t * p_aout, audio_volume_t * pi_soft )
-{
-    *pi_soft = AOUT_VOLUME_MAX / 2;
-    return 0;
 }
 
 static int VolumeGet( aout_instance_t * p_aout, audio_volume_t * pi_volume )
@@ -1154,7 +1147,7 @@ static int VolumeSet( aout_instance_t * p_aout, audio_volume_t i_volume )
 static int ReloadWaveoutDevices( vlc_object_t *p_this, char const *psz_name,
                                  vlc_value_t newval, vlc_value_t oldval, void *data )
 {
-    int i;
+    VLC_UNUSED( newval ); VLC_UNUSED( oldval ); VLC_UNUSED( data );
 
     module_config_t *p_item = config_FindConfig( p_this, psz_name );
     if( !p_item ) return VLC_SUCCESS;
@@ -1162,6 +1155,8 @@ static int ReloadWaveoutDevices( vlc_object_t *p_this, char const *psz_name,
     /* Clear-up the current list */
     if( p_item->i_list )
     {
+        int i;
+
         /* Keep the first entry */
         for( i = 1; i < p_item->i_list; i++ )
         {

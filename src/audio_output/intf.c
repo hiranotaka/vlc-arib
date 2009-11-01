@@ -79,7 +79,7 @@ int __aout_VolumeGet( vlc_object_t * p_object, audio_volume_t * pi_volume )
     }
 
     aout_lock_mixer( p_aout );
-    if ( !p_aout->mixer.b_error )
+    if ( p_aout->p_mixer )
     {
         i_result = p_aout->output.pf_volume_get( p_aout, pi_volume );
     }
@@ -98,49 +98,27 @@ int __aout_VolumeGet( vlc_object_t * p_object, audio_volume_t * pi_volume )
  *****************************************************************************/
 int __aout_VolumeSet( vlc_object_t * p_object, audio_volume_t i_volume )
 {
-    aout_instance_t *p_aout = vlc_object_find( p_object, VLC_OBJECT_AOUT, FIND_ANYWHERE );
-    int i_result = 0;
-
     config_PutInt( p_object, "volume", i_volume );
     var_SetBool( p_object->p_libvlc, "volume-change", true );
 
-    if ( p_aout == NULL ) return 0;
+    var_Create( p_object->p_libvlc, "saved-volume", VLC_VAR_INTEGER );
+    var_SetInteger( p_object->p_libvlc, "saved-volume" , i_volume );
+
+    aout_instance_t *p_aout = vlc_object_find( p_object,
+                                               VLC_OBJECT_AOUT, FIND_ANYWHERE );
+    if ( p_aout == NULL )
+        return VLC_SUCCESS;
+
+    int i_result = VLC_SUCCESS;
 
     aout_lock_mixer( p_aout );
-    if ( !p_aout->mixer.b_error )
-    {
+    aout_lock_input_fifos( p_aout );
+    if ( p_aout->p_mixer )
         i_result = p_aout->output.pf_volume_set( p_aout, i_volume );
-    }
+    aout_unlock_input_fifos( p_aout );
     aout_unlock_mixer( p_aout );
 
     var_SetBool( p_aout, "intf-change", true );
-    vlc_object_release( p_aout );
-    return i_result;
-}
-
-/*****************************************************************************
- * aout_VolumeInfos : get the boundary pi_soft
- *****************************************************************************/
-int __aout_VolumeInfos( vlc_object_t * p_object, audio_volume_t * pi_soft )
-{
-    aout_instance_t * p_aout = vlc_object_find( p_object, VLC_OBJECT_AOUT,
-                                                FIND_ANYWHERE );
-    int i_result;
-
-    if ( p_aout == NULL ) return 0;
-
-    aout_lock_mixer( p_aout );
-    if ( p_aout->mixer.b_error )
-    {
-        /* The output module is destroyed. */
-        i_result = -1;
-    }
-    else
-    {
-        i_result = p_aout->output.pf_volume_infos( p_aout, pi_soft );
-    }
-    aout_unlock_mixer( p_aout );
-
     vlc_object_release( p_aout );
     return i_result;
 }
@@ -154,37 +132,19 @@ int __aout_VolumeInfos( vlc_object_t * p_object, audio_volume_t * pi_soft )
 int __aout_VolumeUp( vlc_object_t * p_object, int i_nb_steps,
                    audio_volume_t * pi_volume )
 {
-    aout_instance_t * p_aout = vlc_object_find( p_object, VLC_OBJECT_AOUT,
-                                                FIND_ANYWHERE );
-    int i_result = 0, i_volume = 0, i_volume_step = 0;
 
-    i_volume_step = config_GetInt( p_object->p_libvlc, "volume-step" );
-    i_volume = config_GetInt( p_object, "volume" );
-    i_volume += i_volume_step * i_nb_steps;
+    const int i_volume_step = config_GetInt( p_object->p_libvlc, "volume-step" );
+
+    int i_volume = config_GetInt( p_object, "volume" ) +
+                   i_volume_step * i_nb_steps;
     if ( i_volume > AOUT_VOLUME_MAX )
-    {
         i_volume = AOUT_VOLUME_MAX;
-    }
-    config_PutInt( p_object, "volume", i_volume );
-    var_Create( p_object->p_libvlc, "saved-volume", VLC_VAR_INTEGER );
-    var_SetInteger( p_object->p_libvlc, "saved-volume" ,
-                    (audio_volume_t) i_volume );
-    if ( pi_volume != NULL ) *pi_volume = (audio_volume_t) i_volume;
+    else if ( i_volume < AOUT_VOLUME_MIN )
+        i_volume = AOUT_VOLUME_MIN;
+    if ( pi_volume != NULL )
+        *pi_volume = i_volume;
 
-    var_SetBool( p_object->p_libvlc, "volume-change", true );
-
-    if ( p_aout == NULL ) return 0;
-
-    aout_lock_mixer( p_aout );
-    if ( !p_aout->mixer.b_error )
-    {
-        i_result = p_aout->output.pf_volume_set( p_aout,
-                                                (audio_volume_t) i_volume );
-    }
-    aout_unlock_mixer( p_aout );
-
-    vlc_object_release( p_aout );
-    return i_result;
+    return __aout_VolumeSet( p_object, i_volume );
 }
 
 /*****************************************************************************
@@ -196,44 +156,16 @@ int __aout_VolumeUp( vlc_object_t * p_object, int i_nb_steps,
 int __aout_VolumeDown( vlc_object_t * p_object, int i_nb_steps,
                      audio_volume_t * pi_volume )
 {
-    aout_instance_t * p_aout = vlc_object_find( p_object, VLC_OBJECT_AOUT,
-                                                FIND_ANYWHERE );
-    int i_result = 0, i_volume = 0, i_volume_step = 0;
-
-    i_volume_step = config_GetInt( p_object->p_libvlc, "volume-step" );
-    i_volume = config_GetInt( p_object, "volume" );
-    i_volume -= i_volume_step * i_nb_steps;
-    if ( i_volume < AOUT_VOLUME_MIN )
-    {
-        i_volume = AOUT_VOLUME_MIN;
-    }
-    config_PutInt( p_object, "volume", i_volume );
-    var_Create( p_object->p_libvlc, "saved-volume", VLC_VAR_INTEGER );
-    var_SetInteger( p_object->p_libvlc, "saved-volume", (audio_volume_t) i_volume );
-    if ( pi_volume != NULL ) *pi_volume = (audio_volume_t) i_volume;
-
-    var_SetBool( p_object->p_libvlc, "volume-change", true );
-
-    if ( p_aout == NULL ) return 0;
-
-    aout_lock_mixer( p_aout );
-    if ( !p_aout->mixer.b_error )
-    {
-        i_result = p_aout->output.pf_volume_set( p_aout, (audio_volume_t) i_volume );
-    }
-    aout_unlock_mixer( p_aout );
-
-    vlc_object_release( p_aout );
-    return i_result;
+    return __aout_VolumeUp( p_object, -i_nb_steps, pi_volume );
 }
 
 /*****************************************************************************
- * aout_VolumeMute : Mute/un-mute the output volume
+ * aout_ToggleMute : Mute/un-mute the output volume
  *****************************************************************************
  * If pi_volume != NULL, *pi_volume will contain the volume at the end of the
  * function (muted => 0).
  *****************************************************************************/
-int __aout_VolumeMute( vlc_object_t * p_object, audio_volume_t * pi_volume )
+int __aout_ToggleMute( vlc_object_t * p_object, audio_volume_t * pi_volume )
 {
     int i_result;
     audio_volume_t i_volume;
@@ -270,7 +202,6 @@ void aout_VolumeSoftInit( aout_instance_t * p_aout )
 {
     int i_volume;
 
-    p_aout->output.pf_volume_infos = aout_VolumeSoftInfos;
     p_aout->output.pf_volume_get = aout_VolumeSoftGet;
     p_aout->output.pf_volume_set = aout_VolumeSoftSet;
 
@@ -285,14 +216,6 @@ void aout_VolumeSoftInit( aout_instance_t * p_aout )
     }
 
     aout_VolumeSoftSet( p_aout, (audio_volume_t)i_volume );
-}
-
-/* Placeholder for pf_volume_infos(). */
-int aout_VolumeSoftInfos( aout_instance_t * p_aout, audio_volume_t * pi_soft )
-{
-    (void)p_aout;
-    *pi_soft = 0;
-    return 0;
 }
 
 /* Placeholder for pf_volume_get(). */
@@ -319,16 +242,8 @@ int aout_VolumeSoftSet( aout_instance_t * p_aout, audio_volume_t i_volume )
 /* Meant to be called by the output plug-in's Open(). */
 void aout_VolumeNoneInit( aout_instance_t * p_aout )
 {
-    p_aout->output.pf_volume_infos = aout_VolumeNoneInfos;
     p_aout->output.pf_volume_get = aout_VolumeNoneGet;
     p_aout->output.pf_volume_set = aout_VolumeNoneSet;
-}
-
-/* Placeholder for pf_volume_infos(). */
-int aout_VolumeNoneInfos( aout_instance_t * p_aout, audio_volume_t * pi_soft )
-{
-    (void)p_aout; (void)pi_soft;
-    return -1;
 }
 
 /* Placeholder for pf_volume_get(). */
@@ -440,14 +355,8 @@ int aout_FindAndRestart( vlc_object_t * p_this, const char *psz_name,
     (void)psz_name; (void)oldval; (void)newval; (void)p_data;
     if ( p_aout == NULL ) return VLC_SUCCESS;
 
-    if ( var_Type( p_aout, "audio-device" ) != 0 )
-    {
-        var_Destroy( p_aout, "audio-device" );
-    }
-    if ( var_Type( p_aout, "audio-channels" ) != 0 )
-    {
-        var_Destroy( p_aout, "audio-channels" );
-    }
+    var_Destroy( p_aout, "audio-device" );
+    var_Destroy( p_aout, "audio-channels" );
 
     aout_Restart( p_aout );
     vlc_object_release( p_aout );
@@ -469,15 +378,13 @@ int aout_ChannelsRestart( vlc_object_t * p_this, const char * psz_variable,
     {
         /* This is supposed to be a significant change and supposes
          * rebuilding the channel choices. */
-        if ( var_Type( p_aout, "audio-channels" ) >= 0 )
-        {
-            var_Destroy( p_aout, "audio-channels" );
-        }
+        var_Destroy( p_aout, "audio-channels" );
     }
     aout_Restart( p_aout );
     return 0;
 }
 
+#undef aout_EnableFilter
 /** Enable or disable an audio filter
  * \param p_this a vlc object
  * \param psz_name name of the filter
@@ -497,16 +404,4 @@ void aout_EnableFilter( vlc_object_t *p_this, const char *psz_name,
 
     if( p_aout )
         vlc_object_release( p_aout );
-}
-
-/**
- * Change audio visualization
- * -1 goes backwards, +1 goes forward
- */
-char *aout_VisualChange( vlc_object_t *p_this, int i_skip )
-{
-    (void)p_this; (void)i_skip;
-    msg_Err( p_this, "FIXME: %s (%s %d) isn't implemented.", __func__,
-             __FILE__, __LINE__ );
-    return strdup("foobar");
 }

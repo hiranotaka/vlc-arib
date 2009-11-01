@@ -38,11 +38,13 @@
 #include <vlc_demux.h>
 #include <vlc_access.h>
 #include <vlc_picture.h>
+#include <vlc_charset.h>
 
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <errno.h>
 
 /* From GStreamer's v4l plugin:
  * Because of some really cool feature in video4linux1, also known as
@@ -422,7 +424,6 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         /* Special for access_demux */
         case DEMUX_CAN_PAUSE:
         case DEMUX_CAN_SEEK:
-        case DEMUX_SET_PAUSE_STATE:
         case DEMUX_CAN_CONTROL_PACE:
             pb = (bool*)va_arg( args, bool * );
             *pb = false;
@@ -631,8 +632,8 @@ static void ParseMRL( demux_t *p_demux )
             }
             else if( !strncmp( psz_parser, "fps=", strlen( "fps=" ) ) )
             {
-                p_sys->f_fps = strtof( psz_parser + strlen( "fps=" ),
-                                       &psz_parser );
+                p_sys->f_fps = us_strtof( psz_parser + strlen( "fps=" ),
+                                          &psz_parser );
             }
             else if( !strncmp( psz_parser, "adev=", strlen( "adev=" ) )
              || !strncmp( psz_parser, "samplerate=", strlen( "samplerate=" ) )
@@ -681,7 +682,7 @@ static int OpenVideoDev( demux_t *p_demux, char *psz_device )
     struct mjpeg_params mjpeg;
     int i;
 
-    if( ( i_fd = open( psz_device, O_RDWR ) ) < 0 )
+    if( ( i_fd = utf8_open( psz_device, O_RDWR ) ) < 0 )
     {
         msg_Err( p_demux, "cannot open device (%m)" );
         goto vdev_failed;
@@ -836,7 +837,7 @@ static int OpenVideoDev( demux_t *p_demux, char *psz_device )
      * or height */
     if( p_sys->b_mjpeg )
     {
-        struct quicktime_mjpeg_app1 *p_app1;
+        struct quicktime_mjpeg_app1 p_app1;
         int32_t i_offset;
 
         if( ioctl( i_fd, MJPIOC_G_PARAMS, &mjpeg ) < 0 )
@@ -858,12 +859,11 @@ static int OpenVideoDev( demux_t *p_demux, char *psz_device )
         mjpeg.APP_len = 40;
 
         /* aligned */
-        p_app1 = (struct quicktime_mjpeg_app1 *)mjpeg.APP_data;
-        p_app1->i_reserved = 0;
-        p_app1->i_tag = VLC_FOURCC( 'm','j','p','g' );
-        p_app1->i_field_size = 0;
-        p_app1->i_padded_field_size = 0;
-        p_app1->i_next_field = 0;
+        p_app1.i_reserved = 0;
+        p_app1.i_tag = VLC_FOURCC( 'm','j','p','g' );
+        p_app1.i_field_size = 0;
+        p_app1.i_padded_field_size = 0;
+        p_app1.i_next_field = 0;
         /* XXX WARNING XXX */
         /* these's nothing magic about these values.  We are dangerously
          * assuming the encoder card is encoding mjpeg-a and is not throwing
@@ -875,15 +875,16 @@ static int OpenVideoDev( demux_t *p_demux, char *psz_device )
          * does conform to standards outside of Apple Quicktime.
          */
         i_offset = 0x2e;
-        p_app1->i_DQT_offset = hton32( i_offset );
+        p_app1.i_DQT_offset = hton32( i_offset );
         i_offset = 0xb4;
-        p_app1->i_DHT_offset = hton32( i_offset );
+        p_app1.i_DHT_offset = hton32( i_offset );
         i_offset = 0x258;
-        p_app1->i_SOF_offset = hton32( i_offset );
+        p_app1.i_SOF_offset = hton32( i_offset );
         i_offset = 0x26b;
-        p_app1->i_SOS_offset = hton32( i_offset );
+        p_app1.i_SOS_offset = hton32( i_offset );
         i_offset = 0x279;
-        p_app1->i_data_offset = hton32( i_offset );
+        p_app1.i_data_offset = hton32( i_offset );
+        memcpy(mjpeg.APP_data, &p_app1, sizeof(struct quicktime_mjpeg_app1));
 
         /* SOF and SOS aren't specified by the mjpeg API because they aren't
          * optional.  They will be present in the output. */

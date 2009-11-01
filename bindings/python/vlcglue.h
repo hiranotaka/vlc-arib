@@ -4,7 +4,7 @@
  * Copyright (C) 1998-2004 the VideoLAN team
  * $Id$
  *
- * Authors: Olivier Aubert <oaubert at bat710.univ-lyon1.fr>
+ * Authors: Olivier Aubert <olivier.aubert at liris.cnrs.fr>
  *          Clément Stenac <zorglub@videolan.org>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -143,7 +143,7 @@ staticforward PyTypeObject vlcMedia_Type;
 
 #define LIBVLC_EXCEPT if( libvlc_exception_raised( &ex ) ) { \
     PyObject *py_exc = vlc_Exception; \
-    PyErr_SetString( py_exc, libvlc_exception_get_message( &ex ) ); \
+    PyErr_SetString( py_exc, libvlc_errmsg() );	\
     return NULL; \
   }
 

@@ -36,12 +36,16 @@
 #include <windows.h>
 
 #if !defined(UNDER_CE)
-#   define  _WIN32_IE 0x500
+# ifndef _WIN32_IE
+#   define  _WIN32_IE 0x501
+# endif
 #   include <shlobj.h>
 #   include <tlhelp32.h>
 #   include <wininet.h>
-static void check_crashdump();
+# ifndef _WIN64
+static void check_crashdump(void);
 LONG WINAPI vlc_exception_filter(struct _EXCEPTION_POINTERS *lpExceptionInfo);
+# endif
 #endif
 
 #ifndef UNDER_CE
@@ -120,10 +124,35 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return 1;
 
     char *argv[argc + 1];
-    for (int i = 0; i < argc; i++)
-        argv[i] = FromWide (wargv[i]);
+    BOOL crash_handling = TRUE;
+    int j = 0;
+
+    argv[j++] = FromWide( L"--no-ignore-config" );
+    for (int i = 1; i < argc; i++)
+    {
+        if(!wcscmp(wargv[i], L"--no-crashdump"))
+        {
+            crash_handling = FALSE;
+        }
+        else
+        {
+            argv[j] = FromWide (wargv[i]);
+            j++;
+        }
+    }
+
+    argc = j;
     argv[argc] = NULL;
     LocalFree (wargv);
+
+# ifndef _WIN64
+    if(crash_handling)
+    {
+        check_crashdump();
+        SetUnhandledExceptionFilter(vlc_exception_filter);
+    }
+# endif /* WIN64 */
+
 #else
     char **argv, psz_cmdline[wcslen(lpCmdLine) * 4];
 
@@ -137,14 +166,9 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     libvlc_exception_init (&ex);
     libvlc_exception_init (&dummy);
 
-#if !defined( UNDER_CE )
-    check_crashdump();
-    SetUnhandledExceptionFilter(vlc_exception_filter);
-#endif
-
     /* Initialize libvlc */
     libvlc_instance_t *vlc;
-    vlc = libvlc_new (argc - 1, (const char **)argv + 1, &ex);
+    vlc = libvlc_new (argc, (const char **)argv, &ex);
     if (vlc != NULL)
     {
         libvlc_add_intf (vlc, "globalhotkeys,none", &ex);
@@ -165,7 +189,7 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     return ret;
 }
 
-#if !defined( UNDER_CE )
+#if !defined( UNDER_CE ) && !defined( _WIN64 )
 
 static void get_crashdump_path(wchar_t * wdir)
 {

@@ -31,11 +31,11 @@
 
 #include <vlc_common.h>
 #include <vlc_access.h>
-#include "vlc_strings.h"
-#include "vlc_input.h"
+#include <vlc_strings.h>
+#include <vlc_input.h>
 
 #include <vlc_network.h>
-#include "vlc_url.h"
+#include <vlc_url.h>
 #include "asf.h"
 #include "buffer.h"
 
@@ -147,36 +147,26 @@ int MMSHOpen( access_t *p_access )
         ( *p_sys->url.psz_host == '\0' ) )
     {
         msg_Err( p_access, "invalid host" );
-        vlc_UrlClean( &p_sys->proxy );
-        vlc_UrlClean( &p_sys->url );
-        free( p_sys );
-        return VLC_EGENERIC;
+        goto error;
     }
     if( p_sys->url.i_port <= 0 )
         p_sys->url.i_port = 80;
 
     if( Describe( p_access, &psz_location ) )
-    {
-        vlc_UrlClean( &p_sys->proxy );
-        vlc_UrlClean( &p_sys->url );
-        free( p_sys );
-        return VLC_EGENERIC;
-    }
+        goto error;
+
     /* Handle redirection */
     if( psz_location && *psz_location )
     {
         msg_Dbg( p_access, "redirection to %s", psz_location );
 
-        input_thread_t * p_input = vlc_object_find( p_access, VLC_OBJECT_INPUT, FIND_PARENT );
+        input_thread_t * p_input = access_GetParentInput( p_access );
         input_item_t * p_new_loc;
 
         if( !p_input )
         {
-            vlc_UrlClean( &p_sys->proxy );
-            vlc_UrlClean( &p_sys->url );
-            free( p_sys );
             free( psz_location );
-            return VLC_EGENERIC;
+            goto error;
         }
         /** \bug we do not autodelete here */
         p_new_loc = input_item_New( p_access, psz_location, psz_location );
@@ -197,10 +187,7 @@ int MMSHOpen( access_t *p_access )
     {
         msg_Err( p_access, "cannot start stream" );
         free( p_sys->p_header );
-        vlc_UrlClean( &p_sys->proxy );
-        vlc_UrlClean( &p_sys->url );
-        free( p_sys );
-        return VLC_EGENERIC;
+        goto error;
     }
 
     if( !p_sys->b_broadcast )
@@ -209,6 +196,12 @@ int MMSHOpen( access_t *p_access )
     }
 
     return VLC_SUCCESS;
+
+error:
+    vlc_UrlClean( &p_sys->proxy );
+    vlc_UrlClean( &p_sys->url );
+    free( p_sys );
+    return VLC_EGENERIC;
 }
 
 /*****************************************************************************
@@ -220,7 +213,7 @@ void  MMSHClose ( access_t *p_access )
 
     Stop( p_access );
 
-    free( p_sys->p_header  );
+    free( p_sys->p_header );
 
     vlc_UrlClean( &p_sys->proxy );
     vlc_UrlClean( &p_sys->url );
@@ -435,6 +428,8 @@ static int Restart( access_t *p_access )
         msg_Err( p_access, "describe failed" );
         return VLC_EGENERIC;
     }
+    free( psz_location );
+
     /* */
     if( Start( p_access, 0 ) )
     {
@@ -588,7 +583,7 @@ static int Describe( access_t  *p_access, char **ppsz_location )
     }
 
     /* Receive the http header */
-    if( ( psz = net_Gets( VLC_OBJECT(p_access), p_sys->fd, NULL ) ) == NULL )
+    if( ( psz = net_Gets( p_access, p_sys->fd, NULL ) ) == NULL )
     {
         msg_Err( p_access, "failed to read answer" );
         goto error;
@@ -679,6 +674,7 @@ static int Describe( access_t  *p_access, char **ppsz_location )
         *ppsz_location = psz_location;
         return VLC_SUCCESS;
     }
+    free( psz_location );
 
     /* Read the asf header */
     GetHeader( p_access );
@@ -825,7 +821,7 @@ static int Start( access_t *p_access, int64_t i_pos )
         return VLC_EGENERIC;
     }
 
-    psz = net_Gets( VLC_OBJECT(p_access), p_sys->fd, NULL );
+    psz = net_Gets( p_access, p_sys->fd, NULL );
     if( psz == NULL )
     {
         msg_Err( p_access, "cannot read data 0" );

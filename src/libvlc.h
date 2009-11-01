@@ -27,8 +27,6 @@
 
 typedef struct variable_t variable_t;
 
-extern const char vlc_usage[];
-
 /* Actions (hot keys) */
 typedef struct action
 {
@@ -53,16 +51,19 @@ void system_End       ( libvlc_int_t * );
 #define vlc_object_signal_unlocked( obj )
 
 vlc_list_t *vlc_list_find( vlc_object_t *, int, int );
-#define VLC_OBJECT_INTF        (-4)
-#define VLC_OBJECT_PACKETIZER  (-13)
 
 /*
  * Threads subsystem
  */
 
+/* This cannot be used as is from plugins: */
+void vlc_detach (vlc_thread_t);
+
 /* Hopefully, no need to export this. There is a new thread API instead. */
 void vlc_thread_cancel (vlc_object_t *);
 int vlc_object_waitpipe (vlc_object_t *obj);
+
+void vlc_threads_setup (libvlc_int_t *);
 
 void vlc_trace (const char *fn, const char *file, unsigned line);
 #define vlc_backtrace() vlc_trace(__func__, __FILE__, __LINE__)
@@ -89,8 +90,7 @@ uint32_t CPUCapabilities( void );
 typedef struct msg_bank_t
 {
     /** Message queue lock */
-    vlc_mutex_t lock;
-    vlc_cond_t  wait;
+    vlc_rwlock_t lock;
 
     /* Subscribers */
     int i_sub;
@@ -140,6 +140,12 @@ __vlc_custom_create (vlc_object_t *p_this, size_t i_size, int i_type,
 #define vlc_custom_create(o, s, t, n) \
         __vlc_custom_create(VLC_OBJECT(o), s, t, n)
 
+/**
+ * Assign a name to an object for vlc_object_find_name().
+ */
+extern int vlc_object_set_name(vlc_object_t *, const char *);
+#define vlc_object_set_name(o, n) vlc_object_set_name(VLC_OBJECT(o), n)
+
 /*
  * To be cleaned-up module stuff:
  */
@@ -158,6 +164,7 @@ module_t *module_find_by_shortcut (const char *psz_shortcut);
 typedef struct vlc_object_internals_t
 {
     int             i_object_type; /* Object type, deprecated */
+    char           *psz_name; /* given name */
 
     /* Object variables */
     variable_t *    p_vars;
@@ -178,7 +185,6 @@ typedef struct vlc_object_internals_t
     vlc_destructor_t pf_destructor;
 
     /* Objects tree structure */
-    vlc_object_t    *prev, *next;
     vlc_object_t   **pp_children;
     int              i_children;
 } vlc_object_internals_t;
@@ -225,6 +231,11 @@ typedef struct libvlc_priv_t
 #ifdef ENABLE_SOUT
     sap_handler_t     *p_sap; ///< SAP SDP advertiser
 #endif
+
+    /* Interfaces */
+    struct intf_thread_t *p_intf; ///< Interfaces linked-list
+
+    /* Objects tree */
     vlc_mutex_t        structure_lock;
 } libvlc_priv_t;
 
@@ -234,6 +245,7 @@ static inline libvlc_priv_t *libvlc_priv (libvlc_int_t *libvlc)
 }
 
 void playlist_ServicesDiscoveryKillAll( playlist_t *p_playlist );
+void intf_DestroyAll( libvlc_int_t * );
 
 #define libvlc_stats( o ) (libvlc_priv((VLC_OBJECT(o))->p_libvlc)->b_stats)
 

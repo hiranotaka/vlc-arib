@@ -33,6 +33,7 @@
 
 #include "libvlc.h"
 #include <assert.h>
+#include <errno.h>
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #endif
@@ -40,7 +41,6 @@
 #if defined( LIBVLC_USE_PTHREAD )
 # include <sched.h>
 #endif
-
 
 struct vlc_thread_boot
 {
@@ -83,17 +83,6 @@ int vlc_thread_create( vlc_object_t *p_this, const char * psz_file, int i_line,
 
     /* Make sure we don't re-create a thread if the object has already one */
     assert( !p_priv->b_thread );
-
-#if defined( LIBVLC_USE_PTHREAD )
-#ifndef __APPLE__
-    if( config_GetInt( p_this, "rt-priority" ) > 0 )
-#endif
-    {
-        /* Hack to avoid error msg */
-        if( config_GetType( p_this, "rt-offset" ) )
-            i_priority += config_GetInt( p_this, "rt-offset" );
-    }
-#endif
 
     p_priv->b_thread = true;
     i_ret = vlc_clone( &p_priv->thread_id, thread_entry, boot, i_priority );
@@ -160,7 +149,11 @@ int __vlc_thread_set_priority( vlc_object_t *p_this, const char * psz_file,
 #elif defined( WIN32 ) || defined( UNDER_CE )
     VLC_UNUSED( psz_file); VLC_UNUSED( i_line );
 
+#ifndef UNDER_CE
+    if( !SetThreadPriority(p_priv->thread_id, i_priority) )
+#else
     if( !SetThreadPriority(p_priv->thread_id->handle, i_priority) )
+#endif
     {
         msg_Warn( p_this, "couldn't set a faster priority" );
         return 1;
@@ -178,17 +171,13 @@ void __vlc_thread_join( vlc_object_t *p_this )
 {
     vlc_object_internals_t *p_priv = vlc_internals( p_this );
 
-#if defined( LIBVLC_USE_PTHREAD )
-    vlc_join (p_priv->thread_id, NULL);
-
-#elif defined( UNDER_CE ) || defined( WIN32 )
+#if defined( WIN32 ) && !defined( UNDER_CE )
     HANDLE hThread;
     FILETIME create_ft, exit_ft, kernel_ft, user_ft;
     int64_t real_time, kernel_time, user_time;
 
-#ifndef UNDER_CE
     if( ! DuplicateHandle(GetCurrentProcess(),
-            p_priv->thread_id->handle,
+            p_priv->thread_id,
             GetCurrentProcess(),
             &hThread,
             0,
@@ -198,12 +187,13 @@ void __vlc_thread_join( vlc_object_t *p_this )
         p_priv->b_thread = false;
         return; /* We have a problem! */
     }
-#else
-    hThread = p_priv->thread_id->handle;
 #endif
 
     vlc_join( p_priv->thread_id, NULL );
 
+#if defined( WIN32 ) && !defined( UNDER_CE )
+    /* FIXME: this could work on WinCE too... except that it seems always to
+     * return 0 for exit_ft and kernel_ft */
     if( GetThreadTimes( hThread, &create_ft, &exit_ft, &kernel_ft, &user_ft ) )
     {
         real_time =
@@ -229,10 +219,6 @@ void __vlc_thread_join( vlc_object_t *p_this )
                  (double)((user_time%(60*1000000))/1000000.0) );
     }
     CloseHandle( hThread );
-
-#else
-    vlc_join( p_priv->thread_id, NULL );
-
 #endif
 
     p_priv->b_thread = false;

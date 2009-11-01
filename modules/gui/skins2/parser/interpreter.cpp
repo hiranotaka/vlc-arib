@@ -109,6 +109,8 @@ Interpreter::Interpreter( intf_thread_t *pIntf ): SkinObject( pIntf )
     REGISTER_CMD( "vlc.minimize()", CmdMinimize )
     REGISTER_CMD( "vlc.onTop()", CmdOnTop )
     REGISTER_CMD( "vlc.snapshot()", CmdSnapshot )
+    REGISTER_CMD( "vlc.toggleRecord()", CmdToggleRecord )
+    REGISTER_CMD( "vlc.nextFrame()", CmdNextFrame )
     REGISTER_CMD( "vlc.quit()", CmdQuit )
     m_commandMap["equalizer.enable()"] =
         CmdGenericPtr( new CmdSetEqualizer( getIntf(), true ) );
@@ -141,11 +143,8 @@ Interpreter *Interpreter::instance( intf_thread_t *pIntf )
 
 void Interpreter::destroy( intf_thread_t *pIntf )
 {
-    if( pIntf->p_sys->p_interpreter )
-    {
-        delete pIntf->p_sys->p_interpreter;
-        pIntf->p_sys->p_interpreter = NULL;
-    }
+    delete pIntf->p_sys->p_interpreter;
+    pIntf->p_sys->p_interpreter = NULL;
 }
 
 

@@ -38,6 +38,8 @@
 #include <vlc_filter.h>
 #include <vlc_image.h>
 #include <vlc_block.h>
+#include <vlc_picture_fifo.h>
+#include <vlc_picture_pool.h>
 
 #include "vout_pictures.h"
 #include "vout_internal.h"
@@ -63,6 +65,7 @@ void vout_DisplayPicture( vout_thread_t *p_vout, picture_t *p_pic )
                          p_pic, p_pic->i_status );
     }
     p_vout->p->i_picture_qtype = p_pic->i_qtype;
+    p_vout->p->b_picture_interlaced = !p_pic->b_progressive;
 
     vlc_mutex_unlock( &p_vout->picture_lock );
 }
@@ -333,7 +336,7 @@ static void vout_UnlockPicture( vout_thread_t *p_vout, picture_t *p_picture )
  * thread which direct buffer needs to be displayed.
  */
 picture_t *vout_RenderPicture( vout_thread_t *p_vout, picture_t *p_pic,
-                               subpicture_t *p_subpic, bool b_paused )
+                               subpicture_t *p_subpic, mtime_t render_date )
 {
     if( p_pic == NULL )
         return NULL;
@@ -354,7 +357,7 @@ picture_t *vout_RenderPicture( vout_thread_t *p_vout, picture_t *p_pic,
 
             spu_RenderSubpictures( p_vout->p_spu,
                                    PP_OUTPUTPICTURE[0], &p_vout->fmt_out,
-                                   p_subpic, &p_vout->fmt_in, b_paused );
+                                   p_subpic, &p_vout->fmt_in, render_date );
 
             vout_UnlockPicture( p_vout, PP_OUTPUTPICTURE[0] );
 
@@ -381,7 +384,7 @@ picture_t *vout_RenderPicture( vout_thread_t *p_vout, picture_t *p_pic,
         picture_Copy( PP_OUTPUTPICTURE[0], p_pic );
         spu_RenderSubpictures( p_vout->p_spu,
                                PP_OUTPUTPICTURE[0], &p_vout->fmt_out,
-                               p_subpic, &p_vout->fmt_in, b_paused );
+                               p_subpic, &p_vout->fmt_in, render_date );
 
         vout_UnlockPicture( p_vout, PP_OUTPUTPICTURE[0] );
 
@@ -417,7 +420,7 @@ picture_t *vout_RenderPicture( vout_thread_t *p_vout, picture_t *p_pic,
         /* Render subpictures on the first direct buffer */
         spu_RenderSubpictures( p_vout->p_spu,
                                p_tmp_pic, &p_vout->fmt_out,
-                               p_subpic, &p_vout->fmt_in, b_paused );
+                               p_subpic, &p_vout->fmt_in, render_date );
 
         if( vout_LockPicture( p_vout, &p_vout->p_picture[0] ) )
             return NULL;
@@ -436,7 +439,7 @@ picture_t *vout_RenderPicture( vout_thread_t *p_vout, picture_t *p_pic,
         /* Render subpictures on the first direct buffer */
         spu_RenderSubpictures( p_vout->p_spu,
                                &p_vout->p_picture[0], &p_vout->fmt_out,
-                               p_subpic, &p_vout->fmt_in, b_paused );
+                               p_subpic, &p_vout->fmt_in, render_date );
     }
 
     vout_UnlockPicture( p_vout, &p_vout->p_picture[0] );
@@ -552,7 +555,8 @@ int __vout_AllocatePicture( vlc_object_t *p_this, picture_t *p_pic,
                             vlc_fourcc_t i_chroma,
                             int i_width, int i_height, int i_aspect )
 {
-    int i_bytes, i_index, i_width_aligned, i_height_aligned;
+    VLC_UNUSED(p_this);
+    int i_index, i_width_aligned, i_height_aligned;
 
     /* Make sure the real dimensions are a multiple of 16 */
     i_width_aligned = (i_width + 15) >> 4 << 4;
@@ -566,8 +570,31 @@ int __vout_AllocatePicture( vlc_object_t *p_this, picture_t *p_pic,
     }
 
     /* Calculate how big the new image should be */
-    i_bytes = p_pic->format.i_bits_per_pixel *
-        i_width_aligned * i_height_aligned / 8;
+
+    /*
+     * bytes = width_aligned * height_aligned * bpp / 8
+     * We need to check for an integer overflow at each multiplication since
+     * height & width (and bpp?) could be arbitrary large
+     */
+
+    size_t i_bytes = 0;
+    /* i_width_aligned is a multiple of 16, so we can divide by 8 now */
+    size_t i_width_aligned_divided = i_width_aligned / 8;
+    if( i_width_aligned_divided <= (SIZE_MAX/i_height_aligned) )
+    {
+        size_t i_pixels_divided = i_width_aligned_divided * i_height_aligned;
+        size_t i_bpp = p_pic->format.i_bits_per_pixel;
+        if( i_pixels_divided <= (SIZE_MAX/i_bpp) )
+        {
+            i_bytes = i_pixels_divided * i_bpp;
+        }
+    }
+
+    if( i_bytes == 0 )
+    {
+        p_pic->i_planes = 0;
+        return VLC_ENOMEM;
+    }
 
     p_pic->p_data = vlc_memalign( &p_pic->p_data_orig, 16, i_bytes );
 
@@ -647,6 +674,20 @@ static void PictureReleaseCallback( picture_t *p_picture )
     if( --p_picture->i_refcount > 0 )
         return;
     picture_Delete( p_picture );
+}
+
+/*****************************************************************************
+ *
+ *****************************************************************************/
+void picture_Reset( picture_t *p_picture )
+{
+    /* */
+    p_picture->date = VLC_TS_INVALID;
+    p_picture->b_force = false;
+    p_picture->b_progressive = false;
+    p_picture->i_nb_fields = 0;
+    p_picture->b_top_field_first = false;
+    picture_CleanupQuant( p_picture );
 }
 
 /*****************************************************************************
@@ -808,7 +849,7 @@ int picture_Setup( picture_t *p_picture, vlc_fourcc_t i_chroma, int i_width, int
         p_picture->p->i_visible_lines = i_height;
         p_picture->p->i_pitch = i_width_aligned;
         p_picture->p->i_visible_pitch = i_width;
-        p_picture->p->i_pixel_pitch = 8;
+        p_picture->p->i_pixel_pitch = 1;
         p_picture->i_planes = 1;
         break;
 
@@ -829,7 +870,7 @@ int picture_Setup( picture_t *p_picture, vlc_fourcc_t i_chroma, int i_width, int
         p_picture->p->i_visible_lines = i_height;
         p_picture->p->i_pitch = i_width_aligned * 2;
         p_picture->p->i_visible_pitch = i_width * 2;
-        p_picture->p->i_pixel_pitch = 4;
+        p_picture->p->i_pixel_pitch = 2;
         p_picture->i_planes = 1;
         break;
 
@@ -900,24 +941,64 @@ int picture_Setup( picture_t *p_picture, vlc_fourcc_t i_chroma, int i_width, int
 /*****************************************************************************
  *
  *****************************************************************************/
-picture_t *picture_New( vlc_fourcc_t i_chroma, int i_width, int i_height, int i_aspect )
+picture_t *picture_NewFromResource( const video_format_t *p_fmt, const picture_resource_t *p_resource )
 {
+    video_format_t fmt = *p_fmt;
+
+    /* It is needed to be sure all informations are filled */
+    video_format_Setup( &fmt, p_fmt->i_chroma,
+                              p_fmt->i_width, p_fmt->i_height, p_fmt->i_aspect );
+
+    /* */
     picture_t *p_picture = calloc( 1, sizeof(*p_picture) );
     if( !p_picture )
         return NULL;
 
-    if( __vout_AllocatePicture( NULL, p_picture,
-                                i_chroma, i_width, i_height, i_aspect ) )
+    if( p_resource )
     {
-        free( p_picture );
-        return NULL;
-    }
+        if( picture_Setup( p_picture, fmt.i_chroma, fmt.i_width, fmt.i_height, fmt.i_aspect ) )
+        {
+            free( p_picture );
+            return NULL;
+        }
+        p_picture->p_sys = p_resource->p_sys;
 
+        for( int i = 0; i < p_picture->i_planes; i++ )
+        {
+            p_picture->p[i].p_pixels = p_resource->p[i].p_pixels;
+            p_picture->p[i].i_lines  = p_resource->p[i].i_lines;
+            p_picture->p[i].i_pitch  = p_resource->p[i].i_pitch;
+        }
+    }
+    else
+    {
+        if( __vout_AllocatePicture( NULL, p_picture,
+                                    fmt.i_chroma, fmt.i_width, fmt.i_height, fmt.i_aspect ) )
+        {
+            free( p_picture );
+            return NULL;
+        }
+    }
+    /* */
+    p_picture->format = fmt;
     p_picture->i_refcount = 1;
     p_picture->pf_release = PictureReleaseCallback;
     p_picture->i_status = RESERVED_PICTURE;
 
     return p_picture;
+}
+picture_t *picture_NewFromFormat( const video_format_t *p_fmt )
+{
+    return picture_NewFromResource( p_fmt, NULL );
+}
+picture_t *picture_New( vlc_fourcc_t i_chroma, int i_width, int i_height, int i_aspect )
+{
+    video_format_t fmt;
+
+    memset( &fmt, 0, sizeof(fmt) );
+    video_format_Setup( &fmt, i_chroma, i_width, i_height, i_aspect );
+
+    return picture_NewFromFormat( &fmt );
 }
 
 /*****************************************************************************
@@ -1001,30 +1082,37 @@ int picture_Export( vlc_object_t *p_obj,
     fmt_out.i_sar_num =
     fmt_out.i_sar_den = 1;
     fmt_out.i_chroma  = i_format;
-    fmt_out.i_width   = i_override_width;
-    fmt_out.i_height  = i_override_height;
 
-    if( fmt_out.i_height == 0 && fmt_out.i_width > 0 )
+    /* compute original width/height */
+    unsigned int i_original_width;
+    unsigned int i_original_height;
+    if( fmt_in.i_sar_num >= fmt_in.i_sar_den )
     {
-        fmt_out.i_height = fmt_in.i_height * fmt_out.i_width / fmt_in.i_width;
-        const int i_height = fmt_out.i_height * fmt_in.i_sar_den / fmt_in.i_sar_num;
-        if( i_height > 0 )
-            fmt_out.i_height = i_height;
+        i_original_width = fmt_in.i_width * fmt_in.i_sar_num / fmt_in.i_sar_den;
+        i_original_height = fmt_in.i_height;
     }
     else
     {
-        if( fmt_out.i_width == 0 && fmt_out.i_height > 0 )
-        {
-            fmt_out.i_width = fmt_in.i_width * fmt_out.i_height / fmt_in.i_height;
-        }
-        else
-        {
-            fmt_out.i_width = fmt_in.i_width;
-            fmt_out.i_height = fmt_in.i_height;
-        }
-        const int i_width = fmt_out.i_width * fmt_in.i_sar_num / fmt_in.i_sar_den;
-        if( i_width > 0 )
-            fmt_out.i_width = i_width;
+        i_original_width =  fmt_in.i_width;
+        i_original_height = fmt_in.i_height * fmt_in.i_sar_den / fmt_in.i_sar_num;
+    }
+
+    /* */
+    fmt_out.i_width  = ( i_override_width < 0 ) ?
+                       i_original_width : i_override_width;
+    fmt_out.i_height = ( i_override_height < 0 ) ?
+                       i_original_height : i_override_height;
+
+    /* scale if only one direction is provided */
+    if( fmt_out.i_height == 0 && fmt_out.i_width > 0 )
+    {
+        fmt_out.i_height = fmt_in.i_height * fmt_out.i_width
+                     * fmt_in.i_sar_den / fmt_in.i_width / fmt_in.i_sar_num;
+    }
+    else if( fmt_out.i_width == 0 && fmt_out.i_height > 0 )
+    {
+        fmt_out.i_width  = fmt_in.i_width * fmt_out.i_height
+                     * fmt_in.i_sar_num / fmt_in.i_height / fmt_in.i_sar_den;
     }
 
     image_handler_t *p_image = image_HandlerCreate( p_obj );
@@ -1046,6 +1134,3 @@ int picture_Export( vlc_object_t *p_obj,
     return VLC_SUCCESS;
 }
 
-/*****************************************************************************
- *
- *****************************************************************************/

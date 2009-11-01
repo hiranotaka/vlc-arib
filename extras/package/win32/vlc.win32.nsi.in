@@ -20,6 +20,9 @@
 !define MUI_LANGDLL_REGISTRY_KEY "${PRODUCT_DIR_REGKEY}"
 !define MUI_LANGDLL_REGISTRY_VALUENAME "Language"
 
+@BUILD_ACTIVEX_TRUE@ !define INSTALL_ACTIVEX
+@BUILD_MOZILLA_TRUE@ !define INSTALL_MOZILLA
+
 @FILE_LIBVLCCORE_DLL@
 @FILE_LIBVLC_DLL@
 
@@ -37,8 +40,6 @@ SetCompressor lzma
 SetCompressor /SOLID lzma
 !endif
 
-;ShowInstDetails show
-;ShowUnInstDetails show
 SetOverwrite ifnewer
 CRCCheck on
 BrandingText "${PRODUCT_GROUP} ${PRODUCT_NAME}"
@@ -65,6 +66,7 @@ InstType $Name_InstTypeFull
     !define MUI_WELCOMEPAGE_TITLE_3LINES
     !insertmacro MUI_PAGE_WELCOME
   ; License page
+    !define MUI_LICENSEPAGE_BUTTON $(^NextBtn)
     !insertmacro MUI_PAGE_LICENSE "COPYING.txt"
   ; Components page
     !insertmacro MUI_PAGE_COMPONENTS
@@ -140,16 +142,16 @@ NoBackup:
   WriteRegStr HKCR "$R0" "" "VLC$R0"
   ReadRegStr $0 HKCR "VLC$R0" ""
   WriteRegStr HKCR "VLC$R0" "" "VLC media file ($R0)"
-  WriteRegStr HKCR "VLC$R0\shell" "" "Play"
-  WriteRegStr HKCR "VLC$R0\shell\Play" "" $ShellAssociation_Play
-  WriteRegStr HKCR "VLC$R0\shell\Play\command" "" '"$INSTDIR\vlc.exe" --started-from-file "%1"'
+  WriteRegStr HKCR "VLC$R0\shell" "" "Open"
+  WriteRegStr HKCR "VLC$R0\shell\Open" "" $ShellAssociation_Play
+  WriteRegStr HKCR "VLC$R0\shell\Open\command" "" '"$INSTDIR\vlc.exe" --started-from-file "%1"'
   WriteRegStr HKCR "VLC$R0\DefaultIcon" "" '"$INSTDIR\vlc.exe",0'
 
 ;;; Vista Only part
-  ; Vista detection
+  ; Vista and above detection
   ReadRegStr $R1 HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion" CurrentVersion
-  StrCpy $R2 $R1 3
-  StrCmp $R2 '6.0' ForVista ToEnd
+  StrCpy $R2 $R1 1
+  StrCmp $R2 '6' ForVista ToEnd
 ForVista:
   WriteRegStr HKLM "Software\Clients\Media\VLC\Capabilities\FileAssociations" "$R0" "VLC$R0"
 
@@ -204,6 +206,7 @@ FunctionEnd
   !insertmacro ${_action} ".a52"
   !insertmacro ${_action} ".aac"
   !insertmacro ${_action} ".ac3"
+  !insertmacro ${_action} ".aob"
   !insertmacro ${_action} ".dts"
   !insertmacro ${_action} ".flac"
   !insertmacro ${_action} ".m4a"
@@ -258,8 +261,10 @@ FunctionEnd
   !insertmacro ${_action} ".asx"
   !insertmacro ${_action} ".bin"
   !insertmacro ${_action} ".cue"
+  !insertmacro ${_action} ".ifo"
   !insertmacro ${_action} ".m3u"
   !insertmacro ${_action} ".pls"
+  !insertmacro ${_action} ".sdp"
   !insertmacro ${_action} ".vlc"
   !insertmacro ${_action} ".xspf"
 !macroend
@@ -396,7 +401,7 @@ FunctionEnd
 ; The CORE of the    ;
 ; installer          ;
 ;;;;;;;;;;;;;;;;;;;;;;
-  
+
 Section $Name_Section01 SEC01
   SectionIn 1 2 3 RO
   SetShellVarContext all
@@ -417,10 +422,11 @@ Section $Name_Section01 SEC01
   ; Subfolders
   !insertmacro InstallFolder plugins
   !insertmacro InstallFolder locale
-  !insertmacro InstallFolder osdmenu
-  !insertmacro InstallFolder skins
-  !insertmacro InstallFolder http
-  !insertmacro InstallFolder lua
+@BUILD_OSDMENU_TRUE@ !insertmacro InstallFolder osdmenu
+@BUILD_SKINS_TRUE@   !insertmacro InstallFolder skins
+@BUILD_HTTPD_TRUE@   !insertmacro InstallFolder http
+@BUILD_LUA_TRUE@     !insertmacro InstallFolder lua
+
 
   ; URLs
   WriteIniStr "$INSTDIR\${PRODUCT_GROUP} Website.url" "InternetShortcut" "URL" \
@@ -438,16 +444,16 @@ Section $Name_Section01 SEC01
   ; Add VLC to "recomended programs" for the following extensions
   WriteRegStr HKCR Applications\vlc.exe "" ""
   WriteRegStr HKCR Applications\vlc.exe "FriendlyAppName" "VLC media player"
-  WriteRegStr HKCR Applications\vlc.exe\shell\Play "" $ContextMenuEntry_PlayWith
-  WriteRegStr HKCR Applications\vlc.exe\shell\Play\command "" \
+  WriteRegStr HKCR Applications\vlc.exe\shell\Open "" $ContextMenuEntry_PlayWith
+  WriteRegStr HKCR Applications\vlc.exe\shell\Open\command "" \
     '"$INSTDIR\vlc.exe" --started-from-file "%1"'
   !insertmacro MacroAllExtensions WriteRegStrSupportedTypes
 
-; Vista Registration
-  ; Vista detection
+; Windows default programs Registration
+  ; Vista and above detection
   ReadRegStr $R0 HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion" CurrentVersion
-  StrCpy $R1 $R0 3
-  StrCmp $R1 '6.0' lbl_vista lbl_done
+  StrCpy $R1 $R0 1
+  StrCmp $R1 '6' lbl_vista lbl_done
 
   lbl_vista:
   WriteRegStr HKLM "Software\RegisteredApplications" "VLC" "Software\Clients\Media\VLC\Capabilities"
@@ -467,8 +473,8 @@ Section $Name_Section02a SEC02a
   CreateShortCut "$SMPROGRAMS\VideoLAN\Quick Settings\Audio\Set Audio mode to Waveout.lnk" \
     "$INSTDIR\vlc.exe" "--aout waveout --save-config vlc://quit"
   CreateDirectory "$SMPROGRAMS\VideoLAN\Quick Settings\Interface"
-  CreateShortCut "$SMPROGRAMS\VideoLAN\Quick Settings\Interface\Set Main Interface to Skinnable.lnk" \
-    "$INSTDIR\vlc.exe" "-I skins --save-config vlc://quit"
+@BUILD_SKINS_TRUE@  CreateShortCut "$SMPROGRAMS\VideoLAN\Quick Settings\Interface\Set Main Interface to Skinnable.lnk" \
+@BUILD_SKINS_TRUE@    "$INSTDIR\vlc.exe" "-I skins --save-config vlc://quit"
   CreateShortCut "$SMPROGRAMS\VideoLAN\Quick Settings\Interface\Set Main Interface to Qt (default).lnk" \
     "$INSTDIR\vlc.exe" "-I qt --save-config vlc://quit"
   CreateDirectory "$SMPROGRAMS\VideoLAN\Quick Settings\Video"
@@ -503,6 +509,7 @@ Section $Name_Section02b SEC02b
     "$INSTDIR\vlc.exe" ""
 SectionEnd
 
+!ifdef INSTALL_MOZILLA
 Section /o $Name_Section03 SEC03
   SectionIn 3
 
@@ -549,7 +556,9 @@ Section /o $Name_Section03 SEC03
  ;!undef Index
 
 SectionEnd
+!endif
 
+!ifdef INSTALL_ACTIVEX
 Section $Name_Section04 SEC04
   SectionIn 3
   SetOutPath "$INSTDIR"
@@ -559,28 +568,17 @@ Section $Name_Section04 SEC04
   !insertmacro CloseUninstallLog
   RegDLL "$INSTDIR\axvlc.dll"
 SectionEnd
-
-SectionGroup /e !$Name_Section06 SEC05
-  SectionGroup $Name_SectionGroupAudio
-    !insertmacro MacroAudioExtensions RegisterExtensionSection
-  SectionGroupEnd
-  SectionGroup $Name_SectionGroupVideo
-    !insertmacro MacroVideoExtensions RegisterExtensionSection
-  SectionGroupEnd
-  SectionGroup $Name_SectionGroupOther
-    !insertmacro MacroOtherExtensions RegisterExtensionSection
-  SectionGroupEnd
-SectionGroupEnd
+!endif
 
 
-Section $Name_Section05 SEC06
+Section $Name_Section05 SEC05
   SectionIn 1 2 3
   WriteRegStr HKCR "AudioCD\shell\PlayWithVLC" "" $ContextMenuEntry_PlayWith
   WriteRegStr HKCR "AudioCD\shell\PlayWithVLC\command" "" \
-    '"$INSTDIR\vlc.exe" --started-from-file "cdda://%1"'
+    '"$INSTDIR\vlc.exe" --started-from-file cdda://%1'
   WriteRegStr HKCR "DVD\shell\PlayWithVLC" "" $ContextMenuEntry_PlayWith
   WriteRegStr HKCR "DVD\shell\PlayWithVLC\command" "" \
-    '"$INSTDIR\vlc.exe" --started-from-file "dvd://%1"'
+    '"$INSTDIR\vlc.exe" --started-from-file dvd://%1'
 
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\EventHandlers\PlayDVDMovieOnArrival" "VLCPlayDVDMovieOnArrival" ""
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\Handlers\VLCPlayDVDMovieOnArrival" "Action" $Action_OnArrivalDVD
@@ -596,17 +594,30 @@ Section $Name_Section05 SEC06
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\Handlers\VLCPlayCDAudioOnArrival" "InvokeVerb" "play"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\Handlers\VLCPlayCDAudioOnArrival" "Provider" "VideoLAN VLC media player"
   WriteRegStr HKCR "VLC.DVDMovie" "" "VLC DVD Movie"
-  WriteRegStr HKCR "VLC.DVDMovie\shell" "" "Play"
-  WriteRegStr HKCR "VLC.DVDMovie\shell\Play\command" "" \
-    '"$INSTDIR\vlc.exe" --started-from-file "dvd://%1"'
+  WriteRegStr HKCR "VLC.DVDMovie\shell" "" "Open"
+  WriteRegStr HKCR "VLC.DVDMovie\shell\Open\command" "" \
+    '"$INSTDIR\vlc.exe" --started-from-file dvd://%1'
   WriteRegStr HKCR "VLC.DVDMovie\DefaultIcon" "" '"$INSTDIR\vlc.exe",0'
   WriteRegStr HKCR "VLC.CDAudio" "" "VLC CD Audio"
-  WriteRegStr HKCR "VLC.CDAudio\shell" "" "Play"
-  WriteRegStr HKCR "VLC.CDAudio\shell\Play\command" "" \
-    '"$INSTDIR\vlc.exe" --started-from-file "cdda://%1"'
+  WriteRegStr HKCR "VLC.CDAudio\shell" "" "Open"
+  WriteRegStr HKCR "VLC.CDAudio\shell\Open\command" "" \
+    '"$INSTDIR\vlc.exe" --started-from-file cdda://%1'
   WriteRegStr HKCR "VLC.CDAudio\DefaultIcon" "" '"$INSTDIR\vlc.exe",0'
 
 SectionEnd
+
+
+SectionGroup /e !$Name_Section06 SEC06
+  SectionGroup $Name_SectionGroupAudio
+    !insertmacro MacroAudioExtensions RegisterExtensionSection
+  SectionGroupEnd
+  SectionGroup $Name_SectionGroupVideo
+    !insertmacro MacroVideoExtensions RegisterExtensionSection
+  SectionGroupEnd
+  SectionGroup $Name_SectionGroupOther
+    !insertmacro MacroOtherExtensions RegisterExtensionSection
+  SectionGroupEnd
+SectionGroupEnd
 
 Section $Name_Section07 SEC07
   SectionIn 1 3
@@ -623,8 +634,8 @@ SectionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC01} $Desc_Section01
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC02a} $Desc_Section02a
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC02b} $Desc_Section02b
-  !insertmacro MUI_DESCRIPTION_TEXT ${SEC03} $Desc_Section03
-  !insertmacro MUI_DESCRIPTION_TEXT ${SEC04} $Desc_Section04
+@BUILD_MOZILLA_TRUE@ !insertmacro MUI_DESCRIPTION_TEXT ${SEC03} $Desc_Section03
+@BUILD_ACTIVEX_TRUE@ !insertmacro MUI_DESCRIPTION_TEXT ${SEC04} $Desc_Section04
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC05} $Desc_Section05
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC06} $Desc_Section06
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC07} $Desc_Section07
@@ -637,6 +648,7 @@ Function .onInit
 
   !include "languages\english.nsh"
   StrCmp $LANGUAGE ${LANG_FRENCH} French 0
+  StrCmp $LANGUAGE ${LANG_GERMAN} German 0
   StrCmp $LANGUAGE ${LANG_ITALIAN} Italian 0
   StrCmp $LANGUAGE ${LANG_HUNGARIAN} Hungarian 0
   StrCmp $LANGUAGE ${LANG_ROMANIAN} Romanian 0
@@ -650,6 +662,9 @@ Function .onInit
   StrCmp $LANGUAGE ${LANG_PORTUGUESEBR} Brazilian EndLanguageCmp
   French:
   !include "languages\french.nsh"
+  Goto EndLanguageCmp
+  German:
+  !include "languages\german.nsh"
   Goto EndLanguageCmp
   Italian:
   !include "languages\italian.nsh"
@@ -711,6 +726,8 @@ Section -Post
   WriteRegStr ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_UNINST_KEY}" \
     "UninstallString" "$INSTDIR\uninstall.exe"
   WriteRegStr ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_UNINST_KEY}" \
+    "InstallLocation" "$INSTDIR"
+  WriteRegStr ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_UNINST_KEY}" \
     "DisplayIcon" "$INSTDIR\vlc.exe"
   WriteRegStr ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_UNINST_KEY}" \
     "DisplayVersion" "${PRODUCT_VERSION}"
@@ -718,6 +735,10 @@ Section -Post
     "URLInfoAbout" "${PRODUCT_WEB_SITE}"
   WriteRegStr ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_UNINST_KEY}" \
     "Publisher" "${PRODUCT_PUBLISHER}"
+  WriteRegStr ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_UNINST_KEY}" \
+    "VersionMajor"  "@VERSION_MAJOR@"
+  WriteRegStr ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_UNINST_KEY}" \
+    "VersionMinor" "@VERSION_MINOR@"
 SectionEnd
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
@@ -882,9 +903,10 @@ SectionEnd
 
 Function un.onInit
   !insertmacro MUI_UNGETLANGUAGE
-  
+
   !include "languages\english.nsh"
   StrCmp $LANGUAGE ${LANG_FRENCH} French 0
+  StrCmp $LANGUAGE ${LANG_GERMAN} German 0
   StrCmp $LANGUAGE ${LANG_ITALIAN} Italian 0
   StrCmp $LANGUAGE ${LANG_HUNGARIAN} Hungarian 0
   StrCmp $LANGUAGE ${LANG_ROMANIAN} Romanian 0
@@ -898,6 +920,9 @@ Function un.onInit
   StrCmp $LANGUAGE ${LANG_PORTUGUESEBR} Brazilian EndLanguageCmp
   French:
   !include "languages\french.nsh"
+  Goto EndLanguageCmp
+  German:
+  !include "languages\german.nsh"
   Goto EndLanguageCmp
   Italian:
   !include "languages\italian.nsh"
@@ -932,5 +957,5 @@ Function un.onInit
   Brazilian:
   !include "languages\brazilian_portuguese.nsh"
   EndLanguageCmp:
-  
+
 FunctionEnd

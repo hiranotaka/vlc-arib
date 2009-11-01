@@ -1,7 +1,7 @@
 /*****************************************************************************
 * simple_prefs.m: Simple Preferences for Mac OS X
 *****************************************************************************
-* Copyright (C) 2008 the VideoLAN team
+* Copyright (C) 2008-2009 the VideoLAN team
 * $Id$
 *
 * Authors: Felix Paul Kühne <fkuehne at videolan dot org>
@@ -27,6 +27,9 @@
 #import <vlc_interface.h>
 #import <vlc_dialog.h>
 #import "misc.h"
+#import "intf.h"
+#import "AppleRemote.h"
+#import <Sparkle/Sparkle.h>                        //for o_intf_last_update_lbl
 
 static NSString* VLCSPrefsToolbarIdentifier = @"Our Simple Preferences Toolbar Identifier";
 static NSString* VLCIntfSettingToolbarIdentifier = @"Intf Settings Item Identifier";
@@ -83,9 +86,12 @@ static VLCSimplePrefs *_o_sharedInstance = nil;
     if( val & KEY_MODIFIER_COMMAND )
         [o_temp_str appendString: [NSString stringWithUTF8String: "\xE2\x8C\x98"]];
 
-    const char *base = KeyToString( val & ~KEY_MODIFIER );
+    char *base = KeyToString( val & ~KEY_MODIFIER );
     if( base )
+    {
         [o_temp_str appendString: [NSString stringWithUTF8String: base]];
+        free( base );
+    }
     else
         o_temp_str = [NSMutableString stringWithString:_NS("Not Set")];
     return o_temp_str;
@@ -262,7 +268,12 @@ create_toolbar_item( NSString * o_itemIdent, NSString * o_name, NSString * o_des
     [o_intf_fspanel_ckb setTitle: _NS("Show Fullscreen Controller")];
     [o_intf_lang_txt setStringValue: _NS("Language")];
     [o_intf_network_box setTitle: _NS("Privacy / Network Interaction")];
-    
+	[o_intf_appleremote_ckb setTitle: _NS("Control playback with the Apple Remote")];
+	[o_intf_mediakeys_ckb setTitle: _NS("Control playback with media keys")];
+    [o_intf_mediakeys_bg_ckb setTitle: _NS("...when VLC is in background")];
+    [o_intf_update_ckb setTitle: _NS("Automatically check for updates")];
+    [o_intf_last_update_lbl setStringValue: @""];
+
     /* Subtitles and OSD */
     [o_osd_encoding_txt setStringValue: _NS("Default Encoding")];
     [o_osd_font_box setTitle: _NS("Display Settings")];
@@ -298,6 +309,31 @@ create_toolbar_item( NSString * o_itemIdent, NSString * o_name, NSString * o_des
     [o_sprefs_reset_btn setTitle: _NS("Reset All")];
     [o_sprefs_save_btn setTitle: _NS("Save")];
     [o_sprefs_win setTitle: _NS("Preferences")];
+}
+
+/* TODO: move this part to core */
+#define config_GetLabel(a,b) __config_GetLabel(VLC_OBJECT(a),b)
+static inline char * __config_GetLabel( vlc_object_t *p_this, const char *psz_name )
+{
+    module_config_t *p_config;
+
+    p_config = config_FindConfig( p_this, psz_name );
+
+    /* sanity checks */
+    if( !p_config )
+    {
+        msg_Err( p_this, "option %s does not exist", psz_name );
+        return NULL;
+    }
+
+    if ( p_config->psz_longtext )
+        return p_config->psz_longtext;
+    else if( p_config->psz_text )
+        return p_config->psz_text;
+    else
+        msg_Warn( p_this, "option %s does not include any help", psz_name );
+
+    return NULL;
 }
 
 - (void)setupButton: (NSPopUpButton *)object forStringList: (const char *)name
@@ -389,6 +425,20 @@ create_toolbar_item( NSString * o_itemIdent, NSString * o_name, NSString * o_des
     [object setToolTip: _NS(p_item->psz_longtext)];
 }
 
+- (void)setupButton: (NSButton *)object forBoolValue: (const char *)name
+{
+    [object setState: config_GetInt( p_intf, name )];
+    [object setToolTip: [NSString stringWithUTF8String: config_GetLabel( p_intf, name )]];
+}
+
+- (void)setupField:(NSTextField *)o_object forOption:(const char *)psz_option
+{
+    char *psz_tmp = config_GetPsz( p_intf, psz_option );
+    [o_object setStringValue: [NSString stringWithUTF8String: psz_tmp ?: ""]];
+    [o_object setToolTip: [NSString stringWithUTF8String: config_GetLabel( p_intf, psz_option )]];
+    free( psz_tmp );
+}
+
 - (void)resetControls
 {
     module_config_t *p_item;
@@ -404,40 +454,52 @@ create_toolbar_item( NSString * o_itemIdent, NSString * o_name, NSString * o_des
     [self setupButton: o_intf_lang_pop forStringList: "language"];
     [self setupButton: o_intf_art_pop forIntList: "album-art"];
 
-    [o_intf_fspanel_ckb setState: config_GetInt( p_intf, "macosx-fspanel" )];
-    [o_intf_embedded_ckb setState: config_GetInt( p_intf, "embedded-video" )];
+    [self setupButton: o_intf_fspanel_ckb forBoolValue: "macosx-fspanel"];
+    [self setupButton: o_intf_embedded_ckb forBoolValue: "embedded-video"];
+	[self setupButton: o_intf_appleremote_ckb forBoolValue: "macosx-appleremote"];
+	[self setupButton: o_intf_mediakeys_ckb forBoolValue: "macosx-mediakeys"];
+    [self setupButton: o_intf_mediakeys_bg_ckb forBoolValue: "macosx-mediakeys-background"];
+    [o_intf_mediakeys_bg_ckb setEnabled: [o_intf_mediakeys_ckb state]];
+    if( [[SUUpdater sharedUpdater] lastUpdateCheckDate] != NULL )
+        [o_intf_last_update_lbl setStringValue: [NSString stringWithFormat: _NS("Last check on: %@"), [[[SUUpdater sharedUpdater] lastUpdateCheckDate] descriptionWithLocale: [[NSUserDefaults standardUserDefaults] dictionaryRepresentation]]]];
+    else
+        [o_intf_last_update_lbl setStringValue: _NS("No check was performed yet.")];
 
     /******************
      * audio settings *
      ******************/
-    [o_audio_enable_ckb setState: config_GetInt( p_intf, "audio" )];
-    [o_audio_vol_fld setIntValue: config_GetInt( p_intf, "volume" )];
-    [o_audio_vol_sld setIntValue: config_GetInt( p_intf, "volume" )];
+    [self setupButton: o_audio_enable_ckb forBoolValue: "audio"];
+    i = (config_GetInt( p_intf, "volume" ) * 0.390625);
+    [o_audio_vol_fld setToolTip: [NSString stringWithUTF8String: config_GetLabel( p_intf, "volume")]];
+    [o_audio_vol_fld setIntValue: i];
+    [o_audio_vol_sld setToolTip: [o_audio_vol_fld toolTip]];
+    [o_audio_vol_sld setIntValue: i];
 
-    [o_audio_spdif_ckb setState: config_GetInt( p_intf, "spdif" )];
+    [self setupButton: o_audio_spdif_ckb forBoolValue: "spdif"];
 
     [self setupButton: o_audio_dolby_pop forIntList: "force-dolby-surround"];
+    [self setupField: o_audio_lang_fld forOption: "audio-language"];
 
-    [o_audio_lang_fld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "audio-language" ) ?: ""]];
+    [self setupButton: o_audio_headphone_ckb forBoolValue: "headphone-dolby"];
 
-    [o_audio_headphone_ckb setState: config_GetInt( p_intf, "headphone-dolby" )];
-    
     psz_tmp = config_GetPsz( p_intf, "audio-filter" );
     if( psz_tmp )
     {
         [o_audio_norm_ckb setState: (NSInteger)strstr( psz_tmp, "volnorm" )];
         [o_audio_norm_fld setEnabled: [o_audio_norm_ckb state]];
         [o_audio_norm_stepper setEnabled: [o_audio_norm_ckb state]];
+        free( psz_tmp );
     }
     [o_audio_norm_fld setFloatValue: config_GetFloat( p_intf, "norm-max-level" )];
+    [o_audio_norm_fld setToolTip: [NSString stringWithUTF8String: config_GetLabel( p_intf, "norm-max-level")]];
 
     [self setupButton: o_audio_visual_pop forModuleList: "audio-visual"];
 
     /* Last.FM is optional */
     if( module_exists( "audioscrobbler" ) )
     {
-        [o_audio_lastuser_fld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "lastfm-username" ) ?: ""]];
-        [o_audio_lastpwd_sfld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "lastfm-password" ) ?: ""]];
+        [self setupField: o_audio_lastuser_fld forOption:"lastfm-username"];
+        [self setupField: o_audio_lastpwd_sfld forOption:"lastfm-password"];
 
         if( config_ExistIntf( VLC_OBJECT( p_intf ), "audioscrobbler" ) )
         {
@@ -458,11 +520,11 @@ create_toolbar_item( NSString * o_itemIdent, NSString * o_name, NSString * o_des
     /******************
      * video settings *
      ******************/
-    [o_video_enable_ckb setState: config_GetInt( p_intf, "video" )];
-    [o_video_fullscreen_ckb setState: config_GetInt( p_intf, "fullscreen" )];
-    [o_video_onTop_ckb setState: config_GetInt( p_intf, "video-on-top" )];
-    [o_video_skipFrames_ckb setState: config_GetInt( p_intf, "skip-frames" )];
-    [o_video_black_ckb setState: config_GetInt( p_intf, "macosx-black" )];
+    [self setupButton: o_video_enable_ckb forBoolValue: "video"];
+    [self setupButton: o_video_fullscreen_ckb forBoolValue: "fullscreen"];
+    [self setupButton: o_video_onTop_ckb forBoolValue: "video-on-top"];
+    [self setupButton: o_video_skipFrames_ckb forBoolValue: "skip-frames"];
+    [self setupButton: o_video_black_ckb forBoolValue: "macosx-black"];
 
     [self setupButton: o_video_output_pop forModuleList: "vout"];
 
@@ -483,24 +545,24 @@ create_toolbar_item( NSString * o_itemIdent, NSString * o_name, NSString * o_des
     [o_video_device_pop selectItemAtIndex: 0];
     [o_video_device_pop selectItemWithTag: config_GetInt( p_intf, "macosx-vdev" )];
 
-    [o_video_snap_folder_fld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "snapshot-path" ) ?: ""]];
-    [o_video_snap_prefix_fld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "snapshot-prefix" ) ?: ""]];
-    [o_video_snap_seqnum_ckb setState: config_GetInt( p_intf, "snapshot-sequential" )];
+    [self setupField: o_video_snap_folder_fld forOption:"snapshot-path"];
+    [self setupField: o_video_snap_prefix_fld forOption:"snapshot-prefix"];
+    [self setupButton: o_video_snap_seqnum_ckb forBoolValue: "snapshot-sequential"];
     [self setupButton: o_video_snap_format_pop forStringList: "snapshot-format"];
 
     /***************************
      * input & codecs settings *
      ***************************/
-    [o_input_serverport_fld setIntValue: config_GetInt( p_intf, "server-port" )];
-    if( config_GetPsz( p_intf, "http-proxy" ) != NULL )
-        [o_input_httpproxy_fld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "http-proxy" ) ?: ""]];
-    if( config_GetPsz( p_intf, "http-proxy" ) != NULL )
-        [o_input_httpproxypwd_sfld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "http-proxy-pwd" ) ?: ""]];
-    [o_input_postproc_fld setIntValue: config_GetInt( p_intf, "postproc-q" )];
+    [o_input_serverport_fld setIntValue: config_GetInt( p_intf, "server-port")];
+    [o_input_serverport_fld setToolTip: [NSString stringWithUTF8String: config_GetLabel( p_intf, "server-port")]];
+    [self setupField: o_input_httpproxy_fld forOption:"http-proxy"];
+    [self setupField: o_input_httpproxypwd_sfld forOption:"http-proxy-pwd"];
+    [o_input_postproc_fld setIntValue: config_GetInt( p_intf, "postproc-q")];
+    [o_input_postproc_fld setToolTip: [NSString stringWithUTF8String: config_GetLabel( p_intf, "postproc-q")]];
 
     [self setupButton: o_input_avi_pop forIntList: "avi-index"];
 
-    [o_input_rtsp_ckb setState: config_GetInt( p_intf, "rtsp-tcp" )];
+    [self setupButton: o_input_rtsp_ckb forBoolValue: "rtsp-tcp"];
     [self setupButton: o_input_skipLoop_pop forIntList: "ffmpeg-skiploopfilter"];
 
     [o_input_cachelevel_pop removeAllItems];
@@ -556,21 +618,33 @@ create_toolbar_item( NSString * o_itemIdent, NSString * o_name, NSString * o_des
     /*********************
      * subtitle settings *
      *********************/
-    [o_osd_osd_ckb setState: config_GetInt( p_intf, "osd" )];
+    [self setupButton: o_osd_osd_ckb forBoolValue: "osd"];
     
     [self setupButton: o_osd_encoding_pop forStringList: "subsdec-encoding"];
-    
-    [o_osd_lang_fld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "sub-language" ) ?: ""]];
-    if( config_GetPsz( p_intf, "quartztext-font" ) != NULL )
-        [o_osd_font_fld setStringValue: [NSString stringWithUTF8String: config_GetPsz( p_intf, "quartztext-font" ) ?: ""]];
+    [self setupField: o_osd_lang_fld forOption: "sub-language" ];
+	
+	if( module_exists( "quartztext" ) )
+	{
+		[self setupField: o_osd_font_fld forOption: "quartztext-font"];
+		[self setupButton: o_osd_font_color_pop forIntList: "quartztext-color"];
+		[self setupButton: o_osd_font_size_pop forIntList: "quartztext-rel-fontsize"];
+	}
+	else 
+	{
+        /* fallback on freetype */
+		[self setupField: o_osd_font_fld forOption: "freetype-font"];
+		[self setupButton: o_osd_font_color_pop forIntList: "freetype-color"];
+		[self setupButton: o_osd_font_size_pop forIntList: "freetype-rel-fontsize"];
+		/* selector button is useless in this case */
+		[o_osd_font_btn setEnabled: NO];
+	}
 
-    [self setupButton: o_osd_font_color_pop forIntList: "quartztext-color"];
-    [self setupButton: o_osd_font_size_pop forIntList: "quartztext-rel-fontsize"];
 
     /********************
      * hotkeys settings *
      ********************/
     const struct hotkey *p_hotkeys = p_intf->p_libvlc->p_hotkeys;
+    [o_hotkeySettings release];
     o_hotkeySettings = [[NSMutableArray alloc] init];
     NSMutableArray *o_tempArray_desc = [[NSMutableArray alloc] init];
     i = 1;
@@ -586,6 +660,7 @@ create_toolbar_item( NSString * o_itemIdent, NSString * o_name, NSString * o_des
 
         i++;
     }
+    [o_hotkeyDescriptions release];
     o_hotkeyDescriptions = [[NSArray alloc] initWithArray: o_tempArray_desc copyItems: YES];
     [o_tempArray_desc release];
     [o_hotkeys_listbox reloadData];
@@ -661,7 +736,11 @@ static inline void save_string_list( intf_thread_t * p_intf, id object, const ch
     p_item = config_FindConfig( VLC_OBJECT(p_intf), name );
     p_stringobject = (NSString *)[[object selectedItem] representedObject];
     assert([p_stringobject isKindOfClass:[NSString class]]);
-    if( p_stringobject ) config_PutPsz( p_intf, name, [p_stringobject UTF8String] );
+    if( p_stringobject ) 
+    {
+        config_PutPsz( p_intf, name, [p_stringobject UTF8String] );
+        [p_stringobject release];
+    }
 }
 
 static inline void save_module_list( intf_thread_t * p_intf, id object, const char * name )
@@ -694,7 +773,6 @@ static inline void save_module_list( intf_thread_t * p_intf, id object, const ch
 {
     char *psz_tmp;
     int i;
-    NSString *p_stringobject;
     
 #define SaveIntList( object, name ) save_int_list( p_intf, object, name )
                     
@@ -712,6 +790,18 @@ static inline void save_module_list( intf_thread_t * p_intf, id object, const ch
 
         config_PutInt( p_intf, "macosx-fspanel", [o_intf_fspanel_ckb state] );
         config_PutInt( p_intf, "embedded-video", [o_intf_embedded_ckb state] );
+		config_PutInt( p_intf, "macosx-appleremote", [o_intf_appleremote_ckb state] );
+		config_PutInt( p_intf, "macosx-mediakeys", [o_intf_mediakeys_ckb state] );
+        config_PutInt( p_intf, "macosx-mediakeys-background", [o_intf_mediakeys_bg_ckb state] );
+
+		/* activate stuff without restart */
+		if( [o_intf_appleremote_ckb state] == YES )
+			[[[VLCMain sharedInstance] appleRemoteController] startListening: [VLCMain sharedInstance]];
+		else
+			[[[VLCMain sharedInstance] appleRemoteController] stopListening: [VLCMain sharedInstance]];
+        [[NSNotificationCenter defaultCenter] postNotificationName: @"VLCMediaKeySupportSettingChanged" 
+                                                            object: nil 
+                                                          userInfo: nil];
 
         /* okay, let's save our changes to vlcrc */
         i = config_SaveConfigFile( p_intf, "main" );
@@ -734,7 +824,8 @@ static inline void save_module_list( intf_thread_t * p_intf, id object, const ch
     if( b_audioSettingChanged )
     {
         config_PutInt( p_intf, "audio", [o_audio_enable_ckb state] );
-        config_PutInt( p_intf, "volume", [o_audio_vol_sld intValue] );
+        config_PutInt( p_intf, "volume", ([o_audio_vol_sld intValue] * 2.56));
+        NSLog( @"slider=%i, pref=%i", [o_audio_vol_sld intValue], config_GetInt( p_intf, "volume" ));
         config_PutInt( p_intf, "spdif", [o_audio_spdif_ckb state] );
 
         SaveIntList( o_audio_dolby_pop, "force-dolby-surround" );
@@ -752,6 +843,7 @@ static inline void save_module_list( intf_thread_t * p_intf, id object, const ch
                 /* work-around a GCC 4.0.1 bug */
                 psz_tmp = (char *)[[NSString stringWithFormat: @"%s:volnorm", psz_tmp] UTF8String];
                 config_PutPsz( p_intf, "audio-filter", psz_tmp );
+                free( psz_tmp );
             }
         }
         else
@@ -759,10 +851,11 @@ static inline void save_module_list( intf_thread_t * p_intf, id object, const ch
             psz_tmp = config_GetPsz( p_intf, "audio-filter" );
             if( psz_tmp )
             {
-                psz_tmp = (char *)[[[NSString stringWithUTF8String: psz_tmp] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:@":volnorm"]] UTF8String];
-                psz_tmp = (char *)[[[NSString stringWithUTF8String: psz_tmp] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:@"volnorm:"]] UTF8String];
-                psz_tmp = (char *)[[[NSString stringWithUTF8String: psz_tmp] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:@"volnorm"]] UTF8String];
+                char *psz_tmp2 = (char *)[[[NSString stringWithUTF8String: psz_tmp] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:@":volnorm"]] UTF8String];
+                psz_tmp2 = (char *)[[[NSString stringWithUTF8String: psz_tmp2] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:@"volnorm:"]] UTF8String];
+                psz_tmp2 = (char *)[[[NSString stringWithUTF8String: psz_tmp2] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:@"volnorm"]] UTF8String];
                 config_PutPsz( p_intf, "audio-filter", psz_tmp );
+                free( psz_tmp );
             }
         }
         config_PutFloat( p_intf, "norm-max-level", [o_audio_norm_fld floatValue] );
@@ -906,13 +999,25 @@ static inline void save_module_list( intf_thread_t * p_intf, id object, const ch
         config_PutInt( p_intf, "osd", [o_osd_osd_ckb state] );
 
         if( [o_osd_encoding_pop indexOfSelectedItem] >= 0 )
-            config_PutPsz( p_intf, "subsdec-encoding", [[[o_osd_encoding_pop selectedItem] title] UTF8String] );
+            SaveStringList( o_osd_encoding_pop, "subsdec-encoding" );
+        else
+            config_PutPsz( p_intf, "subsdec-encoding", "" );
 
         config_PutPsz( p_intf, "sub-language", [[o_osd_lang_fld stringValue] UTF8String] );
-        config_PutPsz( p_intf, "quartztext-font", [[o_osd_font_fld stringValue] UTF8String] );
-
-        SaveIntList( o_osd_font_color_pop, "quartztext-color" );
-        SaveIntList( o_osd_font_size_pop, "quartztext-rel-fontsize" );
+        
+		if( module_exists( "quartztext" ) )
+		{
+			config_PutPsz( p_intf, "quartztext-font", [[o_osd_font_fld stringValue] UTF8String] );
+			SaveIntList( o_osd_font_color_pop, "quartztext-color" );
+			SaveIntList( o_osd_font_size_pop, "quartztext-rel-fontsize" );
+		}
+		else
+		{
+            /* fallback on freetype */
+			config_PutPsz( p_intf, "freetype-font", [[o_osd_font_fld stringValue] UTF8String] );
+			SaveIntList( o_osd_font_color_pop, "freetype-color" );
+			SaveIntList( o_osd_font_size_pop, "freetype-rel-fontsize" );                
+		}
 
         i = config_SaveConfigFile( p_intf, NULL );
 
@@ -990,6 +1095,8 @@ static inline void save_module_list( intf_thread_t * p_intf, id object, const ch
 
 - (IBAction)interfaceSettingChanged:(id)sender
 {
+    if( sender == o_intf_mediakeys_ckb )
+        [o_intf_mediakeys_bg_ckb setEnabled: [o_intf_mediakeys_ckb state]];
     b_intfSettingChanged = YES;
 }
 
@@ -1086,17 +1193,20 @@ static inline void save_module_list( intf_thread_t * p_intf, id object, const ch
 
 - (IBAction)showFontPicker:(id)sender
 {
-    char * font = config_GetPsz( p_intf, "quartztext-font" );
-    NSString * fontFamilyName = font ? [NSString stringWithUTF8String: font] : nil;
-    free(font);
-    if( fontFamilyName )
-    {
-        NSFontDescriptor * fd = [NSFontDescriptor fontDescriptorWithFontAttributes:nil];
-        NSFont * font = [NSFont fontWithDescriptor:[fd fontDescriptorWithFamily:fontFamilyName] textTransform:nil];
-        [[NSFontManager sharedFontManager] setSelectedFont:font isMultiple:NO];
-    }
-    [[NSFontManager sharedFontManager] setTarget: self];
-    [[NSFontPanel sharedFontPanel] orderFront:self];
+	if( module_exists( "quartztext" ) )
+	{
+		char * font = config_GetPsz( p_intf, "quartztext-font" );
+		NSString * fontFamilyName = font ? [NSString stringWithUTF8String: font] : nil;
+		free(font);
+		if( fontFamilyName )
+		{
+			NSFontDescriptor * fd = [NSFontDescriptor fontDescriptorWithFontAttributes:nil];
+			NSFont * font = [NSFont fontWithDescriptor:[fd fontDescriptorWithFamily:fontFamilyName] textTransform:nil];
+			[[NSFontManager sharedFontManager] setSelectedFont:font isMultiple:NO];
+		}
+		[[NSFontManager sharedFontManager] setTarget: self];
+		[[NSFontPanel sharedFontPanel] orderFront:self];
+	}
 }
 
 - (void)changeFont:(id)sender

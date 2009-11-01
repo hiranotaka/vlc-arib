@@ -37,13 +37,7 @@
 void CmdQuit::execute()
 {
     // Stop the playlist
-    vout_OSDMessage( getIntf(), DEFAULT_CHAN, _( "Quit" ) );
-
-    // Get the instance of OSFactory
-    OSFactory *pOsFactory = OSFactory::instance( getIntf() );
-
-    // Exit the main OS loop
-    pOsFactory->getOSLoop()->exit();
+    vout_OSDMessage( getIntf(), DEFAULT_CHAN, "%s", _( "Quit" ) );
 
     // Kill libvlc
     libvlc_Quit( getIntf()->p_libvlc );

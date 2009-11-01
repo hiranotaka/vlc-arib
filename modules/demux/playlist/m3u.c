@@ -39,6 +39,7 @@
 struct demux_sys_t
 {
     char *psz_prefix;
+    char *(*pf_dup) (const char *);
 };
 
 /*****************************************************************************
@@ -57,14 +58,25 @@ int Import_M3U( vlc_object_t *p_this )
     demux_t *p_demux = (demux_t *)p_this;
     const uint8_t *p_peek;
     CHECK_PEEK( p_peek, 8 );
+    char *(*pf_dup) (const char *);
 
-    if(! ( POKE( p_peek, "#EXTM3U", 7 ) || POKE( p_peek, "RTSPtext", 8 ) ||
-           demux_IsPathExtension( p_demux, ".m3u" ) || demux_IsPathExtension( p_demux, ".vlc" ) ||
-           demux_IsForced( p_demux,  "m3u" ) || ContainsURL( p_demux ) ) )
+    if( POKE( p_peek, "RTSPtext", 8 ) /* QuickTime */
+     || demux_IsPathExtension( p_demux, ".m3u8" )
+     || demux_IsForced( p_demux, "m3u8" ) )
+        pf_dup = strdup; /* UTF-8 */
+    else
+    if( POKE( p_peek, "#EXTM3U", 7 )
+     || demux_IsPathExtension( p_demux, ".m3u" )
+     || demux_IsPathExtension( p_demux, ".vlc" )
+     || demux_IsForced( p_demux, "m3u" )
+     || ContainsURL( p_demux ) )
+        pf_dup = FromLocaleDup; /* locale character set (?) */
+    else
         return VLC_EGENERIC;
 
     STANDARD_DEMUX_INIT_MSG( "found valid M3U playlist" );
     p_demux->p_sys->psz_prefix = FindPrefix( p_demux );
+    p_demux->p_sys->pf_dup = pf_dup;
 
     return VLC_SUCCESS;
 }
@@ -114,28 +126,6 @@ void Close_M3U( vlc_object_t *p_this )
 }
 
 
-/* Gruik! */
-static inline char *MaybeFromLocaleDup (const char *str)
-{
-    if (str == NULL)
-        return NULL;
-
-    return IsUTF8 (str) ? strdup (str) : FromLocaleDup (str);
-}
-
-
-static inline void MaybeFromLocaleRep (char **str)
-{
-    char *const orig_str = *str;
-
-    if ((orig_str != NULL) && !IsUTF8 (orig_str))
-    {
-        *str = FromLocaleDup (orig_str);
-        free (orig_str);
-    }
-}
-
-
 static int Demux( demux_t *p_demux )
 {
     char       *psz_line;
@@ -144,11 +134,12 @@ static int Demux( demux_t *p_demux )
     int        i_parsed_duration = 0;
     mtime_t    i_duration = -1;
     const char**ppsz_options = NULL;
+    char *    (*pf_dup) (const char *) = p_demux->p_sys->pf_dup;
     int        i_options = 0;
     bool b_cleanup = false;
     input_item_t *p_input;
 
-    INIT_PLAYLIST_STUFF;
+    input_item_t *p_current_input = GetCurrentItem(p_demux);
 
     psz_line = stream_ReadLine( p_demux->s );
     while( psz_line )
@@ -178,9 +169,9 @@ static int Demux( demux_t *p_demux )
                 if( i_parsed_duration >= 0 )
                     i_duration = i_parsed_duration * INT64_C(1000000);
                 if( psz_name )
-                    psz_name = strdup( psz_name );
+                    psz_name = pf_dup( psz_name );
                 if( psz_artist )
-                    psz_artist = strdup( psz_artist );
+                    psz_artist = pf_dup( psz_artist );
             }
             else if( !strncasecmp( psz_parse, "EXTVLCOPT:",
                                    sizeof("EXTVLCOPT:") -1 ) )
@@ -190,7 +181,7 @@ static int Demux( demux_t *p_demux )
                 psz_parse += sizeof("EXTVLCOPT:") -1;
                 if( !*psz_parse ) goto error;
 
-                psz_option = MaybeFromLocaleDup( psz_parse );
+                psz_option = pf_dup( psz_parse );
                 if( psz_option )
                     INSERT_ELEM( ppsz_options, i_options, i_options,
                                  psz_option );
@@ -203,14 +194,13 @@ static int Demux( demux_t *p_demux )
         else if( *psz_parse )
         {
             char *psz_mrl;
-            if( !psz_name || !*psz_name )
-            {
+
+            psz_parse = pf_dup( psz_parse );
+            if( !psz_name && psz_parse )
                 /* Use filename as name for relative entries */
-                psz_name = MaybeFromLocaleDup( psz_parse );
-            }
+                psz_name = strdup( psz_parse );
 
             psz_mrl = ProcessMRL( psz_parse, p_demux->p_sys->psz_prefix );
-            MaybeFromLocaleRep( &psz_mrl );
 
             b_cleanup = true;
             if( !psz_mrl ) goto error;
@@ -218,12 +208,15 @@ static int Demux( demux_t *p_demux )
             p_input = input_item_NewExt( p_demux, psz_mrl, psz_name,
                                         i_options, ppsz_options, 0, i_duration );
 
+            LocaleFree( psz_parse );
+            free( psz_mrl );
+
             if ( psz_artist && *psz_artist )
                 input_item_SetArtist( p_input, psz_artist );
+            if( psz_name ) input_item_SetTitle( p_input, psz_name );
 
             input_item_AddSubItem( p_current_input, p_input );
             vlc_gc_decref( p_input );
-            free( psz_mrl );
         }
 
  error:
@@ -249,7 +242,7 @@ static int Demux( demux_t *p_demux )
             b_cleanup = false;
         }
     }
-    HANDLE_PLAY_AND_RELEASE;
+    vlc_gc_decref(p_current_input);
     var_Destroy( p_demux, "m3u-extvlcopt" );
     return 0; /* Needed for correct operation of go back */
 }

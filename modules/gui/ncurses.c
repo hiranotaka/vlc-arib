@@ -310,7 +310,7 @@ static int Open( vlc_object_t *p_this )
         p_sys->psz_current_dir = psz_tmp;
     else
     {
-        p_sys->psz_current_dir = strdup( config_GetHomeDir() );
+        p_sys->psz_current_dir = config_GetUserDir( VLC_HOME_DIR );
         free( psz_tmp );
     }
 
@@ -548,19 +548,7 @@ static inline int RemoveLastUTF8Entity( char *psz, int len )
 static int HandleKey( intf_thread_t *p_intf, int i_key )
 {
     intf_sys_t *p_sys = p_intf->p_sys;
-    vlc_value_t val;
-
-    #define ReturnTrue \
-    do { \
-    pl_Release( p_intf ); \
-    return 1; \
-    } while(0)
-
-    #define ReturnFalse \
-    do { \
-    pl_Release( p_intf ); \
-    return 0; \
-    } while(0)
+    int i_ret = 1;
 
     playlist_t *p_playlist = pl_Hold( p_intf );
 
@@ -571,23 +559,16 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
 
         switch( i_key )
         {
-            vlc_value_t val;
             /* Playlist Settings */
             case 'r':
-                var_Get( p_playlist, "random", &val );
-                val.b_bool = !val.b_bool;
-                var_Set( p_playlist, "random", val );
-                ReturnTrue;
+                var_ToggleBool( p_playlist, "random" );
+                goto end;
             case 'l':
-                var_Get( p_playlist, "loop", &val );
-                val.b_bool = !val.b_bool;
-                var_Set( p_playlist, "loop", val );
-                ReturnTrue;
+                var_ToggleBool( p_playlist, "loop" );
+                goto end;
             case 'R':
-                var_Get( p_playlist, "repeat", &val );
-                val.b_bool = !val.b_bool;
-                var_Set( p_playlist, "repeat", val );
-                ReturnTrue;
+                var_ToggleBool( p_playlist, "repeat" );
+                goto end;
 
             /* Playlist sort */
             case 'o':
@@ -595,13 +576,13 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                                             PlaylistGetRoot( p_intf ),
                                             SORT_TITLE_NODES_FIRST, ORDER_NORMAL );
                 p_sys->b_need_update = true;
-                ReturnTrue;
+                goto end;
             case 'O':
                 playlist_RecursiveNodeSort( p_playlist,
                                             PlaylistGetRoot( p_intf ),
                                             SORT_TITLE_NODES_FIRST, ORDER_REVERSE );
                 p_sys->b_need_update = true;
-                ReturnTrue;
+                goto end;
 
             /* Playlist view */
             case 'v':
@@ -615,7 +596,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                 }
                 //p_sys->b_need_update = true;
                 PlaylistRebuild( p_intf );
-                ReturnTrue;
+                goto end;
 
             /* Playlist navigation */
             case 'g':
@@ -721,7 +702,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                 b_box_plidx_follow = true;
             PL_UNLOCK;
             p_sys->b_box_plidx_follow = b_box_plidx_follow;
-            ReturnTrue;
+            goto end;
         }
     }
     if( p_sys->i_box_type == BOX_BROWSE )
@@ -764,8 +745,15 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                 if( p_sys->pp_dir_entries[p_sys->i_box_bidx]->b_file || i_key == ' ' )
                 {
                     char* psz_uri;
-                    if( asprintf( &psz_uri, "directory://%s/%s", p_sys->psz_current_dir, p_sys->pp_dir_entries[p_sys->i_box_bidx]->psz_path ) == -1 )
+                    if( asprintf( &psz_uri, "%s://%s/%s",
+                        p_sys->pp_dir_entries[p_sys->i_box_bidx]->b_file ?
+                            "file" : "directory",
+                        p_sys->psz_current_dir,
+                        p_sys->pp_dir_entries[p_sys->i_box_bidx]->psz_path
+                        ) == -1 )
+                    {
                         psz_uri = NULL;
+                    }
 
                     playlist_item_t *p_parent = p_sys->p_node;
                     if( !p_parent )
@@ -804,7 +792,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
         {
             if( p_sys->i_box_bidx >= p_sys->i_dir_entries ) p_sys->i_box_bidx = p_sys->i_dir_entries - 1;
             if( p_sys->i_box_bidx < 0 ) p_sys->i_box_bidx = 0;
-            ReturnTrue;
+            goto end;
         }
     }
     else if( p_sys->i_box_type == BOX_HELP || p_sys->i_box_type == BOX_INFO ||
@@ -815,33 +803,33 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
         {
             case KEY_HOME:
                 p_sys->i_box_start = 0;
-                ReturnTrue;
+                goto end;
 #ifdef __FreeBSD__
             case KEY_SELECT:
 #endif
             case KEY_END:
                 p_sys->i_box_start = p_sys->i_box_lines_total - 1;
-                ReturnTrue;
+                goto end;
             case KEY_UP:
                 if( p_sys->i_box_start > 0 ) p_sys->i_box_start--;
-                ReturnTrue;
+                goto end;
             case KEY_DOWN:
                 if( p_sys->i_box_start < p_sys->i_box_lines_total - 1 )
                 {
                     p_sys->i_box_start++;
                 }
-                ReturnTrue;
+                goto end;
             case KEY_PPAGE:
                 p_sys->i_box_start -= p_sys->i_box_lines;
                 if( p_sys->i_box_start < 0 ) p_sys->i_box_start = 0;
-                ReturnTrue;
+                goto end;
             case KEY_NPAGE:
                 p_sys->i_box_start += p_sys->i_box_lines;
                 if( p_sys->i_box_start >= p_sys->i_box_lines_total )
                 {
                     p_sys->i_box_start = p_sys->i_box_lines_total - 1;
                 }
-                ReturnTrue;
+                goto end;
             default:
                 break;
         }
@@ -853,24 +841,24 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
             case KEY_HOME:
                 p_sys->f_slider = 0;
                 ManageSlider( p_intf );
-                ReturnTrue;
+                goto end;
 #ifdef __FreeBSD__
             case KEY_SELECT:
 #endif
             case KEY_END:
                 p_sys->f_slider = 99.9;
                 ManageSlider( p_intf );
-                ReturnTrue;
+                goto end;
             case KEY_UP:
                 p_sys->f_slider += 5.0;
                 if( p_sys->f_slider >= 99.0 ) p_sys->f_slider = 99.0;
                 ManageSlider( p_intf );
-                ReturnTrue;
+                goto end;
             case KEY_DOWN:
                 p_sys->f_slider -= 5.0;
                 if( p_sys->f_slider < 0.0 ) p_sys->f_slider = 0.0;
                 ManageSlider( p_intf );
-                ReturnTrue;
+                goto end;
 
             default:
                 break;
@@ -884,7 +872,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
             case KEY_CLEAR:
             case 0x0c:      /* ^l */
                 clear();
-                ReturnTrue;
+                goto end;
             case KEY_ENTER:
             case '\r':
             case '\n':
@@ -897,7 +885,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                     SearchPlaylist( p_intf, p_sys->psz_old_search );
                 }
                 p_sys->i_box_type = BOX_PLAYLIST;
-                ReturnTrue;
+                goto end;
             case 0x1b: /* ESC */
                 /* Alt+key combinations return 2 keys in the terminal keyboard:
                  * ESC, and the 2nd key.
@@ -914,10 +902,13 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                  *
                  */
                 if( wgetch( p_sys->w ) != ERR )
-                    ReturnFalse;
+                {
+                    i_ret = 0;
+                    goto end;
+                }
                 p_sys->i_box_plidx = p_sys->i_before_search;
                 p_sys->i_box_type = BOX_PLAYLIST;
-                ReturnTrue;
+                goto end;
             case KEY_BACKSPACE:
             case 0x7f:
                 RemoveLastUTF8Entity( p_sys->psz_search_chain, i_chain_len );
@@ -949,7 +940,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
         free( p_sys->psz_old_search );
         p_sys->psz_old_search = NULL;
         SearchPlaylist( p_intf, p_sys->psz_search_chain );
-        ReturnTrue;
+        goto end;
     }
     else if( p_sys->i_box_type == BOX_OPEN && p_sys->psz_open_chain )
     {
@@ -960,7 +951,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
             case KEY_CLEAR:
             case 0x0c:          /* ^l */
                 clear();
-                ReturnTrue;
+                break;
             case KEY_ENTER:
             case '\r':
             case '\n':
@@ -968,6 +959,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                 {
                     playlist_item_t *p_parent = p_sys->p_node;
 
+                    PL_LOCK;
                     if( !p_parent )
                     p_parent = playlist_CurrentPlayingItem(p_playlist) ? playlist_CurrentPlayingItem(p_playlist)->p_parent : NULL;
                     if( !p_parent )
@@ -975,6 +967,7 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
 
                     while( p_parent->p_parent && p_parent->p_parent->p_parent )
                         p_parent = p_parent->p_parent;
+                    PL_UNLOCK;
 
                     playlist_Add( p_playlist, p_sys->psz_open_chain, NULL,
                                   PLAYLIST_APPEND|PLAYLIST_GO, PLAYLIST_END,
@@ -985,12 +978,15 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                     p_sys->b_box_plidx_follow = true;
                 }
                 p_sys->i_box_type = BOX_PLAYLIST;
-                ReturnTrue;
+                break;
             case 0x1b:  /* ESC */
                 if( wgetch( p_sys->w ) != ERR )
-                    ReturnFalse;
+                {
+                    i_ret = 0;
+                    break;
+                }
                 p_sys->i_box_type = BOX_PLAYLIST;
-                ReturnTrue;
+                break;
             case KEY_BACKSPACE:
             case 0x7f:
                 RemoveLastUTF8Entity( p_sys->psz_open_chain, i_chain_len );
@@ -1016,10 +1012,9 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                     free( psz_utf8 );
                 }
 #endif
-                break;
             }
         }
-        ReturnTrue;
+        goto end;
     }
 
 
@@ -1028,12 +1023,16 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
     {
         case 0x1b:  /* ESC */
             if( wgetch( p_sys->w ) != ERR )
-                ReturnFalse;
+            {
+                i_ret = 0;
+                break;
+            }
         case 'q':
         case 'Q':
         case KEY_EXIT:
             libvlc_Quit( p_intf->p_libvlc );
-            ReturnFalse;
+            i_ret = 0;
+            break;
 
         /* Box switching */
         case 'i':
@@ -1042,49 +1041,49 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
             else
                 p_sys->i_box_type = BOX_INFO;
             p_sys->i_box_lines_total = 0;
-            ReturnTrue;
+            break;
         case 'm':
             if( p_sys->i_box_type == BOX_META )
                 p_sys->i_box_type = BOX_NONE;
             else
                 p_sys->i_box_type = BOX_META;
             p_sys->i_box_lines_total = 0;
-            ReturnTrue;
+            break;
         case 'L':
             if( p_sys->i_box_type == BOX_LOG )
                 p_sys->i_box_type = BOX_NONE;
             else
                 p_sys->i_box_type = BOX_LOG;
-            ReturnTrue;
+            break;
         case 'P':
             if( p_sys->i_box_type == BOX_PLAYLIST )
                 p_sys->i_box_type = BOX_NONE;
             else
                 p_sys->i_box_type = BOX_PLAYLIST;
-            ReturnTrue;
+            break;
         case 'B':
             if( p_sys->i_box_type == BOX_BROWSE )
                 p_sys->i_box_type = BOX_NONE;
             else
                 p_sys->i_box_type = BOX_BROWSE;
-            ReturnTrue;
+            break;
         case 'x':
             if( p_sys->i_box_type == BOX_OBJECTS )
                 p_sys->i_box_type = BOX_NONE;
             else
                 p_sys->i_box_type = BOX_OBJECTS;
-            ReturnTrue;
+            break;
         case 'S':
             if( p_sys->i_box_type == BOX_STATS )
                 p_sys->i_box_type = BOX_NONE;
             else
                 p_sys->i_box_type = BOX_STATS;
-            ReturnTrue;
+            break;
         case 'c':
             p_sys->b_color = !p_sys->b_color;
             if( p_sys->b_color && !p_sys->b_color_started )
                 start_color_and_pairs( p_intf );
-            ReturnTrue;
+            break;
         case 'h':
         case 'H':
             if( p_sys->i_box_type == BOX_HELP )
@@ -1092,40 +1091,42 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
             else
                 p_sys->i_box_type = BOX_HELP;
             p_sys->i_box_lines_total = 0;
-            ReturnTrue;
+            break;
         case '/':
             if( p_sys->i_box_type != BOX_SEARCH )
             {
-                if( p_sys->psz_search_chain == NULL )
-                    ReturnTrue;
-                p_sys->psz_search_chain[0] = '\0';
-                p_sys->b_box_plidx_follow = false;
-                p_sys->i_before_search = p_sys->i_box_plidx;
-                p_sys->i_box_type = BOX_SEARCH;
+                if( p_sys->psz_search_chain )
+                {
+                    p_sys->psz_search_chain[0] = '\0';
+                    p_sys->b_box_plidx_follow = false;
+                    p_sys->i_before_search = p_sys->i_box_plidx;
+                    p_sys->i_box_type = BOX_SEARCH;
+                }
             }
-            ReturnTrue;
+            break;
         case 'A': /* Open */
             if( p_sys->i_box_type != BOX_OPEN )
             {
-                if( p_sys->psz_open_chain == NULL )
-                    ReturnTrue;
-                p_sys->psz_open_chain[0] = '\0';
-                p_sys->i_box_type = BOX_OPEN;
+                if( p_sys->psz_open_chain )
+                {
+                    p_sys->psz_open_chain[0] = '\0';
+                    p_sys->i_box_type = BOX_OPEN;
+                }
             }
-            ReturnTrue;
+            break;
 
         /* Navigation */
         case KEY_RIGHT:
             p_sys->f_slider += 1.0;
             if( p_sys->f_slider > 99.9 ) p_sys->f_slider = 99.9;
             ManageSlider( p_intf );
-            ReturnTrue;
+            break;
 
         case KEY_LEFT:
             p_sys->f_slider -= 1.0;
             if( p_sys->f_slider < 0.0 ) p_sys->f_slider = 0.0;
             ManageSlider( p_intf );
-            ReturnTrue;
+            break;
 
         /* Common control */
         case 'f':
@@ -1137,72 +1138,69 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
                                           VLC_OBJECT_VOUT, FIND_CHILD );
                 if( p_vout )
                 {
-                    var_Get( p_vout, "fullscreen", &val );
-                    val.b_bool = !val.b_bool;
-                    var_Set( p_vout, "fullscreen", val );
+                    var_ToggleBool( p_vout, "fullscreen" );
                     vlc_object_release( p_vout );
                 }
                 else
                 {
-                    var_Get( p_playlist, "fullscreen", &val );
-                    val.b_bool = !val.b_bool;
-                    var_Set( p_playlist, "fullscreen", val );
+                    var_ToggleBool( p_playlist, "fullscreen" );
                 }
             }
-            ReturnFalse;
+            i_ret = 0;
+            break;
         }
 
         case ' ':
             PlayPause( p_intf );
-            ReturnTrue;
+            break;
 
         case 's':
             playlist_Stop( p_playlist );
-            ReturnTrue;
+            break;
 
         case 'e':
             Eject( p_intf );
-            ReturnTrue;
+            break;
 
         case '[':
             if( p_sys->p_input )
-                var_SetVoid( p_sys->p_input, "prev-title" );
-            ReturnTrue;
+                var_TriggerCallback( p_sys->p_input, "prev-title" );
+            break;
 
         case ']':
             if( p_sys->p_input )
-                var_SetVoid( p_sys->p_input, "next-title" );
-            ReturnTrue;
+                var_TriggerCallback( p_sys->p_input, "next-title" );
+            break;
 
         case '<':
             if( p_sys->p_input )
-                var_SetVoid( p_sys->p_input, "prev-chapter" );
-            ReturnTrue;
+                var_TriggerCallback( p_sys->p_input, "prev-chapter" );
+            break;
 
         case '>':
             if( p_sys->p_input )
-                var_SetVoid( p_sys->p_input, "next-chapter" );
-            ReturnTrue;
+                var_TriggerCallback( p_sys->p_input, "next-chapter" );
+            break;
 
         case 'p':
             playlist_Prev( p_playlist );
             clear();
-            ReturnTrue;
+            break;
 
         case 'n':
             playlist_Next( p_playlist );
             clear();
-            ReturnTrue;
+            break;
 
         case 'a':
-            aout_VolumeUp( p_intf, 1, NULL );
+            aout_VolumeUp( p_playlist, 1, NULL );
             clear();
-            ReturnTrue;
+            break;
 
         case 'z':
-            aout_VolumeDown( p_intf, 1, NULL );
+            aout_VolumeDown( p_playlist, 1, NULL );
             clear();
-            ReturnTrue;
+            break;
 
         /*
          * ^l should clear and redraw the screen
@@ -1210,13 +1208,15 @@ static int HandleKey( intf_thread_t *p_intf, int i_key )
         case KEY_CLEAR:
         case 0x0c:          /* ^l */
             clear();
-            ReturnTrue;
+            break;
 
         default:
-            ReturnFalse;
+            i_ret = 0;
     }
-#undef ReturnFalse
-#undef ReturnTrue
+
+end:
+    pl_Release( p_intf );
+    return i_ret;
 }
 
 static void ManageSlider( intf_thread_t *p_intf )
@@ -1453,10 +1453,13 @@ static void MainBoxWrite( intf_thread_t *p_intf, int l, int x, const char *p_fmt
 
 static void DumpObject( intf_thread_t *p_intf, int *l, vlc_object_t *p_obj, int i_level )
 {
-    if( p_obj->psz_object_name )
+    char *psz_name = vlc_object_get_name( p_obj );
+    if( psz_name )
+    {
         MainBoxWrite( p_intf, (*l)++, 1 + 2 * i_level, "%s \"%s\" (%p)",
-                p_obj->psz_object_type, p_obj->psz_object_name,
-                p_obj );
+                p_obj->psz_object_type, psz_name, p_obj );
+        free( psz_name );
+    }
     else
         MainBoxWrite( p_intf, (*l)++, 1 + 2 * i_level, "%s (%o)",
                 p_obj->psz_object_type, p_obj );
@@ -1547,7 +1550,7 @@ static void Redraw( intf_thread_t *p_intf, time_t *t_last_refresh )
             mvnprintw( y++, 0, COLS, _(" Position : %s/%s (%.2f%%)"), buf1, buf2, p_sys->f_slider );
 
             /* Volume */
-            aout_VolumeGet( p_intf, &i_volume );
+            aout_VolumeGet( p_playlist, &i_volume );
             mvnprintw( y++, 0, COLS, _(" Volume   : %i%%"), i_volume*200/AOUT_VOLUME_MAX );
 
             /* Title */
@@ -2144,9 +2147,11 @@ static void Redraw( intf_thread_t *p_intf, time_t *t_last_refresh )
             input_thread_t *p_input2 = playlist_CurrentInput( p_playlist );
 
             PL_LOCK;
+            assert( p_item );
+            playlist_item_t *p_current_playing_item = playlist_CurrentPlayingItem(p_playlist);
             if( ( p_node && p_item->p_input == p_node->p_input ) ||
-                        ( !p_node && p_input2 &&
-                          p_item->p_input == playlist_CurrentPlayingItem(p_playlist)->p_input ) )
+                        ( !p_node && p_input2 && p_current_playing_item &&
+                          p_item->p_input == p_current_playing_item->p_input ) )
                 c = '*';
             else if( p_item == p_node || ( p_item != p_node &&
                         PlaylistIsPlaying( p_playlist, p_item ) ) )
@@ -2449,7 +2454,6 @@ static void Eject( intf_thread_t *p_intf )
     }
 
     /* Remove what we have after @ */
-    psz_parser = psz_device;
     for( psz_parser = psz_device ; *psz_parser ; psz_parser++ )
     {
         if( *psz_parser == '@' )

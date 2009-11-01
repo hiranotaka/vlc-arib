@@ -21,10 +21,23 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#include "libvlc_internal.h"
-#include <vlc/libvlc.h>
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
 #include <assert.h>
-#include "vlc_arrays.h"
+
+#include <vlc/libvlc.h>
+#include <vlc/libvlc_media.h>
+#include <vlc/libvlc_media_list.h>
+#include <vlc/libvlc_events.h>
+
+#include <vlc_common.h>
+#include <vlc_input.h>
+
+#include "libvlc_internal.h"
+#include "media_internal.h" // libvlc_media_new_from_input_item()
+#include "media_list_internal.h"
 
 typedef enum EventPlaceInTime {
     EventWillHappen,
@@ -121,7 +134,8 @@ int mlist_is_writable( libvlc_media_list_t *p_mlist, libvlc_exception_t *p_e )
     if( !p_mlist||p_mlist->b_read_only )
     {
         /* We are read-only from user side */
-        libvlc_exception_raise( p_e, "Cannot write to read-only media list." );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Attempt to write a read-only media list" );
         return 0;
     }
     return 1;
@@ -246,7 +260,8 @@ libvlc_media_list_add_file_content( libvlc_media_list_t * p_mlist,
 
     if( !p_input_item )
     {
-        libvlc_exception_raise( p_e, "Can't create an input item" );
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Not enough memory" );
         return;
     }
 
@@ -264,7 +279,7 @@ libvlc_media_list_add_file_content( libvlc_media_list_t * p_mlist,
     if( libvlc_exception_raised( p_e ) )
         return;
 
-    input_Read( p_mlist->p_libvlc_instance->p_libvlc_int, p_input_item, true );
+    input_Read( p_mlist->p_libvlc_instance->p_libvlc_int, p_input_item );
 
     return;
 }
@@ -404,7 +419,8 @@ void _libvlc_media_list_remove_index( libvlc_media_list_t * p_mlist,
 
     if( index < 0 || index >= vlc_array_count( &p_mlist->items ))
     {
-        libvlc_exception_raise( p_e, "Index out of bounds");
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Index out of bounds" );
         return;
     }
 
@@ -431,7 +447,8 @@ libvlc_media_list_item_at_index( libvlc_media_list_t * p_mlist,
 
     if( index < 0 || index >= vlc_array_count( &p_mlist->items ))
     {
-        libvlc_exception_raise( p_e, "Index out of bounds");
+        libvlc_exception_raise( p_e );
+        libvlc_printerr( "Index out of bounds" );
         return NULL;
     }
 

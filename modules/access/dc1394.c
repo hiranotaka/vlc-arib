@@ -34,7 +34,7 @@
 #include <vlc_plugin.h>
 #include <vlc_input.h>
 #include <vlc_demux.h>
-
+#include <vlc_charset.h>
 
 #ifdef HAVE_FCNTL_H
 #   include <fcntl.h>
@@ -545,7 +545,7 @@ static void OpenAudioDev( demux_t *p_demux )
     int i_format = AFMT_S16_LE;
     int result;
 
-    p_sys->fd_audio = open( psz_device, O_RDONLY | O_NONBLOCK );
+    p_sys->fd_audio = utf8_open( psz_device, O_RDONLY | O_NONBLOCK );
     if( p_sys->fd_audio  < 0 )
     {
         msg_Err( p_demux, "cannot open audio device (%s)", psz_device );
@@ -799,9 +799,6 @@ static int Demux( demux_t *p_demux )
  *****************************************************************************/
 static int Control( demux_t *p_demux, int i_query, va_list args )
 {
-    bool *pb;
-    int64_t    *pi64;
-
     switch( i_query )
     {
         /* Special for access_demux */
@@ -809,18 +806,15 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         case DEMUX_CAN_SEEK:
         case DEMUX_SET_PAUSE_STATE:
         case DEMUX_CAN_CONTROL_PACE:
-            pb = (bool*)va_arg( args, bool * );
-            *pb = false;
+            *va_arg( args, bool * ) = false;
             return VLC_SUCCESS;
 
         case DEMUX_GET_PTS_DELAY:
-            pi64 = (int64_t*)va_arg( args, int64_t * );
-            *pi64 = (int64_t)DEFAULT_PTS_DELAY;
+            *va_arg( args, int64_t * ) = (int64_t)DEFAULT_PTS_DELAY;
             return VLC_SUCCESS;
 
         case DEMUX_GET_TIME:
-            pi64 = (int64_t*)va_arg( args, int64_t * );
-            *pi64 = mdate();
+            *va_arg( args, int64_t * ) = mdate();
             return VLC_SUCCESS;
 
         /* TODO implement others */

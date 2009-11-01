@@ -255,20 +255,29 @@ void ExtVideo::ChangeVFiltersString( const char *psz_name, bool b_add )
     char *psz_parser, *psz_string;
     const char *psz_filter_type;
 
-    module_t *p_obj = module_find( psz_name );
+    /* FIXME temporary hack */
+    const char *psz_module_name = psz_name;
+    if( !strcmp( psz_name, "magnify" ) ||
+        !strcmp( psz_name, "puzzle" ) ||
+        !strcmp( psz_name, "logo" ) ||
+        !strcmp( psz_name, "wall" ) ||
+        !strcmp( psz_name, "clone" ) )
+        psz_module_name = "video_filter_wrapper";
+
+    module_t *p_obj = module_find( psz_module_name );
     if( !p_obj )
     {
         msg_Err( p_intf, "Unable to find filter module \"%s\".", psz_name );
         return;
     }
 
-    if( module_provides( p_obj, "video filter2" ) )
-    {
-        psz_filter_type = "video-filter";
-    }
-    else if( module_provides( p_obj, "video filter" ) )
+    if( module_provides( p_obj, "video filter" ) )
     {
         psz_filter_type = "vout-filter";
+    }
+    else if( module_provides( p_obj, "video filter2" ) )
+    {
+        psz_filter_type = "video-filter";
     }
     else if( module_provides( p_obj, "sub filter" ) )
     {
@@ -347,7 +356,7 @@ void ExtVideo::ChangeVFiltersString( const char *psz_name, bool b_add )
     if( p_vout )
     {
         if( !strcmp( psz_filter_type, "sub-filter" ) )
-            var_SetString( p_vout->p_spu, psz_filter_type, psz_string );
+            var_SetString( vout_GetSpu( p_vout ), psz_filter_type, psz_string );
         else
             var_SetString( p_vout, psz_filter_type, psz_string );
         vlc_object_release( p_vout );
@@ -417,7 +426,7 @@ void ExtVideo::setWidgetValue( QObject *widget )
                  "Module instance %s not found, looking in config values.",
                  qtu( module ) );
 #endif
-        i_type = config_GetType( p_intf, qtu( option ) ) & 0xf0;
+        i_type = config_GetType( p_intf, qtu( option ) ) & VLC_VAR_CLASS;
         switch( i_type )
         {
             case VLC_VAR_INTEGER:
@@ -434,7 +443,7 @@ void ExtVideo::setWidgetValue( QObject *widget )
     }
     else
     {
-        i_type = var_Type( p_obj, qtu( option ) ) & 0xf0;
+        i_type = var_Type( p_obj, qtu( option ) ) & VLC_VAR_CLASS;
         var_Get( p_obj, qtu( option ), &val );
         vlc_object_release( p_obj );
     }
@@ -531,7 +540,7 @@ void ExtVideo::updateFilterOptions()
     QLineEdit      *lineedit      = qobject_cast<QLineEdit*>     ( sender() );
     QComboBox      *combobox      = qobject_cast<QComboBox*>     ( sender() );
 
-    i_type &= 0xf0;
+    i_type &= VLC_VAR_CLASS;
     if( i_type == VLC_VAR_INTEGER || i_type == VLC_VAR_BOOL )
     {
         int i_int = 0;
@@ -794,7 +803,7 @@ void ExtV4l2::ValueChange( int value )
                 var_SetBool( p_obj, psz_var, value );
                 break;
             case VLC_VAR_VOID:
-                var_SetVoid( p_obj, psz_var );
+                var_TriggerCallback( p_obj, psz_var );
                 break;
         }
         free( psz_var );
@@ -914,12 +923,9 @@ void Equalizer::updateUIFromCore()
 void Equalizer::enable()
 {
     bool en = ui.enableCheck->isChecked();
-    aout_EnableFilter( VLC_OBJECT( p_intf ), "equalizer",
-                       en ? true : false );
-//    aout_EnableFilter( VLC_OBJECT( p_intf ), "upmixer",
-//                       en ? true : false );
-//     aout_EnableFilter( VLC_OBJECT( p_intf ), "vsurround",
-//                       en ? true : false );
+    aout_EnableFilter( THEPL, "equalizer", en );
+//    aout_EnableFilter( THEPL, "upmixer", en );
+//     aout_EnableFilter( THEPL, "vsurround", en );
     enable( en );
 
     if( presetsComboBox->currentIndex() < 0 )
@@ -946,18 +952,12 @@ void Equalizer::set2Pass()
     aout_instance_t *p_aout= THEMIM->getAout();
     bool b_2p = ui.eq2PassCheck->isChecked();
 
-    if( p_aout == NULL )
-        config_PutInt( p_intf, "equalizer-2pass", b_2p );
-    else
+    if( p_aout )
     {
         var_SetBool( p_aout, "equalizer-2pass", b_2p );
-        config_PutInt( p_intf, "equalizer-2pass", b_2p );
-        for( int i = 0; i < p_aout->i_nb_inputs; i++ )
-        {
-            p_aout->pp_inputs[i]->b_restart = true;
-        }
         vlc_object_release( p_aout );
     }
+    config_PutInt( p_intf, "equalizer-2pass", b_2p );
 }
 
 /* Function called when the preamp slider is moved */
@@ -1036,7 +1036,6 @@ void Equalizer::updateUISliderValues( int i_preset )
 
 char * Equalizer::createValuesFromPreset( int i_preset )
 {
-    char *psz_values;
     QString values;
 
     /* Create the QString in Qt */
@@ -1044,10 +1043,7 @@ char * Equalizer::createValuesFromPreset( int i_preset )
         values += QString( " %1" ).arg( eqz_preset_10b[i_preset]->f_amp[i] );
 
     /* Convert it to char * */
-    if( !asprintf( &psz_values, "%s", values.toAscii().constData() ) )
-        return NULL;
-
-    return psz_values;
+    return strdup( values.toAscii().constData() );
 }
 
 void Equalizer::setCorePreset( int i_preset )
@@ -1339,7 +1335,7 @@ SyncControls::SyncControls( intf_thread_t *_p_intf, QWidget *_parent ) :
 
     QLabel *subSpeedLabel = new QLabel;
     subSpeedLabel->setText( qtr( "Speed of the subtitles:" ) );
-    subsLayout->addWidget( subSpeedLabel, 1, 0, 1, 3 );
+    subsLayout->addWidget( subSpeedLabel, 1, 0, 1, 1 );
 
     subSpeedSpin = new QDoubleSpinBox;
     subSpeedSpin->setAlignment( Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter );

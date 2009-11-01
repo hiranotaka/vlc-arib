@@ -75,10 +75,6 @@
 #   include <dbus/dbus.h>
 #endif
 
-#ifdef HAVE_HAL
-#   include <hal/libhal.h>
-#endif
-
 #include <vlc_playlist.h>
 #include <vlc_interface.h>
 
@@ -86,6 +82,8 @@
 #include "audio_output/aout_internal.h"
 
 #include <vlc_charset.h>
+#include <vlc_cpu.h>
+#include <vlc_url.h>
 
 #include "libvlc.h"
 
@@ -195,7 +193,7 @@ void vlc_release (gc_object_t *p_gc)
     assert (refs != (uintptr_t)(-1)); /* reference underflow?! */
     if (refs == 0)
     {
-#ifdef USE_SYNC
+#if defined (__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
 #elif defined (WIN32) && defined (__GNUC__)
 #elif defined(__APPLE__)
 #else
@@ -224,8 +222,6 @@ static void ShowConsole   ( bool );
 static void PauseConsole  ( void );
 #endif
 static int  ConsoleWidth  ( void );
-
-static void InitDeviceValues( libvlc_int_t * );
 
 static vlc_mutex_t global_lock = VLC_STATIC_MUTEX;
 
@@ -263,7 +259,6 @@ libvlc_int_t * libvlc_InternalCreate( void )
     priv->p_playlist = NULL;
     priv->p_dialog_provider = NULL;
     priv->p_vlm = NULL;
-    p_libvlc->psz_object_name = strdup( "libvlc" );
 
     /* Initialize message queue */
     msg_Create( p_libvlc );
@@ -299,7 +294,6 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
                          const char *ppsz_argv[] )
 {
     libvlc_priv_t *priv = libvlc_priv (p_libvlc);
-    char         p_capabilities[200];
     char *       p_tmp = NULL;
     char *       psz_modules = NULL;
     char *       psz_parser = NULL;
@@ -307,7 +301,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     bool   b_exit = false;
     int          i_ret = VLC_EEXIT;
     playlist_t  *p_playlist = NULL;
-    vlc_value_t  val;
+    char        *psz_val;
 #if defined( ENABLE_NLS ) \
      && ( defined( HAVE_GETTEXT ) || defined( HAVE_INCLUDED_GETTEXT ) )
 # if defined (WIN32) || defined (__APPLE__)
@@ -543,11 +537,6 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     }
 
     /*
-     * Init device values
-     */
-    InitDeviceValues( p_libvlc );
-
-    /*
      * Override default configuration with config file settings
      */
     if( !config_GetInt( p_libvlc, "ignore-config" ) )
@@ -641,7 +630,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
                     {
                         msg_Err( p_libvlc, "D-Bus problem" );
                         system_End( p_libvlc );
-                        exit( VLC_ETIMEOUT );
+                        exit( 1 );
                     }
 
                     /* append MRLs */
@@ -651,7 +640,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
                     {
                         dbus_message_unref( p_dbus_msg );
                         system_End( p_libvlc );
-                        exit( VLC_ENOMEM );
+                        exit( 1 );
                     }
                     b_play = TRUE;
                     if( config_GetInt( p_libvlc, "playlist-enqueue" ) > 0 )
@@ -661,7 +650,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
                     {
                         dbus_message_unref( p_dbus_msg );
                         system_End( p_libvlc );
-                        exit( VLC_ENOMEM );
+                        exit( 1 );
                     }
 
                     /* send message and get a handle for a reply */
@@ -671,7 +660,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
                         msg_Err( p_libvlc, "D-Bus problem" );
                         dbus_message_unref( p_dbus_msg );
                         system_End( p_libvlc );
-                        exit( VLC_ETIMEOUT );
+                        exit( 1 );
                     }
 
                     if ( NULL == p_dbus_pending )
@@ -679,7 +668,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
                         msg_Err( p_libvlc, "D-Bus problem" );
                         dbus_message_unref( p_dbus_msg );
                         system_End( p_libvlc );
-                        exit( VLC_ETIMEOUT );
+                        exit( 1 );
                     }
                     dbus_connection_flush( p_conn );
                     dbus_message_unref( p_dbus_msg );
@@ -690,7 +679,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
 
                 /* bye bye */
                 system_End( p_libvlc );
-                exit( VLC_SUCCESS );
+                exit( 0 );
             }
         }
         /* we unreference the connection when we've finished with it */
@@ -733,12 +722,20 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
         var_SetInteger( p_libvlc, "verbose", -1 );
         priv->i_verbose = -1;
     }
+    vlc_threads_setup( p_libvlc );
 
     if( priv->b_color )
         priv->b_color = config_GetInt( p_libvlc, "color" ) > 0;
 
-    if( !config_GetInt( p_libvlc, "fpu" ) )
-        cpu_flags &= ~CPU_CAPABILITY_FPU;
+    char p_capabilities[200];
+#define PRINT_CAPABILITY( capability, string )                              \
+    if( vlc_CPU() & capability )                                            \
+    {                                                                       \
+        strncat( p_capabilities, string " ",                                \
+                 sizeof(p_capabilities) - strlen(p_capabilities) );         \
+        p_capabilities[sizeof(p_capabilities) - 1] = '\0';                  \
+    }
+    p_capabilities[0] = '\0';
 
 #if defined( __i386__ ) || defined( __x86_64__ )
     if( !config_GetInt( p_libvlc, "mmx" ) )
@@ -751,37 +748,41 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
         cpu_flags &= ~CPU_CAPABILITY_SSE;
     if( !config_GetInt( p_libvlc, "sse2" ) )
         cpu_flags &= ~CPU_CAPABILITY_SSE2;
-#endif
-#if defined( __powerpc__ ) || defined( __ppc__ ) || defined( __ppc64__ )
-    if( !config_GetInt( p_libvlc, "altivec" ) )
-        cpu_flags &= ~CPU_CAPABILITY_ALTIVEC;
-#endif
+    if( !config_GetInt( p_libvlc, "sse3" ) )
+        cpu_flags &= ~CPU_CAPABILITY_SSE3;
 
-#define PRINT_CAPABILITY( capability, string )                              \
-    if( vlc_CPU() & capability )                                            \
-    {                                                                       \
-        strncat( p_capabilities, string " ",                                \
-                 sizeof(p_capabilities) - strlen(p_capabilities) );         \
-        p_capabilities[sizeof(p_capabilities) - 1] = '\0';                  \
-    }
-
-    p_capabilities[0] = '\0';
-    PRINT_CAPABILITY( CPU_CAPABILITY_486, "486" );
-    PRINT_CAPABILITY( CPU_CAPABILITY_586, "586" );
-    PRINT_CAPABILITY( CPU_CAPABILITY_PPRO, "Pentium Pro" );
     PRINT_CAPABILITY( CPU_CAPABILITY_MMX, "MMX" );
     PRINT_CAPABILITY( CPU_CAPABILITY_3DNOW, "3DNow!" );
     PRINT_CAPABILITY( CPU_CAPABILITY_MMXEXT, "MMXEXT" );
     PRINT_CAPABILITY( CPU_CAPABILITY_SSE, "SSE" );
     PRINT_CAPABILITY( CPU_CAPABILITY_SSE2, "SSE2" );
+    PRINT_CAPABILITY( CPU_CAPABILITY_SSE3, "SSE3" );
+
+#elif defined( __powerpc__ ) || defined( __ppc__ ) || defined( __ppc64__ )
+    if( !config_GetInt( p_libvlc, "altivec" ) )
+        cpu_flags &= ~CPU_CAPABILITY_ALTIVEC;
+
     PRINT_CAPABILITY( CPU_CAPABILITY_ALTIVEC, "AltiVec" );
-    PRINT_CAPABILITY( CPU_CAPABILITY_FPU, "FPU" );
+
+#elif defined( __arm__ )
+    PRINT_CAPABILITY( CPU_CAPABILITY_NEON, "NEONv1" );
+
+#endif
+
+#if HAVE_FPU
+    strncat( p_capabilities, "FPU ",
+             sizeof(p_capabilities) - strlen( p_capabilities) );
+    p_capabilities[sizeof(p_capabilities) - 1] = '\0';
+#endif
+
     msg_Dbg( p_libvlc, "CPU has capabilities %s", p_capabilities );
 
     /*
      * Choose the best memcpy module
      */
     priv->p_memcpy_module = module_need( p_libvlc, "memcpy", "$memcpy", false );
+    /* Avoid being called "memcpy":*/
+    vlc_object_set_name( p_libvlc, "main" );
 
     priv->b_stats = config_GetInt( p_libvlc, "stats" ) > 0;
     priv->i_timers = 0;
@@ -813,6 +814,10 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
         var_AddCallback( p_libvlc, "key-pressed", vlc_key_to_action,
                          p_keys );
     }
+
+    /* variables for signalling creation of new files */
+    var_Create( p_libvlc, "snapshot-file", VLC_VAR_STRING );
+    var_Create( p_libvlc, "record-file", VLC_VAR_STRING );
 
     /* Initialize playlist and get commandline files */
     p_playlist = playlist_Create( VLC_OBJECT(p_libvlc) );
@@ -854,6 +859,10 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     /*
      * Load background interfaces
      */
+    /* Create volume callback system. (this variable must be created before
+       all interfaces as they can use it) */
+    var_Create( p_libvlc, "volume-change", VLC_VAR_BOOL );
+
     psz_modules = config_GetPsz( p_libvlc, "extraintf" );
     psz_control = config_GetPsz( p_libvlc, "control" );
 
@@ -885,7 +894,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
         }
         if( asprintf( &psz_temp, "%s,none", psz_module ) != -1)
         {
-            libvlc_InternalAddIntf( p_libvlc, psz_temp );
+            intf_Create( p_libvlc, psz_temp );
             free( psz_temp );
         }
     }
@@ -895,7 +904,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     /*
      * Always load the hotkeys interface if it exists
      */
-    libvlc_InternalAddIntf( p_libvlc, "hotkeys,none" );
+    intf_Create( p_libvlc, "hotkeys,none" );
 
 #ifdef HAVE_DBUS
     /* loads dbus control interface if in one-instance mode
@@ -903,36 +912,27 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     if( config_GetInt( p_libvlc, "one-instance" ) > 0
         || ( config_GetInt( p_libvlc, "one-instance-when-started-from-file" )
              && config_GetInt( p_libvlc, "started-from-file" ) ) )
-        libvlc_InternalAddIntf( p_libvlc, "dbus,none" );
+        intf_Create( p_libvlc, "dbus,none" );
 
+# if !defined (HAVE_MAEMO)
     /* Prevents the power management daemon from suspending the system
      * when VLC is active */
     if( config_GetInt( p_libvlc, "inhibit" ) > 0 )
-        libvlc_InternalAddIntf( p_libvlc, "inhibit,none" );
-#endif
-
-    /*
-     * If needed, load the Xscreensaver interface
-     * Currently, only for X
-     */
-#ifdef HAVE_X11_XLIB_H
-    if( config_GetInt( p_libvlc, "disable-screensaver" ) )
-    {
-        libvlc_InternalAddIntf( p_libvlc, "screensaver,none" );
-    }
+        intf_Create( p_libvlc, "inhibit,none" );
+# endif
 #endif
 
     if( (config_GetInt( p_libvlc, "file-logging" ) > 0) &&
         !config_GetInt( p_libvlc, "syslog" ) )
     {
-        libvlc_InternalAddIntf( p_libvlc, "logger,none" );
+        intf_Create( p_libvlc, "logger,none" );
     }
 #ifdef HAVE_SYSLOG_H
     if( config_GetInt( p_libvlc, "syslog" ) > 0 )
     {
         char *logmode = var_CreateGetString( p_libvlc, "logmode" );
         var_SetString( p_libvlc, "logmode", "syslog" );
-        libvlc_InternalAddIntf( p_libvlc, "logger,none" );
+        intf_Create( p_libvlc, "logger,none" );
 
         if( logmode )
         {
@@ -944,14 +944,9 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     }
 #endif
 
-    if( config_GetInt( p_libvlc, "show-intf" ) > 0 )
-    {
-        libvlc_InternalAddIntf( p_libvlc, "showintf,none" );
-    }
-
     if( config_GetInt( p_libvlc, "network-synchronisation") > 0 )
     {
-        libvlc_InternalAddIntf( p_libvlc, "netsync,none" );
+        intf_Create( p_libvlc, "netsync,none" );
     }
 
 #ifdef WIN32
@@ -982,13 +977,12 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     var_Create( p_libvlc, "drawable-clip-bottom", VLC_VAR_INTEGER );
     var_Create( p_libvlc, "drawable-clip-right", VLC_VAR_INTEGER );
 
-    /* Create volume callback system. */
-    var_Create( p_libvlc, "volume-change", VLC_VAR_BOOL );
 
-    /* Create a variable for showing the interface (moved from playlist). */
+    /* Create a variable for showing the fullscreen interface from hotkeys */
     var_Create( p_libvlc, "intf-show", VLC_VAR_BOOL );
     var_SetBool( p_libvlc, "intf-show", true );
 
+    /* Create a variable for showing the right click menu */
     var_Create( p_libvlc, "intf-popupmenu", VLC_VAR_BOOL );
 
     /*
@@ -999,16 +993,15 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     /*
      * Get --open argument
      */
-    var_Create( p_libvlc, "open", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
-    var_Get( p_libvlc, "open", &val );
-    if ( val.psz_string != NULL && *val.psz_string )
+    psz_val = var_CreateGetString( p_libvlc, "open" );
+    if ( psz_val != NULL && *psz_val )
     {
         playlist_t *p_playlist = pl_Hold( p_libvlc );
-        playlist_AddExt( p_playlist, val.psz_string, NULL, PLAYLIST_INSERT, 0,
+        playlist_AddExt( p_playlist, psz_val, NULL, PLAYLIST_INSERT, 0,
                          -1, 0, NULL, 0, true, pl_Unlocked );
         pl_Release( p_libvlc );
     }
-    free( val.psz_string );
+    free( psz_val );
 
     return VLC_SUCCESS;
 }
@@ -1032,14 +1025,8 @@ void libvlc_InternalCleanup( libvlc_int_t *p_libvlc )
 
     /* Ask the interfaces to stop and destroy them */
     msg_Dbg( p_libvlc, "removing all interfaces" );
-    intf_thread_t *p_intf;
-    while( (p_intf = vlc_object_find( p_libvlc, VLC_OBJECT_INTF, FIND_CHILD )) )
-    {
-        intf_StopThread( p_intf );
-        vlc_object_detach( p_intf );
-        vlc_object_release( p_intf ); /* for intf_Create() */
-        vlc_object_release( p_intf ); /* for vlc_object_find() */
-    }
+    libvlc_Quit( p_libvlc );
+    intf_DestroyAll( p_libvlc );
 
 #ifdef ENABLE_VLM
     /* Destroy VLM if created in libvlc_InternalInit */
@@ -1053,7 +1040,7 @@ void libvlc_InternalCleanup( libvlc_int_t *p_libvlc )
     /* Any thread still running must not assume pl_Hold() succeeds. */
     msg_Dbg( p_libvlc, "removing playlist" );
 
-    libvlc_priv(p_playlist->p_libvlc)->p_playlist = NULL;
+    libvlc_priv(p_libvlc)->p_playlist = NULL;
     barrier();  /* FIXME is that correct ? */
 
     vlc_object_release( p_playlist );
@@ -1138,9 +1125,6 @@ void libvlc_InternalDestroy( libvlc_int_t *p_libvlc )
  */
 int libvlc_InternalAddIntf( libvlc_int_t *p_libvlc, char const *psz_module )
 {
-    int i_err;
-    intf_thread_t *p_intf = NULL;
-
     if( !p_libvlc )
         return VLC_EGENERIC;
 
@@ -1164,25 +1148,14 @@ int libvlc_InternalAddIntf( libvlc_int_t *p_libvlc, char const *psz_module )
     }
 
     /* Try to create the interface */
-    p_intf = intf_Create( p_libvlc, psz_module ? psz_module : "$intf" );
-    if( p_intf == NULL )
+    if( intf_Create( p_libvlc, psz_module ? psz_module : "$intf" ) )
     {
         msg_Err( p_libvlc, "interface \"%s\" initialization failed",
-                 psz_module );
+                 psz_module ? psz_module : "default" );
         return VLC_EGENERIC;
     }
-
-    /* Try to run the interface */
-    i_err = intf_RunThread( p_intf );
-    if( i_err )
-    {
-        vlc_object_detach( p_intf );
-        vlc_object_release( p_intf );
-        return i_err;
-    }
-
     return VLC_SUCCESS;
-};
+}
 
 static vlc_mutex_t exit_lock = VLC_STATIC_MUTEX;
 
@@ -1314,13 +1287,16 @@ static int GetFilenames( libvlc_int_t *p_vlc, int i_argc, const char *ppsz_argv[
 
         /* TODO: write an internal function of this one, to avoid
          *       unnecessary lookups. */
+        char *mrl = make_URI( ppsz_argv[i_opt] );
+        if( !mrl )
+            continue;
 
         playlist_t *p_playlist = pl_Hold( p_vlc );
-        playlist_AddExt( p_playlist, ppsz_argv[i_opt], NULL, PLAYLIST_INSERT,
-                         0, -1,
-                         i_options, ( i_options ? &ppsz_argv[i_opt + 1] : NULL ), VLC_INPUT_OPTION_TRUSTED,
-                         true, pl_Unlocked );
+        playlist_AddExt( p_playlist, mrl, NULL, PLAYLIST_INSERT,
+                0, -1, i_options, ( i_options ? &ppsz_argv[i_opt + 1] : NULL ),
+                VLC_INPUT_OPTION_TRUSTED, true, pl_Unlocked );
         pl_Release( p_vlc );
+        free( mrl );
     }
 
     return VLC_SUCCESS;
@@ -1336,6 +1312,38 @@ static inline void print_help_on_full_help( void )
     utf8_fprintf( stdout, "\n" );
     utf8_fprintf( stdout, "%s\n", _("To get exhaustive help, use '-H'.") );
 }
+
+static const char vlc_usage[] = N_(
+                            "Usage: %s [options] [stream] ..."
+                            "\nYou can specify multiple streams on the commandline. They will be enqueued in the playlist."
+                            "\nThe first item specified will be played first."
+                            "\n"
+                            "\nOptions-styles:"
+                            "\n  --option  A global option that is set for the duration of the program."
+                            "\n   -option  A single letter version of a global --option."
+                            "\n   :option  An option that only applies to the stream directly before it"
+                            "\n            and that overrides previous settings."
+                            "\n"
+                            "\nStream MRL syntax:"
+                            "\n  [[access][/demux]://]URL[@[title][:chapter][-[title][:chapter]]] [:option=value ...]"
+                            "\n"
+                            "\n  Many of the global --options can also be used as MRL specific :options."
+                            "\n  Multiple :option=value pairs can be specified."
+                            "\n"
+                            "\nURL syntax:"
+                            "\n  [file://]filename              Plain media file"
+                            "\n  http://ip:port/file            HTTP URL"
+                            "\n  ftp://ip:port/file             FTP URL"
+                            "\n  mms://ip:port/file             MMS URL"
+                            "\n  screen://                      Screen capture"
+                            "\n  [dvd://][device][@raw_device]  DVD device"
+                            "\n  [vcd://][device]               VCD device"
+                            "\n  [cdda://][device]              Audio CD device"
+                            "\n  udp://[[<source address>]@[<bind address>][:<bind port>]]"
+                            "\n                                 UDP stream sent by a streaming server"
+                            "\n  vlc://pause:<seconds>          Special item to pause the playlist for a certain time"
+                            "\n  vlc://quit                     Special item to quit VLC"
+                            "\n");
 
 static void Help( libvlc_int_t *p_this, char const *psz_help_name )
 {
@@ -1866,11 +1874,11 @@ static void Usage( libvlc_int_t *p_this, char const *psz_search )
     {
         if( b_color )
             utf8_fprintf( stdout, "\n" WHITE "%s" GRAY "\n",
-                       _( "No matching module found. Use --list or" \
+                       _( "No matching module found. Use --list or " \
                           "--list-verbose to list available modules." ) );
         else
             utf8_fprintf( stdout, "\n%s\n",
-                       _( "No matching module found. Use --list or" \
+                       _( "No matching module found. Use --list or " \
                           "--list-verbose to list available modules." ) );
     }
 
@@ -1966,11 +1974,13 @@ static void ListModules( libvlc_int_t *p_this, bool b_verbose )
  *****************************************************************************/
 static void Version( void )
 {
+    extern const char psz_vlc_changeset[];
 #ifdef WIN32
     ShowConsole( true );
 #endif
 
-    utf8_fprintf( stdout, _("VLC version %s\n"), VLC_Version() );
+    utf8_fprintf( stdout, _("VLC version %s (%s)\n"), VLC_Version(),
+                  psz_vlc_changeset );
     utf8_fprintf( stdout, _("Compiled by %s@%s.%s\n"),
              VLC_CompileBy(), VLC_CompileHost(), VLC_CompileDomain() );
     utf8_fprintf( stdout, _("Compiler: %s\n"), VLC_Compiler() );
@@ -2062,73 +2072,6 @@ static int ConsoleWidth( void )
 #endif
 
     return i_width;
-}
-
-/*****************************************************************************
- * InitDeviceValues: initialize device values
- *****************************************************************************
- * This function inits the dvd, vcd and cd-audio values
- *****************************************************************************/
-static void InitDeviceValues( libvlc_int_t *p_vlc )
-{
-#ifdef HAVE_HAL
-    LibHalContext * ctx = NULL;
-    int i, i_devices;
-    char **devices = NULL;
-    char *block_dev = NULL;
-    dbus_bool_t b_dvd;
-
-    DBusConnection *p_connection = NULL;
-    DBusError       error;
-
-    ctx = libhal_ctx_new();
-    if( !ctx ) return;
-    dbus_error_init( &error );
-    p_connection = dbus_bus_get ( DBUS_BUS_SYSTEM, &error );
-    if( dbus_error_is_set( &error ) || !p_connection )
-    {
-        libhal_ctx_free( ctx );
-        dbus_error_free( &error );
-        return;
-    }
-    libhal_ctx_set_dbus_connection( ctx, p_connection );
-    if( libhal_ctx_init( ctx, &error ) )
-    {
-        if( ( devices = libhal_get_all_devices( ctx, &i_devices, NULL ) ) )
-        {
-            for( i = 0; i < i_devices; i++ )
-            {
-                if( !libhal_device_property_exists( ctx, devices[i],
-                                                "storage.cdrom.dvd", NULL ) )
-                {
-                    continue;
-                }
-                b_dvd = libhal_device_get_property_bool( ctx, devices[ i ],
-                                                 "storage.cdrom.dvd", NULL  );
-                block_dev = libhal_device_get_property_string( ctx,
-                                devices[ i ], "block.device" , NULL );
-                if( b_dvd )
-                {
-                    config_PutPsz( p_vlc, "dvd", block_dev );
-                }
-
-                config_PutPsz( p_vlc, "vcd", block_dev );
-                config_PutPsz( p_vlc, "cd-audio", block_dev );
-                libhal_free_string( block_dev );
-            }
-            libhal_free_string_array( devices );
-        }
-        libhal_ctx_shutdown( ctx, NULL );
-        dbus_connection_unref( p_connection );
-        libhal_ctx_free( ctx );
-    }
-    else
-    {
-        msg_Warn( p_vlc, "Unable to get HAL device properties" );
-    }
-#else
-    (void)p_vlc;
-#endif /* HAVE_HAL */
 }
 
 #include <vlc_avcodec.h>

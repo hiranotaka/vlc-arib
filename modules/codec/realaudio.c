@@ -73,15 +73,19 @@ vlc_module_end ()
  * Local prototypes
  *****************************************************************************/
 static int  OpenDll( decoder_t * );
+#ifndef WIN32
 static int  OpenNativeDll( decoder_t *, char *, char * );
+#endif
+#if defined(LOADER) || defined(WIN32)
 static int  OpenWin32Dll( decoder_t *, char *, char * );
+#endif
 static void CloseDll( decoder_t * );
 
 static aout_buffer_t *Decode( decoder_t *, block_t ** );
 
 struct decoder_sys_t
 {
-    audio_date_t end_date;
+    date_t end_date;
 
     /* Output buffer */
     char *p_out;
@@ -152,8 +156,10 @@ typedef struct __attribute__((__packed__)) {
     void* extradata;
 } wra_init_t;
 
+#if 0 /* I have no idea what this is doing here */
 void *__builtin_new(unsigned long size) {return malloc(size);}
 void __builtin_delete(void *p) {free(p);}
+#endif
 
 static const int pi_channels_maps[7] =
 {
@@ -231,8 +237,8 @@ static int Open( vlc_object_t *p_this )
     p_dec->fmt_out.audio.i_original_channels =
         pi_channels_maps[p_dec->fmt_out.audio.i_channels];
 
-    aout_DateInit( &p_sys->end_date, p_dec->fmt_out.audio.i_rate );
-    aout_DateSet( &p_sys->end_date, 0 );
+    date_Init( &p_sys->end_date, p_dec->fmt_out.audio.i_rate, 1 );
+    date_Set( &p_sys->end_date, 0 );
 
     p_dec->pf_decode_audio = Decode;
 
@@ -268,7 +274,7 @@ static int OpenDll( decoder_t *p_dec )
     int i, i_result;
 
     /** Find the good path for the dlls.**/
-    char *ppsz_path[] =
+    const char *ppsz_path[] =
     {
       ".",
 #ifndef WIN32
@@ -347,7 +353,7 @@ static int OpenDll( decoder_t *p_dec )
         if( asprintf( &psz_dll, "%s/%4.4s.so.6.0", ppsz_path[i],
                   (char *)&p_dec->fmt_in.i_codec ) != -1 )
         {
-            i_result = OpenNativeDll( p_dec, ppsz_path[i], psz_dll );
+            i_result = OpenNativeDll( p_dec, (char *)ppsz_path[i], psz_dll );
             free( psz_dll );
             if( i_result == VLC_SUCCESS ) return VLC_SUCCESS;
         }
@@ -356,7 +362,7 @@ static int OpenDll( decoder_t *p_dec )
         if( asprintf( &psz_dll, "%s/%4.4s.so", ppsz_path[i],
                   (char *)&p_dec->fmt_in.i_codec ) != -1 )
         {
-            i_result = OpenNativeDll( p_dec, ppsz_path[i], psz_dll );
+            i_result = OpenNativeDll( p_dec, (char *)ppsz_path[i], psz_dll );
             free( psz_dll );
             if( i_result == VLC_SUCCESS ) return VLC_SUCCESS;
         }
@@ -390,6 +396,7 @@ static int OpenDll( decoder_t *p_dec )
     return VLC_EGENERIC;
 }
 
+#ifndef WIN32
 static int OpenNativeDll( decoder_t *p_dec, char *psz_path, char *psz_dll )
 {
 #if defined(HAVE_DL_DLOPEN)
@@ -490,14 +497,19 @@ static int OpenNativeDll( decoder_t *p_dec, char *psz_path, char *psz_dll )
     if( context ) p_sys->raFreeDecoder( context );
     if( context ) p_sys->raCloseCodec( context );
     dlclose( handle );
+#else
+    VLC_UNUSED( p_dec );
+    VLC_UNUSED( psz_path);
+    VLC_UNUSED( psz_dll );
 #endif
 
     return VLC_EGENERIC;
 }
+#endif /* Win32 */
 
+#if defined(LOADER) || defined(WIN32)
 static int OpenWin32Dll( decoder_t *p_dec, char *psz_path, char *psz_dll )
 {
-#if defined(LOADER) || defined(WIN32)
     decoder_sys_t *p_sys = p_dec->p_sys;
     void *handle = 0, *context = 0;
     unsigned int i_result;
@@ -602,10 +614,10 @@ static int OpenWin32Dll( decoder_t *p_dec, char *psz_path, char *psz_dll )
     if( context ) p_sys->wraFreeDecoder( context );
     if( context ) p_sys->wraCloseCodec( context );
     FreeLibrary( handle );
-#endif
 
     return VLC_EGENERIC;
 }
+#endif
 
 /*****************************************************************************
  * CloseDll:
@@ -689,12 +701,12 @@ static aout_buffer_t *Decode( decoder_t *p_dec, block_t **pp_block )
 
     /* Date management */
     if( p_block->i_pts > 0 &&
-        p_block->i_pts != aout_DateGet( &p_sys->end_date ) )
+        p_block->i_pts != date_Get( &p_sys->end_date ) )
     {
-        aout_DateSet( &p_sys->end_date, p_block->i_pts );
+        date_Set( &p_sys->end_date, p_block->i_pts );
     }
 
-    if( !aout_DateGet( &p_sys->end_date ) )
+    if( !date_Get( &p_sys->end_date ) )
     {
         /* We've just started the stream, wait for the first PTS. */
         if( p_block ) block_Release( p_block );
@@ -711,9 +723,9 @@ static aout_buffer_t *Decode( decoder_t *p_dec, block_t **pp_block )
         memcpy( p_aout_buffer->p_buffer, p_sys->p_out, p_sys->i_out );
 
         /* Date management */
-        p_aout_buffer->start_date = aout_DateGet( &p_sys->end_date );
-        p_aout_buffer->end_date =
-            aout_DateIncrement( &p_sys->end_date, i_samples );
+        p_aout_buffer->i_pts = date_Get( &p_sys->end_date );
+        p_aout_buffer->i_length = date_Increment( &p_sys->end_date, i_samples )
+                                  - p_aout_buffer->i_pts;
     }
 
     block_Release( p_block );

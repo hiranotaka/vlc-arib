@@ -58,9 +58,15 @@
 #include <QGroupBox>
 #include <QPushButton>
 
+#ifdef WIN32
+ #include <vlc_windows_interfaces.h>
+ #include <QBitmap>
+#endif
+
 #include <assert.h>
 
 #include <vlc_keys.h> /* Wheel event */
+#include <vlc_vout_window.h>
 #include <vlc_vout.h>
 
 /* Callback prototypes */
@@ -76,7 +82,9 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
     bgWidget             = NULL;
     videoWidget          = NULL;
     playlistWidget       = NULL;
+#ifndef HAVE_MAEMO
     sysTray              = NULL;
+#endif
     videoIsActive        = false;
     playlistVisible      = false;
     input_name           = "";
@@ -99,6 +107,7 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
     /* Main settings */
     setFocusPolicy( Qt::StrongFocus );
     setAcceptDrops( true );
+    setWindowRole( "vlc-main" );
     setWindowIcon( QApplication::windowIcon() );
     setWindowOpacity( config_GetFloat( p_intf, "qt-opacity" ) );
 
@@ -110,6 +119,9 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
 
     /* Are we in the enhanced always-video mode or not ? */
     i_visualmode = config_GetInt( p_intf, "qt-display-mode" );
+
+        /* Do we want anoying popups or not */
+    notificationEnabled = (bool)config_GetInt( p_intf, "qt-notification" );
 
     /* Set the other interface settings */
     settings = getSettings();
@@ -123,9 +135,6 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
      **/
     mainBasedSize = settings->value( "mainBasedSize", QSize( 350, 120 ) ).toSize();
     mainVideoSize = settings->value( "mainVideoSize", QSize( 400, 300 ) ).toSize();
-
-    /* Do we want anoying popups or not */
-    notificationEnabled = (bool)config_GetInt( p_intf, "qt-notification" );
 
     /**************
      * Status Bar *
@@ -157,56 +166,54 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
     dockPL->hide();
 #endif
 
-    /********************
-     * Input Manager    *
-     ********************/
-    MainInputManager::getInstance( p_intf );
-
     /*********************************
      * Create the Systray Management *
      *********************************/
     initSystray();
 
-    /**************************
-     * Various CONNECTs on IM *
-     **************************/
-    /* Connect the input manager to the GUI elements it manages */
+    /********************
+     * Input Manager    *
+     ********************/
+    MainInputManager::getInstance( p_intf );
 
+    /************************************************************
+     * Connect the input manager to the GUI elements it manages *
+     ************************************************************/
     /**
      * Connects on nameChanged()
-     * Those connects are not merged because different options can trigger
-     * them down.
-     */
-    /* Naming in the controller statusbar */
-    CONNECT( THEMIM->getIM(), nameChanged( QString ),
-             this, setName( QString ) );
-    /* and in the systray */
+     * Those connects are different because options can impeach them to trigger.
+     **/
+    /* Main Interface statusbar */
+    CONNECT( THEMIM->getIM(), nameChanged( const QString& ),
+             this, setName( const QString& ) );
+    /* and systray */
+#ifndef HAVE_MAEMO
     if( sysTray )
     {
-        CONNECT( THEMIM->getIM(), nameChanged( QString ), this,
-                 updateSystrayTooltipName( QString ) );
+        CONNECT( THEMIM->getIM(), nameChanged( const QString& ),
+                 this, updateSystrayTooltipName( const QString& ) );
     }
-    /* and in the title of the controller */
+#endif
+    /* and title of the Main Interface*/
     if( config_GetInt( p_intf, "qt-name-in-title" ) )
     {
-        CONNECT( THEMIM->getIM(), nameChanged( QString ), this,
-             setVLCWindowsTitle( QString ) );
+        CONNECT( THEMIM->getIM(), nameChanged( const QString& ),
+                 this, setVLCWindowsTitle( const QString& ) );
     }
 
     /**
      * CONNECTS on PLAY_STATUS
      **/
     /* Status on the systray */
+#ifndef HAVE_MAEMO
     if( sysTray )
     {
         CONNECT( THEMIM->getIM(), statusChanged( int ),
                  this, updateSystrayTooltipStatus( int ) );
     }
-
+#endif
 
     /* END CONNECTS ON IM */
-
-    dialogHandler = new DialogHandler (p_intf);
 
     /************
      * Callbacks
@@ -217,18 +224,22 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
     var_AddCallback( p_intf->p_libvlc, "intf-popupmenu", PopupMenuCB, p_intf );
 
 
-    /* VideoWidget connects to avoid different threads speaking to each other */
+    /* VideoWidget connects for asynchronous calls */
+    connect( this, SIGNAL(askGetVideo(WId*,int*,int*,unsigned*,unsigned *)),
+             this, SLOT(getVideoSlot(WId*,int*,int*,unsigned*,unsigned*)),
+             Qt::BlockingQueuedConnection );
     connect( this, SIGNAL(askReleaseVideo( void )),
-             this, SLOT(releaseVideoSlot( void )), Qt::BlockingQueuedConnection );
+             this, SLOT(releaseVideoSlot( void )),
+             Qt::BlockingQueuedConnection );
 
     if( videoWidget )
     {
         CONNECT( this, askVideoToResize( unsigned int, unsigned int ),
                  videoWidget, SetSizing( unsigned int, unsigned int ) );
-
-        connect( this, SIGNAL(askVideoToShow( unsigned int, unsigned int)),
-             videoWidget, SLOT(SetSizing(unsigned int, unsigned int )),
-             Qt::BlockingQueuedConnection );
+        CONNECT( this, askVideoSetFullScreen( bool ),
+                 videoWidget, SetFullScreen( bool ) );
+        CONNECT( videoWidget, keyPressed( QKeyEvent * ),
+                 this, handleKeyPress( QKeyEvent * ) );
     }
 
     CONNECT( this, askUpdate(), this, doComponentsUpdate() );
@@ -252,11 +263,11 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
        }
     }
 
-    bool b_visible = settings->value( "playlist-visible", 0 ).toInt();
+    bool b_pl_visible = settings->value( "playlist-visible", 0 ).toInt();
     settings->endGroup();
 
     /* Playlist */
-    if( b_visible ) togglePlaylist();
+    if( b_pl_visible ) togglePlaylist();
 
     /* Enable the popup menu in the MI */
     setContextMenuPolicy( Qt::CustomContextMenu );
@@ -274,17 +285,18 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
         toggleMinimalView( true );
 
     /* Update the geometry : It is useful if you switch between
-       qt-display-modes ?*/
+       qt-display-modes */
     updateGeometry();
     resize( sizeHint() );
 
+#ifdef WIN32
+    createTaskBarButtons();
+#endif
 }
 
 MainInterface::~MainInterface()
 {
     msg_Dbg( p_intf, "Destroying the main interface" );
-
-    delete dialogHandler;
 
     /* Unsure we hide the videoWidget before destroying it */
     if( videoIsActive ) videoWidget->hide();
@@ -297,6 +309,14 @@ MainInterface::~MainInterface()
 
         delete playlistWidget;
     }
+
+#ifdef WIN32
+    if( himl )
+        ImageList_Destroy( himl );
+    if(p_taskbl)
+        p_taskbl->vt->Release(p_taskbl);
+    CoUninitialize();
+#endif
 
     /* Be sure to kill the actionsManager... FIXME */
     ActionsManager::killInstance();
@@ -334,6 +354,7 @@ MainInterface::~MainInterface()
  *****************************/
 void MainInterface::recreateToolbars()
 {
+    msg_Dbg( p_intf, "Recreating the toolbars" );
     settings->beginGroup( "MainWindow" );
     delete controls;
     delete inputC;
@@ -344,9 +365,9 @@ void MainInterface::recreateToolbars()
              this, doComponentsUpdate() );
     inputC = new InputControlsWidget( p_intf, this );
 
-    mainLayout->insertWidget( 2, inputC, 0, Qt::AlignBottom );
-    mainLayout->insertWidget( settings->value( "ToolbarPos", 0 ).toInt() ? 0: 3,
-                              controls, 0, Qt::AlignBottom );
+    mainLayout->addWidget( inputC, 2, 0, 1, -1, Qt::AlignBottom );
+    mainLayout->addWidget( controls, settings->value( "ToolbarPos", 0 ).toInt() ? 0: 3,
+                              0, 1, -1, Qt::AlignBottom );
     settings->endGroup();
 }
 
@@ -355,7 +376,7 @@ void MainInterface::createMainWidget( QSettings *settings )
     /* Create the main Widget and the mainLayout */
     QWidget *main = new QWidget;
     setCentralWidget( main );
-    mainLayout = new QVBoxLayout( main );
+    mainLayout = new QGridLayout( main );
 
     /* Margins, spacing */
     main->setContentsMargins( 0, 0, 0, 0 );
@@ -376,7 +397,6 @@ void MainInterface::createMainWidget( QSettings *settings )
     bgWidget->resize(
             settings->value( "backgroundSize", QSize( 300, 200 ) ).toSize() );
     bgWidget->updateGeometry();
-    CONNECT( this, askBgWidgetToToggle(), bgWidget, toggle() );
 
     if( i_visualmode != QT_ALWAYS_VIDEO_MODE &&
         i_visualmode != QT_MINIMAL_MODE )
@@ -399,11 +419,15 @@ void MainInterface::createMainWidget( QSettings *settings )
 
 
     /* Add the controls Widget to the main Widget */
-    mainLayout->insertWidget( 0, bgWidget );
-    if( videoWidget ) mainLayout->insertWidget( 0, videoWidget, 10 );
-    mainLayout->insertWidget( 2, inputC, 0, Qt::AlignBottom );
-    mainLayout->insertWidget( settings->value( "ToolbarPos", 0 ).toInt() ? 0: 3,
-                              controls, 0, Qt::AlignBottom );
+    if( videoWidget ){
+        mainLayout->addWidget( videoWidget, 0, 0, 1, -1 );
+        mainLayout->setRowStretch( 0, 10 );
+    }
+    mainLayout->addWidget( bgWidget, 1, 0, 1, -1 );
+    //mainLayout->setRowStretch( 1, 10 );
+    mainLayout->addWidget( inputC, 2, 0, 1, -1, Qt::AlignBottom );
+    mainLayout->addWidget( controls, settings->value( "ToolbarPos", 0 ).toInt() ? 0: 3,
+                           0, 1, -1, Qt::AlignBottom );
 
     /* Finish the sizing */
     main->updateGeometry();
@@ -415,7 +439,9 @@ void MainInterface::createMainWidget( QSettings *settings )
     /* Create the FULLSCREEN CONTROLS Widget */
     if( config_GetInt( p_intf, "qt-fs-controller" ) )
     {
-        fullscreenControls = new FullscreenControllerWidget( p_intf );
+        fullscreenControls = new FullscreenControllerWidget( p_intf, this );
+        CONNECT( fullscreenControls, keyPressed( QKeyEvent * ),
+                 this, handleKeyPress( QKeyEvent * ) );
     }
 }
 
@@ -453,8 +479,96 @@ inline void MainInterface::createStatusBar()
              this, showCryptedLabel( bool ) );
 }
 
+#ifdef WIN32
+void MainInterface::createTaskBarButtons()
+{
+    /*Here is the code for the taskbar thumb buttons
+    FIXME:We need pretty buttons in 16x16 px that are handled correctly by masks in Qt
+    FIXME:the play button's picture doesn't changed to pause when clicked
+    */
+    OSVERSIONINFO winVer;
+    winVer.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+    if( GetVersionEx(&winVer) && winVer.dwMajorVersion > 5 )
+    {
+        if(himl = ImageList_Create( 15, //cx
+                                    18, //cy
+                                    ILC_COLOR,//flags
+                                    4,//initial nb of images
+                                    0//nb of images that can be added
+                                    ))
+        {
+            QPixmap img   = QPixmap(":/toolbar/previous_b");
+            QPixmap img2  = QPixmap(":/toolbar/pause_b");
+            QPixmap img3  = QPixmap(":/toolbar/play_b");
+            QPixmap img4  = QPixmap(":/toolbar/next_b");
+            QBitmap mask  = img.createMaskFromColor(Qt::transparent);
+            QBitmap mask2 = img2.createMaskFromColor(Qt::transparent);
+            QBitmap mask3 = img3.createMaskFromColor(Qt::transparent);
+            QBitmap mask4 = img4.createMaskFromColor(Qt::transparent);
+
+            if(-1 == ImageList_Add(himl, img.toWinHBITMAP(QPixmap::PremultipliedAlpha),mask.toWinHBITMAP()))
+                msg_Err( p_intf, "ImageList_Add failed" );
+            if(-1 == ImageList_Add(himl, img2.toWinHBITMAP(QPixmap::PremultipliedAlpha),mask2.toWinHBITMAP()))
+                msg_Err( p_intf, "ImageList_Add failed" );
+            if(-1 == ImageList_Add(himl, img3.toWinHBITMAP(QPixmap::PremultipliedAlpha),mask3.toWinHBITMAP()))
+                msg_Err( p_intf, "ImageList_Add failed" );
+            if(-1 == ImageList_Add(himl, img4.toWinHBITMAP(QPixmap::PremultipliedAlpha),mask4.toWinHBITMAP()))
+                msg_Err( p_intf, "ImageList_Add failed" );
+        }
+
+        CoInitialize( 0 );
+
+        if( S_OK == CoCreateInstance( &clsid_ITaskbarList,
+                    NULL, CLSCTX_INPROC_SERVER,
+                    &IID_ITaskbarList3,
+                    (void **)&p_taskbl) )
+        {
+            p_taskbl->vt->HrInit(p_taskbl);
+
+            int msg_value = RegisterWindowMessage("TaskbarButtonCreated");
+            //msg_Info( p_intf, "msg value: %04x", msg_value );
+
+            // Define an array of two buttons. These buttons provide images through an
+            // image list and also provide tooltips.
+            DWORD dwMask = THB_BITMAP | THB_FLAGS;
+
+            THUMBBUTTON thbButtons[2];
+            thbButtons[0].dwMask = dwMask;
+            thbButtons[0].iId = 0;
+            thbButtons[0].iBitmap = 0;
+            thbButtons[0].dwFlags = THBF_HIDDEN;
+
+            thbButtons[1].dwMask = dwMask;
+            thbButtons[1].iId = 1;
+            thbButtons[1].iBitmap = 2;
+            thbButtons[1].dwFlags = THBF_HIDDEN;
+
+            thbButtons[2].dwMask = dwMask;
+            thbButtons[2].iId = 2;
+            thbButtons[2].iBitmap = 3;
+            thbButtons[2].dwFlags = THBF_HIDDEN;
+
+            HRESULT hr = p_taskbl->vt->ThumbBarSetImageList(p_taskbl, GetForegroundWindow(), himl );
+            if(S_OK != hr)
+                msg_Err( p_intf, "ThumbBarSetImageList failed with error %08x", hr );
+            if(S_OK != p_taskbl->vt->ThumbBarAddButtons(p_taskbl, GetForegroundWindow(), 3, thbButtons))
+                msg_Err( p_intf, "ThumbBarAddButtons failed with error %08x", GetLastError() );
+
+            CONNECT( THEMIM->getIM(), statusChanged( int ), this, changeThumbbarButtons( int ) );
+        }
+    }
+    else
+    {
+        himl = NULL;
+        p_taskbl = NULL;
+    }
+}
+#endif
+
+
 inline void MainInterface::initSystray()
 {
+#ifndef HAVE_MAEMO
     bool b_systrayAvailable = QSystemTrayIcon::isSystemTrayAvailable();
     bool b_systrayWanted = config_GetInt( p_intf, "qt-system-tray" );
 
@@ -471,10 +585,12 @@ inline void MainInterface::initSystray()
 
     if( b_systrayAvailable && b_systrayWanted )
             createSystray();
+#endif
 }
 
 inline void MainInterface::askForPrivacy()
 {
+#ifndef HAVE_MAEMO
     /**
      * Ask for the network policy on FIRST STARTUP
      **/
@@ -495,6 +611,7 @@ inline void MainInterface::askForPrivacy()
             config_SaveConfigFile( p_intf, NULL );
         }
     }
+#endif
 }
 
 int MainInterface::privacyDialog( QList<ConfigControl *> *controls )
@@ -502,6 +619,7 @@ int MainInterface::privacyDialog( QList<ConfigControl *> *controls )
     QDialog *privacy = new QDialog( this );
 
     privacy->setWindowTitle( qtr( "Privacy and Network Policies" ) );
+    privacy->setWindowRole( "vlc-privacy" );
 
     QGridLayout *gLayout = new QGridLayout( privacy );
 
@@ -706,41 +824,54 @@ private:
 };
 
 /**
- * README
- * Thou shall not call/resize/hide widgets from on another thread.
- * This is wrong, and this is THE reason to emit signals on those Video Functions
- **/
-WId MainInterface::requestVideo( vout_thread_t *p_nvout, int *pi_x,
-                                 int *pi_y, unsigned int *pi_width,
-                                 unsigned int *pi_height )
+ * NOTE:
+ * You must note change the state of this object or other Qt4 UI objects,
+ * from the video output thread - only from the Qt4 UI main loop thread.
+ * All window provider queries must be handled through signals or events.
+ * That's why we have all those emit statements...
+ */
+WId MainInterface::getVideo( int *pi_x, int *pi_y,
+                             unsigned int *pi_width, unsigned int *pi_height )
+{
+    if( !videoWidget )
+        return 0;
+
+    /* This is a blocking call signal. Results are returned through pointers.
+     * Beware of deadlocks! */
+    WId id;
+    emit askGetVideo( &id, pi_x, pi_y, pi_width, pi_height );
+    return id;
+}
+
+void MainInterface::getVideoSlot( WId *p_id, int *pi_x, int *pi_y,
+                                  unsigned *pi_width, unsigned *pi_height )
 {
     /* Request the videoWidget */
-    if( !videoWidget ) return 0;
-    WId ret = videoWidget->request( p_nvout,pi_x, pi_y,
+    WId ret = videoWidget->request( pi_x, pi_y,
                                     pi_width, pi_height, b_keep_size );
+    *p_id = ret;
     if( ret ) /* The videoWidget is available */
     {
         /* Did we have a bg ? Hide it! */
         if( VISIBLE( bgWidget) )
         {
             bgWasVisible = true;
-            emit askBgWidgetToToggle();
+            bgWidget->toggle();
         }
         else
             bgWasVisible = false;
 
         /* ask videoWidget to show */
-        emit askVideoToShow( *pi_width, *pi_height );
+        videoWidget->SetSizing( *pi_width, *pi_height );
 
         /* Consider the video active now */
         videoIsActive = true;
 
         emit askUpdate();
     }
-    return ret;
 }
 
-/* Call from the WindowClose function */
+/* Asynchronous call from the WindowClose function */
 void MainInterface::releaseVideo( void )
 {
     emit askReleaseVideo( );
@@ -764,32 +895,35 @@ void MainInterface::releaseVideoSlot( void )
     doComponentsUpdate();
 }
 
-/* Call from WindowControl function */
+/* Asynchronous call from WindowControl function */
 int MainInterface::controlVideo( int i_query, va_list args )
 {
-    int i_ret = VLC_SUCCESS;
     switch( i_query )
     {
-        case VOUT_SET_SIZE:
-        {
-            unsigned int i_width  = va_arg( args, unsigned int );
-            unsigned int i_height = va_arg( args, unsigned int );
-            emit askVideoToResize( i_width, i_height );
-            emit askUpdate();
-            break;
-        }
-        case VOUT_SET_STAY_ON_TOP:
-        {
-            int i_arg = va_arg( args, int );
-            QApplication::postEvent( this, new SetVideoOnTopQtEvent( i_arg ) );
-            break;
-        }
-        default:
-            i_ret = VLC_EGENERIC;
-            msg_Warn( p_intf, "unsupported control query" );
-            break;
+    case VOUT_WINDOW_SET_SIZE:
+    {
+        unsigned int i_width  = va_arg( args, unsigned int );
+        unsigned int i_height = va_arg( args, unsigned int );
+        emit askVideoToResize( i_width, i_height );
+        emit askUpdate();
+        return VLC_SUCCESS;
     }
-    return i_ret;
+    case VOUT_WINDOW_SET_ON_TOP:
+    {
+        int i_arg = va_arg( args, int );
+        QApplication::postEvent( this, new SetVideoOnTopQtEvent( i_arg ) );
+        return VLC_SUCCESS;
+    }
+    case VOUT_WINDOW_SET_FULLSCREEN:
+    {
+        bool b_fs = va_arg( args, int );
+        emit askVideoSetFullScreen( b_fs );
+        return VLC_SUCCESS;
+    }
+    default:
+        msg_Warn( p_intf, "unsupported control query" );
+        return VLC_EGENERIC;
+    }
 }
 
 /*****************************************************************************
@@ -821,7 +955,7 @@ void MainInterface::togglePlaylist()
         }
         else
         {
-            mainLayout->insertWidget( 4, playlistWidget );
+         //   mainLayout->insertWidget( 4, playlistWidget );
         }
         playlistVisible = true;
 
@@ -854,7 +988,7 @@ void MainInterface::toggleMinimalView( bool b_switch )
     { /* NORMAL MODE then */
         if( !videoWidget || videoWidget->isHidden() )
         {
-            emit askBgWidgetToToggle();
+            bgWidget->toggle();
         }
         else
         {
@@ -914,7 +1048,7 @@ void MainInterface::visual()
 /************************************************************************
  * Other stuff
  ************************************************************************/
-void MainInterface::setName( QString name )
+void MainInterface::setName( const QString& name )
 {
     input_name = name; /* store it for the QSystray use */
     /* Display it in the status bar, but also as a Tooltip in case it doesn't
@@ -927,7 +1061,7 @@ void MainInterface::setName( QString name )
  * Give the decorations of the Main Window a correct Name.
  * If nothing is given, set it to VLC...
  **/
-void MainInterface::setVLCWindowsTitle( QString aTitle )
+void MainInterface::setVLCWindowsTitle( const QString& aTitle )
 {
     if( aTitle.isEmpty() )
     {
@@ -956,7 +1090,7 @@ void MainInterface::showCryptedLabel( bool b_show )
 /*****************************************************************************
  * Systray Icon and Systray Menu
  *****************************************************************************/
-
+#ifndef HAVE_MAEMO
 /**
  * Create a SystemTray icon and a menu that would go with it.
  * Connects to a click handler on the icon.
@@ -965,9 +1099,9 @@ void MainInterface::createSystray()
 {
     QIcon iconVLC;
     if( QDate::currentDate().dayOfYear() >= 354 )
-        iconVLC =  QIcon( QPixmap( ":/vlc128-christmas.png" ) );
+        iconVLC =  QIcon( QPixmap( ":/logo/vlc128-christmas.png" ) );
     else
-        iconVLC =  QIcon( QPixmap( ":/vlc128.png" ) );
+        iconVLC =  QIcon( QPixmap( ":/logo/vlc128.png" ) );
     sysTray = new QSystemTrayIcon( iconVLC, this );
     sysTray->setToolTip( qtr( "VLC media player" ));
 
@@ -1052,7 +1186,7 @@ void MainInterface::handleSystrayClick(
  * Updates the name of the systray Icon tooltip.
  * Doesn't check if the systray exists, check before you call it.
  **/
-void MainInterface::updateSystrayTooltipName( QString name )
+void MainInterface::updateSystrayTooltipName( const QString& name )
 {
     if( name.isEmpty() )
     {
@@ -1099,6 +1233,7 @@ void MainInterface::updateSystrayTooltipStatus( int i_status )
     }
     QVLCMenu::updateSystrayMenu( this, p_intf );
 }
+#endif
 
 /************************************************************************
  * D&D Events
@@ -1110,41 +1245,40 @@ void MainInterface::dropEvent(QDropEvent *event)
 
 void MainInterface::dropEventPlay( QDropEvent *event, bool b_play )
 {
-     event->setDropAction( Qt::CopyAction );
-     if( !event->possibleActions() & Qt::CopyAction )
-         return;
+    event->setDropAction( Qt::CopyAction );
+    if( !event->possibleActions() & Qt::CopyAction )
+        return;
 
-     const QMimeData *mimeData = event->mimeData();
+    const QMimeData *mimeData = event->mimeData();
 
-     /* D&D of a subtitles file, add it on the fly */
-     if( mimeData->urls().size() == 1 )
-     {
-        if( THEMIM->getIM()->hasInput() )
+    /* D&D of a subtitles file, add it on the fly */
+    if( mimeData->urls().size() == 1 && THEMIM->getIM()->hasInput() )
+    {
+        if( !input_AddSubtitle( THEMIM->getInput(),
+                 qtu( toNativeSeparators( mimeData->urls()[0].toLocalFile() ) ),
+                 true ) )
         {
-            if( !input_AddSubtitle( THEMIM->getInput(),
-                                    qtu( toNativeSeparators(
-                                         mimeData->urls()[0].toLocalFile() ) ),
-                                    true ) )
-            {
-                event->accept();
-                return;
-            }
+            event->accept();
+            return;
         }
-     }
-     bool first = b_play;
-     foreach( const QUrl &url, mimeData->urls() )
-     {
+    }
+
+    bool first = b_play;
+    foreach( const QUrl &url, mimeData->urls() )
+    {
         QString s = toNativeSeparators( url.toLocalFile() );
 
         if( s.length() > 0 ) {
-            playlist_Add( THEPL, qtu(s), NULL,
-                          PLAYLIST_APPEND | (first ? PLAYLIST_GO: 0),
-                          PLAYLIST_END, true, false );
+            char* psz_uri = make_URI( qtu(s) );
+            playlist_Add( THEPL, psz_uri, NULL,
+                          PLAYLIST_APPEND | (first ? PLAYLIST_GO: PLAYLIST_PREPARSE),
+                          PLAYLIST_END, true, pl_Unlocked );
+            free( psz_uri );
             first = false;
             RecentsMRL::getInstance( p_intf )->addRecent( s );
         }
-     }
-     event->accept();
+    }
+    event->accept();
 }
 void MainInterface::dragEnterEvent(QDragEnterEvent *event)
 {
@@ -1179,14 +1313,19 @@ void MainInterface::customEvent( QEvent *event )
     {
         SetVideoOnTopQtEvent* p_event = (SetVideoOnTopQtEvent*)event;
         if( p_event->OnTop() )
-            setWindowFlags(windowFlags() | Qt::WindowStaysOnTopHint);
+            setWindowFlags( windowFlags() | Qt::WindowStaysOnTopHint );
         else
-            setWindowFlags(windowFlags() & ~Qt::WindowStaysOnTopHint);
-        show(); /* necessary to apply window flags?? */
+            setWindowFlags( windowFlags() & ~Qt::WindowStaysOnTopHint );
+        show(); /* necessary to apply window flags */
     }
 }
 
 void MainInterface::keyPressEvent( QKeyEvent *e )
+{
+    handleKeyPress( e );
+}
+
+void MainInterface::handleKeyPress( QKeyEvent *e )
 {
     if( ( e->modifiers() &  Qt::ControlModifier ) && ( e->key() == Qt::Key_H )
           && !menuBar()->isVisible() )
@@ -1254,6 +1393,65 @@ void MainInterface::toggleFullScreen( void )
         emit fullscreenInterfaceToggled( true );
     }
 
+}
+
+//moc doesn't know about #ifdef, so we have to build this method for every platform
+void MainInterface::changeThumbbarButtons( int i_status)
+{
+#ifdef WIN32
+    // Define an array of two buttons. These buttons provide images through an
+    // image list and also provide tooltips.
+    DWORD dwMask = THB_BITMAP | THB_FLAGS;
+
+    THUMBBUTTON thbButtons[3];
+    //prev
+    thbButtons[0].dwMask = dwMask;
+    thbButtons[0].iId = 0;
+    thbButtons[0].iBitmap = 0;
+
+    //play/pause
+    thbButtons[1].dwMask = dwMask;
+    thbButtons[1].iId = 1;
+
+    //next
+    thbButtons[2].dwMask = dwMask;
+    thbButtons[2].iId = 2;
+    thbButtons[2].iBitmap = 3;
+
+    switch( i_status )
+    {
+        case  0:
+        case  END_S:
+            {
+                thbButtons[0].dwFlags = THBF_HIDDEN;
+                thbButtons[1].dwFlags = THBF_HIDDEN;
+                thbButtons[2].dwFlags = THBF_HIDDEN;
+                break;
+            }
+        case PLAYING_S:
+            {
+                thbButtons[0].dwFlags = THBF_ENABLED;
+                thbButtons[1].dwFlags = THBF_ENABLED;
+                thbButtons[2].dwFlags = THBF_ENABLED;
+                thbButtons[1].iBitmap = 1;
+                break;
+            }
+        case PAUSE_S:
+            {
+                //thbButtons[0].dwFlags = THBF_ENABLED;
+                //thbButtons[1].dwFlags = THBF_ENABLED;
+                //thbButtons[2].dwFlags = THBF_ENABLED;
+                thbButtons[1].iBitmap = 2;
+                break;
+            }
+    }
+
+    HRESULT hr =  p_taskbl->vt->ThumbBarUpdateButtons(p_taskbl, GetForegroundWindow(), 3, thbButtons);
+    if(S_OK != hr)
+        msg_Err( p_intf, "ThumbBarUpdateButtons failed with error %08x", hr );
+#else
+    ;
+#endif
 }
 
 /*****************************************************************************

@@ -16,9 +16,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -52,8 +52,8 @@
 #   include <fcntl.h>
 #endif
 
-#include "vlc_keys.h"
-#include "vlc_iso_lang.h"
+#include <vlc_keys.h>
+#include <vlc_iso_lang.h>
 
 /* FIXME we should find a better way than including that */
 #include "../../src/text/iso-639_def.h"
@@ -119,10 +119,8 @@ struct demux_sys_t
     {
         bool         b_created;
         bool         b_enabled;
-        mtime_t      i_end;
         vlc_mutex_t  lock;
-        vlc_cond_t   wait;
-        vlc_thread_t thread;
+        vlc_timer_t  timer;
     } still;
 
     /* track */
@@ -165,7 +163,7 @@ static char *DemuxGetLanguageCode( demux_t *p_demux, const char *psz_var );
 
 static int ControlInternal( demux_t *, int, ... );
 
-static void* StillThread( void * );
+static void StillTimer( void * );
 
 static int EventKey( vlc_object_t *, char const *,
                      vlc_value_t, vlc_value_t, void * );
@@ -185,7 +183,6 @@ static int Open( vlc_object_t *p_this )
     int         i_angle;
     char        *psz_name;
     char        *psz_code;
-    vlc_value_t val;
 
     if( !p_demux->psz_path || !*p_demux->psz_path )
     {
@@ -202,8 +199,11 @@ static int Open( vlc_object_t *p_this )
         psz_name = ToLocaleDup( p_demux->psz_path );
 
 #ifdef WIN32
-    if( psz_name[0] && psz_name[1] == ':' &&
-        psz_name[2] == '\\' && psz_name[3] == '\0' ) psz_name[2] = '\0';
+    /* Remove trailing backslash, otherwise dvdnav_open will fail */
+    if( *psz_name && *(psz_name + strlen(psz_name) - 1) == '\\' )
+    {
+        *(psz_name + strlen(psz_name) - 1) = '\0';
+    }
 #endif
 
     /* Try some simple probing to avoid going through dvdnav_open too often */
@@ -305,16 +305,14 @@ static int Open( vlc_object_t *p_this )
 
     DemuxTitles( p_demux );
 
-    var_Create( p_demux, "dvdnav-menu", VLC_VAR_BOOL|VLC_VAR_DOINHERIT );
-    var_Get( p_demux, "dvdnav-menu", &val );
-    if( val.b_bool )
+    if( var_CreateGetBool( p_demux, "dvdnav-menu" ) )
     {
         msg_Dbg( p_demux, "trying to go to dvd menu" );
 
         if( dvdnav_title_play( p_sys->dvdnav, 1 ) != DVDNAV_STATUS_OK )
         {
             msg_Err( p_demux, "cannot set title (can't decrypt DVD?)" );
-            dialog_Fatal( p_demux, _("Playback failure"),
+            dialog_Fatal( p_demux, _("Playback failure"), "%s",
                             _("VLC cannot set the DVD's title. It possibly "
                               "cannot decrypt the entire disc.") );
             dvdnav_close( p_sys->dvdnav );
@@ -332,16 +330,15 @@ static int Open( vlc_object_t *p_this )
         }
     }
 
-    var_Create( p_demux, "dvdnav-angle", VLC_VAR_INTEGER|VLC_VAR_DOINHERIT );
-    var_Get( p_demux, "dvdnav-angle", &val );
-    i_angle = val.i_int > 0 ? val.i_int : 1;
+    i_angle = var_CreateGetInteger( p_demux, "dvdnav-angle" );
+    if( i_angle <= 0 ) i_angle = 1;
 
     /* Update default_pts to a suitable value for dvdnav access */
     var_Create( p_demux, "dvdnav-caching", VLC_VAR_INTEGER|VLC_VAR_DOINHERIT );
 
     /* FIXME hack hack hack hack FIXME */
     /* Get p_input and create variable */
-    p_sys->p_input = vlc_object_find( p_demux, VLC_OBJECT_INPUT, FIND_PARENT );
+    p_sys->p_input = demux_GetParentInput( p_demux );
     var_Create( p_sys->p_input, "x-start", VLC_VAR_INTEGER );
     var_Create( p_sys->p_input, "y-start", VLC_VAR_INTEGER );
     var_Create( p_sys->p_input, "x-end", VLC_VAR_INTEGER );
@@ -358,6 +355,9 @@ static int Open( vlc_object_t *p_this )
 
     p_sys->still.b_enabled = false;
     vlc_mutex_init( &p_sys->still.lock );
+    if( !vlc_timer_create( &p_sys->still.timer, StillTimer, p_sys ) )
+        p_sys->still.b_created = true;
+
     return VLC_SUCCESS;
 }
 
@@ -384,11 +384,7 @@ static void Close( vlc_object_t *p_this )
 
     /* Stop still image handler */
     if( p_sys->still.b_created )
-    {
-        vlc_cancel( p_sys->still.thread );
-        vlc_join( p_sys->still.thread, NULL );
-        vlc_cond_destroy( &p_sys->still.wait );
-    }
+        vlc_timer_destroy( p_sys->still.timer );
     vlc_mutex_destroy( &p_sys->still.lock );
 
     var_Destroy( p_sys->p_input, "highlight-mutex" );
@@ -422,11 +418,7 @@ static void Close( vlc_object_t *p_this )
 static int Control( demux_t *p_demux, int i_query, va_list args )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
-    double f, *pf;
-    bool *pb;
-    int64_t *pi64;
     input_title_t ***ppp_title;
-    int          *pi_int;
     int i;
 
     switch( i_query )
@@ -443,41 +435,37 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 return VLC_EGENERIC;
             }
 
-            if( i_query == DEMUX_GET_POSITION )
+            switch( i_query )
             {
-                pf = (double*)va_arg( args, double* );
-                *pf = (double)pos / (double)len;
+            case DEMUX_GET_POSITION:
+                *va_arg( args, double* ) = (double)pos / (double)len;
                 return VLC_SUCCESS;
-            }
-            else if( i_query == DEMUX_SET_POSITION )
-            {
-                f = (double)va_arg( args, double );
-                pos = f * len;
+
+            case DEMUX_SET_POSITION:
+                pos = va_arg( args, double ) * len;
                 if( dvdnav_sector_search( p_sys->dvdnav, pos, SEEK_SET ) ==
                       DVDNAV_STATUS_OK )
                 {
                     return VLC_SUCCESS;
                 }
-            }
-            else if( i_query == DEMUX_GET_TIME )
-            {
-                pi64 = (int64_t*)va_arg( args, int64_t * );
-                if( p_sys->i_pgc_length > 0 )
-                {
-                    *pi64 = p_sys->i_pgc_length * pos / len;
-                    return VLC_SUCCESS;
-                }
-            }
-            else if( i_query == DEMUX_GET_LENGTH )
-            {
-                pi64 = (int64_t*)va_arg( args, int64_t * );
-                if( p_sys->i_pgc_length > 0 )
-                {
-                    *pi64 = (int64_t)p_sys->i_pgc_length;
-                    return VLC_SUCCESS;
-                }
-            }
+                break;
 
+            case DEMUX_GET_TIME:
+                if( p_sys->i_pgc_length > 0 )
+                {
+                    *va_arg( args, int64_t * ) = p_sys->i_pgc_length*pos/len;
+                    return VLC_SUCCESS;
+                }
+                break;
+
+            case DEMUX_GET_LENGTH:
+                if( p_sys->i_pgc_length > 0 )
+                {
+                    *va_arg( args, int64_t * ) = (int64_t)p_sys->i_pgc_length;
+                    return VLC_SUCCESS;
+                }
+                break;
+            }
             return VLC_EGENERIC;
         }
 
@@ -486,21 +474,19 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         case DEMUX_CAN_SEEK:
         case DEMUX_CAN_CONTROL_PACE:
             /* TODO */
-            pb = (bool*)va_arg( args, bool * );
-            *pb = true;
+            *va_arg( args, bool * ) = true;
             return VLC_SUCCESS;
 
         case DEMUX_SET_PAUSE_STATE:
             return VLC_SUCCESS;
 
         case DEMUX_GET_TITLE_INFO:
-            ppp_title = (input_title_t***)va_arg( args, input_title_t*** );
-            pi_int    = (int*)va_arg( args, int* );
-            *((int*)va_arg( args, int* )) = 0; /* Title offset */
-            *((int*)va_arg( args, int* )) = 1; /* Chapter offset */
+            ppp_title = va_arg( args, input_title_t*** );
+            *va_arg( args, int* ) = p_sys->i_title;
+            *va_arg( args, int* ) = 0; /* Title offset */
+            *va_arg( args, int* ) = 1; /* Chapter offset */
 
             /* Duplicate title infos */
-            *pi_int = p_sys->i_title;
             *ppp_title = malloc( sizeof( input_title_t ** ) * p_sys->i_title );
             for( i = 0; i < p_sys->i_title; i++ )
             {
@@ -525,40 +511,21 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             return VLC_SUCCESS;
 
         case DEMUX_SET_SEEKPOINT:
-            i = (int)va_arg( args, int );
+            i = va_arg( args, int );
             if( p_demux->info.i_title == 0 )
             {
-                int i_ret;
-                /* Special case */
-                switch( i )
-                {
-                case 0:
-                    i_ret = dvdnav_menu_call( p_sys->dvdnav, DVD_MENU_Escape );
-                    break;
-                case 1:
-                    i_ret = dvdnav_menu_call( p_sys->dvdnav, DVD_MENU_Root );
-                    break;
-                case 2:
-                    i_ret = dvdnav_menu_call( p_sys->dvdnav, DVD_MENU_Title );
-                    break;
-                case 3:
-                    i_ret = dvdnav_menu_call( p_sys->dvdnav, DVD_MENU_Part );
-                    break;
-                case 4:
-                    i_ret = dvdnav_menu_call( p_sys->dvdnav,
-                                              DVD_MENU_Subpicture );
-                    break;
-                case 5:
-                    i_ret = dvdnav_menu_call( p_sys->dvdnav, DVD_MENU_Audio );
-                    break;
-                case 6:
-                    i_ret = dvdnav_menu_call( p_sys->dvdnav, DVD_MENU_Angle );
-                    break;
-                default:
-                    return VLC_EGENERIC;
-                }
-
-                if( i_ret != DVDNAV_STATUS_OK )
+                static const int argtab[] = {
+                    DVD_MENU_Escape,
+                    DVD_MENU_Root,
+                    DVD_MENU_Title,
+                    DVD_MENU_Part,
+                    DVD_MENU_Subpicture,
+                    DVD_MENU_Audio,
+                    DVD_MENU_Angle
+                };
+                enum { numargs = sizeof(argtab)/sizeof(int) };
+                if( (unsigned)i >= numargs || DVDNAV_STATUS_OK !=
+                           dvdnav_menu_call(p_sys->dvdnav,argtab[i]) )
                     return VLC_EGENERIC;
             }
             else if( dvdnav_part_play( p_sys->dvdnav, p_demux->info.i_title,
@@ -572,8 +539,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             return VLC_SUCCESS;
 
         case DEMUX_GET_PTS_DELAY:
-            pi64 = (int64_t*)va_arg( args, int64_t * );
-            *pi64 = (int64_t)var_GetInteger( p_demux, "dvdnav-caching" ) *1000;
+            *va_arg( args, int64_t * )
+                 = (int64_t)var_GetInteger( p_demux, "dvdnav-caching" ) *1000;
             return VLC_SUCCESS;
 
         case DEMUX_GET_META:
@@ -665,24 +632,15 @@ static int Demux( demux_t *p_demux )
         {
             msg_Dbg( p_demux, "DVDNAV_STILL_FRAME" );
             msg_Dbg( p_demux, "     - length=0x%x", event->length );
-            /* FIXME: use vlc_timer_create() if it is ever invented */
             p_sys->still.b_enabled = true;
 
-            if( !p_sys->still.b_created )
+            if( event->length != 0xff && p_sys->still.b_created )
             {
-                vlc_cond_init( &p_sys->still.wait );
-                p_sys->still.b_created =
-                    !vlc_clone( &p_sys->still.thread, StillThread, p_sys,
-                                VLC_THREAD_PRIORITY_LOW );
+                mtime_t delay = event->length * CLOCK_FREQ;
+                vlc_timer_schedule( p_sys->still.timer, false, delay, 0 );
             }
 
             b_still_init = true;
-            if( event->length == 0xff )
-                p_sys->still.i_end = 0;
-            else
-                p_sys->still.i_end = mdate() +
-                                     event->length * INT64_C(1000000);
-            vlc_cond_signal( &p_sys->still.wait );
         }
         vlc_mutex_unlock( &p_sys->still.lock );
 
@@ -923,7 +881,7 @@ static char *DemuxGetLanguageCode( demux_t *p_demux, const char *psz_var )
     if( ( p = strchr( psz_lang, ',' ) ) )
         *p = '\0';
 
-    for( pl = p_languages; pl->psz_iso639_1 != NULL; pl++ )
+    for( pl = p_languages; pl->psz_eng_name != NULL; pl++ )
     {
         if( *psz_lang == '\0' )
             continue;
@@ -937,7 +895,7 @@ static char *DemuxGetLanguageCode( demux_t *p_demux, const char *psz_var )
 
     free( psz_lang );
 
-    if( pl->psz_iso639_1 != NULL )
+    if( pl->psz_eng_name != NULL )
         return strdup( pl->psz_iso639_1 );
 
     return strdup(LANGUAGE_DEFAULT);
@@ -1036,8 +994,10 @@ static void ButtonUpdate( demux_t *p_demux, bool b_mode )
         {
             pci_t *pci = dvdnav_get_current_nav_pci( p_sys->dvdnav );
 
-            b_button_ok = dvdnav_get_highlight_area( pci, i_button, b_mode, &hl ) == DVDNAV_STATUS_OK;
+            b_button_ok = DVDNAV_STATUS_OK ==
+                      dvdnav_get_highlight_area( pci, i_button, b_mode, &hl );
         }
+
         if( b_button_ok )
         {
             int i;
@@ -1053,15 +1013,14 @@ static void ButtonUpdate( demux_t *p_demux, bool b_mode )
             }
 
             vlc_mutex_lock( p_mutex );
-            val.i_int = hl.sx; var_Set( p_sys->p_input, "x-start", val );
-            val.i_int = hl.ex; var_Set( p_sys->p_input, "x-end", val );
-            val.i_int = hl.sy; var_Set( p_sys->p_input, "y-start", val );
-            val.i_int = hl.ey; var_Set( p_sys->p_input, "y-end", val );
+            var_SetInteger( p_sys->p_input, "x-start", hl.sx );
+            var_SetInteger( p_sys->p_input, "x-end",  hl.ex );
+            var_SetInteger( p_sys->p_input, "y-start", hl.sy );
+            var_SetInteger( p_sys->p_input, "y-end", hl.ey );
 
-            val.p_address = (void *)p_sys->palette;
-            var_Set( p_sys->p_input, "menu-palette", val );
+            var_SetAddress( p_sys->p_input, "menu-palette", p_sys->palette );
 
-            val.b_bool = true; var_Set( p_sys->p_input, "highlight", val );
+            var_SetBool( p_sys->p_input, "highlight", true );
             vlc_mutex_unlock( p_mutex );
 
             msg_Dbg( p_demux, "buttonUpdate %d", i_button );
@@ -1073,8 +1032,7 @@ static void ButtonUpdate( demux_t *p_demux, bool b_mode )
 
             /* Show all */
             vlc_mutex_lock( p_mutex );
-            val.b_bool = false;
-            var_Set( p_sys->p_input, "highlight", val );
+            var_SetBool( p_sys->p_input, "highlight", false );
             vlc_mutex_unlock( p_mutex );
         }
     }
@@ -1310,33 +1268,17 @@ static void ESNew( demux_t *p_demux, int i_id )
 }
 
 /*****************************************************************************
- * Event handler code
+ * Still image end
  *****************************************************************************/
-static void* StillThread( void *p_data )
+static void StillTimer( void *p_data )
 {
     demux_sys_t    *p_sys = p_data;
 
     vlc_mutex_lock( &p_sys->still.lock );
-    mutex_cleanup_push( &p_sys->still.lock );
-    for( ;; )
-    {
-        if( p_sys->still.b_enabled && p_sys->still.i_end )
-        {
-            if( vlc_cond_timedwait( &p_sys->still.wait, &p_sys->still.lock,
-                                    p_sys->still.i_end ) )
-            {   /* Still image time out */
-                int canc = vlc_savecancel();
-                p_sys->still.b_enabled = false;
-                dvdnav_still_skip( p_sys->dvdnav );
-                vlc_restorecancel( canc );
-            }
-        }
-        else
-            vlc_cond_wait( &p_sys->still.wait, &p_sys->still.lock );
-    }
-    vlc_cleanup_pop(  );
-
-    assert( 0 );
+    assert( p_sys->still.b_enabled );
+    p_sys->still.b_enabled = false;
+    dvdnav_still_skip( p_sys->dvdnav );
+    vlc_mutex_unlock( &p_sys->still.lock );
 }
 
 static int EventMouse( vlc_object_t *p_vout, char const *psz_var,
@@ -1447,27 +1389,27 @@ static int ProbeDVD( demux_t *p_demux, char *psz_name )
     if( !strcmp( psz_name, "-" ) ) /* stdin -> file access */
         return VLC_EGENERIC;
 
-    if( (i_fd = utf8_open( psz_name, O_RDONLY |O_NONBLOCK, 0666 )) == -1 )
+    if( (i_fd = utf8_open( psz_name, O_RDONLY |O_NONBLOCK )) == -1 )
     {
         return VLC_SUCCESS; /* Let dvdnav_open() do the probing */
     }
+
+    i_ret = VLC_EGENERIC;
 
     if( fstat( i_fd, &stat_info ) || !S_ISREG( stat_info.st_mode ) )
     {
-        close( i_fd );
-
-        if( S_ISFIFO( stat_info.st_mode ) )
-            return VLC_EGENERIC;
-        return VLC_SUCCESS; /* Let dvdnav_open() do the probing */
+        if( !S_ISFIFO( stat_info.st_mode ) )
+            i_ret = VLC_SUCCESS; /* Let dvdnav_open() do the probing */
+        goto bailout;
     }
 
     /* Try to find the anchor (2 bytes at LBA 256) */
-    i_ret = VLC_EGENERIC;
     if( lseek( i_fd, 256 * DVD_VIDEO_LB_LEN, SEEK_SET ) != -1
      && read( i_fd, pi_anchor, 2 ) == 2
      && GetWLE( pi_anchor ) == 2 )
         i_ret = VLC_SUCCESS; /* Found a potential anchor */
 
+bailout:
     close( i_fd );
 
     return i_ret;

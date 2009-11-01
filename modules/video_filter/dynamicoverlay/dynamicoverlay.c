@@ -4,7 +4,7 @@
  * Copyright (C) 2007 the VideoLAN team
  * $Id$
  *
- * Author: Soren Bog <avacore@videolan.org>
+ * Author: Søren Bøg <avacore@videolan.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,9 +34,11 @@
 #include <vlc_vout.h>
 #include <vlc_filter.h>
 #include <vlc_osd.h>
+#include <vlc_charset.h>
 
 #include <ctype.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #include "dynamicoverlay.h"
 
@@ -108,6 +110,7 @@ static int Create( vlc_object_t *p_this )
     p_sys->i_outputfd = -1;
     p_sys->b_updated = true;
     p_sys->b_atomic = false;
+    vlc_mutex_init( &p_sys->lock );
 
     p_filter->pf_sub_filter = Filter;
 
@@ -134,18 +137,23 @@ static int Create( vlc_object_t *p_this )
 static void Destroy( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
+    filter_sys_t *p_sys = p_filter->p_sys;
 
-    BufferDestroy( &p_filter->p_sys->input );
-    BufferDestroy( &p_filter->p_sys->output );
-    QueueDestroy( &p_filter->p_sys->atomic );
-    QueueDestroy( &p_filter->p_sys->pending );
-    QueueDestroy( &p_filter->p_sys->processed );
-    ListDestroy( &p_filter->p_sys->overlays );
+    BufferDestroy( &p_sys->input );
+    BufferDestroy( &p_sys->output );
+    QueueDestroy( &p_sys->atomic );
+    QueueDestroy( &p_sys->pending );
+    QueueDestroy( &p_sys->processed );
+    ListDestroy( &p_sys->overlays );
     UnregisterCommand( p_filter );
 
-    free( p_filter->p_sys->psz_inputfile );
-    free( p_filter->p_sys->psz_outputfile );
-    free( p_filter->p_sys );
+    var_DelCallback( p_filter, "overlay-input", AdjustCallback, p_sys );
+    var_DelCallback( p_filter, "overlay-output", AdjustCallback, p_sys );
+
+    vlc_mutex_destroy( &p_sys->lock );
+    free( p_sys->psz_inputfile );
+    free( p_sys->psz_outputfile );
+    free( p_sys );
 }
 
 /*****************************************************************************
@@ -160,13 +168,14 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     filter_sys_t *p_sys = p_filter->p_sys;
 
     /* We might need to open these at any time. */
+    vlc_mutex_lock( &p_sys->lock );
     if( p_sys->i_inputfd == -1 )
     {
-        p_sys->i_inputfd = open( p_sys->psz_inputfile, O_RDONLY | O_NONBLOCK );
+        p_sys->i_inputfd = utf8_open( p_sys->psz_inputfile, O_RDONLY | O_NONBLOCK );
         if( p_sys->i_inputfd == -1 )
         {
-            msg_Warn( p_filter, "Failed to grab input file: %s (%s)",
-                      p_sys->psz_inputfile, strerror( errno ) );
+            msg_Warn( p_filter, "Failed to grab input file: %s (%m)",
+                      p_sys->psz_inputfile );
         }
         else
         {
@@ -177,14 +186,14 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
 
     if( p_sys->i_outputfd == -1 )
     {
-        p_sys->i_outputfd = open( p_sys->psz_outputfile,
+        p_sys->i_outputfd = utf8_open( p_sys->psz_outputfile,
                                   O_WRONLY | O_NONBLOCK );
         if( p_sys->i_outputfd == -1 )
         {
             if( errno != ENXIO )
             {
-                msg_Warn( p_filter, "Failed to grab output file: %s (%s)",
-                          p_sys->psz_outputfile, strerror( errno ) );
+                msg_Warn( p_filter, "Failed to grab output file: %s (%m)",
+                          p_sys->psz_outputfile );
             }
         }
         else
@@ -193,6 +202,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
                       p_sys->psz_outputfile );
         }
     }
+    vlc_mutex_unlock( &p_sys->lock );
 
     /* Read any waiting commands */
     if( p_sys->i_inputfd != -1 )
@@ -204,8 +214,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
             /* We hit an error */
             if( errno != EAGAIN )
             {
-                msg_Warn( p_filter, "Error on input file: %s",
-                          strerror( errno ) );
+                msg_Warn( p_filter, "Error on input file: %m" );
                 close( p_sys->i_inputfd );
                 p_sys->i_inputfd = -1;
             }
@@ -312,8 +321,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
             /* We hit an error */
             if( errno != EAGAIN )
             {
-                msg_Warn( p_filter, "Error on output file: %s",
-                          strerror( errno ) );
+                msg_Warn( p_filter, "Error on output file: %m" );
                 close( p_sys->i_outputfd );
                 p_sys->i_outputfd = -1;
             }
@@ -383,10 +391,18 @@ static int AdjustCallback( vlc_object_t *p_this, char const *psz_var,
     filter_sys_t *p_sys = (filter_sys_t *)p_data;
     VLC_UNUSED(p_this); VLC_UNUSED(oldval);
 
+    vlc_mutex_lock( &p_sys->lock );
     if( !strncmp( psz_var, "overlay-input", 13 ) )
-        p_sys->psz_inputfile = newval.psz_string;
+    {
+        free( p_sys->psz_inputfile );
+        p_sys->psz_inputfile = strdup( newval.psz_string );
+    }
     else if( !strncmp( psz_var, "overlay-output", 14 ) )
-        p_sys->psz_outputfile = newval.psz_string;
+    {
+        free( p_sys->psz_outputfile );
+        p_sys->psz_outputfile = strdup( newval.psz_string );
+    }
+    vlc_mutex_unlock( &p_sys->lock );
 
     return VLC_EGENERIC;
 }

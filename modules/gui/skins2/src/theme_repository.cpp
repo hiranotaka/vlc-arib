@@ -49,11 +49,8 @@ ThemeRepository *ThemeRepository::instance( intf_thread_t *pIntf )
 
 void ThemeRepository::destroy( intf_thread_t *pIntf )
 {
-    if( pIntf->p_sys->p_repository )
-    {
-        delete pIntf->p_sys->p_repository;
-        pIntf->p_sys->p_repository = NULL;
-    }
+    delete pIntf->p_sys->p_repository;
+    pIntf->p_sys->p_repository = NULL;
 }
 
 
@@ -94,7 +91,11 @@ ThemeRepository::ThemeRepository( intf_thread_t *pIntf ): SkinObject( pIntf )
 
 ThemeRepository::~ThemeRepository()
 {
+    var_DelCallback( getIntf(), "intf-skins", changeSkin, this );
+    var_DelCallback( getIntf(), "intf-skins-interactive", changeSkin, this );
+
     var_Destroy( getIntf(), "intf-skins" );
+    var_Destroy( getIntf(), "intf-skins-interactive" );
 }
 
 

@@ -563,7 +563,10 @@ gnutls_Addx509Directory( vlc_object_t *p_this,
             break;
 
         if ((strcmp (ent, ".") == 0) || (strcmp (ent, "..") == 0))
+        {
+            free( ent );
             continue;
+        }
 
         char path[strlen (psz_dirname) + strlen (ent) + 2];
         sprintf (path, "%s"DIR_SEP"%s", psz_dirname, ent);
@@ -584,7 +587,7 @@ gnutls_Addx509File( vlc_object_t *p_this,
 {
     struct stat st;
 
-    int fd = utf8_open (psz_path, O_RDONLY, 0);
+    int fd = utf8_open (psz_path, O_RDONLY);
     if (fd == -1)
         goto error;
 
@@ -672,7 +675,7 @@ static int OpenClient (vlc_object_t *obj)
         goto error;
     }
 
-    char *userdir = config_GetUserDataDir ();
+    char *userdir = config_GetUserDir ( VLC_DATA_DIR );
     if (userdir != NULL)
     {
         char path[strlen (userdir) + sizeof ("/ssl/private")];

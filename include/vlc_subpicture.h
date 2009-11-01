@@ -147,13 +147,10 @@ struct subpicture_t
     int          i_alpha;                                  /**< transparency */
      /**@}*/
 
-    /** Pointer to function that renders this subtitle in a picture */
-    void ( *pf_render )  ( vout_thread_t *, picture_t *, const subpicture_t * );
     /** Pointer to function that cleans up the private data of this subtitle */
     void ( *pf_destroy ) ( subpicture_t * );
 
-    /** Pointer to functions for region management */
-    void (*pf_pre_render)    ( spu_t *, subpicture_t *, const video_format_t * );
+    /** Pointer to function that update the regions before rendering (optionnal) */
     void (*pf_update_regions)( spu_t *,
                                subpicture_t *, const video_format_t *, mtime_t );
 
@@ -175,6 +172,15 @@ VLC_EXPORT( subpicture_t *, subpicture_New, ( void ) );
  * You may give it NULL.
  */
 VLC_EXPORT( void,  subpicture_Delete, ( subpicture_t *p_subpic ) );
+
+/**
+ * This function will create a subpicture having one region in the requested
+ * chroma showing the given picture.
+ *
+ * The picture_t given is not released nor used inside the
+ * returned subpicture_t.
+ */
+VLC_EXPORT( subpicture_t *, subpicture_NewFromPicture, ( vlc_object_t *, picture_t *, vlc_fourcc_t i_chroma ) );
 
 /**@}*/
 

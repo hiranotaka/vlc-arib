@@ -59,10 +59,14 @@
 /* Format string sanity checks */
 #ifdef __GNUC__
 #   define LIBVLC_FORMAT(x,y) __attribute__ ((format(printf,x,y)))
+#   define LIBVLC_FORMAT_ARG(x) __attribute__ ((format_arg(x)))
 #   define LIBVLC_USED __attribute__ ((warn_unused_result))
+#   define LIBVLC_MALLOC __attribute__ ((malloc))
 #else
 #   define LIBVLC_FORMAT(x,y)
+#   define LIBVLC_FORMAT_ARG(x)
 #   define LIBVLC_USED
+#   define LIBVLC_MALLOC
 #endif
 
 /*****************************************************************************
@@ -162,7 +166,6 @@ typedef enum {
 typedef struct playlist_t playlist_t;
 typedef struct playlist_item_t playlist_item_t;
 typedef struct playlist_view_t playlist_view_t;
-typedef struct playlist_export_t playlist_export_t;
 typedef struct services_discovery_t services_discovery_t;
 typedef struct services_discovery_sys_t services_discovery_sys_t;
 typedef struct playlist_add_t playlist_add_t;
@@ -176,12 +179,6 @@ typedef struct module_cache_t module_cache_t;
 
 typedef struct config_category_t config_category_t;
 
-/* Interface */
-typedef struct intf_thread_t intf_thread_t;
-typedef struct intf_sys_t intf_sys_t;
-typedef struct intf_msg_t intf_msg_t;
-typedef struct user_widget_t user_widget_t;
-
 /* Input */
 typedef struct input_thread_t input_thread_t;
 typedef struct input_thread_sys_t input_thread_sys_t;
@@ -191,7 +188,6 @@ typedef struct access_sys_t access_sys_t;
 typedef struct stream_t     stream_t;
 typedef struct stream_sys_t stream_sys_t;
 typedef struct demux_t  demux_t;
-typedef struct demux_meta_t demux_meta_t;
 typedef struct demux_sys_t demux_sys_t;
 typedef struct es_out_t     es_out_t;
 typedef struct es_out_id_t  es_out_id_t;
@@ -214,7 +210,7 @@ typedef struct aout_instance_t aout_instance_t;
 typedef struct aout_sys_t aout_sys_t;
 typedef struct aout_fifo_t aout_fifo_t;
 typedef struct aout_input_t aout_input_t;
-typedef struct aout_buffer_t aout_buffer_t;
+typedef struct block_t aout_buffer_t;
 typedef audio_format_t audio_sample_format_t;
 typedef struct audio_date_t audio_date_t;
 typedef struct aout_filter_t aout_filter_t;
@@ -350,9 +346,8 @@ typedef struct osd_menu_state_t osd_menu_state_t;
 typedef struct vlm_t         vlm_t;
 typedef struct vlm_message_t vlm_message_t;
 
-/* divers */
+/* misc */
 typedef struct vlc_meta_t    vlc_meta_t;
-typedef struct meta_export_t meta_export_t;
 
 /* Stats */
 typedef struct counter_t     counter_t;
@@ -440,7 +435,6 @@ struct vlc_list_t
  *****************************************************************************/
 #define VLC_SUCCESS         -0                                   /* No error */
 #define VLC_ENOMEM          -1                          /* Not enough memory */
-#define VLC_ETHREAD         -2                               /* Thread error */
 #define VLC_ETIMEOUT        -3                                    /* Timeout */
 
 #define VLC_ENOMOD         -10                           /* Module not found */
@@ -507,7 +501,6 @@ typedef int ( * vlc_callback_t ) ( vlc_object_t *,      /* variable's object */
  */                                                                         \
 /**@{*/                                                                     \
     const char *psz_object_type;                                            \
-    char *psz_object_name;                                                  \
                                                                             \
     /* Messages header */                                                   \
     char *psz_header;                                                       \
@@ -526,15 +519,12 @@ typedef int ( * vlc_callback_t ) ( vlc_object_t *,      /* variable's object */
                                                                             \
     vlc_object_t *  p_parent;                            /**< our parent */ \
                                                                             \
-    /* Private data */                                                      \
-    void *          p_private;                                              \
-                                                                            \
 /**@}*/                                                                     \
 
 /* VLC_OBJECT: attempt at doing a clever cast */
 #ifdef __GNUC__
 # define VLC_OBJECT( x ) \
-    (((vlc_object_t *)(x))+0*(((typeof(x))0)->be_sure_to_add_VLC_COMMON_MEMBERS_to_struct))
+    (((vlc_object_t *)(x))+0*(((__typeof__(x))0)->be_sure_to_add_VLC_COMMON_MEMBERS_to_struct))
 #else
 # define VLC_OBJECT( x ) ((vlc_object_t *)(x))
 #endif
@@ -799,34 +789,16 @@ VLC_EXPORT( int, __vlc_execve, ( vlc_object_t *p_object, int i_argc, char *const
 /* dir wrappers (defined in src/extras/libc.c) */
 VLC_EXPORT(int, vlc_wclosedir, ( void *_p_dir ));
 
-/*****************************************************************************
- * CPU capabilities
- *****************************************************************************/
-#define CPU_CAPABILITY_NONE    0
-#define CPU_CAPABILITY_486     (1<<0)
-#define CPU_CAPABILITY_586     (1<<1)
-#define CPU_CAPABILITY_PPRO    (1<<2)
-#define CPU_CAPABILITY_MMX     (1<<3)
-#define CPU_CAPABILITY_3DNOW   (1<<4)
-#define CPU_CAPABILITY_MMXEXT  (1<<5)
-#define CPU_CAPABILITY_SSE     (1<<6)
-#define CPU_CAPABILITY_SSE2    (1<<7)
-#define CPU_CAPABILITY_ALTIVEC (1<<16)
-#define CPU_CAPABILITY_FPU     (1<<31)
-VLC_EXPORT( unsigned, vlc_CPU, ( void ) );
-
-typedef void *(*vlc_memcpy_t) (void *tgt, const void *src, size_t n);
-typedef void *(*vlc_memset_t) (void *tgt, int c, size_t n);
-
-VLC_EXPORT( void, vlc_fastmem_register, (vlc_memcpy_t cpy, vlc_memset_t set) );
+/* Fast large memory copy and memory set */
 VLC_EXPORT( void *, vlc_memcpy, ( void *, const void *, size_t ) );
 VLC_EXPORT( void *, vlc_memset, ( void *, int, size_t ) );
 
 /*****************************************************************************
  * I18n stuff
  *****************************************************************************/
-VLC_EXPORT( char *, vlc_gettext, ( const char *msgid ) LIBVLC_USED );
+VLC_EXPORT( char *, vlc_gettext, ( const char *msgid ) LIBVLC_FORMAT_ARG(1) );
 
+LIBVLC_FORMAT_ARG(2)
 static inline const char *vlc_pgettext( const char *ctx, const char *id )
 {
     const char *tr = vlc_gettext( id );
