@@ -2995,11 +2995,7 @@ static void EITCallBack( demux_t *p_demux,
         }
 
         /* */
-#ifdef HAVE_ARIB
-        if( i_start > 0 && psz_name )
-#else
         if( i_start > 0 )
-#endif
             vlc_epg_AddEvent( p_epg, i_start, i_duration, psz_name, psz_text,
                               *psz_extra ? psz_extra : NULL );
 
