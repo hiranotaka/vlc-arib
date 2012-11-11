@@ -32,6 +32,7 @@
 
 #include <vlc_network.h>
 #include <vlc_sout.h>
+#include <vlc_fs.h>
 #include "rtp.h"
 
 #include <assert.h>
@@ -82,10 +83,7 @@ rtcp_sender_t *OpenRTCP (vlc_object_t *obj, int rtp_fd, int proto,
     {
         /* RTP/RTCP mux: duplicate the socket */
 #ifndef WIN32
-        fd = dup (rtp_fd);
-#elif defined(UNDER_CE)
- #warning Muxed RTP/RTCP unimplemented!
-        fd = -1;
+        fd = vlc_dup (rtp_fd);
 #else
         WSAPROTOCOL_INFO info;
         WSADuplicateSocket (rtp_fd, GetCurrentProcessId (), &info);
@@ -105,16 +103,18 @@ rtcp_sender_t *OpenRTCP (vlc_object_t *obj, int rtp_fd, int proto,
         sport++;
         dport++;
 
-        fd = net_OpenDgram (obj, src, sport, dst, dport, AF_UNSPEC, proto);
-
-        /* Copy the multicast IPv4 TTL value (useless for IPv6) */
+        fd = net_OpenDgram (obj, src, sport, dst, dport, proto);
         if (fd != -1)
         {
+            /* Copy the multicast IPv4 TTL value (useless for IPv6) */
             int ttl;
             socklen_t len = sizeof (ttl);
 
             if (!getsockopt (rtp_fd, SOL_IP, IP_MULTICAST_TTL, &ttl, &len))
                 setsockopt (fd, SOL_IP, IP_MULTICAST_TTL, &ttl, len);
+
+            /* Ignore all incoming RTCP-RR packets */
+            setsockopt (fd, SOL_SOCKET, SO_RCVBUF, &(int){ 0 }, sizeof (int));
         }
     }
 

@@ -28,19 +28,11 @@
 #include "qt4.hpp"
 
 #include <QObject>
-#include <QAction>
-#include <vector>
-
-/* Folder vs. Directory */
-#if defined( WIN32 ) || defined(__APPLE__)
-#define I_OPEN_FOLDER N_("Open &Folder...")
-#else
-#define I_OPEN_FOLDER N_("Open D&irectory...")
-#endif //WIN32
+#include <QMenu>
+#include <QVector>
 
 using namespace std;
 
-class QMenu;
 class QMenuBar;
 class QSystemTrayIcon;
 
@@ -76,9 +68,9 @@ private:
     int i_val_type;
 };
 
-class QVLCMenu : public QObject
+class VLCMenuBar : public QObject
 {
-    Q_OBJECT;
+    Q_OBJECT
     friend class MenuFunc;
 
 public:
@@ -87,51 +79,67 @@ public:
 
     /* Popups Menus */
     static void PopupMenu( intf_thread_t *, bool );
-    static void AudioPopupMenu( intf_thread_t * );
-    static void VideoPopupMenu( intf_thread_t * );
-    static void MiscPopupMenu( intf_thread_t * );
+    static void AudioPopupMenu( intf_thread_t *, bool );
+    static void VideoPopupMenu( intf_thread_t *, bool );
+    static void MiscPopupMenu( intf_thread_t *, bool );
 
     /* Systray */
-    static void updateSystrayMenu( MainInterface *,intf_thread_t  *,
+    static void updateSystrayMenu( MainInterface *, intf_thread_t  *,
                                    bool b_force_visible = false);
 
     /* Actions */
     static void DoAction( QObject * );
+    enum actionflag {
+        ACTION_NONE = 0x0,
+        ACTION_ALWAYS_ENABLED = 0x1,
+        ACTION_MANAGED = 0x2, /* managed using EnableStatic(bool)? */
+        ACTION_NO_CLEANUP = 0x4,
+        ACTION_STATIC = 0x6, /* legacy shortcut */
+        ACTION_DELETE_ON_REBUILD = 0x8
+    };
+    Q_DECLARE_FLAGS(actionflags, actionflag)
 
 private:
     /* All main Menus */
-    static QMenu *FileMenu( intf_thread_t *, QWidget * );
-    static QMenu *SDMenu( intf_thread_t *, QWidget * );
+    static QMenu *FileMenu( intf_thread_t *, QWidget *, MainInterface * mi = NULL );
 
     static QMenu *ToolsMenu( QMenu * );
-    static QMenu *ToolsMenu( QWidget * );
+    static QMenu *ToolsMenu( QWidget *parent ) { return ToolsMenu( new QMenu( parent ) ); }
 
-    static QMenu *ViewMenu( intf_thread_t *, MainInterface *,
-                            bool with = true );
+    static QMenu *ViewMenu( intf_thread_t *, QMenu *, MainInterface * mi = NULL );
+
     static QMenu *InterfacesMenu( intf_thread_t *p_intf, QMenu * );
+    static void ExtensionsMenu( intf_thread_t *p_intf, QMenu * );
 
     static QMenu *NavigMenu( intf_thread_t *, QMenu * );
-    static QMenu *NavigMenu( intf_thread_t *, QWidget * );
-    static QMenu *RebuildNavigMenu( intf_thread_t *, QMenu *);
+    static QMenu *NavigMenu( intf_thread_t *p_intf, QWidget *parent ) {
+        return NavigMenu( p_intf, new QMenu( parent ) );
+    }
+    static QMenu *RebuildNavigMenu( intf_thread_t *, QMenu *, bool b_keep = false );
 
-    static QMenu *VideoMenu( intf_thread_t *, QMenu * );
-    static QMenu *VideoMenu( intf_thread_t *, QWidget * );
+    static QMenu *VideoMenu( intf_thread_t *, QMenu *, bool b_subtitle = true );
+    static QMenu *VideoMenu( intf_thread_t *p_intf, QWidget *parent ) {
+        return VideoMenu( p_intf, new QMenu( parent ) );
+    }
+    static QMenu *SubtitleMenu( QMenu *current);
 
     static QMenu *AudioMenu( intf_thread_t *, QMenu * );
-    static QMenu *AudioMenu( intf_thread_t *, QWidget * );
+    static QMenu *AudioMenu( intf_thread_t *p_intf, QWidget *parent ) {
+        return AudioMenu( p_intf, new QMenu( parent ) );
+    }
 
     static QMenu *HelpMenu( QWidget * );
 
     /* Popups Menus */
     static void PopupMenuStaticEntries( QMenu *menu );
-    static void PopupPlayEntries( QMenu *menu, intf_thread_t *p_intf,
-                                         input_thread_t *p_input );
-    static void PopupMenuControlEntries( QMenu *menu, intf_thread_t *p_intf );
+    static void PopupMenuPlaylistEntries( QMenu *menu, intf_thread_t *p_intf,
+                                          input_thread_t *p_input );
     static void PopupMenuPlaylistControlEntries( QMenu *menu, intf_thread_t *p_intf );
+    static void PopupMenuControlEntries( QMenu *menu, intf_thread_t *p_intf, bool b = true );
 
     /* Generic automenu methods */
     static QMenu * Populate( intf_thread_t *, QMenu *current,
-                             vector<const char*>&, vector<vlc_object_t *>& );
+                             QVector<const char*>&, QVector<vlc_object_t *>& );
 
     static void CreateAndConnect( QMenu *, const char *, const QString&,
                                   const QString&, int, vlc_object_t *,
@@ -139,6 +147,7 @@ private:
     static void UpdateItem( intf_thread_t *, QMenu *, const char *,
                             vlc_object_t *, bool );
     static int CreateChoicesMenu( QMenu *,const char *, vlc_object_t *, bool );
+    static void EnableStaticEntries( QMenu *, bool );
 
     /* recentMRL menu */
     static QMenu *recentsMenu;
@@ -146,6 +155,7 @@ private:
 public slots:
     static void updateRecents( intf_thread_t * );
 };
+Q_DECLARE_OPERATORS_FOR_FLAGS(VLCMenuBar::actionflags)
 
 class MenuFunc : public QObject
 {
@@ -159,10 +169,10 @@ public:
     {
         switch( id )
         {
-            case 1: QVLCMenu::AudioMenu( p_intf, menu ); break;
-            case 2: QVLCMenu::VideoMenu( p_intf, menu ); break;
-            case 3: QVLCMenu::RebuildNavigMenu( p_intf, menu ); break;
-            case 4: QVLCMenu::InterfacesMenu( p_intf, menu ); break;
+            case 1: VLCMenuBar::AudioMenu( p_intf, menu ); break;
+            case 2: VLCMenuBar::VideoMenu( p_intf, menu ); break;
+            case 3: VLCMenuBar::RebuildNavigMenu( p_intf, menu ); break;
+            case 4: VLCMenuBar::ViewMenu( p_intf, menu ); break;
         }
     }
 private:

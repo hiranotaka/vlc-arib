@@ -78,14 +78,14 @@ vlc_module_begin ()
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_AFILTER )
 
-    add_integer( "headphone-dim", 10, NULL, HEADPHONE_DIM_TEXT,
+    add_integer( "headphone-dim", 10, HEADPHONE_DIM_TEXT,
                  HEADPHONE_DIM_LONGTEXT, false )
-    add_bool( "headphone-compensate", false, NULL, HEADPHONE_COMPENSATE_TEXT,
+    add_bool( "headphone-compensate", false, HEADPHONE_COMPENSATE_TEXT,
               HEADPHONE_COMPENSATE_LONGTEXT, true )
-    add_bool( "headphone-dolby", false, NULL, HEADPHONE_DOLBY_TEXT,
+    add_bool( "headphone-dolby", false, HEADPHONE_DOLBY_TEXT,
               HEADPHONE_DOLBY_LONGTEXT, true )
 
-    set_capability( "audio filter2", 0 )
+    set_capability( "audio filter", 0 )
     set_callbacks( OpenFilter, CloseFilter )
     add_shortcut( "headphone" )
 vlc_module_end ()
@@ -189,7 +189,7 @@ static int Init( vlc_object_t *p_this, struct filter_sys_t * p_data
         , unsigned int i_nb_channels, uint32_t i_physical_channels
         , unsigned int i_rate )
 {
-    double d_x = config_GetInt( p_this, "headphone-dim" );
+    double d_x = var_InheritInteger( p_this, "headphone-dim" );
     double d_z = d_x;
     double d_z_rear = -d_x/3;
     double d_min = 0;
@@ -197,7 +197,7 @@ static int Init( vlc_object_t *p_this, struct filter_sys_t * p_data
     int i_source_channel_offset;
     unsigned int i;
 
-    if( config_GetInt( p_this, "headphone-compensate" ) )
+    if( var_InheritBool( p_this, "headphone-compensate" ) )
     {
         /* minimal distance to any speaker */
         if( i_physical_channels & AOUT_CHAN_REARCENTER )
@@ -330,7 +330,7 @@ static int Init( vlc_object_t *p_this, struct filter_sys_t * p_data
  * DoWork: convert a buffer
  *****************************************************************************/
 static void DoWork( filter_t * p_filter,
-                    aout_buffer_t * p_in_buf, aout_buffer_t * p_out_buf )
+                    block_t * p_in_buf, block_t * p_out_buf )
 {
     filter_sys_t *p_sys = p_filter->p_sys;
     int i_input_nb = aout_FormatNbChannels( &p_filter->fmt_in.audio );
@@ -441,49 +441,12 @@ static int OpenFilter( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys;
-    bool b_fit = true;
 
     /* Activate this filter only with stereo devices */
     if( p_filter->fmt_out.audio.i_physical_channels
             != (AOUT_CHAN_LEFT|AOUT_CHAN_RIGHT) )
     {
         msg_Dbg( p_filter, "filter discarded (incompatible format)" );
-        return VLC_EGENERIC;
-    }
-
-    /* Request a specific format if not already compatible */
-    if( p_filter->fmt_in.audio.i_original_channels
-            != p_filter->fmt_out.audio.i_original_channels )
-    {
-        b_fit = false;
-        p_filter->fmt_in.audio.i_original_channels =
-                                        p_filter->fmt_out.audio.i_original_channels;
-    }
-    if( p_filter->fmt_in.audio.i_format != VLC_CODEC_FL32
-          || p_filter->fmt_out.audio.i_format != VLC_CODEC_FL32 )
-    {
-        b_fit = false;
-        p_filter->fmt_in.audio.i_format = VLC_CODEC_FL32;
-        p_filter->fmt_out.audio.i_format = VLC_CODEC_FL32;
-    }
-    if( p_filter->fmt_in.audio.i_rate != p_filter->fmt_out.audio.i_rate )
-    {
-        b_fit = false;
-        p_filter->fmt_in.audio.i_rate = p_filter->fmt_out.audio.i_rate;
-    }
-    if( p_filter->fmt_in.audio.i_physical_channels == (AOUT_CHAN_LEFT|AOUT_CHAN_RIGHT)
-          && ( p_filter->fmt_in.audio.i_original_channels & AOUT_CHAN_DOLBYSTEREO )
-          && !config_GetInt( p_filter, "headphone-dolby" ) )
-    {
-        b_fit = false;
-        p_filter->fmt_in.audio.i_physical_channels = AOUT_CHAN_LEFT | AOUT_CHAN_RIGHT |
-                                              AOUT_CHAN_CENTER |
-                                              AOUT_CHAN_REARLEFT |
-                                              AOUT_CHAN_REARRIGHT;
-    }
-    if( !b_fit )
-    {
-        msg_Dbg( p_filter, "requesting specific format" );
         return VLC_EGENERIC;
     }
 
@@ -505,8 +468,19 @@ static int OpenFilter( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
-    p_filter->pf_audio_filter = Convert;
+    /* Request a specific format if not already compatible */
+    p_filter->fmt_in.audio.i_format = VLC_CODEC_FL32;
+    p_filter->fmt_out.audio.i_format = VLC_CODEC_FL32;
     p_filter->fmt_out.audio.i_rate = p_filter->fmt_in.audio.i_rate;
+    p_filter->fmt_in.audio.i_original_channels =
+                                   p_filter->fmt_out.audio.i_original_channels;
+    if( p_filter->fmt_in.audio.i_physical_channels == AOUT_CHANS_STEREO
+     && (p_filter->fmt_in.audio.i_original_channels & AOUT_CHAN_DOLBYSTEREO)
+     && !var_InheritBool( p_filter, "headphone-dolby" ) )
+    {
+        p_filter->fmt_in.audio.i_physical_channels = AOUT_CHANS_5_0;
+    }
+    p_filter->pf_audio_filter = Convert;
 
     return VLC_SUCCESS;
 }

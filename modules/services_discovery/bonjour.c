@@ -48,6 +48,8 @@
     static int  Open ( vlc_object_t * );
     static void Close( vlc_object_t * );
 
+VLC_SD_PROBE_HELPER("bonjour", "Bonjour services", SD_CAT_LAN)
+
 vlc_module_begin ()
     set_shortname( "Bonjour" )
     set_description( N_("Bonjour services") )
@@ -55,6 +57,8 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_PLAYLIST_SD )
     set_capability( "services_discovery", 0 )
     set_callbacks( Open, Close )
+
+    VLC_SD_PROBE_SUBMODULE
 vlc_module_end ()
 
 /*****************************************************************************
@@ -172,7 +176,7 @@ static void resolve_callback(
 
         if( psz_uri != NULL )
         {
-            p_input = input_item_New( p_sd, psz_uri, name );
+            p_input = input_item_New( psz_uri, name );
             free( psz_uri );
         }
         if( p_input != NULL )

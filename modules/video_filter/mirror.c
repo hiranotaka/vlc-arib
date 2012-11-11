@@ -29,10 +29,11 @@
 # include "config.h"
 #endif
 
+#include <assert.h>
+
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-
-#include <assert.h>
+#include <vlc_atomic.h>
 #include <vlc_filter.h>
 #include "filter_picture.h"
 
@@ -77,18 +78,17 @@ static const char *const ppsz_direction_descriptions[] = {
 vlc_module_begin ()
     set_description( N_("Mirror video filter") )
     set_shortname( N_("Mirror video" ))
-    set_help( N_("Splits video in two same parts, like in the mirror") )
+    set_help( N_("Splits video in two same parts, like in a mirror") )
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
     set_capability( "video filter2", 0 )
-    add_integer( CFG_PREFIX "split", 0, NULL, ORIENTATION_TEXT,
+    add_integer( CFG_PREFIX "split", 0, ORIENTATION_TEXT,
                 ORIENTATION_LONGTEXT, false )
         change_integer_list( pi_orientation_values,
-                            ppsz_orientation_descriptions, NULL )
-    add_integer( CFG_PREFIX "direction", 0, NULL, DIRECTION_TEXT,
+                            ppsz_orientation_descriptions )
+    add_integer( CFG_PREFIX "direction", 0, DIRECTION_TEXT,
                 DIRECTION_LONGTEXT, false )
-        change_integer_list( pi_direction_values, ppsz_direction_descriptions,
-                            NULL )
+        change_integer_list( pi_direction_values, ppsz_direction_descriptions )
     set_callbacks( Create, Destroy )
 vlc_module_end ()
 
@@ -103,9 +103,8 @@ static int FilterCallback( vlc_object_t *, char const *,
  *****************************************************************************/
 struct filter_sys_t
 {
-    int i_split;
-    int i_direction;
-    vlc_mutex_t lock;
+    atomic_int i_split;
+    atomic_int i_direction;
 };
 
 /*****************************************************************************
@@ -147,14 +146,14 @@ static int Create( vlc_object_t *p_this )
 
     config_ChainParse( p_filter, CFG_PREFIX, ppsz_filter_options,
                        p_filter->p_cfg );
-    p_sys->i_split = var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "split" );
-    p_sys->i_direction = var_CreateGetIntegerCommand( p_filter,
-                                                    CFG_PREFIX "direction" );
+    atomic_init( &p_sys->i_split,
+                 var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "split" ) );
+    atomic_init( &p_sys->i_direction,
+                 var_CreateGetIntegerCommand( p_filter,
+                                                    CFG_PREFIX "direction" ) );
 
-    vlc_mutex_init( &p_sys->lock );
-
-    var_AddCallback( p_filter, CFG_PREFIX "split", FilterCallback, NULL );
-    var_AddCallback( p_filter, CFG_PREFIX "direction", FilterCallback, NULL );
+    var_AddCallback( p_filter, CFG_PREFIX "split", FilterCallback, p_sys );
+    var_AddCallback( p_filter, CFG_PREFIX "direction", FilterCallback, p_sys );
 
     p_filter->pf_video_filter = Filter;
 
@@ -169,12 +168,11 @@ static int Create( vlc_object_t *p_this )
 static void Destroy( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
+    filter_sys_t *p_sys = p_filter->p_sys;
 
-    var_DelCallback( p_filter, CFG_PREFIX "split", FilterCallback, NULL );
-    var_DelCallback( p_filter, CFG_PREFIX "direction", FilterCallback, NULL );
-
-    vlc_mutex_destroy( &p_filter->p_sys->lock );
-    free( p_filter->p_sys );
+    var_DelCallback( p_filter, CFG_PREFIX "split", FilterCallback, p_sys );
+    var_DelCallback( p_filter, CFG_PREFIX "direction", FilterCallback, p_sys );
+    free( p_sys );
 }
 
 /*****************************************************************************
@@ -193,10 +191,8 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     if( !p_pic ) return NULL;
 
     filter_sys_t *p_sys = p_filter->p_sys;
-    vlc_mutex_lock( &p_sys->lock );
-    b_vertical_split = p_sys->i_split == 0 ? true : false;
-    b_left_to_right = p_sys->i_direction == 0 ? true : false;
-    vlc_mutex_unlock( &p_sys->lock );
+    b_vertical_split = !atomic_load( &p_sys->i_split );
+    b_left_to_right = !atomic_load( &p_sys->i_direction );
 
     p_outpic = filter_NewPicture( p_filter );
     if( !p_outpic )
@@ -593,22 +589,13 @@ static void HorizontalMirror( picture_t *p_pic, picture_t *p_outpic, int i_plane
 static int FilterCallback ( vlc_object_t *p_this, char const *psz_var,
                             vlc_value_t oldval, vlc_value_t newval, void *p_data )
 {
-    (void)oldval;    (void)p_data;
-    filter_t *p_filter = (filter_t*)p_this;
-    filter_sys_t *p_sys = p_filter->p_sys;
+    (void) p_this; (void)oldval;
+    filter_sys_t *p_sys = p_data;
 
     if( !strcmp( psz_var, CFG_PREFIX "split" ) )
-    {
-        vlc_mutex_lock( &p_sys->lock );
-        p_sys->i_split = newval.i_int;
-        vlc_mutex_unlock( &p_sys->lock );
-    }
+        atomic_store( &p_sys->i_split, newval.i_int );
     else /* CFG_PREFIX "direction" */
-    {
-        vlc_mutex_lock( &p_sys->lock );
-        p_sys->i_direction = newval.i_int;
-        vlc_mutex_unlock( &p_sys->lock );
-    }
+        atomic_store( &p_sys->i_direction, newval.i_int );
 
     return VLC_SUCCESS;
 }

@@ -38,21 +38,7 @@
 
 #include <vlc_input.h>
 #include <vlc_playlist.h>
-
-#if 0 //def HAVE_AVAHI_CLIENT
-    #include "bonjour.h"
-
-    #if defined( WIN32 )
-        #define DIRECTORY_SEPARATOR '\\'
-    #else
-        #define DIRECTORY_SEPARATOR '/'
-    #endif
-#endif
-
 #include <vlc_httpd.h>
-
-#define DEFAULT_PORT        8080
-#define DEFAULT_SSL_PORT    8443
 
 /*****************************************************************************
  * Module descriptor
@@ -71,53 +57,21 @@ static void Close( vlc_object_t * );
 #define MIME_TEXT N_("Mime")
 #define MIME_LONGTEXT N_("MIME returned by the server (autodetected " \
                         "if not specified)." )
-#define CERT_TEXT N_( "Certificate file" )
-#define CERT_LONGTEXT N_( "Path to the x509 PEM certificate file that will "\
-                          "be used for HTTPS." )
-#define KEY_TEXT N_( "Private key file" )
-#define KEY_LONGTEXT N_( "Path to the x509 PEM private key file that will " \
-                         "be used for HTTPS. Leave " \
-                         "empty if you don't have one." )
-#define CA_TEXT N_( "Root CA file" )
-#define CA_LONGTEXT N_( "Path to the x509 PEM trusted root CA certificates " \
-                        "(certificate authority) file that will be used for " \
-                        "HTTPS. Leave empty if you " \
-                        "don't have one." )
-#define CRL_TEXT N_( "CRL file" )
-#define CRL_LONGTEXT N_( "Path to the x509 PEM Certificates Revocation List " \
-                         "file that will be used for SSL. Leave " \
-                         "empty if you don't have one." )
-#define BONJOUR_TEXT N_( "Advertise with Bonjour")
-#define BONJOUR_LONGTEXT N_( "Advertise the stream with the Bonjour protocol." )
 
 
 vlc_module_begin ()
     set_description( N_("HTTP stream output") )
     set_capability( "sout access", 0 )
     set_shortname( "HTTP" )
-    add_shortcut( "http" )
-    add_shortcut( "https" )
-    add_shortcut( "mmsh" )
+    add_shortcut( "http", "https", "mmsh" )
     set_category( CAT_SOUT )
     set_subcategory( SUBCAT_SOUT_ACO )
-    add_string( SOUT_CFG_PREFIX "user", "", NULL,
+    add_string( SOUT_CFG_PREFIX "user", "",
                 USER_TEXT, USER_LONGTEXT, true )
-    add_password( SOUT_CFG_PREFIX "pwd", "", NULL,
+    add_password( SOUT_CFG_PREFIX "pwd", "",
                   PASS_TEXT, PASS_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "mime", "", NULL,
+    add_string( SOUT_CFG_PREFIX "mime", "",
                 MIME_TEXT, MIME_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "cert", "vlc.pem", NULL,
-                CERT_TEXT, CERT_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "key", NULL, NULL,
-                KEY_TEXT, KEY_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "ca", NULL, NULL,
-                CA_TEXT, CA_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "crl", NULL, NULL,
-                CRL_TEXT, CRL_LONGTEXT, true )
-#if 0 //def HAVE_AVAHI_CLIENT
-    add_bool( SOUT_CFG_PREFIX "bonjour", false, NULL,
-              BONJOUR_TEXT, BONJOUR_LONGTEXT, true);
-#endif
     set_callbacks( Open, Close )
 vlc_module_end ()
 
@@ -126,7 +80,7 @@ vlc_module_end ()
  * Exported prototypes
  *****************************************************************************/
 static const char *const ppsz_sout_options[] = {
-    "user", "pwd", "mime", "cert", "key", "ca", "crl", NULL
+    "user", "pwd", "mime", NULL
 };
 
 static ssize_t Write( sout_access_out_t *, block_t * );
@@ -146,10 +100,6 @@ struct sout_access_out_sys_t
     int                 i_header_size;
     uint8_t             *p_header;
     bool          b_header_complete;
-
-#if 0 //def HAVE_AVAHI_CLIENT
-    void                *p_bonjour;
-#endif
 };
 
 /*****************************************************************************
@@ -160,16 +110,9 @@ static int Open( vlc_object_t *p_this )
     sout_access_out_t       *p_access = (sout_access_out_t*)p_this;
     sout_access_out_sys_t   *p_sys;
 
-    char                *psz_parser;
-
-    char                *psz_bind_addr;
-    int                 i_bind_port;
-    char                *psz_file_name;
     char                *psz_user;
     char                *psz_pwd;
     char                *psz_mime;
-    char                *psz_cert = NULL, *psz_key = NULL, *psz_ca = NULL,
-                        *psz_crl = NULL;
 
     if( !( p_sys = p_access->p_sys =
                 malloc( sizeof( sout_access_out_sys_t ) ) ) )
@@ -177,78 +120,63 @@ static int Open( vlc_object_t *p_this )
 
     config_ChainParse( p_access, SOUT_CFG_PREFIX, ppsz_sout_options, p_access->p_cfg );
 
-    /* p_access->psz_path = "hostname:port/filename" */
-    psz_bind_addr = strdup( p_access->psz_path );
-
-    i_bind_port = 0;
-
-    psz_parser = strchr( psz_bind_addr, '/' );
-    if( psz_parser )
+    const char *path = p_access->psz_path;
+    path += strcspn( path, "/" );
+    if( path > p_access->psz_path )
     {
-        psz_file_name = strdup( psz_parser );
-        *psz_parser = '\0';
-    }
-    else
-        psz_file_name = strdup( "/" );
-
-    if( psz_bind_addr[0] == '[' )
-    {
-        psz_bind_addr++;
-        psz_parser = strstr( psz_bind_addr, "]:" );
-        if( psz_parser )
+        const char *port = strrchr( p_access->psz_path, ':' );
+        if( port != NULL && strchr( port, ']' ) != NULL )
+            port = NULL; /* IPv6 numeral */
+        if( port != p_access->psz_path )
         {
-            *psz_parser = '\0';
-            i_bind_port = atoi( psz_parser + 2 );
-        }
-        psz_parser = psz_bind_addr - 1;
-    }
-    else
-    {
-        psz_parser = strrchr( psz_bind_addr, ':' );
-        if( psz_parser )
-        {
-            *psz_parser = '\0';
-            i_bind_port = atoi( psz_parser + 1 );
-        }
-        psz_parser = psz_bind_addr;
-    }
+            int len = (port ? port : path) - p_access->psz_path;
+            msg_Warn( p_access, "\"%.*s\" HTTP host might be ignored in "
+                      "multiple-host configurations, use at your own risks.",
+                      len, p_access->psz_path );
+            msg_Info( p_access, "Consider passing --http-host=IP on the "
+                                "command line instead." );
 
-    /* SSL support */
+            char host[len + 1];
+            strncpy( host, p_access->psz_path, len );
+            host[len] = '\0';
+
+            var_Create( p_access, "http-host", VLC_VAR_STRING );
+            var_SetString( p_access, "http-host", host );
+        }
+        if( port != NULL )
+        {
+            /* int len = path - ++port;
+            msg_Info( p_access, "Consider passing --%s-port=%.*s on the "
+                                "command line instead.",
+                      strcasecmp( p_access->psz_access, "https" )
+                      ? "http" : "https", len, port ); */
+            port++;
+
+            int bind_port = atoi( port );
+            if( bind_port > 0 )
+            {
+                const char *var = strcasecmp( p_access->psz_access, "https" )
+                                  ? "http-port" : "https-port";
+                var_Create( p_access, var, VLC_VAR_INTEGER );
+                var_SetInteger( p_access, var, bind_port );
+            }
+        }
+    }
+    if( !*path )
+        path = "/";
+
+    /* TLS support */
     if( p_access->psz_access && !strcmp( p_access->psz_access, "https" ) )
-    {
-        psz_cert = var_CreateGetNonEmptyString( p_this, SOUT_CFG_PREFIX"cert" );
-        psz_key = var_CreateGetNonEmptyString( p_this, SOUT_CFG_PREFIX"key" );
-        psz_ca = var_CreateGetNonEmptyString( p_this, SOUT_CFG_PREFIX"ca" );
-        psz_crl = var_CreateGetNonEmptyString( p_this, SOUT_CFG_PREFIX"crl" );
-
-        if( i_bind_port <= 0 )
-            i_bind_port = DEFAULT_SSL_PORT;
-    }
+        p_sys->p_httpd_host = vlc_https_HostNew( VLC_OBJECT(p_access) );
     else
-    {
-        if( i_bind_port <= 0 )
-            i_bind_port = DEFAULT_PORT;
-    }
-
-    p_sys->p_httpd_host = httpd_TLSHostNew( VLC_OBJECT(p_access),
-                                            psz_bind_addr, i_bind_port,
-                                            psz_cert, psz_key, psz_ca,
-                                            psz_crl );
-    free( psz_cert );
-    free( psz_key );
-    free( psz_ca );
-    free( psz_crl );
+        p_sys->p_httpd_host = vlc_http_HostNew( VLC_OBJECT(p_access) );
 
     if( p_sys->p_httpd_host == NULL )
     {
-        msg_Err( p_access, "cannot listen on %s port %d",
-                 psz_bind_addr, i_bind_port );
-        free( psz_file_name );
-        free( psz_parser );
+        msg_Err( p_access, "cannot start HTTP server" );
         free( p_sys );
         return VLC_EGENERIC;
     }
-    free( psz_parser );
 
     psz_user = var_GetNonEmptyString( p_access, SOUT_CFG_PREFIX "user" );
     psz_pwd = var_GetNonEmptyString( p_access, SOUT_CFG_PREFIX "pwd" );
@@ -262,62 +190,24 @@ static int Open( vlc_object_t *p_this )
     }
 
     p_sys->p_httpd_stream =
-        httpd_StreamNew( p_sys->p_httpd_host, psz_file_name, psz_mime,
-                         psz_user, psz_pwd, NULL );
+        httpd_StreamNew( p_sys->p_httpd_host, path, psz_mime,
+                         psz_user, psz_pwd );
     free( psz_user );
     free( psz_pwd );
     free( psz_mime );
 
     if( p_sys->p_httpd_stream == NULL )
     {
-        msg_Err( p_access, "cannot add stream %s", psz_file_name );
+        msg_Err( p_access, "cannot add stream %s", path );
         httpd_HostDelete( p_sys->p_httpd_host );
 
-        free( psz_file_name );
         free( p_sys );
         return VLC_EGENERIC;
     }
 
-#if 0 //def HAVE_AVAHI_CLIENT
-    if( config_GetInt(p_this, SOUT_CFG_PREFIX "bonjour") )
-    {
-        char                *psz_txt, *psz_name;
-        playlist_t          *p_playlist = pl_Hold( p_access );
-
-        char *psz_uri = input_item_GetURI( p_playlist->status.p_item->p_input );
-        char *psz_newuri = psz_uri;
-        psz_name = strrchr( psz_newuri, DIRECTORY_SEPARATOR );
-        if( psz_name != NULL ) psz_name++;
-        else psz_name = psz_newuri;
-
-        if( psz_file_name &&
-            asprintf( &psz_txt, "path=%s", psz_file_name ) == -1 )
-            {
-                pl_Release( p_access );
-                free( psz_uri );
-                return VLC_ENOMEM;
-            }
-
-        p_sys->p_bonjour = bonjour_start_service( (vlc_object_t *)p_access,
-                                    strcmp( p_access->psz_access, "https" )
-                                       ? "_vlc-http._tcp" : "_vlc-https._tcp",
-                                             psz_name, i_bind_port, psz_txt );
-        free( psz_uri );
-        free( psz_txt );
-
-        if( p_sys->p_bonjour == NULL )
-            msg_Err( p_access, "unable to start requested Bonjour announce" );
-        pl_Release( p_access );
-    }
-    else
-        p_sys->p_bonjour = NULL;
-#endif
-
-    free( psz_file_name );
-
     p_sys->i_header_allocated = 1024;
     p_sys->i_header_size      = 0;
-    p_sys->p_header           = malloc( p_sys->i_header_allocated );
+    p_sys->p_header           = xmalloc( p_sys->i_header_allocated );
     p_sys->b_header_complete  = false;
 
     p_access->pf_write       = Write;
@@ -334,11 +224,6 @@ static void Close( vlc_object_t * p_this )
 {
     sout_access_out_t       *p_access = (sout_access_out_t*)p_this;
     sout_access_out_sys_t   *p_sys = p_access->p_sys;
-
-#if 0 //def HAVE_AVAHI_CLIENT
-    if( p_sys->p_bonjour != NULL )
-        bonjour_stop_service( p_sys->p_bonjour );
-#endif
 
     httpd_StreamDelete( p_sys->p_httpd_stream );
     httpd_HostDelete( p_sys->p_httpd_host );
@@ -393,8 +278,8 @@ static ssize_t Write( sout_access_out_t *p_access, block_t *p_buffer )
             {
                 p_sys->i_header_allocated =
                     p_buffer->i_buffer + p_sys->i_header_size + 1024;
-                p_sys->p_header =
-                    realloc( p_sys->p_header, p_sys->i_header_allocated );
+                p_sys->p_header = xrealloc( p_sys->p_header,
+                                                  p_sys->i_header_allocated );
             }
             memcpy( &p_sys->p_header[p_sys->i_header_size],
                     p_buffer->p_buffer,

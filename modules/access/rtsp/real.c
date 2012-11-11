@@ -28,6 +28,7 @@
 #endif
 
 #include <vlc_common.h>
+#include <vlc_memory.h>
 
 #include "rtsp.h"
 #include "real.h"
@@ -48,15 +49,6 @@ static const unsigned char xor_table[] = {
 #define BE_32C(x,y) do {uint32_t in=y; *(uint32_t *)(x)=GetDWBE(&in);} while(0)
 #define LE_32C(x,y) do {uint32_t in=y; *(uint32_t *)(x)=GetDWLE(&in);} while(0)
 #define MAX(x,y) ((x>y) ? x : y)
-
-/* XXX find a better place for this */
-static inline void *realloc_(void *p, size_t sz)
-{
-    void *n = realloc(p, sz);
-    if( !n )
-        free(p);
-    return n;
-}
 
 static void hash(char *field, char *param)
 {
@@ -359,6 +351,7 @@ static void real_calc_response_and_checksum (char *response, char *chksum, char 
     chksum[i] = response[i*4];
 }
 
+#define MLTI_BUF_MAX_SIZE 2048
 
 /*
  * takes a MLTI-Chunk and a rule number got from match_asm_rule,
@@ -376,7 +369,7 @@ static int select_mlti_data(const char *mlti_chunk, int mlti_size, int selection
       ||(mlti_chunk[3] != 'I'))
   {
     lprintf("MLTI tag not detected, copying data\n");
-    memcpy(*out, mlti_chunk, mlti_size);
+    memcpy(*out, mlti_chunk, __MIN(mlti_size,MLTI_BUF_MAX_SIZE));
     return mlti_size;
   }
 
@@ -413,7 +406,7 @@ static int select_mlti_data(const char *mlti_chunk, int mlti_size, int selection
   }
   size=BE_32(mlti_chunk);
 
-  memcpy(*out, mlti_chunk+4, size);
+  memcpy(*out, mlti_chunk+4, __MIN(size,MLTI_BUF_MAX_SIZE));
   return size;
 }
 
@@ -438,7 +431,7 @@ static rmff_header_t *real_parse_sdp(char *data, char **stream_rules, uint32_t b
   desc=sdpplin_parse(data);
   if( !desc ) return NULL;
 
-  buf= (char *)malloc(2048);
+  buf= (char *)malloc(MLTI_BUF_MAX_SIZE);
   if( !buf ) goto error;
 
   header = calloc( 1, sizeof(rmff_header_t) );
@@ -698,27 +691,27 @@ rmff_header_t  *real_setup_and_get_header(rtsp_client_t *rtsp_session, int bandw
 
   /* setup our streams */
   real_calc_response_and_checksum (challenge2, checksum, challenge1);
-  buf = realloc_(buf, strlen(challenge2) + strlen(checksum) + 32);
+  buf = realloc_or_free(buf, strlen(challenge2) + strlen(checksum) + 32);
   if( !buf ) goto error;
   sprintf(buf, "RealChallenge2: %s, sd=%s", challenge2, checksum);
   rtsp_schedule_field(rtsp_session, buf);
-  buf = realloc_(buf, strlen(session_id) + 32);
+  buf = realloc_or_free(buf, strlen(session_id) + 32);
   if( !buf ) goto error;
   sprintf(buf, "If-Match: %s", session_id);
   rtsp_schedule_field(rtsp_session, buf);
   rtsp_schedule_field(rtsp_session, "Transport: x-pn-tng/tcp;mode=play,rtp/avp/tcp;unicast;mode=play");
-  buf = realloc_(buf, strlen(mrl) + 32);
+  buf = realloc_or_free(buf, strlen(mrl) + 32);
   if( !buf ) goto error;
   sprintf(buf, "%s/streamid=0", mrl);
   rtsp_request_setup(rtsp_session,buf);
 
   if (h->prop->num_streams > 1) {
     rtsp_schedule_field(rtsp_session, "Transport: x-pn-tng/tcp;mode=play,rtp/avp/tcp;unicast;mode=play");
-    buf = realloc_(buf, strlen(session_id) + 32);
+    buf = realloc_or_free(buf, strlen(session_id) + 32);
     if( !buf ) goto error;
     sprintf(buf, "If-Match: %s", session_id);
     rtsp_schedule_field(rtsp_session, buf);
-    buf = realloc_(buf, strlen(mrl) + 32);
+    buf = realloc_or_free(buf, strlen(mrl) + 32);
     if( !buf ) goto error;
     sprintf(buf, "%s/streamid=1", mrl);
     rtsp_request_setup(rtsp_session,buf);

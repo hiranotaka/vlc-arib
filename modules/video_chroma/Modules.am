@@ -6,36 +6,7 @@ SOURCES_i420_rgb = \
 	i420_rgb_c.h \
 	$(NULL)
 
-SOURCES_i420_rgb_mmx = \
-	i420_rgb.c \
-	i420_rgb.h \
-	i420_rgb16.c \
-	i420_rgb_mmx.h \
-	$(NULL)
-
-SOURCES_i420_rgb_sse2 = \
-	i420_rgb.c \
-	i420_rgb.h \
-	i420_rgb16.c \
-	i420_rgb_mmx.h \
-	$(NULL)
-
 SOURCES_i420_yuy2 = \
-	i420_yuy2.c \
-	i420_yuy2.h \
-	$(NULL)
-
-SOURCES_i420_yuy2_mmx = \
-	i420_yuy2.c \
-	i420_yuy2.h \
-	$(NULL)
-
-SOURCES_i420_yuy2_sse2 = \
-	i420_yuy2.c \
-	i420_yuy2.h \
-	$(NULL)
-
-SOURCES_i420_yuy2_altivec = \
 	i420_yuy2.c \
 	i420_yuy2.h \
 	$(NULL)
@@ -45,26 +16,8 @@ SOURCES_i422_yuy2 = \
 	i422_yuy2.h \
 	$(NULL)
 
-SOURCES_i422_yuy2_mmx = \
-	i422_yuy2.c \
-	i422_yuy2.h \
-	$(NULL)
-
-SOURCES_i422_yuy2_sse2 = \
-	i422_yuy2.c \
-	i422_yuy2.h \
-	$(NULL)
-
 SOURCES_i422_i420 = \
 	i422_i420.c \
-	$(NULL)
-
-SOURCES_i420_ymga = \
-	i420_ymga.c \
-	$(NULL)
-
-SOURCES_i420_ymga_mmx = \
-	i420_ymga.c \
 	$(NULL)
 
 SOURCES_grey_yuv = \
@@ -79,17 +32,20 @@ SOURCES_yuy2_i420 = \
 	yuy2_i420.c \
 	$(NULL)
 
+SOURCES_rv32 = rv32.c
+
 libvlc_LTLIBRARIES += \
 	libi420_rgb_plugin.la \
+	libi420_yuy2_plugin.la \
+	libi422_i420_plugin.la \
+	libi422_yuy2_plugin.la \
 	libgrey_yuv_plugin.la \
+	libyuy2_i420_plugin.la \
+	libyuy2_i422_plugin.la \
+	librv32_plugin.la \
 	$(NULL)
 
-libchroma_neon_plugin_la_SOURCES = \
-	i420_yuyv_neon.S \
-	neon.c
-libchroma_neon_plugin_la_CFLAGS = $(AM_CFLAGS)
-libchroma_neon_plugin_la_LIBADD = $(AM_LIBADD)
-libchroma_neon_plugin_la_DEPENDENCIES =
-if HAVE_NEON
-libvlc_LTLIBRARIES += libchroma_neon_plugin.la
-endif
+libchroma_omx_plugin_la_SOURCES = omxdl.c
+libchroma_omx_plugin_la_CFLAGS = $(AM_CFLAGS) $(OMXIP_CFLAGS)
+libchroma_omx_plugin_la_LIBADD = $(AM_LIBADD) $(OMXIP_LIBS)
+EXTRA_LTLIBRARIES += libchroma_omx_plugin.la

@@ -28,14 +28,89 @@
 #include <assert.h>
 
 #include <xcb/xcb.h>
-#ifndef XCB_CURSOR_NONE
-# define XCB_CURSOR_NONE ((xcb_cursor_t) 0U)
-#endif
 
 #include <vlc_common.h>
 #include <vlc_vout_display.h>
 
 #include "xcb_vlc.h"
+
+/**
+ * Check for an error
+ */
+int CheckError (vout_display_t *vd, xcb_connection_t *conn,
+                const char *str, xcb_void_cookie_t ck)
+{
+    xcb_generic_error_t *err;
+
+    err = xcb_request_check (conn, ck);
+    if (err)
+    {
+        int code = err->error_code;
+
+        free (err);
+        msg_Err (vd, "%s: X11 error %d", str, code);
+        assert (code != 0);
+        return code;
+    }
+    return 0;
+}
+
+/**
+ * Gets the size of an X window.
+ */
+int GetWindowSize (struct vout_window_t *wnd, xcb_connection_t *conn,
+                   unsigned *restrict width, unsigned *restrict height)
+{
+    xcb_get_geometry_cookie_t ck = xcb_get_geometry (conn, wnd->handle.xid);
+    xcb_get_geometry_reply_t *geo = xcb_get_geometry_reply (conn, ck, NULL);
+
+    if (!geo)
+        return -1;
+
+    *width = geo->width;
+    *height = geo->height;
+    free (geo);
+    return 0;
+}
+
+/**
+ * Create a blank cursor.
+ * Note that the pixmaps are leaked (until the X disconnection). Hence, this
+ * function should be called no more than once per X connection.
+ * @param conn XCB connection
+ * @param scr target XCB screen
+ */
+xcb_cursor_t CreateBlankCursor (xcb_connection_t *conn,
+                                const xcb_screen_t *scr)
+{
+    xcb_cursor_t cur = xcb_generate_id (conn);
+    xcb_pixmap_t pix = xcb_generate_id (conn);
+
+    xcb_create_pixmap (conn, 1, pix, scr->root, 1, 1);
+    xcb_create_cursor (conn, cur, pix, pix, 0, 0, 0, 0, 0, 0, 1, 1);
+    return cur;
+}
+
+/**
+ * (Try to) register to mouse events on a window if needed.
+ */
+void RegisterMouseEvents (vlc_object_t *obj, xcb_connection_t *conn,
+                          xcb_window_t wnd)
+{
+    /* Subscribe to parent window resize events */
+    uint32_t value = XCB_EVENT_MASK_POINTER_MOTION
+                   | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+    xcb_change_window_attributes (conn, wnd, XCB_CW_EVENT_MASK, &value);
+    /* Try to subscribe to click events */
+    /* (only one X11 client can get them, so might not work) */
+    if (var_InheritBool (obj, "mouse-events"))
+    {
+        value |= XCB_EVENT_MASK_BUTTON_PRESS
+               | XCB_EVENT_MASK_BUTTON_RELEASE;
+        xcb_change_window_attributes (conn, wnd,
+                                      XCB_CW_EVENT_MASK, &value);
+    }
+}
 
 /* NOTE: we assume no other thread will be _setting_ our video output events
  * variables. Afterall, only this plugin is supposed to know when these occur.
@@ -63,6 +138,7 @@ static void HandleMotionNotify (vout_display_t *vd, xcb_connection_t *conn,
     /* show the default cursor */
     xcb_change_window_attributes (conn, ev->event, XCB_CW_CURSOR,
                                   &(uint32_t) { XCB_CURSOR_NONE });
+    xcb_flush (conn);
 
     /* TODO it could be saved */
     vout_display_PlacePicture (&place, &vd->source, vd->cfg, false);
@@ -75,9 +151,7 @@ static void HandleMotionNotify (vout_display_t *vd, xcb_connection_t *conn,
     const int y = vd->source.i_y_offset +
         (int64_t)(ev->event_y - place.y) * vd->source.i_visible_height/ place.height;
 
-    if (x >= vd->source.i_x_offset && x < vd->source.i_x_offset + vd->source.i_visible_width &&
-        y >= vd->source.i_y_offset && y < vd->source.i_y_offset + vd->source.i_visible_height)
-        vout_display_SendEventMouseMoved (vd, x, y);
+    vout_display_SendEventMouseMoved (vd, x, y);
 }
 
 static void HandleVisibilityNotify (vout_display_t *vd, bool *visible,
@@ -91,9 +165,7 @@ static void
 HandleParentStructure (vout_display_t *vd,
                        const xcb_configure_notify_event_t *ev)
 {
-    if (ev->width  != vd->cfg->display.width ||
-        ev->height != vd->cfg->display.height)
-        vout_display_SendEventDisplaySize (vd, ev->width, ev->height, vd->cfg->is_fullscreen);
+    vout_display_SendEventDisplaySize (vd, ev->width, ev->height, vd->cfg->is_fullscreen);
 }
 
 /**

@@ -27,32 +27,40 @@
 #include "dialogs/bookmarks.hpp"
 #include "input_manager.hpp"
 
-#include <QGridLayout>
+#include <QHBoxLayout>
 #include <QSpacerItem>
 #include <QPushButton>
-
-BookmarksDialog *BookmarksDialog::instance = NULL;
+#include <QDialogButtonBox>
+#include <QModelIndexList>
 
 BookmarksDialog::BookmarksDialog( intf_thread_t *_p_intf ):QVLCFrame( _p_intf )
 {
+    b_ignore_updates = false;
     setWindowFlags( Qt::Tool );
-    setWindowOpacity( config_GetFloat( p_intf, "qt-opacity" ) );
+    setWindowOpacity( var_InheritFloat( p_intf, "qt-opacity" ) );
     setWindowTitle( qtr( "Edit Bookmarks" ) );
     setWindowRole( "vlc-bookmarks" );
 
-    QGridLayout *layout = new QGridLayout( this );
+    QHBoxLayout *layout = new QHBoxLayout( this );
 
+    QDialogButtonBox *buttonsBox = new QDialogButtonBox( Qt::Vertical );
     QPushButton *addButton = new QPushButton( qtr( "Create" ) );
     addButton->setToolTip( qtr( "Create a new bookmark" ) );
-    QPushButton *delButton = new QPushButton( qtr( "Delete" ) );
+    buttonsBox->addButton( addButton, QDialogButtonBox::ActionRole );
+    delButton = new QPushButton( qtr( "Delete" ) );
     delButton->setToolTip( qtr( "Delete the selected item" ) );
-    QPushButton *clearButton = new QPushButton( qtr( "Clear" ) );
+    buttonsBox->addButton( delButton, QDialogButtonBox::ActionRole );
+    clearButton = new QPushButton( qtr( "Clear" ) );
     clearButton->setToolTip( qtr( "Delete all the bookmarks" ) );
+    buttonsBox->addButton( clearButton, QDialogButtonBox::ResetRole );
 #if 0
     QPushButton *extractButton = new QPushButton( qtr( "Extract" ) );
     extractButton->setToolTip( qtr() );
+    buttonsBox->addButton( extractButton, QDialogButtonBox::ActionRole );
 #endif
-    QPushButton *closeButton = new QPushButton( qtr( "&Close" ) );
+    /* ?? Feels strange as Qt guidelines will put reject on top */
+    buttonsBox->addButton( new QPushButton( qtr( "&Close" ) ),
+                          QDialogButtonBox::RejectRole);
 
     bookmarksList = new QTreeWidget( this );
     bookmarksList->setRootIsDecorated( false );
@@ -69,17 +77,8 @@ BookmarksDialog::BookmarksDialog( intf_thread_t *_p_intf ):QVLCFrame( _p_intf )
     headerLabels << qtr( "Time" );
     bookmarksList->setHeaderLabels( headerLabels );
 
-
-    layout->addWidget( addButton, 0, 0 );
-    layout->addWidget( delButton, 1, 0 );
-    layout->addWidget( clearButton, 2, 0 );
-    layout->addItem( new QSpacerItem( 20, 20, QSizePolicy::Expanding ), 4, 0 );
-#if 0
-    layout->addWidget( extractButton, 5, 0 );
-#endif
-    layout->addWidget( bookmarksList, 0, 1, 6, 2);
-    layout->setColumnStretch( 1, 1 );
-    layout->addWidget( closeButton, 7, 2 );
+    layout->addWidget( buttonsBox );
+    layout->addWidget( bookmarksList );
 
     CONNECT( THEMIM->getIM(), bookmarksChanged(),
              this, update() );
@@ -88,31 +87,45 @@ BookmarksDialog::BookmarksDialog( intf_thread_t *_p_intf ):QVLCFrame( _p_intf )
              activateItem( QModelIndex ) );
     CONNECT( bookmarksList, itemChanged( QTreeWidgetItem*, int ),
              this, edit( QTreeWidgetItem*, int ) );
-
+    CONNECT( bookmarksList->model(), rowsInserted( const QModelIndex &, int, int ),
+             this, updateButtons() );
+    CONNECT( bookmarksList->model(), rowsRemoved( const QModelIndex &, int, int ),
+             this, updateButtons() );
+    CONNECT( bookmarksList->selectionModel(), selectionChanged( const QItemSelection &, const QItemSelection & ),
+             this, updateButtons() );
     BUTTONACT( addButton, add() );
     BUTTONACT( delButton, del() );
     BUTTONACT( clearButton, clear() );
+
 #if 0
     BUTTONACT( extractButton, extract() );
 #endif
-    BUTTONACT( closeButton, close() );
+    CONNECT( buttonsBox, rejected(), this, close() );
+    updateButtons();
 
-    readSettings( "Bookmarks", QSize( 435, 280 ) );
+    restoreWidgetPosition( "Bookmarks", QSize( 435, 280 ) );
     updateGeometry();
 }
 
 BookmarksDialog::~BookmarksDialog()
 {
-    writeSettings( "Bookmarks" );
+    saveWidgetPosition( "Bookmarks" );
+}
+
+void BookmarksDialog::updateButtons()
+{
+    clearButton->setEnabled( bookmarksList->model()->rowCount() > 0 );
+    delButton->setEnabled( bookmarksList->selectionModel()->hasSelection() );
 }
 
 void BookmarksDialog::update()
 {
+    if ( b_ignore_updates ) return;
     input_thread_t *p_input = THEMIM->getInput();
     if( !p_input ) return;
 
     seekpoint_t **pp_bookmarks;
-    int i_bookmarks;
+    int i_bookmarks = 0;
 
     if( bookmarksList->topLevelItemCount() > 0 )
     {
@@ -153,8 +166,9 @@ void BookmarksDialog::add()
 
     if( !input_Control( p_input, INPUT_GET_BOOKMARK, &bookmark ) )
     {
-        bookmark.psz_name = const_cast<char *>qtu( THEMIM->getIM()->getName() +
-                   QString::number( bookmarksList->topLevelItemCount() ) );
+        QString name = THEMIM->getIM()->getName() + " #"
+                     + QString::number( bookmarksList->topLevelItemCount() );
+        bookmark.psz_name = const_cast<char *>qtu( name );
 
         input_Control( p_input, INPUT_ADD_BOOKMARK, &bookmark );
     }
@@ -165,11 +179,22 @@ void BookmarksDialog::del()
     input_thread_t *p_input = THEMIM->getInput();
     if( !p_input ) return;
 
-    int i_focused = bookmarksList->currentIndex().row();
-
-    if( i_focused >= 0 )
+    QModelIndexList selected = bookmarksList->selectionModel()->selectedIndexes();
+    if ( !selected.empty() )
     {
-        input_Control( p_input, INPUT_DEL_BOOKMARK, i_focused );
+        b_ignore_updates = true;
+        QModelIndexList::Iterator it = selected.end();
+        for( --it; it != selected.begin(); it-- )
+        {
+            /* FIXME: Find out why selectedIndexes() doesn't follow the
+            SelectRows selectionBehavior() and returns all columns */
+            if ( (*it).column() == 0 )
+                input_Control( p_input, INPUT_DEL_BOOKMARK, (*it).row() );
+        }
+        if ( (*it).column() == 0 )
+            input_Control( p_input, INPUT_DEL_BOOKMARK, (*it).row() );
+        b_ignore_updates = false;
+        update();
     }
 }
 
@@ -220,11 +245,11 @@ void BookmarksDialog::edit( QTreeWidgetItem *item, int column )
     else if( column == 2 )
     {
         fields = item->text( column ).split( ":", QString::SkipEmptyParts );
-        if( fields.size() == 1 )
+        if( fields.count() == 1 )
             p_seekpoint->i_time_offset = 1000000 * ( fields[0].toInt() );
-        else if( fields.size() == 2 )
+        else if( fields.count() == 2 )
             p_seekpoint->i_time_offset = 1000000 * ( fields[0].toInt() * 60 + fields[1].toInt() );
-        else if( fields.size() == 3 )
+        else if( fields.count() == 3 )
             p_seekpoint->i_time_offset = 1000000 * ( fields[0].toInt() * 3600 + fields[1].toInt() * 60 + fields[2].toInt() );
         else
         {

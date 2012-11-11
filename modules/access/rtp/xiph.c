@@ -28,30 +28,27 @@
 
 #include <vlc_common.h>
 #include <vlc_demux.h>
-#include <vlc_aout.h>
 #include <vlc_network.h>
 #ifdef HAVE_POLL
 # include <poll.h>
 #endif
 #include <vlc_plugin.h>
 
-#include <vlc_codecs.h>
+#include "../../demux/xiph.h"
 
 #include "rtp.h"
 
-/* PT=dynamic
- * vorbis: Xiph Vorbis audio (draft-ietf-avt-rtp-vorbis-09, RFC FIXME)
- */
-typedef struct rtp_vorbis_t
+typedef struct rtp_xiph_t
 {
     es_out_id_t *id;
     block_t     *block;
     uint32_t     ident;
-} rtp_vorbis_t;
+    bool         vorbis;
+} rtp_xiph_t;
 
-static void *vorbis_init (demux_t *demux)
+static void *xiph_init (bool vorbis)
 {
-    rtp_vorbis_t *self = malloc (sizeof (*self));
+    rtp_xiph_t *self = malloc (sizeof (*self));
 
     if (self == NULL)
         return NULL;
@@ -59,13 +56,33 @@ static void *vorbis_init (demux_t *demux)
     self->id = NULL;
     self->block = NULL;
     self->ident = 0xffffffff; /* impossible value on the wire */
-    (void)demux;
+    self->vorbis = vorbis;
     return self;
 }
 
-static void vorbis_destroy (demux_t *demux, void *data)
+#if 0
+/* PT=dynamic
+ * vorbis: Xiph Vorbis audio (RFC 5215)
+ */
+static void *vorbis_init (demux_t *demux)
 {
-    rtp_vorbis_t *self = data;
+    (void)demux;
+    return xiph_init (true);
+}
+#endif
+
+/* PT=dynamic
+ * vorbis: Xiph Theora video
+ */
+void *theora_init (demux_t *demux)
+{
+    (void)demux;
+    return xiph_init (false);
+}
+
+void xiph_destroy (demux_t *demux, void *data)
+{
+    rtp_xiph_t *self = data;
 
     if (!data)
         return;
@@ -79,7 +96,7 @@ static void vorbis_destroy (demux_t *demux, void *data)
 }
 
 /* Convert configuration from RTP to VLC format */
-static ssize_t vorbis_header (void **pextra, const uint8_t *buf, size_t len)
+static ssize_t xiph_header (void **pextra, const uint8_t *buf, size_t len)
 {
     /* Headers number */
     if (len == 0)
@@ -112,39 +129,31 @@ static ssize_t vorbis_header (void **pextra, const uint8_t *buf, size_t len)
     setuplen = len - (idlen + cmtlen);
 
     /* Create the VLC extra format header */
-    uint8_t *extra = malloc ((size_t)6 + idlen + cmtlen + setuplen);
-    if (extra == NULL)
-        return -1;
-    uint8_t *ptr = *pextra = extra;
-    /* Identification header */
-    *ptr++ = idlen >> 8;
-    *ptr++ = idlen & 0xff;
-    memcpy (ptr, buf, idlen);
-    buf += idlen;
-    ptr += idlen;
-    /* Comments header */
-    *ptr++ = cmtlen >> 8;
-    *ptr++ = cmtlen & 0xff;
-    memcpy (ptr, buf, cmtlen);
-    buf += cmtlen;
-    ptr += cmtlen;
-    /* Setup header */
-    *ptr++ = setuplen >> 8;
-    *ptr++ = setuplen & 0xff;
-    memcpy (ptr, buf, setuplen);
-    ptr += setuplen;
-    return ptr - extra;
+    unsigned sizes[3] = {
+        idlen, cmtlen, setuplen
+    };
+    const void *payloads[3] = {
+        buf + 0,
+        buf + idlen,
+        buf + idlen + cmtlen
+    };
+    void *extra;
+    int  extra_size;
+    if (xiph_PackHeaders (&extra_size, &extra, sizes, payloads, 3))
+        return -1;;
+    *pextra = extra;
+    return extra_size;
 }
 
 
-static void vorbis_decode (demux_t *demux, void *data, block_t *block)
+void xiph_decode (demux_t *demux, void *data, block_t *block)
 {
-    rtp_vorbis_t *self = data;
+    rtp_xiph_t *self = data;
 
     if (!data || block->i_buffer < 4)
         goto drop;
 
-    /* 32-bits Vorbis RTP header (§2.2) */
+    /* 32-bits RTP header (§2.2) */
     uint32_t ident = GetDWBE (block->p_buffer);
     block->i_buffer -= 4;
     block->p_buffer += 4;
@@ -154,10 +163,12 @@ static void vorbis_decode (demux_t *demux, void *data, block_t *block)
     unsigned pkts = (ident) & 15;
     ident >>= 8;
 
-    /* Vorbis RTP defragmentation */
+    /* RTP defragmentation */
     if (self->block && (block->i_flags & BLOCK_FLAG_DISCONTINUITY))
     {   /* Screwed! discontinuity within a fragmented packet */
-        msg_Warn (demux, "discontinuity in fragmented Vorbis packet");
+        msg_Warn (demux, self->vorbis ?
+                  "discontinuity in fragmented Vorbis packet" :
+                  "discontinuity in fragmented Theora packet");
         block_Release (self->block);
         self->block = NULL;
     }
@@ -213,7 +224,7 @@ static void vorbis_decode (demux_t *demux, void *data, block_t *block)
         pkts = 1;
     }
 
-    /* Vorbis RTP payload packets processing */
+    /* RTP payload packets processing */
     while (pkts > 0)
     {
         if (block->i_buffer < 2)
@@ -227,10 +238,15 @@ static void vorbis_decode (demux_t *demux, void *data, block_t *block)
 
         switch (datatype)
         {
-            case 0: /* Raw audio frame */
+            case 0: /* Raw payload */
             {
                 if (self->ident != ident)
-                    break; /* Ignore raw without configuration */
+                {
+                    msg_Warn (demux, self->vorbis ?
+                        "ignoring raw Vorbis payload without configuration" :
+                        "ignoring raw Theora payload without configuration");
+                    break;
+                }
                 block_t *raw = block_Alloc (len);
                 memcpy (raw->p_buffer, block->p_buffer, len);
                 raw->i_pts = block->i_pts; /* FIXME: what about pkts > 1 */
@@ -244,17 +260,21 @@ static void vorbis_decode (demux_t *demux, void *data, block_t *block)
                     break; /* Ignore config retransmission */
 
                 void *extv;
-                ssize_t extc = vorbis_header (&extv, block->p_buffer, len);
+                ssize_t extc = xiph_header (&extv, block->p_buffer, len);
                 if (extc < 0)
                     break;
 
                 es_format_t fmt;
-                es_format_Init (&fmt, AUDIO_ES, VLC_CODEC_VORBIS);
+                es_format_Init (&fmt, self->vorbis ? AUDIO_ES : VIDEO_ES,
+                                self->vorbis ? VLC_CODEC_VORBIS
+                                             : VLC_CODEC_THEORA);
                 fmt.p_extra = extv;
                 fmt.i_extra = extc;
                 codec_destroy (demux, self->id);
-                msg_Dbg (demux, "Vorbis packed configuration received "
-                         "(%06"PRIx32")", ident);
+                msg_Dbg (demux, self->vorbis ?
+                         "Vorbis packed configuration received (%06"PRIx32")" :
+                         "Theora packed configuration received (%06"PRIx32")",
+                         ident);
                 self->ident = ident;
                 self->id = codec_init (demux, &fmt);
                 break;

@@ -29,8 +29,8 @@
 
 
 AnimBitmap::AnimBitmap( intf_thread_t *pIntf, const GenericBitmap &rBitmap ):
-    SkinObject( pIntf ), m_pImage( NULL ), m_curFrame( 0 ), m_pTimer( NULL ),
-    m_cmdNextFrame( this ), m_rBitmap( rBitmap )
+    SkinObject( pIntf ), m_rBitmap( rBitmap ), m_pImage( NULL ),
+    m_curFrame( 0 ), m_curLoop( 0 ), m_pTimer( NULL ), m_cmdNextFrame( this )
 {
     // Build the graphics
     OSFactory *pOsFactory = OSFactory::instance( pIntf );
@@ -40,6 +40,7 @@ AnimBitmap::AnimBitmap( intf_thread_t *pIntf, const GenericBitmap &rBitmap ):
 
     m_nbFrames = rBitmap.getNbFrames();
     m_frameRate = rBitmap.getFrameRate();
+    m_nbLoops = rBitmap.getNbLoops();
 
     // Create the timer
     m_pTimer = pOsFactory->createOSTimer( m_cmdNextFrame );
@@ -56,19 +57,20 @@ AnimBitmap::~AnimBitmap()
 void AnimBitmap::startAnim()
 {
     if( m_nbFrames > 1 && m_frameRate > 0 )
-    {
         m_pTimer->start( 1000 / m_frameRate, false );
-    }
 }
 
 
 void AnimBitmap::stopAnim()
 {
     m_pTimer->stop();
+    m_curLoop = 0;
+    m_curFrame = 0;
 }
 
 
-void AnimBitmap::draw( OSGraphics &rImage, int xDest, int yDest )
+void AnimBitmap::draw( OSGraphics &rImage, int xDest, int yDest, int w, int h,
+                       int xOffset, int yOffset )
 {
     // Draw the current frame
     int height = m_pImage->getHeight() / m_nbFrames;
@@ -78,23 +80,17 @@ void AnimBitmap::draw( OSGraphics &rImage, int xDest, int yDest )
     // rImage.drawGraphics( *m_pImage, 0, ySrc, xDest, yDest,
     //                      m_pImage->getWidth(), height );
 
-    // A new way .... needs to be tested thoroughly
-    rImage.drawBitmap( m_rBitmap, 0, ySrc, xDest, yDest,
-                       m_pImage->getWidth(), height, true );
+    rImage.drawBitmap( m_rBitmap,
+                       xOffset, ySrc + yOffset,
+                       xDest, yDest, w, h, true );
 }
 
 
 bool AnimBitmap::hit( int x, int y ) const
 {
     int height = m_pImage->getHeight() / m_nbFrames;
-    if( y >= 0 && y < height )
-    {
-        return m_pImage->hit( x, m_curFrame * height + y );
-    }
-    else
-    {
-        return false;
-    }
+    return y >= 0 && y < height &&
+           m_pImage->hit( x, m_curFrame * height + y );
 }
 
 
@@ -115,6 +111,17 @@ void AnimBitmap::CmdNextFrame::execute()
     // Go the next frame
     m_pParent->m_curFrame = ( m_pParent->m_curFrame + 1 ) %
         m_pParent->m_nbFrames;
+
+    if( m_pParent->m_nbLoops > 0 && m_pParent->m_curFrame == 0 )
+    {
+        m_pParent->m_curLoop += 1;
+
+        if( m_pParent->m_curLoop == m_pParent->m_nbLoops )
+        {
+            m_pParent->stopAnim();
+            m_pParent->m_curFrame = m_pParent->m_nbFrames - 1;
+        }
+    }
 
     // Notify the observer so that it can display the next frame
     m_pParent->notify();

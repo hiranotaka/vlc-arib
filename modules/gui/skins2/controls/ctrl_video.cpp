@@ -36,34 +36,34 @@ CtrlVideo::CtrlVideo( intf_thread_t *pIntf, GenericLayout &rLayout,
                       bool autoResize, const UString &rHelp,
                       VarBool *pVisible ):
     CtrlGeneric( pIntf, rHelp, pVisible ), m_rLayout( rLayout ),
-    m_xShift( 0 ), m_yShift( 0 ), m_bAutoResize( autoResize ),
-    m_pVoutWindow( NULL ), m_bIsUseable( false )
+    m_bAutoResize( autoResize), m_xShift( 0 ), m_yShift( 0 ),
+    m_bIsUseable( false), m_pVoutWindow( NULL )
 {
-    // Observe the vout size variable if the control is auto-resizable
-    if( m_bAutoResize )
-    {
-        VarBox &rVoutSize = VlcProc::instance( pIntf )->getVoutSizeVar();
-        rVoutSize.addObserver( this );
-    }
+    VarBool &rFullscreen = VlcProc::instance( getIntf() )->getFullscreenVar();
+    rFullscreen.addObserver( this );
+
+    // if global parameter set to no resize, override skins behavior
+    if( !var_InheritBool( pIntf, "qt-video-autoresize" ) )
+        m_bAutoResize = false;
 }
 
 
 CtrlVideo::~CtrlVideo()
 {
-    VarBox &rVoutSize = VlcProc::instance( getIntf() )->getVoutSizeVar();
-    rVoutSize.delObserver( this );
-
-    //m_pLayout->getActiveVar().delObserver( this );
+    VarBool &rFullscreen = VlcProc::instance( getIntf() )->getFullscreenVar();
+    rFullscreen.delObserver( this );
 }
 
 
 void CtrlVideo::handleEvent( EvtGeneric &rEvent )
 {
+    (void)rEvent;
 }
 
 
 bool CtrlVideo::mouseOver( int x, int y ) const
 {
+    (void)x; (void)y;
     return false;
 }
 
@@ -87,14 +87,23 @@ void CtrlVideo::onPositionChange()
 }
 
 
-void CtrlVideo::draw( OSGraphics &rImage, int xDest, int yDest )
+void CtrlVideo::draw( OSGraphics &rImage, int xDest, int yDest, int w, int h)
 {
     const Position *pPos = getPosition();
-    if( pPos )
+    rect region( pPos->getLeft(), pPos->getTop(),
+                 pPos->getWidth(), pPos->getHeight() );
+    rect clip( xDest, yDest, w, h );
+    rect inter;
+
+    if( rect::intersect( region, clip, &inter ) )
     {
         // Draw a black rectangle under the video to avoid transparency
-        rImage.fillRect( pPos->getLeft(), pPos->getTop(), pPos->getWidth(),
-                         pPos->getHeight(), 0 );
+        rImage.fillRect( inter.x, inter.y, inter.width, inter.height, 0 );
+    }
+
+    if( m_pVoutWindow )
+    {
+        m_pVoutWindow->show();
     }
 }
 
@@ -115,8 +124,18 @@ void CtrlVideo::setLayout( GenericLayout *pLayout,
 }
 
 
+void CtrlVideo::unsetLayout()
+{
+    m_pLayout->getActiveVar().delObserver( this );
+    CtrlGeneric::unsetLayout();
+}
+
+
 void CtrlVideo::resizeControl( int width, int height )
 {
+    if( !m_bAutoResize )
+        return;
+
     WindowManager &rWindowManager =
         getIntf()->p_sys->p_theme->getWindowManager();
 
@@ -142,22 +161,16 @@ void CtrlVideo::resizeControl( int width, int height )
 }
 
 
-void CtrlVideo::onUpdate( Subject<VarBox> &rVoutSize, void *arg )
-{
-    int newWidth = ((VarBox&)rVoutSize).getWidth() + m_xShift;
-    int newHeight = ((VarBox&)rVoutSize).getHeight() + m_yShift;
-
-    resizeControl( newWidth, newHeight );
-}
-
-
 void CtrlVideo::onUpdate( Subject<VarBool> &rVariable, void *arg  )
 {
+    (void)arg;
+
     // Visibility changed
     if( &rVariable == m_pVisible )
     {
         msg_Dbg( getIntf(), "VideoCtrl : Visibility changed (visible=%d)",
                                   isVisible() );
+        notifyLayout();
     }
 
     // Active Layout changed
@@ -167,7 +180,16 @@ void CtrlVideo::onUpdate( Subject<VarBool> &rVariable, void *arg  )
                       m_pLayout->getActiveVar().get() );
     }
 
-    m_bIsUseable = isVisible() && m_pLayout->getActiveVar().get();
+    VarBool &rFullscreen = VlcProc::instance( getIntf() )->getFullscreenVar();
+    if( &rVariable == &rFullscreen )
+    {
+        msg_Dbg( getIntf(), "VideoCtrl : fullscreen toggled (fullscreen = %d)",
+                      rFullscreen.get() );
+    }
+
+    m_bIsUseable = isVisible() &&
+                   m_pLayout->getActiveVar().get() &&
+                   !rFullscreen.get();
 
     if( m_bIsUseable && !isUsed() )
     {
@@ -209,21 +231,5 @@ void CtrlVideo::detachVoutWindow( )
 {
     m_pVoutWindow->setCtrlVideo( NULL );
     m_pVoutWindow = NULL;
-}
-
-
-void CtrlVideo::resizeInnerVout( )
-{
-    if( m_pVoutWindow )
-    {
-        WindowManager &rWindowManager =
-             getIntf()->p_sys->p_theme->getWindowManager();
-        TopWindow* pWin = getWindow();
-
-        const Position *pPos = getPosition();
-
-        m_pVoutWindow->resize( pPos->getWidth(), pPos->getHeight() );
-        m_pVoutWindow->move( pPos->getLeft(), pPos->getTop() );
-    }
 }
 

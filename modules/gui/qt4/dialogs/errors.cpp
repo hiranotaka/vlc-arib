@@ -34,10 +34,8 @@
 #include <QDialogButtonBox>
 #include <QPushButton>
 
-ErrorsDialog *ErrorsDialog::instance = NULL;
-
-ErrorsDialog::ErrorsDialog( QWidget *parent, intf_thread_t *_p_intf )
-             : QVLCDialog( parent, _p_intf )
+ErrorsDialog::ErrorsDialog( intf_thread_t *_p_intf )
+             : QVLCDialog( (QWidget*)_p_intf->p_sys->p_mi, _p_intf )
 {
     setWindowTitle( qtr( "Errors" ) );
     setWindowRole( "vlc-errors" );
@@ -45,11 +43,10 @@ ErrorsDialog::ErrorsDialog( QWidget *parent, intf_thread_t *_p_intf )
 
     QGridLayout *layout = new QGridLayout( this );
 
-    QDialogButtonBox *buttonBox = new QDialogButtonBox;
-    QPushButton *closeButton = new QPushButton( qtr( "&Close" ) );
-    QPushButton *clearButton = new QPushButton( qtr( "&Clear" ) );
-    buttonBox->addButton( closeButton, QDialogButtonBox::AcceptRole );
+    QDialogButtonBox *buttonBox = new QDialogButtonBox( Qt::Horizontal, this );
+    QPushButton *clearButton = new QPushButton( qtr( "Cl&ear" ), this );
     buttonBox->addButton( clearButton, QDialogButtonBox::ActionRole );
+    buttonBox->addButton( new QPushButton( qtr("&Close"), this ), QDialogButtonBox::RejectRole );
 
     messages = new QTextEdit();
     messages->setReadOnly( true );
@@ -58,10 +55,9 @@ ErrorsDialog::ErrorsDialog( QWidget *parent, intf_thread_t *_p_intf )
 
     layout->addWidget( messages, 0, 0, 1, 3 );
     layout->addWidget( stopShowing, 1, 0 );
-    layout->addItem( new QSpacerItem( 200, 20, QSizePolicy::Expanding ), 2,0 );
-    layout->addWidget( buttonBox, 2, 2 );
+    layout->addWidget( buttonBox, 1, 2 );
 
-    CONNECT( buttonBox, accepted(), this, close() );
+    CONNECT( buttonBox, rejected(), this, close() );
     BUTTONACT( clearButton, clear() );
     BUTTONACT( stopShowing, dontShow() );
 }

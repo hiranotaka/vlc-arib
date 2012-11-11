@@ -61,7 +61,7 @@ vlc_module_begin ()
     set_callbacks( OpenForce, Close )
     add_shortcut( "ps" )
 
-    add_bool( "ps-trust-timestamps", true, NULL, TIME_TEXT,
+    add_bool( "ps-trust-timestamps", true, TIME_TEXT,
                  TIME_LONGTEXT, true )
         change_safe ()
 
@@ -82,6 +82,7 @@ struct demux_sys_t
     ps_track_t  tk[PS_TK_COUNT];
 
     int64_t     i_scr;
+    int64_t     i_last_scr;
     int         i_mux_rate;
     int64_t     i_length;
     int         i_time_track;
@@ -134,6 +135,7 @@ static int OpenCommon( vlc_object_t *p_this, bool b_force )
     /* Init p_sys */
     p_sys->i_mux_rate = 0;
     p_sys->i_scr      = -1;
+    p_sys->i_last_scr = -1;
     p_sys->i_length   = -1;
     p_sys->i_current_pts = (mtime_t) 0;
     p_sys->i_time_track = -1;
@@ -218,7 +220,7 @@ static int Demux2( demux_t *p_demux, bool b_end )
     if( (i_id = ps_pkt_id( p_pkt )) >= 0xc0 )
     {
         ps_track_t *tk = &p_sys->tk[PS_ID_TO_TK(i_id)];
-        if( !ps_pkt_parse_pes( p_pkt, tk->i_skip ) )
+        if( !ps_pkt_parse_pes( p_pkt, tk->i_skip ) && p_pkt->i_pts > VLC_TS_INVALID )
         {
             if( b_end && p_pkt->i_pts > tk->i_last_pts )
             {
@@ -238,43 +240,43 @@ static void FindLength( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
     int64_t i_current_pos = -1, i_size = 0, i_end = 0;
-    int i;
 
-    if( !var_CreateGetInteger( p_demux, "ps-trust-timestamps" ) )
+    if( !var_CreateGetBool( p_demux, "ps-trust-timestamps" ) )
         return;
 
     if( p_sys->i_length == -1 ) /* First time */
     {
         p_sys->i_length = 0;
         /* Check beginning */
-        i = 0;
+        int i = 0;
         i_current_pos = stream_Tell( p_demux->s );
         while( vlc_object_alive (p_demux) && i < 40 && Demux2( p_demux, false ) > 0 ) i++;
 
         /* Check end */
         i_size = stream_Size( p_demux->s );
-        i_end = __MAX( 0, __MIN( 200000, i_size ) );
+        i_end = VLC_CLIP( i_size, 0, 200000 );
         stream_Seek( p_demux->s, i_size - i_end );
-        i = 0;
 
-        while( vlc_object_alive (p_demux) && i < 40 && Demux2( p_demux, true ) > 0 );
+        i = 0;
+        while( vlc_object_alive (p_demux) && i < 40 && Demux2( p_demux, true ) > 0 ) i++;
         if( i_current_pos >= 0 ) stream_Seek( p_demux->s, i_current_pos );
     }
 
-    for( i = 0; i < PS_TK_COUNT; i++ )
+    /* Find the longest track */
+    for( int i = 0; i < PS_TK_COUNT; i++ )
     {
         ps_track_t *tk = &p_sys->tk[i];
-        if( tk->i_first_pts >= 0 && tk->i_last_pts > 0 )
-            if( tk->i_last_pts > tk->i_first_pts )
+        if( tk->i_first_pts >= 0 && tk->i_last_pts > 0 &&
+            tk->i_last_pts > tk->i_first_pts )
+        {
+            int64_t i_length = (int64_t)tk->i_last_pts - tk->i_first_pts;
+            if( i_length > p_sys->i_length )
             {
-                int64_t i_length = (int64_t)tk->i_last_pts - tk->i_first_pts;
-                if( i_length > p_sys->i_length )
-                {
-                    p_sys->i_length = i_length;
-                    p_sys->i_time_track = i;
-                    msg_Dbg( p_demux, "we found a length of: %"PRId64, p_sys->i_length );
-                }
+                p_sys->i_length = i_length;
+                p_sys->i_time_track = i;
+                msg_Dbg( p_demux, "we found a length of: %"PRId64, p_sys->i_length );
             }
+        }
     }
 }
 
@@ -322,6 +324,7 @@ static int Demux( demux_t *p_demux )
     case 0x1ba:
         if( !ps_pkt_parse_pack( p_pkt, &p_sys->i_scr, &i_mux_rate ) )
         {
+            p_sys->i_last_scr = p_sys->i_scr;
             if( !p_sys->b_have_pack ) p_sys->b_have_pack = true;
             /* done later on to work around bad vcd/svcd streams */
             /* es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_scr ); */
@@ -391,31 +394,35 @@ static int Demux( demux_t *p_demux )
             /* The popular VCD/SVCD subtitling WinSubMux does not
              * renumber the SCRs when merging subtitles into the PES */
             if( tk->b_seen &&
-                ( tk->fmt.i_codec == VLC_FOURCC('o','g','t',' ') ||
-                  tk->fmt.i_codec == VLC_FOURCC('c','v','d',' ') ) )
+                ( tk->fmt.i_codec == VLC_CODEC_OGT ||
+                  tk->fmt.i_codec == VLC_CODEC_CVD ) )
             {
                 p_sys->i_scr = -1;
+                p_sys->i_last_scr = -1;
             }
 
-            if( p_sys->i_scr > 0 )
-                es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_scr );
+            if( p_sys->i_scr >= 0 )
+                es_out_Control( p_demux->out, ES_OUT_SET_PCR, VLC_TS_0 + p_sys->i_scr );
 
             p_sys->i_scr = -1;
 
             if( tk->b_seen && tk->es &&
-                (
-#ifdef ZVBI_COMPILED /* FIXME!! */
-                tk->fmt.i_codec == VLC_CODEC_TELETEXT ||
-#endif
-                !ps_pkt_parse_pes( p_pkt, tk->i_skip ) ) )
+                !ps_pkt_parse_pes( p_pkt, tk->i_skip ) )
             {
                 if( !b_new && !p_sys->b_have_pack &&
                     (tk->fmt.i_cat == AUDIO_ES) &&
-                    (p_pkt->i_pts > 0) )
+                    (p_pkt->i_pts > VLC_TS_INVALID) )
                 {
                     /* A hack to sync the A/V on PES files. */
                     msg_Dbg( p_demux, "force SCR: %"PRId64, p_pkt->i_pts );
                     es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_pkt->i_pts );
+                }
+                if( tk->fmt.i_codec == VLC_CODEC_TELETEXT &&
+                    p_pkt->i_pts <= VLC_TS_INVALID && p_sys->i_last_scr >= 0 )
+                {
+                    /* Teletext may have missing PTS (ETSI EN 300 472 Annexe A)
+                     * In this case use the last SCR + 40ms */
+                    p_pkt->i_pts = VLC_TS_0 + p_sys->i_last_scr + 40000;
                 }
 
                 if( (int64_t)p_pkt->i_pts > p_sys->i_current_pts )
@@ -469,6 +476,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             f = (double) va_arg( args, double );
             i64 = stream_Size( p_demux->s );
             p_sys->i_current_pts = 0;
+            p_sys->i_last_scr = -1;
 
             return stream_Seek( p_demux->s, (int64_t)(i64 * f) );
 
@@ -514,6 +522,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 if( !i_now )
                     return i64 ? VLC_EGENERIC : VLC_SUCCESS;
 
+                p_sys->i_current_pts = 0;
+                p_sys->i_last_scr = -1;
                 i_pos *= (float)i64 / (float)i_now;
                 stream_Seek( p_demux->s, i_pos );
                 return VLC_SUCCESS;
@@ -580,16 +590,12 @@ static int ps_pkt_resynch( stream_t *s, uint32_t *pi_code )
 static block_t *ps_pkt_read( stream_t *s, uint32_t i_code )
 {
     const uint8_t *p_peek;
-    int      i_peek = stream_Peek( s, &p_peek, 14 );
-    int      i_size;
-    VLC_UNUSED(i_code);
+    int i_peek = stream_Peek( s, &p_peek, 14 );
+    if( i_peek < 4 )
+        return NULL;
 
-    /* Smallest valid packet */
-    if( i_peek < 6 ) return NULL;
-
-    i_size = ps_pkt_size( p_peek, i_peek );
-
-    if( i_size < 0 || ( i_size <= 6 && p_peek[3] > 0xba ) )
+    int i_size = ps_pkt_size( p_peek, i_peek );
+    if( i_size <= 6 && p_peek[3] > 0xba )
     {
         /* Special case, search the next start code */
         i_size = 6;
@@ -617,5 +623,6 @@ static block_t *ps_pkt_read( stream_t *s, uint32_t i_code )
         return stream_Block( s, i_size );
     }
 
+    VLC_UNUSED(i_code);
     return NULL;
 }

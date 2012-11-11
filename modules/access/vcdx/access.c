@@ -1,5 +1,5 @@
 /*****************************************************************************
- * vcd.c : VCD input module for vlc using libcdio, libvcd and libvcdinfo.
+ * access.c : VCD input module for vlc using libcdio, libvcd and libvcdinfo.
  *         vlc-specific things tend to go here.
  *****************************************************************************
  * Copyright (C) 2000, 2003, 2004, 2005 the VideoLAN team
@@ -193,13 +193,11 @@ VCDReadBlock( access_t * p_access )
              Until then...
            */
 #if 1
-            msleep( MILLISECONDS_PER_SEC * *p_buf );
+            msleep( INT64_C(1000) * *p_buf );
             VCDSetOrigin(p_access, p_vcdplayer->origin_lsn,
                          p_vcdplayer->i_track, &(p_vcdplayer->play_item));
             // p_vcd->in_still = false;
             dbg_print(INPUT_DBG_STILL, "still wait time done");
-#else
-            vcdIntfStillTime(p_vcdplayer->p_intf, *p_buf);
 #endif
 
             block_Release( p_block );
@@ -239,7 +237,7 @@ VCDReadBlock( access_t * p_access )
  * VCDSeek
  ****************************************************************************/
 int
-VCDSeek( access_t * p_access, int64_t i_pos )
+VCDSeek( access_t * p_access, uint64_t i_pos )
 {
     if (!p_access || !p_access->p_sys) return VLC_EGENERIC;
     {
@@ -250,7 +248,7 @@ VCDSeek( access_t * p_access, int64_t i_pos )
 
         /* Next sector to read */
         p_access->info.i_pos = i_pos;
-        p_vcdplayer->i_lsn = (i_pos / (int64_t) M2F2_SECTOR_SIZE) +
+        p_vcdplayer->i_lsn = (i_pos / (uint64_t) M2F2_SECTOR_SIZE) +
                              p_vcdplayer->origin_lsn;
 
         switch (p_vcdplayer->play_item.type)
@@ -286,7 +284,7 @@ VCDSeek( access_t * p_access, int64_t i_pos )
         }
 
         dbg_print( (INPUT_DBG_CALL|INPUT_DBG_EXT|INPUT_DBG_SEEK),
-                   "orig %lu, cur: %lu, offset: %lld, entry %d",
+                   "orig %lu, cur: %lu, offset: %"PRIi64", entry %d",
                    (long unsigned int) p_vcdplayer->origin_lsn,
                    (long unsigned int) p_vcdplayer->i_lsn, i_pos,
                    i_entry );
@@ -361,9 +359,9 @@ VCDEntryPoints( access_t * p_access )
                              - vcdinfo_get_track_lsn(p_vcdplayer->vcd,i_track))
                              * M2F2_SECTOR_SIZE;
     
-            dbg_print( INPUT_DBG_MRL, "%s, lsn %d,  byte_offset %ld",
+            dbg_print( INPUT_DBG_MRL, "%s, lsn %d,  byte_offset %"PRId64"",
                        s->psz_name, p_vcdplayer->p_entries[i],
-                       (unsigned long int) s->i_byte_offset);
+                       s->i_byte_offset);
             TAB_APPEND( p_vcdplayer->p_title[i_track-1]->i_seekpoint,
                         p_vcdplayer->p_title[i_track-1]->seekpoint, s );
 
@@ -462,7 +460,7 @@ VCDTitles( access_t * p_access )
                                  i ) * M2F2_SECTOR_SIZE / CDIO_CD_FRAMESIZE ;
             t->psz_name  = strdup(psz_track);
 
-            dbg_print( INPUT_DBG_MRL, "track[%d] i_size: %lld", i, t->i_size );
+            dbg_print( INPUT_DBG_MRL, "track[%d] i_size: %"PRIi64, i, t->i_size );
 
             p_vcdplayer->i_titles++;
         }
@@ -546,7 +544,7 @@ VCDParse( access_t * p_access, /*out*/ vcdinfo_itemid_t * p_itemid,
     char        *psz_source;
     char        *psz_next;
 
-    if( config_GetInt( p_access, MODULE_STRING "-PBC" ) ) {
+    if( var_InheritBool( p_access, MODULE_STRING "-PBC" ) ) {
       p_itemid->type = VCDINFO_ITEM_TYPE_LID;
       p_itemid->num = 1;
       *play_single_item = false;
@@ -563,12 +561,12 @@ VCDParse( access_t * p_access, /*out*/ vcdinfo_itemid_t * p_itemid,
     if( !p_access->psz_access || !*p_access->psz_access ) return NULL;
 #endif
 
-    if( !p_access->psz_path )
+    if( !p_access->psz_location )
     {
         return NULL;
     }
 
-    psz_parser = psz_source = strdup( p_access->psz_path );
+    psz_parser = psz_source = strdup( p_access->psz_location );
 
     /* Parse input string :
      * [device][@[type][title]] */
@@ -628,11 +626,10 @@ VCDParse( access_t * p_access, /*out*/ vcdinfo_itemid_t * p_itemid,
         /* No source specified, so figure it out. */
         if( !p_access->psz_access ) return NULL;
 
-        psz_source = config_GetPsz( p_access, "vcd" );
+        psz_source = var_InheritString( p_access, "vcd" );
 
-        if( !psz_source || 0==strlen(psz_source) )
+        if( !psz_source )
         {
-            free( psz_source );
             /* Scan for a CD-ROM drive with a VCD in it. */
             char **cd_drives = cdio_get_devices_with_cap(NULL,
                                        (CDIO_FS_ANAL_SVCD|CDIO_FS_ANAL_CVD
@@ -679,14 +676,14 @@ VCDSetOrigin( access_t *p_access, lsn_t i_lsn, track_t i_track,
         if (p_vcdplayer->b_track_length)
         {
             p_access->info.i_size = p_vcdplayer->p_title[i_track-1]->i_size;
-            p_access->info.i_pos  = (int64_t) M2F2_SECTOR_SIZE *
+            p_access->info.i_pos  = (uint64_t) M2F2_SECTOR_SIZE *
                      (vcdinfo_get_track_lsn(p_vcdplayer->vcd, i_track)-i_lsn);
         } else {
             p_access->info.i_size = M2F2_SECTOR_SIZE * (int64_t)
                  vcdinfo_get_entry_sect_count(p_vcdplayer->vcd,p_itemid->num);
             p_access->info.i_pos = 0;
         }
-        dbg_print( (INPUT_DBG_LSN|INPUT_DBG_PBC), "size: %llu, pos: %llu",
+        dbg_print( (INPUT_DBG_LSN|INPUT_DBG_PBC), "size: %"PRIu64", pos: %"PRIu64,
                    p_access->info.i_size, p_access->info.i_pos );
         p_access->info.i_seekpoint = p_itemid->num;
         break;
@@ -868,7 +865,7 @@ VCDOpen ( vlc_object_t *p_this )
     if( p_vcdplayer == NULL )
         return VLC_ENOMEM;
 
-    p_vcdplayer->i_debug = config_GetInt( p_this, MODULE_STRING "-debug" );
+    p_vcdplayer->i_debug = var_InheritInteger( p_this, MODULE_STRING "-debug" );
     p_access->p_sys = (access_sys_t *) p_vcdplayer;
 
     /* Set where to log errors messages from libcdio. */
@@ -885,12 +882,12 @@ VCDOpen ( vlc_object_t *p_this )
     }
 
     dbg_print( (INPUT_DBG_CALL|INPUT_DBG_EXT), "source: %s: mrl: %s",
-               psz_source, p_access->psz_path );
+               psz_source, p_access->psz_location );
 
     p_vcdplayer->psz_source        = strdup(psz_source);
-    p_vcdplayer->i_blocks_per_read = config_GetInt( p_this, MODULE_STRING
+    p_vcdplayer->i_blocks_per_read = var_InheritInteger( p_this, MODULE_STRING
                                                     "-blocks-per-read" );
-    p_vcdplayer->b_track_length    = config_GetInt( p_this, MODULE_STRING
+    p_vcdplayer->b_track_length    = var_InheritInteger( p_this, MODULE_STRING
                                                     "-track-length" );
     p_vcdplayer->in_still          = false;
     p_vcdplayer->play_item.type    = VCDINFO_ITEM_TYPE_NOTFOUND;
@@ -954,10 +951,6 @@ VCDOpen ( vlc_object_t *p_this )
         VCDFixupPlayList(p_access,p_vcd,psz_source,&itemid,play_single_item);
 #endif
 
-#ifdef FIXED
-    p_vcdplayer->p_intf = intf_Create( p_access, "vcdx" );
-    p_vcdplayer->p_intf->b_block = false;
-#endif
     p_vcdplayer->p_access = p_access;
 
     free( psz_source );
@@ -1051,8 +1044,8 @@ static int VCDControl( access_t *p_access, int i_query, va_list args )
 
     /* */
     case ACCESS_GET_PTS_DELAY:
-        *(int64_t*)va_arg(args,int64_t *) = MILLISECONDS_PER_SEC *
-                         var_GetInteger( p_access, MODULE_STRING "-caching" );
+        *(int64_t*)va_arg(args,int64_t *) = INT64_C(1000) *
+                                var_InheritInteger( p_access, "disc-caching" );
         dbg_print( INPUT_DBG_EVENT, "GET PTS DELAY" );
         return VLC_SUCCESS;
 

@@ -1,32 +1,28 @@
 /*****************************************************************************
  * input_internal.h: Internal input structures
  *****************************************************************************
- * Copyright (C) 1998-2006 the VideoLAN team
+ * Copyright (C) 1998-2006 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#if defined(__PLUGIN__) || defined(__BUILTIN__) || !defined(__LIBVLC__)
-# error This header file can only be included from LibVLC.
-#endif
-
-#ifndef _INPUT_INTERNAL_H
-#define _INPUT_INTERNAL_H 1
+#ifndef LIBVLC_INPUT_INTERNAL_H
+#define LIBVLC_INPUT_INTERNAL_H 1
 
 #include <vlc_access.h>
 #include <vlc_demux.h>
@@ -85,15 +81,15 @@ typedef struct
 struct input_thread_private_t
 {
     /* Global properties */
+    double      f_fps;
+    int         i_state;
     bool        b_can_pause;
     bool        b_can_rate_control;
     bool        b_can_pace_control;
-    double      f_fps;
-    int         i_state;
 
     /* Current state */
-    int         i_rate;
     bool        b_recording;
+    int         i_rate;
 
     /* Playtime configuration and state */
     int64_t     i_start;    /* :start-time,0 by default */
@@ -101,6 +97,12 @@ struct input_thread_private_t
     int64_t     i_run;      /* :run-time, 0 if none */
     int64_t     i_time;     /* Current time */
     bool        b_fast_seek;/* :input-fast-seek */
+
+    /* Output */
+    bool            b_out_pace_control; /* XXX Move it ot es_sout ? */
+    sout_instance_t *p_sout;            /* Idem ? */
+    es_out_t        *p_es_out;
+    es_out_t        *p_es_out_display;
 
     /* Title infos FIXME multi-input (not easy) ? */
     int          i_title;
@@ -118,12 +120,6 @@ struct input_thread_private_t
     int i_attachment;
     input_attachment_t **attachment;
 
-    /* Output */
-    es_out_t        *p_es_out;
-    es_out_t        *p_es_out_display;
-    sout_instance_t *p_sout;            /* XXX Move it to es_out ? */
-    bool            b_out_pace_control; /*     idem ? */
-
     /* Main input properties */
 
     /* Input item */
@@ -137,6 +133,7 @@ struct input_thread_private_t
 
     /* Resources */
     input_resource_t *p_resource;
+    input_resource_t *p_resource_private;
 
     /* Stats counters */
     struct {
@@ -167,6 +164,8 @@ struct input_thread_private_t
     input_control_t control[INPUT_CONTROL_FIFO_SIZE];
 
     bool b_abort;
+    bool is_running;
+    vlc_thread_t thread;
 };
 
 /***************************************************************************
@@ -179,14 +178,10 @@ enum input_control_e
     INPUT_CONTROL_SET_STATE,
 
     INPUT_CONTROL_SET_RATE,
-    INPUT_CONTROL_SET_RATE_SLOWER,
-    INPUT_CONTROL_SET_RATE_FASTER,
 
     INPUT_CONTROL_SET_POSITION,
-    INPUT_CONTROL_SET_POSITION_OFFSET,
 
     INPUT_CONTROL_SET_TIME,
-    INPUT_CONTROL_SET_TIME_OFFSET,
 
     INPUT_CONTROL_SET_PROGRAM,
 
@@ -222,6 +217,9 @@ enum input_control_e
  */
 void input_ControlPush( input_thread_t *, int i_type, vlc_value_t * );
 
+/* Bound pts_delay */
+#define INPUT_PTS_DELAY_MAX INT64_C(60000000)
+
 /**********************************************************************
  * Item metadata
  **********************************************************************/
@@ -244,5 +242,9 @@ void input_ConfigVarInit ( input_thread_t * );
 /* Subtitles */
 char **subtitles_Detect( input_thread_t *, char* path, const char *fname );
 int subtitles_Filter( const char *);
+
+/* input.c */
+void input_SplitMRL( const char **, const char **, const char **,
+                     const char **, char * );
 
 #endif

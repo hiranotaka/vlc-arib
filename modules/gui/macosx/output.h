@@ -1,7 +1,7 @@
 /*****************************************************************************
  * output.h: MacOS X Output Dialog
  *****************************************************************************
- * Copyright (C) 2002-2007 the VideoLAN team
+ * Copyright (C) 2002-2007 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
@@ -82,9 +82,8 @@
     NSArray *o_mrl;
     NSString *o_transcode;
 }
+@property (readwrite, assign) NSArray * soutMRL;
 
-- (void)setMRL:(NSArray *)o_mrl_string;
-- (NSArray *)mrl;
 - (void)setTranscode:(NSString *)o_transcode_string;
 
 - (void)initStrings;

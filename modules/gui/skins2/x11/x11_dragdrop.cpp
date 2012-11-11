@@ -31,15 +31,16 @@
 #include "x11_display.hpp"
 #include "x11_factory.hpp"
 #include "../commands/cmd_add_item.hpp"
+#include "../events/evt_dragndrop.hpp"
 
 #include <string>
 #include <list>
 
 
 X11DragDrop::X11DragDrop( intf_thread_t *pIntf, X11Display &rDisplay,
-                          Window win, bool playOnDrop ):
+                          Window win, bool playOnDrop, GenericWindow *pWin ):
     SkinObject( pIntf ), m_rDisplay( rDisplay ), m_wnd( win ),
-    m_playOnDrop( playOnDrop )
+    m_playOnDrop( playOnDrop ), m_pWin( pWin ), m_xPos( -1 ), m_yPos( -1 )
 {
 }
 
@@ -47,6 +48,7 @@ X11DragDrop::X11DragDrop( intf_thread_t *pIntf, X11Display &rDisplay,
 void X11DragDrop::dndEnter( ldata_t data )
 {
     Window src = data[0];
+    m_xPos = m_yPos = -1;
 
     // Retrieve available data types
     list<string> dataTypes;
@@ -82,24 +84,33 @@ void X11DragDrop::dndEnter( ldata_t data )
     // Find the right target
     m_target = None;
     list<string>::iterator it;
-    for( it = dataTypes.begin(); it != dataTypes.end(); it++ )
+    for( it = dataTypes.begin(); it != dataTypes.end(); ++it )
     {
-        if( *it == "text/plain" || *it == "STRING" )
+        if( *it == "text/uri-list" ||
+            *it == "text/plain" ||
+            *it == "STRING" )
         {
             m_target = XInternAtom( XDISPLAY, (*it).c_str(), 0 );
             break;
         }
     }
+
+    // transmit DragEnter event
+    EvtDragEnter evt( getIntf() );
+    m_pWin->processEvent( evt );
 }
 
 
 void X11DragDrop::dndPosition( ldata_t data )
 {
     Window src = data[0];
-    Time time = data[2];
+    m_xPos = data[2] >> 16;
+    m_yPos = data[2] & 0xffff;
+    Time time = data[3];
 
     Atom selectionAtom = XInternAtom( XDISPLAY, "XdndSelection", 0 );
-    Atom targetAtom = XInternAtom( XDISPLAY, "text/plain", 0 );
+    //Atom targetAtom = XInternAtom( XDISPLAY, "text/plain", 0 );
+    Atom targetAtom = XInternAtom( XDISPLAY, "text/uri-list", 0 );
     Atom propAtom = XInternAtom( XDISPLAY, "VLC_SELECTION", 0 );
 
     Atom actionAtom = XInternAtom( XDISPLAY, "XdndActionCopy", 0 );
@@ -120,39 +131,39 @@ void X11DragDrop::dndPosition( ldata_t data )
     event.xclient.message_type = typeAtom;
     event.xclient.format = 32;
     event.xclient.data.l[0] = m_wnd;
-    if( m_target != None )
-    {
-        // Accept the drop
-        event.xclient.data.l[1] = 1;
-    }
-    else
-    {
-        // Do not accept the drop
-        event.xclient.data.l[1] = 0;
-    }
-    int w = X11Factory::instance( getIntf() )->getScreenWidth();
-    int h = X11Factory::instance( getIntf() )->getScreenHeight();
+    // Accept the drop (1), or not (0).
+    event.xclient.data.l[1] = m_target != None ? 1 : 0;
     event.xclient.data.l[2] = 0;
-    event.xclient.data.l[3] = (w << 16) | h;
+    event.xclient.data.l[3] = 0;
     event.xclient.data.l[4] = actionAtom;
 
     // Tell the source whether we accept the drop
     XSendEvent( XDISPLAY, src, False, 0, &event );
+
+    // transmit DragOver event
+    EvtDragOver evt( getIntf(), m_xPos, m_yPos );
+    m_pWin->processEvent( evt );
 }
 
 
 void X11DragDrop::dndLeave( ldata_t data )
 {
+    (void)data;
+    // transmit DragLeave event
+    EvtDragLeave evt( getIntf() );
+    m_pWin->processEvent( evt );
 }
 
 
 void X11DragDrop::dndDrop( ldata_t data )
 {
+    list<string> files;
+
     Window src = data[0];
     Time time = data[2];
 
     Atom selectionAtom = XInternAtom( XDISPLAY, "XdndSelection", 0 );
-    Atom targetAtom = XInternAtom( XDISPLAY, "text/plain", 0 );
+    Atom targetAtom = XInternAtom( XDISPLAY, "text/uri-list", 0 );
     Atom propAtom = XInternAtom( XDISPLAY, "VLC_SELECTION", 0 );
 
     Atom actionAtom = XInternAtom( XDISPLAY, "XdndActionCopy", 0 );
@@ -170,35 +181,32 @@ void X11DragDrop::dndDrop( ldata_t data )
     XGetWindowProperty( XDISPLAY, src, propAtom, 0, 1024, False,
                         AnyPropertyType, &type, &format, &nitems, &nbytes,
                         (unsigned char**)&buffer );
-    string selection = "";
     if( buffer != NULL )
     {
-        selection = buffer;
-    }
-    XFree( buffer );
-
-    if( selection != "" )
-    {
-        // TODO: multiple files handling
-        string::size_type end = selection.find( "\n", 0 );
-        selection = selection.substr( 0, end - 1 );
-        end = selection.find( "\r", 0 );
-        selection = selection.substr( 0, end - 1 );
-
-        // Find the protocol, if any
-        if( selection.find( "file://", 0 ) == 0 )
+        char* psz_dup = strdup( buffer );
+        char* psz_new = psz_dup;
+        while( psz_new && *psz_new )
         {
-            selection.erase( 0, 7 );
+            int skip = 0;
+            const char* sep[] = { "\r\n", "\n", NULL };
+            for( int i = 0; sep[i]; i++ )
+            {
+                char* psz_end = strstr( psz_new, sep[i] );
+                if( !psz_end )
+                    continue;
+                *psz_end = '\0';
+                skip = strlen( sep[i] );
+                break;
+            }
+            if( *psz_new )
+            {
+                files.push_back( psz_new );
+            }
+
+            psz_new += strlen( psz_new ) + skip;
         }
-
-        char *psz_fileName = new char[selection.size() + 1];
-        strncpy( psz_fileName, selection.c_str(), selection.size() + 1 );
-
-        // Add the file
-        CmdAddItem cmd( getIntf(), psz_fileName, m_playOnDrop );
-        cmd.execute();
-
-        delete[] psz_fileName;
+        free( psz_dup );
+        XFree( buffer );
     }
 
     // Tell the source we accepted the drop
@@ -212,6 +220,10 @@ void X11DragDrop::dndDrop( ldata_t data )
     event.xclient.data.l[1] = 1;            // drop accepted
     event.xclient.data.l[2] = actionAtom;
     XSendEvent( XDISPLAY, src, False, 0, &event );
+
+    // transmit DragDrop event
+    EvtDragDrop evt( getIntf(), m_xPos, m_yPos, files );
+    m_pWin->processEvent( evt );
 }
 
 #endif

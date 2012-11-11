@@ -31,7 +31,7 @@
 
 #include <vlc_common.h>
 #include <vlc_osd.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 
 #include <limits.h>
 
@@ -54,7 +54,7 @@ int osd_parser_simpleOpen( vlc_object_t *p_this )
     if( !p_menu ) return VLC_ENOOBJ;
 
     msg_Dbg( p_this, "opening osdmenu definition file %s", p_menu->psz_file );
-    fd = utf8_fopen( p_menu->psz_file, "r" );
+    fd = vlc_fopen( p_menu->psz_file, "r" );
     if( !fd )
     {
         msg_Err( p_this, "failed to open osdmenu definition file %s",
@@ -75,7 +75,7 @@ int osd_parser_simpleOpen( vlc_object_t *p_this )
         result = fscanf(fd, "%24s %255s", action, path );
 
         /* override images path ? */
-        psz_path = config_GetPsz( p_this, "osdmenu-file-path" );
+        psz_path = var_InheritString( p_this, "osdmenu-file-path" );
         if( psz_path )
         {
             /* psz_path is not null and therefor path cannot be NULL
@@ -93,7 +93,7 @@ int osd_parser_simpleOpen( vlc_object_t *p_this )
          * so PATH_MAX-2 is the bigest we can have */
         if( i_len > PATH_MAX - 2 )
             i_len = PATH_MAX - 2;
-#if defined(WIN32) || defined(UNDER_CE)
+#if defined(WIN32) || defined(__OS2__)
         if( (i_len > 0) && path[i_len] != '\\' )
             path[i_len] = '\\';
 #else
@@ -343,7 +343,7 @@ int osd_parser_simpleOpen( vlc_object_t *p_this )
                 if( result == 0 )
                     goto error;
 
-                msg_Dbg( p_this, " + hotkey down %s, file=%s%s", 
+                msg_Dbg( p_this, " + hotkey down %s, file=%s%s",
                          action, p_menu->psz_path, file );
                 free( p_current->psz_action_down );
                 p_current->psz_action_down = strdup( action );
@@ -504,7 +504,7 @@ int osd_parser_simpleOpen( vlc_object_t *p_this )
     return VLC_SUCCESS;
 
 error:
-    msg_Err( p_menu, "parsing file failed (returned %d)", result );
+    msg_Err( p_this, "parsing file failed (returned %d)", result );
     if( p_menu )
         osd_MenuFree( p_menu );
     fclose( fd );

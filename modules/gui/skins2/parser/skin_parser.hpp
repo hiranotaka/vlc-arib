@@ -16,9 +16,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef SKIN_PARSER_HPP
@@ -32,61 +32,92 @@
 /// Parser for the skin DTD
 class SkinParser: public XMLParser
 {
-    public:
-        SkinParser( intf_thread_t *pIntf, const string &rFileName,
-                    const string &rPath, bool useDTD = true,
-                    BuilderData *pData = NULL );
-        virtual ~SkinParser();
+public:
 
-        const BuilderData &getData() const { return *m_pData; }
+    enum {
+        POS_UNDEF  = 0,
+        POS_CENTER = 1,
+        POS_LEFT   = 2,
+        POS_RIGHT  = 4,
+        POS_TOP    = 8,
+        POS_BOTTOM = 16,
+    };
 
-        static int convertColor( const char *transcolor );
+    SkinParser( intf_thread_t *pIntf, const string &rFileName,
+                const string &rPath, BuilderData *pData = NULL );
+    virtual ~SkinParser();
 
-    private:
-        /// Path of the theme
-        const string m_path;
-        /// Container for mapping data from the XML
-        BuilderData *m_pData;
-        /// Indicate whether the class owns the data
-        bool m_ownData;
-        /// Current IDs
-        string m_curBitmapId;
-        string m_curWindowId;
-        string m_curLayoutId;
-        string m_curPopupId;
-        string m_curListId;
-        string m_curTreeId;
-        /// Current position of menu items in the popups
-        list<int> m_popupPosList;
-        /// Current offset of the controls
-        int m_xOffset, m_yOffset;
-        list<int> m_xOffsetList, m_yOffsetList;
-        /// Stack of panel ids
-        list<string> m_panelStack;
-        /// Layer of the current control in the layout
-        int m_curLayer;
-        /// Set of used id
-        set<string> m_idSet;
+    const BuilderData &getData() const { return *m_pData; }
 
-        /// Callbacks
-        virtual void handleBeginElement( const string &rName,
-                                         AttrList_t &attr );
-        virtual void handleEndElement( const string &rName );
+    static int convertColor( const char *transcolor );
 
-        /// Helper functions
-        //@{
-        bool convertBoolean( const char *value ) const;
-        /// Transform to int, and check that it is in the given range (if not,
-        /// the closest range boundary will be used)
-        int convertInRange( const char *value, int minValue, int maxValue,
-                            const string &rAttribute ) const;
-        //@}
+private:
+    /// Path of the theme
+    const string m_path;
+    /// Container for mapping data from the XML
+    BuilderData *m_pData;
+    /// Indicate whether the class owns the data
+    bool m_ownData;
+    /// Current IDs
+    string m_curBitmapId;
+    string m_curWindowId;
+    string m_curLayoutId;
+    string m_curPopupId;
+    string m_curListId;
+    string m_curTreeId;
+    /// Current position of menu items in the popups
+    list<int> m_popupPosList;
+    /// Current offset of the controls
+    int m_xOffset, m_yOffset;
+    list<int> m_xOffsetList, m_yOffsetList;
+    /// Stack of panel ids
+    list<string> m_panelStack;
+    /// Layer of the current control in the layout
+    int m_curLayer;
+    /// Set of used id
+    set<string> m_idSet;
 
-        /// Generate a new id
-        const string generateId() const;
+    /// Callbacks
+    virtual void handleBeginElement( const string &rName,
+                                     AttrList_t &attr );
+    virtual void handleEndElement( const string &rName );
 
-        /// Check if the id is unique, and if not generate a new one
-        const string uniqueId( const string &id );
+    /// Helper functions
+    //@{
+    bool convertBoolean( const char *value ) const;
+    /// Transform to int, and check that it is in the given range (if not,
+    /// the closest range boundary will be used)
+    int convertInRange( const char *value, int minValue, int maxValue,
+                        const string &rAttribute ) const;
+    //@}
+
+    /// Generate a new id
+    const string generateId() const;
+
+    /// Check if the id is unique, and if not generate a new one
+    const string uniqueId( const string &id );
+
+    /// Management of relative positions
+    int getRefWidth( bool toScreen );
+    int getRefHeight( bool toScreen );
+    int getDimension( string value, int refDimension );
+    int getPosition( string value );
+    void updateWindowPos( int width, int height );
+
+    void convertPosition( string position,
+                          string xOffset, string yOffset,
+                          string xMargin, string yMargin,
+                          int width, int height, int refWidth, int refHeight,
+                          int* p_x, int* p_y );
+
+    /// Helper for handleBeginElement: Provide default attribute if missing.
+    static void DefaultAttr( AttrList_t &attr, const char *a, const char *b )
+    {
+        if( attr.find(a) == attr.end() ) attr[strdup(a)] = strdup(b);
+    }
+    /// Helper for handleBeginElement: Complain if a named attribute is missing.
+    bool MissingAttr( AttrList_t &attr, const string &name, const char *a );
+
 };
 
 #endif

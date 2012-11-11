@@ -129,7 +129,7 @@ static int Create( vlc_object_t *p_this )
 
     /* */
     p_filter->pf_video_filter = Filter;
-    p_filter->pf_mouse = Mouse;
+    p_filter->pf_video_mouse = Mouse;
     return VLC_SUCCESS;
 }
 
@@ -185,7 +185,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
             const int o_yp = o_y * p_outpic->p[i_plane].i_lines / p_outpic->p[Y_PLANE].i_lines;
             const int o_xp = o_x * p_outpic->p[i_plane].i_pitch / p_outpic->p[Y_PLANE].i_pitch;
 
-            crop.p[i_plane].p_pixels += o_yp * p_outpic->p[i_plane].i_pitch + o_xp;
+            crop.p[i_plane].p_pixels += o_yp * p_pic->p[i_plane].i_pitch + o_xp;
         }
 
         /* */
@@ -317,7 +317,7 @@ static void DrawRectangle( uint8_t *pb_dst, int i_pitch, int i_width, int i_heig
         return;
 
     /* top line */
-    vlc_memset( &pb_dst[y * i_pitch + x], 0xff, i_w );
+    memset( &pb_dst[y * i_pitch + x], 0xff, i_w );
 
     /* left and right */
     for( dy = 1; dy < i_h-1; dy++ )
@@ -327,7 +327,7 @@ static void DrawRectangle( uint8_t *pb_dst, int i_pitch, int i_width, int i_heig
     }
 
     /* bottom line */
-    vlc_memset( &pb_dst[(y+i_h-1) * i_pitch + x], 0xff, i_w );
+    memset( &pb_dst[(y+i_h-1) * i_pitch + x], 0xff, i_w );
 }
 
 static int Mouse( filter_t *p_filter, vlc_mouse_t *p_mouse, const vlc_mouse_t *p_old, const vlc_mouse_t *p_new )
@@ -356,9 +356,9 @@ static int Mouse( filter_t *p_filter, vlc_mouse_t *p_mouse, const vlc_mouse_t *p
                 const int v_w = p_fmt->i_width  * ZOOM_FACTOR / p_sys->i_zoom;
                 const int v_h = p_fmt->i_height * ZOOM_FACTOR / p_sys->i_zoom;
 
-                p_sys->i_x = __MIN( __MAX( p_new->i_x * VIS_ZOOM - v_w/2, 0 ),
+                p_sys->i_x = VLC_CLIP( p_new->i_x * VIS_ZOOM - v_w/2, 0,
                                            (int)p_fmt->i_width  - v_w - 1);
-                p_sys->i_y = __MIN( __MAX( p_new->i_y * VIS_ZOOM - v_h/2, 0 ),
+                p_sys->i_y = VLC_CLIP( p_new->i_y * VIS_ZOOM - v_h/2, 0,
                                            (int)p_fmt->i_height - v_h - 1);
 
                 b_grab = true;
@@ -390,8 +390,8 @@ static int Mouse( filter_t *p_filter, vlc_mouse_t *p_mouse, const vlc_mouse_t *p
 
                 const int v_w = p_fmt->i_width  * ZOOM_FACTOR / p_sys->i_zoom;
                 const int v_h = p_fmt->i_height * ZOOM_FACTOR / p_sys->i_zoom;
-                p_sys->i_x = __MAX( __MIN( p_sys->i_x, (int)p_fmt->i_width  - v_w - 1 ), 0 );
-                p_sys->i_y = __MAX( __MIN( p_sys->i_y, (int)p_fmt->i_height - v_h - 1 ), 0 );
+                p_sys->i_x = VLC_CLIP( p_sys->i_x, 0, (int)p_fmt->i_width  - v_w - 1 );
+                p_sys->i_y = VLC_CLIP( p_sys->i_y, 0, (int)p_fmt->i_height - v_h - 1 );
 
                 b_grab = true;
             }

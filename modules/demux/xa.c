@@ -33,8 +33,6 @@
 #include <vlc_plugin.h>
 #include <vlc_demux.h>
 
-#include <vlc_codecs.h>
-
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -102,9 +100,13 @@ static int Open( vlc_object_t * p_this )
      || ( GetWLE( &p_xa.wBitsPerSample ) != 16) )
         return VLC_EGENERIC;
 
+    p_sys = malloc( sizeof( demux_sys_t ) );
+    if( unlikely( p_sys == NULL ) )
+        return VLC_ENOMEM;
+
     p_demux->pf_demux   = Demux;
     p_demux->pf_control = Control;
-    p_demux->p_sys      = p_sys = malloc( sizeof( demux_sys_t ) );
+    p_demux->p_sys      = p_sys;
     p_sys->p_es         = NULL;
 
     /* skip XA header -- cannot fail */
@@ -176,11 +178,12 @@ static int Demux( demux_t *p_demux )
     }
 
     i_frames = p_block->i_buffer / p_sys->fmt.audio.i_bytes_per_frame;
-    p_block->i_dts = p_block->i_pts =
-        date_Increment( &p_sys->pts,
-                        i_frames * p_sys->fmt.audio.i_frame_length );
+    p_block->i_dts = p_block->i_pts = VLC_TS_0 + date_Get( &p_sys->pts );
     es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_block->i_pts );
     es_out_Send( p_demux->out, p_sys->p_es, p_block );
+
+    date_Increment( &p_sys->pts, i_frames * p_sys->fmt.audio.i_frame_length );
+
     return 1;
 }
 

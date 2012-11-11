@@ -1,5 +1,5 @@
 /*****************************************************************************
- * event.h: Windows video output header file
+ * events.h: Windows video output header file
  *****************************************************************************
  * Copyright (C) 2001-2009 the VideoLAN team
  * $Id$
@@ -32,6 +32,8 @@ typedef struct event_thread_t event_thread_t;
 typedef struct {
     bool use_desktop; /* direct3d */
     bool use_overlay; /* directx */
+
+    vout_window_cfg_t win;
 } event_cfg_t;
 
 typedef struct {
@@ -42,16 +44,19 @@ typedef struct {
     HWND hfswnd;
 } event_hwnd_t;
 
-event_thread_t *EventThreadCreate( vout_thread_t *, const vout_window_cfg_t * );
+event_thread_t *EventThreadCreate( vout_display_t *);
 void            EventThreadDestroy( event_thread_t * );
 int             EventThreadStart( event_thread_t *, event_hwnd_t *, const event_cfg_t * );
 void            EventThreadStop( event_thread_t * );
 
-void            EventThreadMouseAutoHide( event_thread_t * );
-void            EventThreadMouseShow( event_thread_t * );
+void            EventThreadMouseHide( event_thread_t * );
 void            EventThreadUpdateTitle( event_thread_t *, const char *psz_fallback );
-unsigned        EventThreadRetreiveChanges( event_thread_t * );
 int             EventThreadGetWindowStyle( event_thread_t * );
-void            EventThreadUpdateWindowPosition( event_thread_t *, bool *pb_changed,
-                                                 int x, int y, int w, int h );
+void            EventThreadUpdateWindowPosition( event_thread_t *, bool *pb_moved, bool *pb_resized,
+                                                 int x, int y, unsigned w, unsigned h );
+void            EventThreadUpdateSourceAndPlace( event_thread_t *p_event,
+                                                 const video_format_t *p_source,
+                                                 const vout_display_place_t *p_place );
 void            EventThreadUseOverlay( event_thread_t *, bool b_used );
+bool            EventThreadGetAndResetHasMoved( event_thread_t * );
+

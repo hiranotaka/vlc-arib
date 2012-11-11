@@ -94,6 +94,7 @@ static int alloc_init( filter_t *, void * );
 #define PADD_LONGTEXT N_( \
     "If enabled, video will be padded to fit in canvas after scaling. " \
     "Otherwise, video will be cropped to fix in canvas after scaling." )
+#define CANVAS_HELP N_( "Automatically resize and pad a video" )
 
 #define CFG_PREFIX "canvas-"
 
@@ -102,22 +103,23 @@ static int alloc_init( filter_t *, void * );
  *****************************************************************************/
 vlc_module_begin ()
     set_shortname( N_("Canvas") )
-    set_description( N_("Automatically resize and pad a video") )
+    set_description( N_("Canvas video filter") )
     set_capability( "video filter2", 0 )
+    set_help( CANVAS_HELP )
     set_callbacks( Activate, Destroy )
 
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
-    add_integer_with_range( CFG_PREFIX "width", 0, 0, INT_MAX, NULL,
+    add_integer_with_range( CFG_PREFIX "width", 0, 0, INT_MAX,
                             WIDTH_TEXT, WIDTH_LONGTEXT, false )
-    add_integer_with_range( CFG_PREFIX "height", 0, 0, INT_MAX, NULL,
+    add_integer_with_range( CFG_PREFIX "height", 0, 0, INT_MAX,
                             HEIGHT_TEXT, HEIGHT_LONGTEXT, false )
 
-    add_string( CFG_PREFIX "aspect", NULL, NULL,
+    add_string( CFG_PREFIX "aspect", NULL,
                 ASPECT_TEXT, ASPECT_LONGTEXT, false )
 
-    add_bool( CFG_PREFIX "padd", true, NULL,
+    add_bool( CFG_PREFIX "padd", true,
               PADD_TEXT, PADD_LONGTEXT, false )
 vlc_module_end ()
 
@@ -144,6 +146,7 @@ static int Activate( vlc_object_t *p_this )
     int i_padd,i_offset;
     char *psz_aspect, *psz_parser;
     bool b_padd;
+    unsigned i_fmt_in_aspect;
 
     if( !p_filter->b_allow_fmt_out_change )
     {
@@ -177,6 +180,11 @@ static int Activate( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
+    i_fmt_in_aspect = (int64_t)p_filter->fmt_in.video.i_sar_num *
+                      p_filter->fmt_in.video.i_width *
+                      VOUT_ASPECT_FACTOR /
+                      p_filter->fmt_in.video.i_sar_den /
+                      p_filter->fmt_in.video.i_height;
     psz_aspect = var_CreateGetNonEmptyString( p_filter, CFG_PREFIX "aspect" );
     if( psz_aspect )
     {
@@ -200,7 +208,7 @@ static int Activate( vlc_object_t *p_this )
         /* aspect = subpic_sar * canvas_width / canvas_height
          *  where subpic_sar = subpic_ph * subpic_par / subpic_pw */
         i_canvas_aspect = (uint64_t) p_filter->fmt_in.video.i_height
-                        * p_filter->fmt_in.video.i_aspect
+                        * i_fmt_in_aspect
                         * i_canvas_width
                         / (i_canvas_height * p_filter->fmt_in.video.i_width);
     }
@@ -230,7 +238,7 @@ static int Activate( vlc_object_t *p_this )
     if( b_padd )
     {
         /* Padd */
-        if( i_canvas_aspect > p_filter->fmt_in.video.i_aspect )
+        if( i_canvas_aspect > i_fmt_in_aspect )
         {
             /* The canvas has a wider aspect than the subpicture:
              *  ie, pillarbox the [scaled] subpicture */
@@ -239,7 +247,7 @@ static int Activate( vlc_object_t *p_this )
              *  where canvas_sar = canvas_width / (canvas_height * canvas_par)
              * then simplify */
             fmt.video.i_width = i_canvas_width
-                              * p_filter->fmt_in.video.i_aspect
+                              * i_fmt_in_aspect
                               / i_canvas_aspect;
             if( fmt.video.i_width & 1 ) fmt.video.i_width -= 1;
 
@@ -254,7 +262,7 @@ static int Activate( vlc_object_t *p_this )
              *  ie, letterbox the [scaled] subpicture */
             fmt.video.i_height = i_canvas_height
                                * i_canvas_aspect
-                               / p_filter->fmt_in.video.i_aspect;
+                               / i_fmt_in_aspect;
             if( fmt.video.i_height & 1 ) fmt.video.i_height -= 1;
 
             i_padd = (i_canvas_height - fmt.video.i_height ) / 2;
@@ -266,12 +274,12 @@ static int Activate( vlc_object_t *p_this )
     else
     {
         /* Crop */
-        if( i_canvas_aspect < p_filter->fmt_in.video.i_aspect )
+        if( i_canvas_aspect < i_fmt_in_aspect )
         {
             /* The canvas has a narrower aspect than the subpicture:
              *  ie, crop the [scaled] subpicture horizontally */
             fmt.video.i_width = i_canvas_width
-                              * p_filter->fmt_in.video.i_aspect
+                              * i_fmt_in_aspect
                               / i_canvas_aspect;
             if( fmt.video.i_width & 1 ) fmt.video.i_width -= 1;
 
@@ -286,7 +294,7 @@ static int Activate( vlc_object_t *p_this )
              *  ie, crop the [scaled] subpicture vertically */
             fmt.video.i_height = i_canvas_height
                                * i_canvas_aspect
-                               / p_filter->fmt_in.video.i_aspect;
+                               / i_fmt_in_aspect;
             if( fmt.video.i_height & 1 ) fmt.video.i_height -= 1;
 
             i_padd = (fmt.video.i_height - i_canvas_height) / 2;
@@ -312,7 +320,10 @@ static int Activate( vlc_object_t *p_this )
     fmt = *filter_chain_GetFmtOut( p_sys->p_chain );
     es_format_Copy( &p_filter->fmt_out, &fmt );
 
-    p_filter->fmt_out.video.i_aspect = i_canvas_aspect;
+    p_filter->fmt_out.video.i_sar_num =
+        i_canvas_aspect    * p_filter->fmt_out.video.i_height;
+    p_filter->fmt_out.video.i_sar_den =
+        VOUT_ASPECT_FACTOR * p_filter->fmt_out.video.i_width;
 
     if( p_filter->fmt_out.video.i_width != i_canvas_width
      || p_filter->fmt_out.video.i_height != i_canvas_height )
@@ -363,7 +374,7 @@ static void video_del( filter_t *p_filter, picture_t *p_pic )
 static int alloc_init( filter_t *p_filter, void *p_data )
 {
     p_filter->p_owner = p_data;
-    p_filter->pf_vout_buffer_new = video_new;
-    p_filter->pf_vout_buffer_del = video_del;
+    p_filter->pf_video_buffer_new = video_new;
+    p_filter->pf_video_buffer_del = video_del;
     return VLC_SUCCESS;
 }

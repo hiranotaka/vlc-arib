@@ -56,18 +56,20 @@ static picture_t *Filter( filter_t *, picture_t * );
 static int SharpenCallback( vlc_object_t *, char const *,
                             vlc_value_t, vlc_value_t, void * );
 
+#define SHARPEN_HELP N_("Augment contrast between contours.")
 #define FILTER_PREFIX "sharpen-"
 
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
 vlc_module_begin ()
-    set_description( N_("Augment contrast between contours.") )
-    set_shortname( N_("Sharpen video filter") )
+    set_description( N_("Sharpen video filter") )
+    set_shortname( N_("Sharpen") )
+    set_help(SHARPEN_HELP)
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
     set_capability( "video filter2", 0 )
-    add_float_with_range( "sharpen-sigma", 0.05, 0.0, 2.0, NULL,
+    add_float_with_range( "sharpen-sigma", 0.05, 0.0, 2.0,
         SIG_TEXT, SIG_LONGTEXT, false )
     add_shortcut( "sharpen" )
     set_callbacks( Create, Destroy )
@@ -114,6 +116,13 @@ static void init_precalc_table(filter_sys_t *p_filter, float sigma)
 static int Create( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
+
+    const vlc_fourcc_t fourcc = p_filter->fmt_in.video.i_chroma;
+    const vlc_chroma_description_t *p_chroma = vlc_fourcc_GetChromaDescription( fourcc );
+    if( !p_chroma || p_chroma->plane_count != 3 || p_chroma->pixel_size != 1 ) {
+        msg_Err( p_filter, "Unsupported chroma (%4.4s)", (char*)&fourcc );
+        return VLC_EGENERIC;
+    }
 
     /* Allocate structure */
     p_filter->p_sys = malloc( sizeof( filter_sys_t ) );
@@ -182,8 +191,8 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     /* process the Y plane */
     p_src = p_pic->p[Y_PLANE].p_pixels;
     p_out = p_outpic->p[Y_PLANE].p_pixels;
-    i_src_pitch = p_pic->p[Y_PLANE].i_visible_pitch;
-    i_out_pitch = p_outpic->p[Y_PLANE].i_visible_pitch;
+    i_src_pitch = p_pic->p[Y_PLANE].i_pitch;
+    i_out_pitch = p_outpic->p[Y_PLANE].i_pitch;
 
     /* perform convolution only on Y plane. Avoid border line. */
     vlc_mutex_lock( &p_filter->p_sys->lock );
@@ -234,7 +243,7 @@ static int SharpenCallback( vlc_object_t *p_this, char const *psz_var,
     filter_sys_t *p_sys = (filter_sys_t *)p_data;
 
     vlc_mutex_lock( &p_sys->lock );
-    init_precalc_table(p_sys,  __MIN( 2., __MAX( 0., newval.f_float ) ));
+    init_precalc_table( p_sys,  VLC_CLIP( newval.f_float, 0., 2. ) );
     vlc_mutex_unlock( &p_sys->lock );
     return VLC_SUCCESS;
 }

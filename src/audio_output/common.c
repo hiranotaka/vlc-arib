@@ -1,152 +1,52 @@
 /*****************************************************************************
  * common.c : audio output management of common data structures
  *****************************************************************************
- * Copyright (C) 2002-2007 the VideoLAN team
+ * Copyright (C) 2002-2007 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-/*****************************************************************************
- * Preamble
- *****************************************************************************/
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
 
+#include <limits.h>
 #include <assert.h>
 
 #include <vlc_common.h>
 #include <vlc_aout.h>
 #include "aout_internal.h"
-#include "libvlc.h"
-
-/*
- * Instances management (internal and external)
- */
-
-#define AOUT_ASSERT_FIFO_LOCKED aout_assert_fifo_locked(p_aout, p_fifo)
-static inline void aout_assert_fifo_locked( aout_instance_t * p_aout, aout_fifo_t * p_fifo )
-{
-#ifndef NDEBUG
-    if( !p_aout )
-        return;
-
-    if( p_fifo == &p_aout->output.fifo )
-        vlc_assert_locked( &p_aout->output_fifo_lock );
-    else
-    {
-        int i;
-        for( i = 0; i < p_aout->i_nb_inputs; i++ )
-        {
-            if( p_fifo == &p_aout->pp_inputs[i]->mixer.fifo)
-            {
-                vlc_assert_locked( &p_aout->input_fifos_lock );
-                break;
-            }
-        }
-        if( i == p_aout->i_nb_inputs )
-            vlc_assert_locked( &p_aout->mixer_lock );
-    }
-#else
-    (void)p_aout;
-    (void)p_fifo;
-#endif
-}
-
-/* Local functions */
-static void aout_Destructor( vlc_object_t * p_this );
-
-/*****************************************************************************
- * aout_New: initialize aout structure
- *****************************************************************************/
-aout_instance_t * __aout_New( vlc_object_t * p_parent )
-{
-    aout_instance_t * p_aout;
-
-    /* Allocate descriptor. */
-    p_aout = vlc_object_create( p_parent, VLC_OBJECT_AOUT );
-    if( p_aout == NULL )
-    {
-        return NULL;
-    }
-
-    /* Initialize members. */
-    vlc_mutex_init( &p_aout->input_fifos_lock );
-    vlc_mutex_init( &p_aout->mixer_lock );
-    vlc_mutex_init( &p_aout->output_fifo_lock );
-    p_aout->i_nb_inputs = 0;
-    p_aout->mixer_multiplier = 1.0;
-    p_aout->p_mixer = NULL;
-    p_aout->output.b_error = 1;
-    p_aout->output.b_starving = 1;
-
-    var_Create( p_aout, "intf-change", VLC_VAR_BOOL );
-    var_SetBool( p_aout, "intf-change", true );
-
-    vlc_object_set_destructor( p_aout, aout_Destructor );
-
-    return p_aout;
-}
-
-/*****************************************************************************
- * aout_Destructor: destroy aout structure
- *****************************************************************************/
-static void aout_Destructor( vlc_object_t * p_this )
-{
-    aout_instance_t * p_aout = (aout_instance_t *)p_this;
-    vlc_mutex_destroy( &p_aout->input_fifos_lock );
-    vlc_mutex_destroy( &p_aout->mixer_lock );
-    vlc_mutex_destroy( &p_aout->output_fifo_lock );
-}
-
 
 /*
  * Formats management (internal and external)
  */
 
 /*****************************************************************************
- * aout_FormatNbChannels : return the number of channels
- *****************************************************************************/
-unsigned int aout_FormatNbChannels( const audio_sample_format_t * p_format )
-{
-    static const uint32_t pi_channels[] =
-        { AOUT_CHAN_CENTER, AOUT_CHAN_LEFT, AOUT_CHAN_RIGHT,
-          AOUT_CHAN_REARCENTER, AOUT_CHAN_REARLEFT, AOUT_CHAN_REARRIGHT,
-          AOUT_CHAN_MIDDLELEFT, AOUT_CHAN_MIDDLERIGHT, AOUT_CHAN_LFE };
-    unsigned int i_nb = 0, i;
-
-    for ( i = 0; i < sizeof(pi_channels)/sizeof(uint32_t); i++ )
-    {
-        if ( p_format->i_physical_channels & pi_channels[i] ) i_nb++;
-    }
-
-    return i_nb;
-}
-
-/*****************************************************************************
  * aout_BitsPerSample : get the number of bits per sample
  *****************************************************************************/
 unsigned int aout_BitsPerSample( vlc_fourcc_t i_format )
 {
-    switch( i_format )
+    switch( vlc_fourcc_GetCodec( AUDIO_ES, i_format ) )
     {
     case VLC_CODEC_U8:
     case VLC_CODEC_S8:
+    case VLC_CODEC_ALAW:
+    case VLC_CODEC_MULAW:
         return 8;
 
     case VLC_CODEC_U16L:
@@ -163,11 +63,13 @@ unsigned int aout_BitsPerSample( vlc_fourcc_t i_format )
 
     case VLC_CODEC_S32L:
     case VLC_CODEC_S32B:
-    case VLC_CODEC_FL32:
+    case VLC_CODEC_F32L:
+    case VLC_CODEC_F32B:
     case VLC_CODEC_FI32:
         return 32;
 
-    case VLC_CODEC_FL64:
+    case VLC_CODEC_F64L:
+    case VLC_CODEC_F64B:
         return 64;
 
     default:
@@ -182,6 +84,7 @@ unsigned int aout_BitsPerSample( vlc_fourcc_t i_format )
  *****************************************************************************/
 void aout_FormatPrepare( audio_sample_format_t * p_format )
 {
+    p_format->i_channels = aout_FormatNbChannels( p_format );
     p_format->i_bitspersample = aout_BitsPerSample( p_format->i_format );
     if( p_format->i_bitspersample > 0 )
     {
@@ -196,7 +99,7 @@ void aout_FormatPrepare( audio_sample_format_t * p_format )
  *****************************************************************************/
 const char * aout_FormatPrintChannels( const audio_sample_format_t * p_format )
 {
-    switch ( p_format->i_physical_channels & AOUT_CHAN_PHYSMASK )
+    switch ( p_format->i_physical_channels )
     {
     case AOUT_CHAN_LEFT:
     case AOUT_CHAN_RIGHT:
@@ -297,191 +200,42 @@ const char * aout_FormatPrintChannels( const audio_sample_format_t * p_format )
           | AOUT_CHAN_REARLEFT | AOUT_CHAN_REARRIGHT | AOUT_CHAN_MIDDLELEFT
           | AOUT_CHAN_MIDDLERIGHT | AOUT_CHAN_LFE:
         return "3F2M2R/LFE";
+    case AOUT_CHAN_LEFT | AOUT_CHAN_RIGHT | AOUT_CHAN_CENTER
+          | AOUT_CHAN_REARCENTER | AOUT_CHAN_MIDDLELEFT
+          | AOUT_CHAN_MIDDLERIGHT | AOUT_CHAN_LFE:
+        return "3F2M1R/LFE";
     }
 
     return "ERROR";
 }
 
-/*****************************************************************************
- * aout_FormatPrint : print a format in a human-readable form
- *****************************************************************************/
-void aout_FormatPrint( aout_instance_t * p_aout, const char * psz_text,
-                       const audio_sample_format_t * p_format )
+#undef aout_FormatPrint
+/**
+ * Prints an audio sample format in a human-readable form.
+ */
+void aout_FormatPrint( vlc_object_t *obj, const char *psz_text,
+                       const audio_sample_format_t *p_format )
 {
-    msg_Dbg( p_aout, "%s '%4.4s' %d Hz %s frame=%d samples/%d bytes", psz_text,
+    msg_Dbg( obj, "%s '%4.4s' %d Hz %s frame=%d samples/%d bytes", psz_text,
              (char *)&p_format->i_format, p_format->i_rate,
              aout_FormatPrintChannels( p_format ),
              p_format->i_frame_length, p_format->i_bytes_per_frame );
 }
 
-/*****************************************************************************
- * aout_FormatsPrint : print two formats in a human-readable form
- *****************************************************************************/
-void aout_FormatsPrint( aout_instance_t * p_aout, const char * psz_text,
+#undef aout_FormatsPrint
+/**
+ * Prints two formats in a human-readable form
+ */
+void aout_FormatsPrint( vlc_object_t *obj, const char * psz_text,
                         const audio_sample_format_t * p_format1,
                         const audio_sample_format_t * p_format2 )
 {
-    msg_Dbg( p_aout, "%s '%4.4s'->'%4.4s' %d Hz->%d Hz %s->%s",
+    msg_Dbg( obj, "%s '%4.4s'->'%4.4s' %d Hz->%d Hz %s->%s",
              psz_text,
              (char *)&p_format1->i_format, (char *)&p_format2->i_format,
              p_format1->i_rate, p_format2->i_rate,
              aout_FormatPrintChannels( p_format1 ),
              aout_FormatPrintChannels( p_format2 ) );
-}
-
-
-/*
- * FIFO management (internal) - please understand that solving race conditions
- * is _your_ job, ie. in the audio output you should own the mixer lock
- * before calling any of these functions.
- */
-
-/*****************************************************************************
- * aout_FifoInit : initialize the members of a FIFO
- *****************************************************************************/
-void aout_FifoInit( aout_instance_t * p_aout, aout_fifo_t * p_fifo,
-                    uint32_t i_rate )
-{
-    AOUT_ASSERT_FIFO_LOCKED;
-
-    if( i_rate == 0 )
-    {
-        msg_Err( p_aout, "initialising fifo with zero divider" );
-    }
-
-    p_fifo->p_first = NULL;
-    p_fifo->pp_last = &p_fifo->p_first;
-    date_Init( &p_fifo->end_date, i_rate, 1 );
-}
-
-/*****************************************************************************
- * aout_FifoPush : push a packet into the FIFO
- *****************************************************************************/
-void aout_FifoPush( aout_instance_t * p_aout, aout_fifo_t * p_fifo,
-                    aout_buffer_t * p_buffer )
-{
-    (void)p_aout;
-    AOUT_ASSERT_FIFO_LOCKED;
-
-    *p_fifo->pp_last = p_buffer;
-    p_fifo->pp_last = &p_buffer->p_next;
-    *p_fifo->pp_last = NULL;
-    /* Enforce the continuity of the stream. */
-    if ( date_Get( &p_fifo->end_date ) )
-    {
-        p_buffer->i_pts = date_Get( &p_fifo->end_date );
-        p_buffer->i_length = date_Increment( &p_fifo->end_date,
-                                             p_buffer->i_nb_samples );
-        p_buffer->i_length -= p_buffer->i_pts;
-    }
-    else
-    {
-        date_Set( &p_fifo->end_date, p_buffer->i_pts + p_buffer->i_length );
-    }
-}
-
-/*****************************************************************************
- * aout_FifoSet : set end_date and trash all buffers (because they aren't
- * properly dated)
- *****************************************************************************/
-void aout_FifoSet( aout_instance_t * p_aout, aout_fifo_t * p_fifo,
-                   mtime_t date )
-{
-    aout_buffer_t * p_buffer;
-    (void)p_aout;
-    AOUT_ASSERT_FIFO_LOCKED;
-
-    date_Set( &p_fifo->end_date, date );
-    p_buffer = p_fifo->p_first;
-    while ( p_buffer != NULL )
-    {
-        aout_buffer_t * p_next = p_buffer->p_next;
-        aout_BufferFree( p_buffer );
-        p_buffer = p_next;
-    }
-    p_fifo->p_first = NULL;
-    p_fifo->pp_last = &p_fifo->p_first;
-}
-
-/*****************************************************************************
- * aout_FifoMoveDates : Move forwards or backwards all dates in the FIFO
- *****************************************************************************/
-void aout_FifoMoveDates( aout_instance_t * p_aout, aout_fifo_t * p_fifo,
-                         mtime_t difference )
-{
-    aout_buffer_t * p_buffer;
-    (void)p_aout;
-    AOUT_ASSERT_FIFO_LOCKED;
-
-    date_Move( &p_fifo->end_date, difference );
-    p_buffer = p_fifo->p_first;
-    while ( p_buffer != NULL )
-    {
-        p_buffer->i_pts += difference;
-        p_buffer = p_buffer->p_next;
-    }
-}
-
-/*****************************************************************************
- * aout_FifoNextStart : return the current end_date
- *****************************************************************************/
-mtime_t aout_FifoNextStart( aout_instance_t * p_aout, aout_fifo_t * p_fifo )
-{
-    (void)p_aout;
-    AOUT_ASSERT_FIFO_LOCKED;
-    return date_Get( &p_fifo->end_date );
-}
-
-/*****************************************************************************
- * aout_FifoFirstDate : return the playing date of the first buffer in the
- * FIFO
- *****************************************************************************/
-mtime_t aout_FifoFirstDate( aout_instance_t * p_aout, aout_fifo_t * p_fifo )
-{
-    (void)p_aout;
-    AOUT_ASSERT_FIFO_LOCKED;
-    return p_fifo->p_first ?  p_fifo->p_first->i_pts : 0;
-}
-
-/*****************************************************************************
- * aout_FifoPop : get the next buffer out of the FIFO
- *****************************************************************************/
-aout_buffer_t * aout_FifoPop( aout_instance_t * p_aout, aout_fifo_t * p_fifo )
-{
-    aout_buffer_t * p_buffer;
-    (void)p_aout;
-    AOUT_ASSERT_FIFO_LOCKED;
-
-    p_buffer = p_fifo->p_first;
-    if ( p_buffer == NULL ) return NULL;
-    p_fifo->p_first = p_buffer->p_next;
-    if ( p_fifo->p_first == NULL )
-    {
-        p_fifo->pp_last = &p_fifo->p_first;
-    }
-
-    return p_buffer;
-}
-
-/*****************************************************************************
- * aout_FifoDestroy : destroy a FIFO and its buffers
- *****************************************************************************/
-void aout_FifoDestroy( aout_instance_t * p_aout, aout_fifo_t * p_fifo )
-{
-    aout_buffer_t * p_buffer;
-    (void)p_aout;
-    AOUT_ASSERT_FIFO_LOCKED;
-
-    p_buffer = p_fifo->p_first;
-    while ( p_buffer != NULL )
-    {
-        aout_buffer_t * p_next = p_buffer->p_next;
-        aout_BufferFree( p_buffer );
-        p_buffer = p_next;
-    }
-
-    p_fifo->p_first = NULL;
-    p_fifo->pp_last = &p_fifo->p_first;
 }
 
 /*****************************************************************************
@@ -526,69 +280,80 @@ int aout_CheckChannelReorder( const uint32_t *pi_chan_order_in,
 /*****************************************************************************
  * aout_ChannelReorder :
  *****************************************************************************/
-void aout_ChannelReorder( uint8_t *p_buf, int i_buffer,
-                          int i_channels, const int *pi_chan_table,
-                          int i_bits_per_sample )
+void aout_ChannelReorder( void *ptr, size_t bytes, unsigned channels,
+                          const int *pi_chan_table, unsigned bits_per_sample )
 {
-    uint8_t p_tmp[AOUT_CHAN_MAX * 4];
-    int i, j;
+    size_t samples = bytes / (channels * (bits_per_sample >> 3));
 
-    if( i_bits_per_sample == 8 )
+    assert( channels <= AOUT_CHAN_MAX );
+
+    switch( bits_per_sample )
     {
-        for( i = 0; i < i_buffer / i_channels; i++ )
+        case 32:
         {
-            for( j = 0; j < i_channels; j++ )
-            {
-                p_tmp[pi_chan_table[j]] = p_buf[j];
-            }
+            uint32_t *buf = ptr;
 
-            memcpy( p_buf, p_tmp, i_channels );
-            p_buf += i_channels;
+            for( size_t i = 0; i < samples; i++ )
+            {
+                uint32_t tmp[AOUT_CHAN_MAX];
+
+                for( size_t j = 0; j < channels; j++ )
+                    tmp[pi_chan_table[j]] = buf[j];
+
+                memcpy( buf, tmp, 4 * channels );
+                buf += channels;
+            }
+            break;
         }
-    }
-    else if( i_bits_per_sample == 16 )
-    {
-        for( i = 0; i < i_buffer / i_channels / 2; i++ )
-        {
-            for( j = 0; j < i_channels; j++ )
-            {
-                p_tmp[2 * pi_chan_table[j]]     = p_buf[2 * j];
-                p_tmp[2 * pi_chan_table[j] + 1] = p_buf[2 * j + 1];
-            }
 
-            memcpy( p_buf, p_tmp, 2 * i_channels );
-            p_buf += 2 * i_channels;
+        case 16:
+        {
+            uint16_t *buf = ptr;
+
+            for( size_t i = 0; i < samples; i++ )
+            {
+                uint16_t tmp[AOUT_CHAN_MAX];
+
+                for( size_t j = 0; j < channels; j++ )
+                    tmp[pi_chan_table[j]] = buf[j];
+
+                memcpy( buf, tmp, 2 * channels );
+                buf += channels;
+            }
+            break;
         }
-    }
-    else if( i_bits_per_sample == 24 )
-    {
-        for( i = 0; i < i_buffer / i_channels / 3; i++ )
-        {
-            for( j = 0; j < i_channels; j++ )
-            {
-                p_tmp[3 * pi_chan_table[j]]     = p_buf[3 * j];
-                p_tmp[3 * pi_chan_table[j] + 1] = p_buf[3 * j + 1];
-                p_tmp[3 * pi_chan_table[j] + 2] = p_buf[3 * j + 2];
-            }
 
-            memcpy( p_buf, p_tmp, 3 * i_channels );
-            p_buf += 3 * i_channels;
+        case 8:
+        {
+            uint8_t *buf = ptr;
+
+            for( size_t i = 0; i < samples; i++ )
+            {
+                uint8_t tmp[AOUT_CHAN_MAX];
+
+                for( size_t j = 0; j < channels; j++ )
+                    tmp[pi_chan_table[j]] = buf[j];
+
+                memcpy( buf, tmp, channels );
+                buf += channels;
+            }
+            break;
         }
-    }
-    else if( i_bits_per_sample == 32 )
-    {
-        for( i = 0; i < i_buffer / i_channels / 4; i++ )
-        {
-            for( j = 0; j < i_channels; j++ )
-            {
-                p_tmp[4 * pi_chan_table[j]]     = p_buf[4 * j];
-                p_tmp[4 * pi_chan_table[j] + 1] = p_buf[4 * j + 1];
-                p_tmp[4 * pi_chan_table[j] + 2] = p_buf[4 * j + 2];
-                p_tmp[4 * pi_chan_table[j] + 3] = p_buf[4 * j + 3];
-            }
 
-            memcpy( p_buf, p_tmp, 4 * i_channels );
-            p_buf += 4 * i_channels;
+        case 24:
+        {
+            uint8_t *buf = ptr;
+
+            for( size_t i = 0; i < samples; i++ )
+            {
+                uint8_t tmp[3 * AOUT_CHAN_MAX];
+
+                for( size_t j = 0; j < channels; j++ )
+                    memcpy( tmp + (3 * pi_chan_table[j]), buf + (3 * j), 3 );
+
+                memcpy( buf, tmp, 3 * channels );
+                buf += 3 * channels;
+            }
         }
     }
 }
@@ -695,20 +460,123 @@ bool aout_CheckChannelExtraction( int *pi_selection,
     return i_out == i_channels;
 }
 
-/*****************************************************************************
- * aout_BufferAlloc:
- *****************************************************************************/
-
-aout_buffer_t *aout_BufferAlloc(aout_alloc_t *allocation, mtime_t microseconds,
-        aout_buffer_t *old_buffer)
+/* Return the order in which filters should be inserted */
+static int FilterOrder( const char *psz_name )
 {
-    if ( !allocation->b_alloc )
+    static const struct {
+        const char psz_name[10];
+        int        i_order;
+    } filter[] = {
+        { "equalizer",  0 },
+    };
+    for( unsigned i = 0; i < ARRAY_SIZE(filter); i++ )
     {
-        return old_buffer;
+        if( !strcmp( filter[i].psz_name, psz_name ) )
+            return filter[i].i_order;
+    }
+    return INT_MAX;
+}
+
+/* This function will add or remove a a module from a string list (colon
+ * separated). It will return true if there is a modification
+ * In case p_aout is NULL, we will use configuration instead of variable */
+bool aout_ChangeFilterString( vlc_object_t *p_obj, vlc_object_t *p_aout,
+                              const char *psz_variable,
+                              const char *psz_name, bool b_add )
+{
+    if( *psz_name == '\0' )
+        return false;
+
+    char *psz_list;
+    if( p_aout )
+    {
+        psz_list = var_GetString( p_aout, psz_variable );
+    }
+    else
+    {
+        psz_list = var_CreateGetString( p_obj->p_libvlc, psz_variable );
+        var_Destroy( p_obj->p_libvlc, psz_variable );
     }
 
-    size_t i_alloc_size = (int)( (uint64_t)allocation->i_bytes_per_sec
-                                        * (microseconds) / 1000000 + 1 );
+    /* Split the string into an array of filters */
+    int i_count = 1;
+    for( char *p = psz_list; p && *p; p++ )
+        i_count += *p == ':';
+    i_count += b_add;
 
-    return block_Alloc( i_alloc_size );
+    const char **ppsz_filter = calloc( i_count, sizeof(*ppsz_filter) );
+    if( !ppsz_filter )
+    {
+        free( psz_list );
+        return false;
+    }
+    bool b_present = false;
+    i_count = 0;
+    for( char *p = psz_list; p && *p; )
+    {
+        char *psz_end = strchr(p, ':');
+        if( psz_end )
+            *psz_end++ = '\0';
+        else
+            psz_end = p + strlen(p);
+        if( *p )
+        {
+            b_present |= !strcmp( p, psz_name );
+            ppsz_filter[i_count++] = p;
+        }
+        p = psz_end;
+    }
+    if( b_present == b_add )
+    {
+        free( ppsz_filter );
+        free( psz_list );
+        return false;
+    }
+
+    if( b_add )
+    {
+        int i_order = FilterOrder( psz_name );
+        int i;
+        for( i = 0; i < i_count; i++ )
+        {
+            if( FilterOrder( ppsz_filter[i] ) > i_order )
+                break;
+        }
+        if( i < i_count )
+            memmove( &ppsz_filter[i+1], &ppsz_filter[i], (i_count - i) * sizeof(*ppsz_filter) );
+        ppsz_filter[i] = psz_name;
+        i_count++;
+    }
+    else
+    {
+        for( int i = 0; i < i_count; i++ )
+        {
+            if( !strcmp( ppsz_filter[i], psz_name ) )
+                ppsz_filter[i] = "";
+        }
+    }
+    size_t i_length = 0;
+    for( int i = 0; i < i_count; i++ )
+        i_length += 1 + strlen( ppsz_filter[i] );
+
+    char *psz_new = malloc( i_length + 1 );
+    *psz_new = '\0';
+    for( int i = 0; i < i_count; i++ )
+    {
+        if( *ppsz_filter[i] == '\0' )
+            continue;
+        if( *psz_new )
+            strcat( psz_new, ":" );
+        strcat( psz_new, ppsz_filter[i] );
+    }
+    free( ppsz_filter );
+    free( psz_list );
+
+    if( p_aout )
+        var_SetString( p_aout, psz_variable, psz_new );
+    else
+        config_PutPsz( p_obj, psz_variable, psz_new );
+    free( psz_new );
+
+    return true;
 }

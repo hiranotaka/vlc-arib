@@ -59,9 +59,10 @@ static int PPNameCallback( vlc_object_t *, char const *,
 
 #define Q_TEXT N_("Post processing quality")
 #define Q_LONGTEXT N_( \
-    "Quality of post processing. Valid range is 0 to 6\n" \
-    "Higher levels require considerable more CPU power, but produce " \
-    "better looking pictures." )
+    "Quality of post processing. Valid range is 0 (disabled) to 6 (highest)\n"     \
+    "Higher levels require more CPU power, but produce higher quality pictures.\n" \
+    "With default filter chain, the values map to the following filters:\n"        \
+    "1: hb, 2-4: hb+vb, 5-6: hb+vb+dr" )
 
 #define NAME_TEXT N_("FFmpeg post processing filter chains")
 #define NAME_LONGTEXT NAME_TEXT
@@ -74,8 +75,7 @@ static int PPNameCallback( vlc_object_t *, char const *,
 vlc_module_begin ()
     set_description( N_("Video post processing filter") )
     set_shortname( N_("Postproc" ) )
-    add_shortcut( "postprocess" ) /* name is "postproc" */
-    add_shortcut( "pp" )
+    add_shortcut( "postprocess", "pp" ) /* name is "postproc" */
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
@@ -84,12 +84,10 @@ vlc_module_begin ()
     set_callbacks( OpenPostproc, ClosePostproc )
 
     add_integer_with_range( FILTER_PREFIX "q", PP_QUALITY_MAX, 0,
-                            PP_QUALITY_MAX, NULL, Q_TEXT, Q_LONGTEXT, false )
-        add_deprecated_alias( "ffmpeg-pp-q" )
+                            PP_QUALITY_MAX, Q_TEXT, Q_LONGTEXT, false )
         change_safe()
-    add_string( FILTER_PREFIX "name", "default", NULL, NAME_TEXT,
+    add_string( FILTER_PREFIX "name", "default", NAME_TEXT,
                 NAME_LONGTEXT, true )
-        add_deprecated_alias( "ffmpeg-pp-name" )
 vlc_module_end ()
 
 static const char *const ppsz_filter_options[] = {
@@ -102,10 +100,10 @@ static const char *const ppsz_filter_options[] = {
 struct filter_sys_t
 {
     /* Never changes after init */
-    pp_context_t *pp_context;
+    pp_context *pp_context;
 
     /* Set to NULL if post processing is disabled */
-    pp_mode_t    *pp_mode;
+    pp_mode *pp_mode;
 
     /* Set to true if previous pic had a quant matrix
        (used to prevent spamming warning messages) */
@@ -124,7 +122,6 @@ static int OpenPostproc( vlc_object_t *p_this )
     filter_t *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys;
     vlc_value_t val, val_orig, text;
-    unsigned i_cpu = vlc_CPU();
     int i_flags = 0;
 
     if( p_filter->fmt_in.video.i_chroma != p_filter->fmt_out.video.i_chroma ||
@@ -136,14 +133,17 @@ static int OpenPostproc( vlc_object_t *p_this )
     }
 
     /* Set CPU capabilities */
-    if( i_cpu & CPU_CAPABILITY_MMX )
+#if defined(__i386__) || defined(__x86_64__)
+    if( vlc_CPU_MMX() )
         i_flags |= PP_CPU_CAPS_MMX;
-    if( i_cpu & CPU_CAPABILITY_MMXEXT )
+    if( vlc_CPU_MMXEXT() )
         i_flags |= PP_CPU_CAPS_MMX2;
-    if( i_cpu & CPU_CAPABILITY_3DNOW )
+    if( vlc_CPU_3dNOW() )
         i_flags |= PP_CPU_CAPS_3DNOW;
-    if( i_cpu & CPU_CAPABILITY_ALTIVEC )
+#elif defined(__ppc__) || defined(__ppc64__) || defined(__powerpc__)
+    if( vlc_CPU_ALTIVEC() )
         i_flags |= PP_CPU_CAPS_ALTIVEC;
+#endif
 
     switch( p_filter->fmt_in.video.i_chroma )
     {
@@ -168,7 +168,7 @@ static int OpenPostproc( vlc_object_t *p_this )
             i_flags |= PP_FORMAT_420;
             break;
         default:
-            msg_Err( p_filter, "Unsupported input chroma (%4s)",
+            msg_Err( p_filter, "Unsupported input chroma (%4.4s)",
                       (char*)&p_filter->fmt_in.video.i_chroma );
             return VLC_EGENERIC;
     }
@@ -345,7 +345,7 @@ static void PPChangeMode( filter_t *p_filter, const char *psz_name,
     vlc_mutex_lock( &p_sys->lock );
     if( i_quality > 0 )
     {
-        pp_mode_t *pp_mode = pp_get_mode_by_name_and_quality( psz_name ?
+        pp_mode *pp_mode = pp_get_mode_by_name_and_quality( psz_name ?
                                                               psz_name :
                                                               "default",
                                                               i_quality );

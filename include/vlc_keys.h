@@ -1,24 +1,24 @@
 /*****************************************************************************
  * vlc_keys.h: keycode defines
  *****************************************************************************
- * Copyright (C) 2003-2009 the VideoLAN team
+ * Copyright (C) 2003-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Sigmund Augdal Helberg <dnumgis@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef VLC_KEYS_H
@@ -37,12 +37,15 @@
 #define KEY_MODIFIER_COMMAND 0x10000000
 
 #define KEY_UNSET            0x00000000
+#define KEY_BACKSPACE              0x08
+#define KEY_TAB                    0x09
+#define KEY_ENTER                  0x0D
+#define KEY_ESC                    0x1B
 /* End of Unicode range:     0x0010FFFF */
 #define KEY_LEFT             0x00210000
 #define KEY_RIGHT            0x00220000
 #define KEY_UP               0x00230000
 #define KEY_DOWN             0x00240000
-#define KEY_ENTER            0x00260000
 #define KEY_F1               0x00270000
 #define KEY_F2               0x00280000
 #define KEY_F3               0x00290000
@@ -60,11 +63,8 @@
 #define KEY_INSERT           0x00350000
 #define KEY_DELETE           0x00360000
 #define KEY_MENU             0x00370000
-#define KEY_ESC              0x00380000
 #define KEY_PAGEUP           0x00390000
 #define KEY_PAGEDOWN         0x003A0000
-#define KEY_TAB              0x003B0000
-#define KEY_BACKSPACE        0x003C0000
 
 #define KEY_BROWSER_BACK     0x003F0000
 #define KEY_BROWSER_FORWARD  0x00400000
@@ -80,17 +80,36 @@
 #define KEY_MEDIA_PREV_TRACK 0x004A0000
 #define KEY_MEDIA_STOP       0x004B0000
 #define KEY_MEDIA_PLAY_PAUSE 0x004C0000
+#define KEY_MEDIA_RECORD     0x004D0000
+#define KEY_MEDIA_REWIND     0x004E0000
+#define KEY_MEDIA_FORWARD    0x004F0000
+#define KEY_MEDIA_REPEAT     0x00500000
+#define KEY_MEDIA_SHUFFLE    0x00510000
+#define KEY_MEDIA_SUBTITLE   0x00520000
+#define KEY_MEDIA_AUDIO      0x00530000
+#define KEY_MEDIA_ANGLE      0x00540000
+#define KEY_MEDIA_TIME       0x00550000
+#define KEY_MEDIA_FRAME_PREV 0x00560000
+#define KEY_MEDIA_FRAME_NEXT 0x00570000
+#define KEY_MEDIA_SELECT     0x00580000
+#define KEY_MEDIA_VIEW       0x00590000
+#define KEY_MEDIA_MENU       0x005A0000
+#define KEY_ZOOM_IN          0x00600000
+#define KEY_ZOOM_OUT         0x00610000
+#define KEY_BRIGHTNESS_UP    0x00620000
+#define KEY_BRIGHTNESS_DOWN  0x00630000
 
 #define KEY_MOUSEWHEELUP     0x00F00000
 #define KEY_MOUSEWHEELDOWN   0x00F10000
 #define KEY_MOUSEWHEELLEFT   0x00F20000
 #define KEY_MOUSEWHEELRIGHT  0x00F30000
 
-VLC_EXPORT( char *, KeyToString, (uint_fast32_t i_key) ) LIBVLC_USED;
-VLC_EXPORT( uint_fast32_t, StringToKey,  (char *psz_key) ) LIBVLC_USED;
+VLC_API char *vlc_keycode2str(uint_fast32_t i_key, bool locale) VLC_USED;
+VLC_API uint_fast32_t vlc_str2keycode(const char *str) VLC_USED;
 
-typedef enum vlc_key {
-    ACTIONID_QUIT = 1,
+typedef enum vlc_action {
+    ACTIONID_NONE = 0,
+    ACTIONID_QUIT,
     ACTIONID_PLAY_PAUSE,
     ACTIONID_PLAY,
     ACTIONID_PAUSE,
@@ -142,14 +161,13 @@ typedef enum vlc_key {
     /* end of contiguous zone */
     ACTIONID_SUBDELAY_UP,
     ACTIONID_SUBDELAY_DOWN,
-    ACTIONID_HISTORY_BACK,
-    ACTIONID_HISTORY_FORWARD,
+    ACTIONID_SUBPOS_UP,
+    ACTIONID_SUBPOS_DOWN,
     ACTIONID_AUDIO_TRACK,
     ACTIONID_SUBTITLE_TRACK,
-    ACTIONID_CUBESPEED_UP,
-    ACTIONID_CUBESPEED_DOWN,
-    ACTIONID_INTF_SHOW,
+    ACTIONID_INTF_TOGGLE_FSC,
     ACTIONID_INTF_HIDE,
+    ACTIONID_INTF_BOSS,
     /* chapter and title navigation */
     ACTIONID_TITLE_PREV,
     ACTIONID_TITLE_NEXT,
@@ -164,6 +182,7 @@ typedef enum vlc_key {
     ACTIONID_ASPECT_RATIO,
     ACTIONID_CROP,
     ACTIONID_DEINTERLACE,
+    ACTIONID_DEINTERLACE_MODE,
     ACTIONID_ZOOM,
     ACTIONID_UNZOOM,
     ACTIONID_CROP_TOP,
@@ -174,7 +193,6 @@ typedef enum vlc_key {
     ACTIONID_UNCROP_BOTTOM,
     ACTIONID_CROP_RIGHT,
     ACTIONID_UNCROP_RIGHT,
-    ACTIONID_DUMP,
     ACTIONID_RANDOM,
     ACTIONID_LOOP,
     ACTIONID_WALLPAPER,
@@ -201,6 +219,16 @@ typedef enum vlc_key {
     ACTIONID_RATE_NORMAL,
     ACTIONID_RATE_SLOWER_FINE,
     ACTIONID_RATE_FASTER_FINE,
+    /* Cycle Through Program Service IDs */
+    ACTIONID_PROGRAM_SID,
 
-} vlc_key_t;
+} vlc_action_t;
+
+VLC_API vlc_action_t vlc_GetActionId(const char *psz_key) VLC_USED;
+
+struct hotkey
+{
+    const char *psz_action;
+};
+
 #endif

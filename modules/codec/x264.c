@@ -1,7 +1,7 @@
 /*****************************************************************************
  * x264.c: h264 video encoder
  *****************************************************************************
- * Copyright (C) 2004-2006 the VideoLAN team
+ * Copyright (C) 2004-2010 the VideoLAN team
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
@@ -35,26 +35,34 @@
 #include <vlc_codec.h>
 #include <vlc_charset.h>
 #include <vlc_cpu.h>
+#include <math.h>
 
 #ifdef PTW32_STATIC_LIB
 #include <pthread.h>
 #endif
 #include <x264.h>
 
+#include <assert.h>
+
+#ifdef MODULE_NAME_IS_x26410b
+#define SOUT_CFG_PREFIX "sout-x26410b-"
+#else
 #define SOUT_CFG_PREFIX "sout-x264-"
+#endif
 
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
+static void x264_log( void *, int i_level, const char *psz, va_list );
 
 /* Frame-type options */
 
 #define KEYINT_TEXT N_("Maximum GOP size")
 #define KEYINT_LONGTEXT N_( "Sets maximum interval between IDR-frames." \
     "Larger values save bits, thus improving quality for a given bitrate at " \
-    "the cost of seeking precision." )
+    "the cost of seeking precision. Use -1 for infinite." )
 
 #define MIN_KEYINT_TEXT N_("Minimum GOP size")
 #define MIN_KEYINT_LONGTEXT N_( "Sets minimum interval between IDR-frames. " \
@@ -65,6 +73,19 @@ static void Close( vlc_object_t * );
     "P-frames from referring to any frame prior to the IDR-frame. \n" \
     "If scenecuts appear within this interval, they are still encoded as " \
     "I-frames, but do not start a new GOP." )
+
+#define OPENGOP_TEXT N_("Use recovery points to close GOPs")
+#if X264_BUILD < 115
+#define OPENGOP_LONGTEXT N_("none: use closed GOPs only\n"\
+    "normal: use standard open GOPs\n" \
+    "bluray: use Blu-ray compatible open GOPs" )
+#else
+#define OPENGOP_LONGTEXT N_("use open GOP, for bluray compatibility use also bluray-compat option")
+#endif
+
+#define BLURAY_TEXT N_("Enable compatibility hacks for Blu-ray support")
+#define BLURAY_LONGTEXT N_("Enable hacks for Blu-ray support, this doesn't enforce every aspect of Blu-ray compatibility\n" \
+    "e.g. resolution, framerate, level" )
 
 #define SCENE_TEXT N_("Extra I-frames aggressivity" )
 #define SCENE_LONGTEXT N_( "Scene-cut detection. Controls how " \
@@ -93,7 +114,6 @@ static void Close( vlc_object_t * );
 
 
 #define BPYRAMID_TEXT N_("Keep some B-frames as references")
-#if X264_BUILD >= 78
 #define BPYRAMID_LONGTEXT N_( "Allows B-frames to be used as references for " \
     "predicting other frames. Keeps the middle of 2+ consecutive B-frames " \
     "as a reference, and reorders frame appropriately.\n" \
@@ -101,11 +121,6 @@ static void Close( vlc_object_t * );
     " - strict: Strictly hierarchical pyramid\n" \
     " - normal: Non-strict (not Blu-ray compatible)\n"\
     )
-#else
-#define BPYRAMID_LONGTEXT N_( "Allows B-frames to be used as references for " \
-    "predicting other frames. Keeps the middle of 2+ consecutive B-frames " \
-    "as a reference, and reorders frame appropriately." )
-#endif
 
 #define CABAC_TEXT N_("CABAC")
 #define CABAC_LONGTEXT N_( "CABAC (Context-Adaptive Binary Arithmetic "\
@@ -125,15 +140,15 @@ static void Close( vlc_object_t * );
 #define FILTER_LONGTEXT N_( "Loop filter AlphaC0 and Beta parameters. " \
     "Range -6 to 6 for both alpha and beta parameters. -6 means light " \
     "filter, 6 means strong.")
- 
+
 #define LEVEL_TEXT N_("H.264 level")
 #define LEVEL_LONGTEXT N_( "Specify H.264 level (as defined by Annex A " \
     "of the standard). Levels are not enforced; it's up to the user to select " \
     "a level compatible with the rest of the encoding options. Range 1 to 5.1 " \
-    "(10 to 51 is also allowed).")
+    "(10 to 51 is also allowed). Set to 0 for letting x264 set level.")
 
 #define PROFILE_TEXT N_("H.264 profile")
-#define PROFILE_LONGTEXT N_("Specify H.264 profile which limits are enforced over" \
+#define PROFILE_LONGTEXT N_("Specify H.264 profile which limits are enforced over " \
         "other settings" )
 
 /* In order to play an interlaced output stream encoded by x264, a decoder needs
@@ -142,6 +157,29 @@ static void Close( vlc_object_t * );
 #define INTERLACED_TEXT N_("Interlaced mode")
 #define INTERLACED_LONGTEXT N_( "Pure-interlaced mode.")
 
+#define FRAMEPACKING_TEXT N_("Frame packing")
+#define FRAMEPACKING_LONGTEXT N_( "For stereoscopic videos define frame arrangement:\n" \
+    " 0: checkerboard - pixels are alternatively from L and R\n" \
+    " 1: column alternation - L and R are interlaced by column\n" \
+    " 2: row alternation - L and R are interlaced by row\n" \
+    " 3: side by side - L is on the left, R on the right\n" \
+    " 4: top bottom - L is on top, R on bottom\n" \
+    " 5: frame alternation - one view per frame" )
+
+#define INTRAREFRESH_TEXT N_("Use Periodic Intra Refresh")
+#define INTRAREFRESH_LONGTEXT N_("Use Periodic Intra Refresh instead of IDR frames")
+
+#define MBTREE_TEXT N_("Use mb-tree ratecontrol")
+#define MBTREE_LONGTEXT N_("You can disable use of Macroblock-tree on ratecontrol")
+
+#define SLICE_COUNT N_("Force number of slices per frame")
+#define SLICE_COUNT_LONGTEXT N_("Force rectangular slices and is overridden by other slicing options")
+
+#define SLICE_MAX_SIZE N_("Limit the size of each slice in bytes")
+#define SLICE_MAX_SIZE_LONGTEXT N_("Sets a maximum slice size in bytes, Includes NAL overhead in size")
+
+#define SLICE_MAX_MBS N_("Limit the size of each slice in macroblocks")
+#define SLICE_MAX_MBS_LONGTEXT N_("Sets a maximum number of macroblocks per slice")
 /* Ratecontrol */
 
 #define QP_TEXT N_("Set QP")
@@ -185,7 +223,7 @@ static void Close( vlc_object_t * );
 
 #define AQ_STRENGTH_TEXT N_("Strength of AQ")
 #define AQ_STRENGTH_LONGTEXT N_("Strength to reduce blocking and blurring in flat\n"\
-        "and textured areas, default 1.0 recommented to be between 0..2\n"\
+        "and textured areas, default 1.0 recommended to be between 0..2\n"\
         " - 0.5: weak AQ\n"\
         " - 1.5: strong AQ")
 
@@ -214,7 +252,7 @@ static void Close( vlc_object_t * );
     "before curve compression. Temporally blurs complexity.")
 
 #define QBLUR_TEXT N_("Reduce fluctuations in QP")
-#define QBLUR_LONGTEXT N_( "This reduces the fluctations in QP " \
+#define QBLUR_LONGTEXT N_( "This reduces the fluctuations in QP " \
     "after curve compression. Temporally blurs quants.")
 
 /* Analysis */
@@ -240,6 +278,12 @@ static void Close( vlc_object_t * );
 #define WEIGHTB_TEXT N_("Weighted prediction for B-frames")
 #define WEIGHTB_LONGTEXT N_( "Weighted prediction for B-frames.")
 
+#define WEIGHTP_TEXT N_("Weighted prediction for P-frames")
+#define WEIGHTP_LONGTEXT N_(" Weighted prediction for P-frames: "\
+    " - 0: Disabled\n"\
+    " - 1: Blind offset\n"\
+    " - 2: Smart analysis\n" )
+
 #define ME_TEXT N_("Integer pixel motion estimation method")
 #define ME_LONGTEXT N_( "Selects the motion estimation algorithm: "\
     " - dia: diamond search, radius 1 (fast)\n" \
@@ -263,14 +307,12 @@ static void Close( vlc_object_t * );
     "-1 is automatic, based on number of threads." )
 
 #define PSY_RD_TEXT N_( "Strength of psychovisual optimization, default is \"1.0:0.0\"")
-#define PSY_RD_LONGTEXT N_( "First parameter controls if RD is on (subme>=6) or off"\
-        "second parameter controls if Trellis is used on psychovisual optimization," \
+#define PSY_RD_LONGTEXT N_( "First parameter controls if RD is on (subme>=6) or off.\n"\
+        "Second parameter controls if Trellis is used on psychovisual optimization, " \
         "default off")
 
 #define SUBME_TEXT N_("Subpixel motion estimation and partition decision " \
     "quality")
-
-#define SUBME_MAX 9
 #define SUBME_LONGTEXT N_( "This parameter controls quality versus speed " \
     "tradeoffs involved in the motion estimation decision process " \
     "(lower = quicker and higher = better quality). Range 1 to 9." )
@@ -309,6 +351,9 @@ static void Close( vlc_object_t * );
 #define DCT_DECIMATE_LONGTEXT N_( "Coefficient thresholding on P-frames." \
     "Eliminate dct blocks containing only a small single coefficient.")
 
+#define PSY_TEXT N_("Use Psy-optimizations")
+#define PSY_LONGTEXT N_("Use all visual optimizations that can worsen both PSNR and SSIM")
+
 /* Noise reduction 1 is too weak to measure, suggest at least 10 */
 #define NR_TEXT N_("Noise reduction")
 #define NR_LONGTEXT N_( "Dct-domain noise reduction. Adaptive pseudo-deadzone. " \
@@ -343,7 +388,6 @@ static void Close( vlc_object_t * );
     "the actual encoding quality." )
 
 #define QUIET_TEXT N_("Quiet mode")
-#define QUIET_LONGTEXT N_( "Quiet mode.")
 
 #define VERBOSE_TEXT N_("Statistics")
 #define VERBOSE_LONGTEXT N_( "Print stats for each frame.")
@@ -355,6 +399,17 @@ static void Close( vlc_object_t * );
 #define AUD_TEXT N_("Access unit delimiters")
 #define AUD_LONGTEXT N_( "Generate access unit delimiter NAL units.")
 
+#define LOOKAHEAD_TEXT N_("Framecount to use on frametype lookahead")
+#define LOOKAHEAD_LONGTEXT N_("Framecount to use on frametype lookahead. " \
+    "Currently default can cause sync-issues on unmuxable output, like rtsp-output without ts-mux" )
+
+#define HRD_TEXT N_("HRD-timing information")
+#define TUNE_TEXT N_("Default tune setting used" )
+#define PRESET_TEXT N_("Default preset setting used" )
+
+#define X264_OPTIONS_TEXT N_("x264 advanced options.")
+#define X264_OPTIONS_LONGTEXT N_("x264 advanced options, in the form {opt=val,op2=val2} .")
+
 static const char *const enc_me_list[] =
   { "dia", "hex", "umh", "esa", "tesa" };
 static const char *const enc_me_list_text[] =
@@ -363,10 +418,8 @@ static const char *const enc_me_list_text[] =
 static const char *const profile_list[] =
   { "baseline", "main", "high" };
 
-#if X264_BUILD >= 78
 static const char *const bpyramid_list[] =
   { "none", "strict", "normal" };
-#endif
 
 static const char *const enc_analyse_list[] =
   { "none", "fast", "normal", "slow", "all" };
@@ -378,251 +431,310 @@ static const char *const direct_pred_list[] =
 static const char *const direct_pred_list_text[] =
   { N_("none"), N_("spatial"), N_("temporal"), N_("auto") };
 
+static const int const framepacking_list[] =
+  { -1, 0, 1, 2, 3, 4, 5 };
+static const char *const framepacking_list_text[] =
+  { "", N_("checkerboard"), N_("column alternation"), N_("row alternation"), N_("side by side"), N_("top bottom"), N_("frame alternation") };
+
 vlc_module_begin ()
+#ifdef MODULE_NAME_IS_x26410b
+    set_description( N_("H.264/MPEG4 AVC encoder (x264 10-bit)"))
+    set_capability( "encoder", 0 )
+#else
     set_description( N_("H.264/MPEG4 AVC encoder (x264)"))
     set_capability( "encoder", 200 )
+#endif
     set_callbacks( Open, Close )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_VCODEC )
 
 /* Frame-type options */
 
-    add_integer( SOUT_CFG_PREFIX "keyint", 250, NULL, KEYINT_TEXT,
+    add_integer( SOUT_CFG_PREFIX "keyint", 250, KEYINT_TEXT,
                  KEYINT_LONGTEXT, false )
 
-    add_integer( SOUT_CFG_PREFIX "min-keyint", 25, NULL, MIN_KEYINT_TEXT,
-                 MIN_KEYINT_LONGTEXT, false )
-        add_deprecated_alias( SOUT_CFG_PREFIX "keyint-min" ) /* Deprecated since 0.8.5 */
+    add_integer( SOUT_CFG_PREFIX "min-keyint", 25, MIN_KEYINT_TEXT,
+                 MIN_KEYINT_LONGTEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "scenecut", 40, NULL, SCENE_TEXT,
-                 SCENE_LONGTEXT, false )
+#if X264_BUILD >= 102 && X264_BUILD <= 114
+    add_string( SOUT_CFG_PREFIX "opengop", "none", OPENGOP_TEXT,
+               OPENGOP_LONGTEXT, true )
+        change_string_list( x264_open_gop_names, x264_open_gop_names )
+#elif X264_BUILD > 114
+    add_bool( SOUT_CFG_PREFIX "opengop", false, OPENGOP_TEXT,
+               OPENGOP_LONGTEXT, true )
+    add_bool( SOUT_CFG_PREFIX "bluray-compat", false, BLURAY_TEXT,
+               BLURAY_LONGTEXT, true )
+#endif
+
+    add_integer( SOUT_CFG_PREFIX "scenecut", 40, SCENE_TEXT,
+                 SCENE_LONGTEXT, true )
         change_integer_range( -1, 100 )
 
     add_obsolete_bool( SOUT_CFG_PREFIX "pre-scenecut" )
 
-    add_integer( SOUT_CFG_PREFIX "bframes", 3, NULL, BFRAMES_TEXT,
-                 BFRAMES_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "bframes", 3, BFRAMES_TEXT,
+                 BFRAMES_LONGTEXT, true )
         change_integer_range( 0, 16 )
 
-    add_integer( SOUT_CFG_PREFIX "b-adapt", 1, NULL, B_ADAPT_TEXT,
-                 B_ADAPT_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "b-adapt", 1, B_ADAPT_TEXT,
+                 B_ADAPT_LONGTEXT, true )
         change_integer_range( 0, 2 )
 
-    add_integer( SOUT_CFG_PREFIX "b-bias", 0, NULL, B_BIAS_TEXT,
-                 B_BIAS_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "b-bias", 0, B_BIAS_TEXT,
+                 B_BIAS_LONGTEXT, true )
         change_integer_range( -100, 100 )
 
-#if X264_BUILD >= 78
-    add_string( SOUT_CFG_PREFIX "bpyramid", "none", NULL, BPYRAMID_TEXT,
-              BPYRAMID_LONGTEXT, false )
-        change_string_list( bpyramid_list, bpyramid_list, 0 );
+#if X264_BUILD >= 87
+    add_string( SOUT_CFG_PREFIX "bpyramid", "normal", BPYRAMID_TEXT,
+              BPYRAMID_LONGTEXT, true )
 #else
-    add_bool( SOUT_CFG_PREFIX "bpyramid", false, NULL, BPYRAMID_TEXT,
-              BPYRAMID_LONGTEXT, false )
+    add_string( SOUT_CFG_PREFIX "bpyramid", "none", BPYRAMID_TEXT,
+              BPYRAMID_LONGTEXT, true )
 #endif
+        change_string_list( bpyramid_list, bpyramid_list )
 
-    add_bool( SOUT_CFG_PREFIX "cabac", true, NULL, CABAC_TEXT, CABAC_LONGTEXT,
-              false )
+    add_bool( SOUT_CFG_PREFIX "cabac", true, CABAC_TEXT, CABAC_LONGTEXT,
+              true )
 
-    add_integer( SOUT_CFG_PREFIX "ref", 3, NULL, REF_TEXT,
-                 REF_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "ref", 3, REF_TEXT,
+                 REF_LONGTEXT, true )
         change_integer_range( 1, 16 )
-        add_deprecated_alias( SOUT_CFG_PREFIX "frameref" ) /* Deprecated since 0.8.5 */
 
-    add_bool( SOUT_CFG_PREFIX "nf", false, NULL, NF_TEXT,
-              NF_LONGTEXT, false )
-        add_deprecated_alias( SOUT_CFG_PREFIX "loopfilter" ) /* Deprecated since 0.8.5 */
+    add_bool( SOUT_CFG_PREFIX "nf", false, NF_TEXT,
+              NF_LONGTEXT, true )
 
-    add_string( SOUT_CFG_PREFIX "deblock", "0:0", NULL, FILTER_TEXT,
-                 FILTER_LONGTEXT, false )
-        add_deprecated_alias( SOUT_CFG_PREFIX "filter" ) /* Deprecated since 0.8.6 */
+    add_string( SOUT_CFG_PREFIX "deblock", "0:0", FILTER_TEXT,
+                 FILTER_LONGTEXT, true )
 
-    add_string( SOUT_CFG_PREFIX "psy-rd", "1.0:0.0", NULL, PSY_RD_TEXT,
-                PSY_RD_LONGTEXT, false )
+    add_string( SOUT_CFG_PREFIX "psy-rd", "1.0:0.0", PSY_RD_TEXT,
+                PSY_RD_LONGTEXT, true )
 
-    add_string( SOUT_CFG_PREFIX "level", "5.1", NULL, LEVEL_TEXT,
+    add_bool( SOUT_CFG_PREFIX "psy", true, PSY_TEXT, PSY_LONGTEXT, true )
+
+    add_string( SOUT_CFG_PREFIX "level", "0", LEVEL_TEXT,
                LEVEL_LONGTEXT, false )
 
-    add_string( SOUT_CFG_PREFIX "profile", "high", NULL, PROFILE_TEXT,
+    add_string( SOUT_CFG_PREFIX "profile", "high", PROFILE_TEXT,
                PROFILE_LONGTEXT, false )
-        change_string_list( profile_list, profile_list, 0 );
+        vlc_config_set (VLC_CONFIG_LIST,
+            (sizeof(x264_profile_names) / sizeof (char*)) - 1,
+            x264_profile_names, x264_profile_names);
 
-    add_bool( SOUT_CFG_PREFIX "interlaced", false, NULL, INTERLACED_TEXT, INTERLACED_LONGTEXT,
-              false )
+
+    add_bool( SOUT_CFG_PREFIX "interlaced", false, INTERLACED_TEXT, INTERLACED_LONGTEXT,
+              true )
+
+#if X264_BUILD >= 111
+    add_integer( SOUT_CFG_PREFIX "frame-packing", -1, FRAMEPACKING_TEXT, FRAMEPACKING_LONGTEXT, true )
+        change_integer_list( framepacking_list, framepacking_list_text )
+        change_integer_range( -1, 5)
+#endif
+
+    add_integer( SOUT_CFG_PREFIX "slices", 0, SLICE_COUNT, SLICE_COUNT_LONGTEXT, true )
+    add_integer( SOUT_CFG_PREFIX "slice-max-size", 0, SLICE_MAX_SIZE, SLICE_MAX_SIZE_LONGTEXT, true )
+    add_integer( SOUT_CFG_PREFIX "slice-max-mbs", 0, SLICE_MAX_MBS, SLICE_MAX_MBS_LONGTEXT, true )
+
+#if X264_BUILD >= 89
+    add_string( SOUT_CFG_PREFIX "hrd", "none", HRD_TEXT, HRD_TEXT, true )
+        vlc_config_set (VLC_CONFIG_LIST,
+            (sizeof(x264_nal_hrd_names) / sizeof (char*)) - 1,
+            x264_nal_hrd_names, x264_nal_hrd_names);
+#endif
+
 
 /* Ratecontrol */
 
-    add_integer( SOUT_CFG_PREFIX "qp", -1, NULL, QP_TEXT, QP_LONGTEXT,
-                 false )
+    add_integer( SOUT_CFG_PREFIX "qp", -1, QP_TEXT, QP_LONGTEXT,
+                 true )
         change_integer_range( -1, 51 ) /* QP 0 -> lossless encoding */
 
-    add_integer( SOUT_CFG_PREFIX "crf", 23, NULL, CRF_TEXT,
-                 CRF_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "crf", 23, CRF_TEXT,
+                 CRF_LONGTEXT, true )
         change_integer_range( 0, 51 )
 
-    add_integer( SOUT_CFG_PREFIX "qpmin", 10, NULL, QPMIN_TEXT,
-                 QPMIN_LONGTEXT, false )
-        change_integer_range( 0, 51 )
-        add_deprecated_alias( SOUT_CFG_PREFIX "qp-min" ) /* Deprecated since 0.8.5 */
-
-    add_integer( SOUT_CFG_PREFIX "qpmax", 51, NULL, QPMAX_TEXT,
-                 QPMAX_LONGTEXT, false )
-        change_integer_range( 0, 51 )
-        add_deprecated_alias( SOUT_CFG_PREFIX "qp-max" ) /* Deprecated since 0.8.5 */
-
-    add_integer( SOUT_CFG_PREFIX "qpstep", 4, NULL, QPSTEP_TEXT,
-                 QPSTEP_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "qpmin", 10, QPMIN_TEXT,
+                 QPMIN_LONGTEXT, true )
         change_integer_range( 0, 51 )
 
-    add_float( SOUT_CFG_PREFIX "ratetol", 1.0, NULL, RATETOL_TEXT,
-               RATETOL_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "qpmax", 51, QPMAX_TEXT,
+                 QPMAX_LONGTEXT, true )
+        change_integer_range( 0, 51 )
+
+    add_integer( SOUT_CFG_PREFIX "qpstep", 4, QPSTEP_TEXT,
+                 QPSTEP_LONGTEXT, true )
+        change_integer_range( 0, 51 )
+
+    add_float( SOUT_CFG_PREFIX "ratetol", 1.0, RATETOL_TEXT,
+               RATETOL_LONGTEXT, true )
         change_float_range( 0, 100 )
-        add_deprecated_alias( SOUT_CFG_PREFIX "tolerance" ) /* Deprecated since 0.8.5 */
 
-    add_integer( SOUT_CFG_PREFIX "vbv-maxrate", 0, NULL, VBV_MAXRATE_TEXT,
-                 VBV_MAXRATE_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "vbv-maxrate", 0, VBV_MAXRATE_TEXT,
+                 VBV_MAXRATE_LONGTEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "vbv-bufsize", 0, NULL, VBV_BUFSIZE_TEXT,
-                 VBV_BUFSIZE_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "vbv-bufsize", 0, VBV_BUFSIZE_TEXT,
+                 VBV_BUFSIZE_LONGTEXT, true )
 
-    add_float( SOUT_CFG_PREFIX "vbv-init", 0.9, NULL, VBV_INIT_TEXT,
-               VBV_INIT_LONGTEXT, false )
+    add_float( SOUT_CFG_PREFIX "vbv-init", 0.9, VBV_INIT_TEXT,
+               VBV_INIT_LONGTEXT, true )
         change_float_range( 0, 1 )
 
-    add_float( SOUT_CFG_PREFIX "ipratio", 1.40, NULL, IPRATIO_TEXT,
-               IPRATIO_LONGTEXT, false )
+    add_float( SOUT_CFG_PREFIX "ipratio", 1.40, IPRATIO_TEXT,
+               IPRATIO_LONGTEXT, true )
         change_float_range( 1, 2 )
 
-    add_float( SOUT_CFG_PREFIX "pbratio", 1.30, NULL, PBRATIO_TEXT,
-               PBRATIO_LONGTEXT, false )
+    add_float( SOUT_CFG_PREFIX "pbratio", 1.30, PBRATIO_TEXT,
+               PBRATIO_LONGTEXT, true )
         change_float_range( 1, 2 )
 
-    add_integer( SOUT_CFG_PREFIX "chroma-qp-offset", 0, NULL, CHROMA_QP_OFFSET_TEXT,
-                 CHROMA_QP_OFFSET_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "chroma-qp-offset", 0, CHROMA_QP_OFFSET_TEXT,
+                 CHROMA_QP_OFFSET_LONGTEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "pass", 0, NULL, PASS_TEXT,
+    add_integer( SOUT_CFG_PREFIX "pass", 0, PASS_TEXT,
                  PASS_LONGTEXT, false )
         change_integer_range( 0, 3 )
 
-    add_float( SOUT_CFG_PREFIX "qcomp", 0.60, NULL, QCOMP_TEXT,
-               QCOMP_LONGTEXT, false )
+    add_float( SOUT_CFG_PREFIX "qcomp", 0.60, QCOMP_TEXT,
+               QCOMP_LONGTEXT, true )
         change_float_range( 0, 1 )
 
-    add_float( SOUT_CFG_PREFIX "cplxblur", 20.0, NULL, CPLXBLUR_TEXT,
-               CPLXBLUR_LONGTEXT, false )
+    add_float( SOUT_CFG_PREFIX "cplxblur", 20.0, CPLXBLUR_TEXT,
+               CPLXBLUR_LONGTEXT, true )
 
-    add_float( SOUT_CFG_PREFIX "qblur", 0.5, NULL, QBLUR_TEXT,
-               QBLUR_LONGTEXT, false )
+    add_float( SOUT_CFG_PREFIX "qblur", 0.5, QBLUR_TEXT,
+               QBLUR_LONGTEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "aq-mode", X264_AQ_VARIANCE, NULL, AQ_MODE_TEXT,
-                 AQ_MODE_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "aq-mode", X264_AQ_VARIANCE, AQ_MODE_TEXT,
+                 AQ_MODE_LONGTEXT, true )
          change_integer_range( 0, 2 )
-    add_float( SOUT_CFG_PREFIX "aq-strength", 1.0, NULL, AQ_STRENGTH_TEXT,
-               AQ_STRENGTH_LONGTEXT, false )
+    add_float( SOUT_CFG_PREFIX "aq-strength", 1.0, AQ_STRENGTH_TEXT,
+               AQ_STRENGTH_LONGTEXT, true )
 
 /* Analysis */
 
     /* x264 partitions = none (default). set at least "normal" mode. */
-    add_string( SOUT_CFG_PREFIX "partitions", "normal", NULL, ANALYSE_TEXT,
-                ANALYSE_LONGTEXT, false )
-        change_string_list( enc_analyse_list, enc_analyse_list_text, 0 );
-        add_deprecated_alias( SOUT_CFG_PREFIX "analyse" ) /* Deprecated since 0.8.6 */
+    add_string( SOUT_CFG_PREFIX "partitions", "normal", ANALYSE_TEXT,
+                ANALYSE_LONGTEXT, true )
+        change_string_list( enc_analyse_list, enc_analyse_list_text )
 
-    add_string( SOUT_CFG_PREFIX "direct", "spatial", NULL, DIRECT_PRED_TEXT,
-                DIRECT_PRED_LONGTEXT, false )
-        change_string_list( direct_pred_list, direct_pred_list_text, 0 );
+    add_string( SOUT_CFG_PREFIX "direct", "spatial", DIRECT_PRED_TEXT,
+                DIRECT_PRED_LONGTEXT, true )
+        change_string_list( direct_pred_list, direct_pred_list_text )
 
-    add_integer( SOUT_CFG_PREFIX "direct-8x8", 1, NULL, DIRECT_PRED_SIZE_TEXT,
-                 DIRECT_PRED_SIZE_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "direct-8x8", 1, DIRECT_PRED_SIZE_TEXT,
+                 DIRECT_PRED_SIZE_LONGTEXT, true )
         change_integer_range( -1, 1 )
 
-    add_bool( SOUT_CFG_PREFIX "weightb", true, NULL, WEIGHTB_TEXT,
-              WEIGHTB_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "weightb", true, WEIGHTB_TEXT,
+              WEIGHTB_LONGTEXT, true )
 
-    add_string( SOUT_CFG_PREFIX "me", "hex", NULL, ME_TEXT,
-                ME_LONGTEXT, false )
-        change_string_list( enc_me_list, enc_me_list_text, 0 );
+    add_integer( SOUT_CFG_PREFIX "weightp", 2, WEIGHTP_TEXT,
+              WEIGHTP_LONGTEXT, true )
+        change_integer_range( 0, 2 )
 
-    add_integer( SOUT_CFG_PREFIX "merange", 16, NULL, MERANGE_TEXT,
-                 MERANGE_LONGTEXT, false )
+    add_string( SOUT_CFG_PREFIX "me", "hex", ME_TEXT,
+                ME_LONGTEXT, true )
+        change_string_list( enc_me_list, enc_me_list_text )
+
+    add_integer( SOUT_CFG_PREFIX "merange", 16, MERANGE_TEXT,
+                 MERANGE_LONGTEXT, true )
         change_integer_range( 1, 64 )
 
-    add_integer( SOUT_CFG_PREFIX "mvrange", -1, NULL, MVRANGE_TEXT,
-                 MVRANGE_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "mvrange", -1, MVRANGE_TEXT,
+                 MVRANGE_LONGTEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "mvrange-thread", -1, NULL, MVRANGE_THREAD_TEXT,
-                 MVRANGE_THREAD_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "mvrange-thread", -1, MVRANGE_THREAD_TEXT,
+                 MVRANGE_THREAD_LONGTEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "subme", 5, NULL, SUBME_TEXT,
-                 SUBME_LONGTEXT, false )
-        change_integer_range( 1, SUBME_MAX )
-        add_deprecated_alias( SOUT_CFG_PREFIX "subpel" ) /* Deprecated since 0.8.5 */
+    add_integer( SOUT_CFG_PREFIX "subme", 7, SUBME_TEXT,
+                 SUBME_LONGTEXT, true )
 
     add_obsolete_bool( SOUT_CFG_PREFIX "b-rdo" )
 
-    add_bool( SOUT_CFG_PREFIX "mixed-refs", true, NULL, MIXED_REFS_TEXT,
-              MIXED_REFS_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "mixed-refs", true, MIXED_REFS_TEXT,
+              MIXED_REFS_LONGTEXT, true )
 
-    add_bool( SOUT_CFG_PREFIX "chroma-me", true, NULL, CHROMA_ME_TEXT,
-              CHROMA_ME_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "chroma-me", true, CHROMA_ME_TEXT,
+              CHROMA_ME_LONGTEXT, true )
 
     add_obsolete_bool( SOUT_CFG_PREFIX "bime" )
 
-    add_bool( SOUT_CFG_PREFIX "8x8dct", false, NULL, TRANSFORM_8X8DCT_TEXT,
-              TRANSFORM_8X8DCT_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "8x8dct", true, TRANSFORM_8X8DCT_TEXT,
+              TRANSFORM_8X8DCT_LONGTEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "trellis", 1, NULL, TRELLIS_TEXT,
-                 TRELLIS_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "trellis", 1, TRELLIS_TEXT,
+                 TRELLIS_LONGTEXT, true )
         change_integer_range( 0, 2 )
 
-    add_bool( SOUT_CFG_PREFIX "fast-pskip", true, NULL, FAST_PSKIP_TEXT,
-              FAST_PSKIP_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "lookahead", 40, LOOKAHEAD_TEXT,
+                 LOOKAHEAD_LONGTEXT, true )
+        change_integer_range( 0, 60 )
 
-    add_bool( SOUT_CFG_PREFIX "dct-decimate", true, NULL, DCT_DECIMATE_TEXT,
-              DCT_DECIMATE_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "intra-refresh", false, INTRAREFRESH_TEXT,
+              INTRAREFRESH_LONGTEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "nr", 0, NULL, NR_TEXT,
-                 NR_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "mbtree", true, MBTREE_TEXT, MBTREE_LONGTEXT, true )
+
+    add_bool( SOUT_CFG_PREFIX "fast-pskip", true, FAST_PSKIP_TEXT,
+              FAST_PSKIP_LONGTEXT, true )
+
+    add_bool( SOUT_CFG_PREFIX "dct-decimate", true, DCT_DECIMATE_TEXT,
+              DCT_DECIMATE_LONGTEXT, true )
+
+    add_integer( SOUT_CFG_PREFIX "nr", 0, NR_TEXT,
+                 NR_LONGTEXT, true )
         change_integer_range( 0, 1000 )
 
-    add_integer( SOUT_CFG_PREFIX "deadzone-inter", 21, NULL, DEADZONE_INTER_TEXT,
-                 DEADZONE_INTRA_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "deadzone-inter", 21, DEADZONE_INTER_TEXT,
+                 DEADZONE_INTRA_LONGTEXT, true )
         change_integer_range( 0, 32 )
 
-    add_integer( SOUT_CFG_PREFIX "deadzone-intra", 11, NULL, DEADZONE_INTRA_TEXT,
-                 DEADZONE_INTRA_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "deadzone-intra", 11, DEADZONE_INTRA_TEXT,
+                 DEADZONE_INTRA_LONGTEXT, true )
         change_integer_range( 0, 32 )
 
 /* Input/Output */
 
-    add_bool( SOUT_CFG_PREFIX "non-deterministic", false, NULL, NON_DETERMINISTIC_TEXT,
-              NON_DETERMINISTIC_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "non-deterministic", false, NON_DETERMINISTIC_TEXT,
+              NON_DETERMINISTIC_LONGTEXT, true )
 
-    add_bool( SOUT_CFG_PREFIX "asm", true, NULL, ASM_TEXT,
-              ASM_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "asm", true, ASM_TEXT,
+              ASM_LONGTEXT, true )
 
     /* x264 psnr = 1 (default). disable PSNR computation for speed. */
-    add_bool( SOUT_CFG_PREFIX "psnr", false, NULL, PSNR_TEXT,
-              PSNR_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "psnr", false, PSNR_TEXT,
+              PSNR_LONGTEXT, true )
 
     /* x264 ssim = 1 (default). disable SSIM computation for speed. */
-    add_bool( SOUT_CFG_PREFIX "ssim", false, NULL, SSIM_TEXT,
-              SSIM_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "ssim", false, SSIM_TEXT,
+              SSIM_LONGTEXT, true )
 
-    add_bool( SOUT_CFG_PREFIX "quiet", false, NULL, QUIET_TEXT,
-              QUIET_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "quiet", false, QUIET_TEXT,
+              QUIET_TEXT, true )
 
-    add_integer( SOUT_CFG_PREFIX "sps-id", 0, NULL, SPS_ID_TEXT,
-                 SPS_ID_LONGTEXT, false )
+    add_integer( SOUT_CFG_PREFIX "sps-id", 0, SPS_ID_TEXT,
+                 SPS_ID_LONGTEXT, true )
 
-    add_bool( SOUT_CFG_PREFIX "aud", false, NULL, AUD_TEXT,
-              AUD_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "aud", false, AUD_TEXT,
+              AUD_LONGTEXT, true )
 
-    add_bool( SOUT_CFG_PREFIX "verbose", false, NULL, VERBOSE_TEXT,
-              VERBOSE_LONGTEXT, false )
+    add_bool( SOUT_CFG_PREFIX "verbose", false, VERBOSE_TEXT,
+              VERBOSE_LONGTEXT, true )
 
-    add_string( SOUT_CFG_PREFIX "stats", "x264_2pass.log", NULL, STATS_TEXT,
-                STATS_LONGTEXT, false )
+    add_string( SOUT_CFG_PREFIX "stats", "x264_2pass.log", STATS_TEXT,
+                STATS_LONGTEXT, true )
+
+    add_string( SOUT_CFG_PREFIX "preset", NULL , PRESET_TEXT , PRESET_TEXT, false )
+        vlc_config_set (VLC_CONFIG_LIST,
+            (sizeof(x264_preset_names) / sizeof (char*)) - 1,
+            x264_preset_names, x264_preset_names);
+    add_string( SOUT_CFG_PREFIX "tune", NULL , TUNE_TEXT, TUNE_TEXT, false )
+        vlc_config_set (VLC_CONFIG_LIST,
+            (sizeof(x264_tune_names) / sizeof (char*)) - 1,
+            x264_tune_names, x264_tune_names);
+
+    add_string( SOUT_CFG_PREFIX "options", NULL, X264_OPTIONS_TEXT,
+                X264_OPTIONS_LONGTEXT, true )
 
 vlc_module_end ()
 
@@ -630,18 +742,21 @@ vlc_module_end ()
  * Local prototypes
  *****************************************************************************/
 static const char *const ppsz_sout_options[] = {
-    "8x8dct", "analyse", "asm", "aud", "bframes", "bime", "bpyramid",
+    "8x8dct", "asm", "aud", "bframes", "bime", "bpyramid",
     "b-adapt", "b-bias", "b-rdo", "cabac", "chroma-me", "chroma-qp-offset",
     "cplxblur", "crf", "dct-decimate", "deadzone-inter", "deadzone-intra",
-    "deblock", "direct", "direct-8x8", "filter", "fast-pskip", "frameref",
-    "interlaced", "ipratio", "keyint", "keyint-min", "level", "loopfilter",
+    "deblock", "direct", "direct-8x8", "fast-pskip",
+    "interlaced", "ipratio", "keyint", "level",
     "me", "merange", "min-keyint", "mixed-refs", "mvrange", "mvrange-thread",
     "nf", "non-deterministic", "nr", "partitions", "pass", "pbratio",
     "pre-scenecut", "psnr", "qblur", "qp", "qcomp", "qpstep", "qpmax",
-    "qpmin", "qp-max", "qp-min", "quiet", "ratetol", "ref", "scenecut",
-    "sps-id", "ssim", "stats", "subme", "subpel", "tolerance", "trellis",
-    "verbose", "vbv-bufsize", "vbv-init", "vbv-maxrate", "weightb", "aq-mode",
-    "aq-strength", "psy-rd", "profile", NULL
+    "qpmin", "quiet", "ratetol", "ref", "scenecut",
+    "sps-id", "ssim", "stats", "subme", "trellis",
+    "verbose", "vbv-bufsize", "vbv-init", "vbv-maxrate", "weightb", "weightp",
+    "aq-mode", "aq-strength", "psy-rd", "psy", "profile", "lookahead", "slices",
+    "slice-max-size", "slice-max-mbs", "intra-refresh", "mbtree", "hrd",
+    "tune","preset", "opengop", "bluray-compat", "frame-packing", "options",
+    NULL
 };
 
 static block_t *Encode( encoder_t *, picture_t * );
@@ -651,13 +766,18 @@ struct encoder_sys_t
     x264_t          *h;
     x264_param_t    param;
 
-    int             i_buffer;
-    uint8_t         *p_buffer;
+    mtime_t         i_initial_delay;
 
-    mtime_t         i_interpolated_dts;
-
-    char *psz_stat_name;
+    char            *psz_stat_name;
+    int             i_sei_size;
+    uint32_t         i_colorspace;
+    uint8_t         *p_sei;
 };
+
+#ifdef PTW32_STATIC_LIB
+static vlc_mutex_t pthread_win32_mutex = VLC_STATIC_MUTEX;
+static int pthread_win32_count = 0;
+#endif
 
 /*****************************************************************************
  * Open: probe the encoder
@@ -684,22 +804,84 @@ static int  Open ( vlc_object_t *p_this )
 
     p_enc->fmt_out.i_cat = VIDEO_ES;
     p_enc->fmt_out.i_codec = VLC_CODEC_H264;
-    p_enc->fmt_in.i_codec = VLC_CODEC_I420;
-
-    p_enc->pf_encode_video = Encode;
-    p_enc->pf_encode_audio = NULL;
     p_enc->p_sys = p_sys = malloc( sizeof( encoder_sys_t ) );
     if( !p_sys )
         return VLC_ENOMEM;
-    p_sys->i_interpolated_dts = 0;
+
+    p_enc->fmt_in.i_codec = VLC_CODEC_I420;
+    p_sys->i_colorspace = X264_CSP_I420;
+#if X264_BUILD >= 118
+    char *psz_profile = var_GetString( p_enc, SOUT_CFG_PREFIX "profile" );
+    if( psz_profile )
+    {
+        const int mask = x264_bit_depth > 8 ? X264_CSP_HIGH_DEPTH : 0;
+
+#ifdef MODULE_NAME_IS_x26410b
+        if( mask == 0)
+        {
+            msg_Err( p_enc, "Only high bith depth encoding supported, bit depth:%d", x264_bit_depth);
+            return VLC_EGENERIC;
+        }
+#endif
+
+        if( !strcmp( psz_profile, "high10" ) )
+        {
+            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I420_10L : VLC_CODEC_I420;
+            p_sys->i_colorspace = X264_CSP_I420 | mask;
+        }
+        else if( !strcmp( psz_profile, "high422" ) )
+        {
+            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I422_10L : VLC_CODEC_I422;
+            p_sys->i_colorspace = X264_CSP_I422 | mask;
+        }
+        else if( !strcmp( psz_profile, "high444" ) )
+        {
+            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I444_10L : VLC_CODEC_I444;
+            p_sys->i_colorspace = X264_CSP_I444 | mask;
+        }
+#ifdef MODULE_NAME_IS_x26410b
+        else
+        {
+            msg_Err( p_enc, "Only high-profiles and 10-bit are supported");
+            return VLC_EGENERIC;
+        }
+
+#endif
+    }
+#ifdef MODULE_NAME_IS_x26410b
+    else
+    {
+            msg_Err( p_enc, "Only high-profiles and 10-bit are supported");
+            return VLC_EGENERIC;
+    }
+#endif
+    free( psz_profile );
+#endif //X264_BUILD
+
+    p_enc->pf_encode_video = Encode;
+    p_enc->pf_encode_audio = NULL;
+    p_sys->i_initial_delay = 0;
     p_sys->psz_stat_name = NULL;
-    p_sys->p_buffer = NULL;
+    p_sys->i_sei_size = 0;
+    p_sys->p_sei = NULL;
 
     x264_param_default( &p_sys->param );
+    char *psz_preset = var_GetString( p_enc, SOUT_CFG_PREFIX  "preset" );
+    char *psz_tune = var_GetString( p_enc, SOUT_CFG_PREFIX  "tune" );
+    if( *psz_preset == '\0' )
+    {
+        free(psz_preset);
+        psz_preset = NULL;
+    }
+    x264_param_default_preset( &p_sys->param, psz_preset, psz_tune );
+    free( psz_preset );
+    free( psz_tune );
+    p_sys->param.i_csp = p_sys->i_colorspace;
     p_sys->param.i_width  = p_enc->fmt_in.video.i_width;
     p_sys->param.i_height = p_enc->fmt_in.video.i_height;
 
-    p_sys->param.rc.f_qcompress = var_GetFloat( p_enc, SOUT_CFG_PREFIX "qcomp" );
+    if( fabs(var_GetFloat( p_enc, SOUT_CFG_PREFIX "qcomp" ) - 0.60) > 0.005 )
+       p_sys->param.rc.f_qcompress = var_GetFloat( p_enc, SOUT_CFG_PREFIX "qcomp" );
 
     /* transcode-default bitrate is 0,
      * set more to ABR if user specifies bitrate */
@@ -756,55 +938,76 @@ static int  Open ( vlc_object_t *p_this )
                             SOUT_CFG_PREFIX "vbv-bufsize" );
 
     /* max bitrate = average bitrate -> CBR */
-    i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "vbv-maxrate" );
+    p_sys->param.rc.i_vbv_max_bitrate = var_GetInteger( p_enc, SOUT_CFG_PREFIX "vbv-maxrate" );
+    if( p_sys->param.rc.i_vbv_max_bitrate && p_sys->param.rc.i_rc_method != X264_RC_ABR )
+        p_enc->fmt_out.i_bitrate = p_sys->param.rc.i_vbv_max_bitrate * 1000;
 
-    if( !i_val && p_sys->param.rc.i_rc_method == X264_RC_ABR )
-        p_sys->param.rc.i_vbv_max_bitrate = p_sys->param.rc.i_bitrate;
-    else if ( i_val )
-        p_sys->param.rc.i_vbv_max_bitrate = i_val;
 
-    p_sys->param.b_cabac = var_GetBool( p_enc, SOUT_CFG_PREFIX "cabac" );
+    if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "mbtree" ) )
+       p_sys->param.rc.b_mb_tree = var_GetBool( p_enc, SOUT_CFG_PREFIX "mbtree" );
+
+    if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "cabac" ) )
+        p_sys->param.b_cabac = var_GetBool( p_enc, SOUT_CFG_PREFIX "cabac" );
 
     /* disable deblocking when nf (no loop filter) is enabled */
-    p_sys->param.b_deblocking_filter = !var_GetBool( p_enc, SOUT_CFG_PREFIX "nf" );
+    if( var_GetBool( p_enc, SOUT_CFG_PREFIX "nf" ) )
+       p_sys->param.b_deblocking_filter = !var_GetBool( p_enc, SOUT_CFG_PREFIX "nf" );
 
     psz_val = var_GetString( p_enc, SOUT_CFG_PREFIX "deblock" );
     if( psz_val )
     {
-        char *p = strchr( psz_val, ':' );
-        p_sys->param.i_deblocking_filter_alphac0 = atoi( psz_val );
-        p_sys->param.i_deblocking_filter_beta = p ?
+        if( atoi( psz_val ) != 0 )
+        {
+           char *p = strchr( psz_val, ':' );
+           p_sys->param.i_deblocking_filter_alphac0 = atoi( psz_val );
+           p_sys->param.i_deblocking_filter_beta = p ?
                     atoi( p+1 ) : p_sys->param.i_deblocking_filter_alphac0;
+        }
         free( psz_val );
     }
 
     psz_val = var_GetString( p_enc, SOUT_CFG_PREFIX "psy-rd" );
     if( psz_val )
     {
-        char *p = strchr( psz_val, ':' );
-        p_sys->param.analyse.f_psy_rd = us_atof( psz_val );
-        p_sys->param.analyse.f_psy_trellis = p ? us_atof( p+1 ) : 0;
+        if( us_atof( psz_val ) != 1.0 )
+        {
+           char *p = strchr( psz_val, ':' );
+           p_sys->param.analyse.f_psy_rd = us_atof( psz_val );
+           p_sys->param.analyse.f_psy_trellis = p ? us_atof( p+1 ) : 0;
+        }
         free( psz_val );
     }
+
+    if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "psy" ) )
+       p_sys->param.analyse.b_psy = var_GetBool( p_enc, SOUT_CFG_PREFIX "psy" );
 
     psz_val = var_GetString( p_enc, SOUT_CFG_PREFIX "level" );
     if( psz_val )
     {
-        if( us_atof (psz_val) < 6 )
+        if( us_atof (psz_val) < 6 && us_atof (psz_val) > 0 )
             p_sys->param.i_level_idc = (int) (10 * us_atof (psz_val)
                                               + .5);
-        else
+        else if( atoi(psz_val) >= 10 && atoi(psz_val) <= 51 )
             p_sys->param.i_level_idc = atoi (psz_val);
         free( psz_val );
     }
 
     p_sys->param.b_interlaced = var_GetBool( p_enc, SOUT_CFG_PREFIX "interlaced" );
-    p_sys->param.rc.f_ip_factor = var_GetFloat( p_enc, SOUT_CFG_PREFIX "ipratio" );
-    p_sys->param.rc.f_pb_factor = var_GetFloat( p_enc, SOUT_CFG_PREFIX "pbratio" );
+    if( fabs(var_GetFloat( p_enc, SOUT_CFG_PREFIX "ipratio" ) - 1.4) > 0.005 )
+       p_sys->param.rc.f_ip_factor = var_GetFloat( p_enc, SOUT_CFG_PREFIX "ipratio" );
+    if( fabs(var_GetFloat( p_enc, SOUT_CFG_PREFIX "pbratio" ) - 1.3 ) > 0.005 )
+       p_sys->param.rc.f_pb_factor = var_GetFloat( p_enc, SOUT_CFG_PREFIX "pbratio" );
     p_sys->param.rc.f_complexity_blur = var_GetFloat( p_enc, SOUT_CFG_PREFIX "cplxblur" );
     p_sys->param.rc.f_qblur = var_GetFloat( p_enc, SOUT_CFG_PREFIX "qblur" );
-    p_sys->param.rc.i_aq_mode = var_GetInteger( p_enc, SOUT_CFG_PREFIX "aq-mode" );
-    p_sys->param.rc.f_aq_strength = var_GetFloat( p_enc, SOUT_CFG_PREFIX "aq-strength" );
+    if( var_GetInteger( p_enc, SOUT_CFG_PREFIX "aq-mode" ) != X264_AQ_VARIANCE )
+       p_sys->param.rc.i_aq_mode = var_GetInteger( p_enc, SOUT_CFG_PREFIX "aq-mode" );
+    if( fabs( var_GetFloat( p_enc, SOUT_CFG_PREFIX "aq-strength" ) - 1.0) > 0.005 )
+       p_sys->param.rc.f_aq_strength = var_GetFloat( p_enc, SOUT_CFG_PREFIX "aq-strength" );
+
+#if X264_BUILD >= 111
+    if( var_GetInteger( p_enc, SOUT_CFG_PREFIX "frame-packing" ) > -1 )
+       p_sys->param.i_frame_packing = var_GetInteger( p_enc, SOUT_CFG_PREFIX "frame-packing" );
+#endif
 
     if( var_GetBool( p_enc, SOUT_CFG_PREFIX "verbose" ) )
         p_sys->param.i_log_level = X264_LOG_DEBUG;
@@ -819,74 +1022,98 @@ static int  Open ( vlc_object_t *p_this )
         p_sys->param.b_aud = true;
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "keyint" );
-    if( i_val > 0 ) p_sys->param.i_keyint_max = i_val;
+    if( i_val > 0 && i_val != 250 ) p_sys->param.i_keyint_max = i_val;
+#if X264_BUILD >= 102
+    if( i_val == -1 ) p_sys->param.i_keyint_max = X264_KEYINT_MAX_INFINITE;
+#endif
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "min-keyint" );
-    if( i_val > 0 ) p_sys->param.i_keyint_min = i_val;
+    if( i_val > 0 && i_val != 25 ) p_sys->param.i_keyint_min = i_val;
 
+#if X264_BUILD >= 102 && X264_BUILD <= 114
+    psz_val = var_GetString( p_enc, SOUT_CFG_PREFIX "opengop" );
+    if( !strcmp( psz_val, "none" ) )
+        p_sys->param.i_open_gop = X264_OPEN_GOP_NONE;
+    else if( !strcmp( psz_val, "normal" ) )
+        p_sys->param.i_open_gop = X264_OPEN_GOP_NORMAL;
+    else if( !strcmp( psz_val, "bluray" ) )
+        p_sys->param.i_open_gop = X264_OPEN_GOP_BLURAY;
+    free( psz_val );
+#elif X264_BUILD >= 115
+    p_sys->param.b_open_gop = var_GetBool( p_enc, SOUT_CFG_PREFIX "opengop" );
+    p_sys->param.b_bluray_compat = var_GetBool( p_enc, SOUT_CFG_PREFIX "bluray-compat" );
+#endif
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "bframes" );
-    if( i_val >= 0 && i_val <= 16 )
+    if( i_val >= 0 && i_val <= 16 && i_val != 3 )
         p_sys->param.i_bframe = i_val;
 
-#if X264_BUILD >= 78
+    p_sys->param.b_intra_refresh = var_GetBool( p_enc, SOUT_CFG_PREFIX "intra-refresh" );
+
     psz_val = var_GetString( p_enc, SOUT_CFG_PREFIX "bpyramid" );
-    p_sys->param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
-    if( !strcmp( psz_val, "none" ) )
+    if( !strcmp( psz_val, "normal" ) )
     {
-       p_sys->param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
-    } else if ( !strcmp( psz_val, "strict" ) )
-    {
-       p_sys->param.i_bframe_pyramid = X264_B_PYRAMID_STRICT;
-    } else if ( !strcmp( psz_val, "normal" ) )
-    {
-       p_sys->param.i_bframe_pyramid = X264_B_PYRAMID_NORMAL;
+        p_sys->param.i_bframe_pyramid = X264_B_PYRAMID_NORMAL;
     }
+    else if ( !strcmp( psz_val, "strict" ) )
+    {
+        p_sys->param.i_bframe_pyramid = X264_B_PYRAMID_STRICT;
+    }
+    else if ( !strcmp( psz_val, "none" ) )
+    {
+        p_sys->param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
+    }
+
     free( psz_val );
-#else
-    p_sys->param.b_bframe_pyramid = var_GetBool( p_enc, SOUT_CFG_PREFIX "bpyramid" );
- #endif
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "ref" );
-    if( i_val > 0 && i_val <= 15 )
+    if( i_val > 0 && i_val <= 15 && i_val != 3 )
         p_sys->param.i_frame_reference = i_val;
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "scenecut" );
-    if( i_val >= -1 && i_val <= 100 )
+    if( i_val >= -1 && i_val <= 100 && i_val != 40 )
         p_sys->param.i_scenecut_threshold = i_val;
 
     p_sys->param.b_deterministic = var_GetBool( p_enc,
                         SOUT_CFG_PREFIX "non-deterministic" );
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "subme" );
-    if( i_val >= 1 && i_val <= SUBME_MAX )
+    if( i_val >= 1 && i_val != 7 )
         p_sys->param.analyse.i_subpel_refine = i_val;
+
+#if X264_BUILD >= 89
+    psz_val = var_GetString( p_enc, SOUT_CFG_PREFIX "hrd");
+    if( !strcmp( psz_val, "vbr" ) )
+        p_sys->param.i_nal_hrd = X264_NAL_HRD_VBR;
+    else if( !strcmp( psz_val, "cbr" ) )
+        p_sys->param.i_nal_hrd = X264_NAL_HRD_CBR;
+    free( psz_val );
+#endif
 
     //TODO: psz_val == NULL ?
     psz_val = var_GetString( p_enc, SOUT_CFG_PREFIX "me" );
-    if( !strcmp( psz_val, "dia" ) )
+    if( psz_val && strcmp( psz_val, "hex" ) )
     {
-        p_sys->param.analyse.i_me_method = X264_ME_DIA;
+       if( !strcmp( psz_val, "dia" ) )
+       {
+            p_sys->param.analyse.i_me_method = X264_ME_DIA;
+       }
+       else if( !strcmp( psz_val, "umh" ) )
+       {
+            p_sys->param.analyse.i_me_method = X264_ME_UMH;
+        }
+       else if( !strcmp( psz_val, "esa" ) )
+       {
+           p_sys->param.analyse.i_me_method = X264_ME_ESA;
+       }
+       else if( !strcmp( psz_val, "tesa" ) )
+       {
+           p_sys->param.analyse.i_me_method = X264_ME_TESA;
+       }
+       free( psz_val );
     }
-    else if( !strcmp( psz_val, "hex" ) )
-    {
-        p_sys->param.analyse.i_me_method = X264_ME_HEX;
-    }
-    else if( !strcmp( psz_val, "umh" ) )
-    {
-        p_sys->param.analyse.i_me_method = X264_ME_UMH;
-    }
-    else if( !strcmp( psz_val, "esa" ) )
-    {
-        p_sys->param.analyse.i_me_method = X264_ME_ESA;
-    }
-    else if( !strcmp( psz_val, "tesa" ) )
-    {
-        p_sys->param.analyse.i_me_method = X264_ME_TESA;
-    }
-    free( psz_val );
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "merange" );
-    if( i_val >= 0 && i_val <= 64 )
+    if( i_val >= 0 && i_val <= 64 && i_val != 16 )
         p_sys->param.analyse.i_me_range = i_val;
 
     p_sys->param.analyse.i_mv_range = var_GetInteger( p_enc,
@@ -915,42 +1142,50 @@ static int  Open ( vlc_object_t *p_this )
 
     p_sys->param.analyse.b_psnr = var_GetBool( p_enc, SOUT_CFG_PREFIX "psnr" );
     p_sys->param.analyse.b_ssim = var_GetBool( p_enc, SOUT_CFG_PREFIX "ssim" );
-    p_sys->param.analyse.b_weighted_bipred = var_GetBool( p_enc,
+    if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "weightb" ) )
+       p_sys->param.analyse.b_weighted_bipred = var_GetBool( p_enc,
                                     SOUT_CFG_PREFIX "weightb" );
-    p_sys->param.i_bframe_adaptive = var_GetInteger( p_enc,
-                                    SOUT_CFG_PREFIX "b-adapt" );
+    if( var_GetInteger( p_enc, SOUT_CFG_PREFIX "weightp" ) != 2 )
+       p_sys->param.analyse.i_weighted_pred = var_GetInteger( p_enc, SOUT_CFG_PREFIX "weightp" );
+
+    i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "b-adapt" );
+    if( i_val != 1 )
+       p_sys->param.i_bframe_adaptive = i_val;
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "b-bias" );
-    if( i_val >= -100 && i_val <= 100 )
+    if( i_val >= -100 && i_val <= 100 && i_val != 0)
         p_sys->param.i_bframe_bias = i_val;
 
     p_sys->param.analyse.b_chroma_me = var_GetBool( p_enc,
                                     SOUT_CFG_PREFIX "chroma-me" );
     p_sys->param.analyse.i_chroma_qp_offset = var_GetInteger( p_enc,
                                     SOUT_CFG_PREFIX "chroma-qp-offset" );
-    p_sys->param.analyse.b_mixed_references = var_GetBool( p_enc,
+    if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "mixed-refs" ) )
+       p_sys->param.analyse.b_mixed_references = var_GetBool( p_enc,
                                     SOUT_CFG_PREFIX "mixed-refs" );
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "trellis" );
-    if( i_val >= 0 && i_val <= 2 )
+    if( i_val >= 0 && i_val <= 2 && i_val != 1 )
         p_sys->param.analyse.i_trellis = i_val;
 
-    p_sys->param.analyse.b_fast_pskip = var_GetBool( p_enc,
+    if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "fast-pskip" ) )
+       p_sys->param.analyse.b_fast_pskip = var_GetBool( p_enc,
                                     SOUT_CFG_PREFIX "fast-pskip" );
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "nr" );
-    if( i_val >= 0 && i_val <= 1000 )
+    if( i_val > 0 && i_val <= 1000 )
         p_sys->param.analyse.i_noise_reduction = i_val;
 
-    p_sys->param.analyse.b_dct_decimate = var_GetBool( p_enc,
+    if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "dct-decimate" ) )
+       p_sys->param.analyse.b_dct_decimate = var_GetBool( p_enc,
                                     SOUT_CFG_PREFIX "dct-decimate" );
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "deadzone-inter" );
-    if( i_val >= 0 && i_val <= 32 )
+    if( i_val >= 0 && i_val <= 32 && i_val != 21 )
         p_sys->param.analyse.i_luma_deadzone[0] = i_val;
 
     i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "deadzone-intra" );
-    if( i_val >= 0 && i_val <= 32 )
+    if( i_val >= 0 && i_val <= 32 && i_val != 11)
         p_sys->param.analyse.i_luma_deadzone[1] = i_val;
 
     if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "asm" ) )
@@ -993,19 +1228,17 @@ static int  Open ( vlc_object_t *p_this )
     }
     free( psz_val );
 
-    p_sys->param.analyse.b_transform_8x8 = var_GetBool( p_enc,
+    if( !var_GetBool( p_enc, SOUT_CFG_PREFIX "8x8dct" ) )
+       p_sys->param.analyse.b_transform_8x8 = var_GetBool( p_enc,
                                     SOUT_CFG_PREFIX "8x8dct" );
 
-    if( p_enc->fmt_in.video.i_aspect > 0 )
+    if( p_enc->fmt_in.video.i_sar_num > 0 &&
+        p_enc->fmt_in.video.i_sar_den > 0 )
     {
-        int64_t i_num, i_den;
         unsigned int i_dst_num, i_dst_den;
-
-        i_num = p_enc->fmt_in.video.i_aspect *
-            (int64_t)p_enc->fmt_in.video.i_height;
-        i_den = VOUT_ASPECT_FACTOR * p_enc->fmt_in.video.i_width;
-        vlc_ureduce( &i_dst_num, &i_dst_den, i_num, i_den, 0 );
-
+        vlc_ureduce( &i_dst_num, &i_dst_den,
+                     p_enc->fmt_in.video.i_sar_num,
+                     p_enc->fmt_in.video.i_sar_den, 0 );
         p_sys->param.vui.i_sar_width = i_dst_num;
         p_sys->param.vui.i_sar_height = i_dst_den;
     }
@@ -1014,61 +1247,39 @@ static int  Open ( vlc_object_t *p_this )
     {
         p_sys->param.i_fps_num = p_enc->fmt_in.video.i_frame_rate;
         p_sys->param.i_fps_den = p_enc->fmt_in.video.i_frame_rate_base;
+        p_sys->param.i_timebase_num = 1;
+        p_sys->param.i_timebase_den = INT64_C(1000000);
+        p_sys->param.b_vfr_input = 0;
     }
 
-    /* x264 vbv-bufsize = 0 (default). if not provided set period
-       in seconds for local maximum bitrate (cache/bufsize) based
-       on average bitrate when use has told bitrate.
-       vbv-buffer size is set to bitrate * secods between keyframes */
-    if( !p_sys->param.rc.i_vbv_buffer_size &&
-         p_sys->param.rc.i_rc_method == X264_RC_ABR &&
-         p_sys->param.i_fps_num )
-    {
-        p_sys->param.rc.i_vbv_buffer_size = p_sys->param.rc.i_bitrate *
-            p_sys->param.i_fps_den;
-        p_sys->param.rc.i_vbv_buffer_size *= p_sys->param.i_keyint_max;
-        p_sys->param.rc.i_vbv_buffer_size /= p_sys->param.i_fps_num;
-    }
+    /* Check slice-options */
+    i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "slices" );
+    if( i_val > 0 )
+        p_sys->param.i_slice_count = i_val;
+    i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "slice-max-size" );
+    if( i_val > 0 )
+        p_sys->param.i_slice_max_size = i_val;
+    i_val = var_GetInteger( p_enc, SOUT_CFG_PREFIX "slice-max-mbs" );
+    if( i_val > 0 )
+        p_sys->param.i_slice_max_mbs = i_val;
 
     /* Check if user has given some profile (baseline,main,high) to limit
      * settings, and apply those*/
     psz_val = var_GetString( p_enc, SOUT_CFG_PREFIX "profile" );
-    if( psz_val )
-    {
-        if( !strcasecmp( psz_val, "baseline" ) )
-        {
-            msg_Dbg( p_enc, "Limiting to baseline profile");
-            p_sys->param.analyse.b_transform_8x8 = 0;
-            p_sys->param.b_cabac = 0;
-            p_sys->param.i_bframe = 0;
-        }
-        else if (!strcasecmp( psz_val, "main" ) )
-        {
-            msg_Dbg( p_enc, "Limiting to main-profile");
-            p_sys->param.analyse.b_transform_8x8 = 0;
-        }
-        /* high profile don't restrict stuff*/
-    }
+    if( psz_val && *psz_val )
+        x264_param_apply_profile( &p_sys->param, psz_val );
     free( psz_val );
 
-
-    unsigned i_cpu = vlc_CPU();
-    if( !(i_cpu & CPU_CAPABILITY_MMX) )
-    {
+#if defined (__i386__) || defined (__x86_64__)
+    if( !vlc_CPU_MMX() )
         p_sys->param.cpu &= ~X264_CPU_MMX;
-    }
-    if( !(i_cpu & CPU_CAPABILITY_MMXEXT) )
-    {
+    if( !vlc_CPU_MMXEXT() )
         p_sys->param.cpu &= ~X264_CPU_MMXEXT;
-    }
-    if( !(i_cpu & CPU_CAPABILITY_SSE) )
-    {
+    if( !vlc_CPU_SSE() )
         p_sys->param.cpu &= ~X264_CPU_SSE;
-    }
-    if( !(i_cpu & CPU_CAPABILITY_SSE2) )
-    {
+    if( !vlc_CPU_SSE2() )
         p_sys->param.cpu &= ~X264_CPU_SSE2;
-    }
+#endif
 
     /* BUILD 29 adds support for multi-threaded encoding while BUILD 49 (r543)
        also adds support for threads = 0 for automatically selecting an optimal
@@ -1092,40 +1303,58 @@ static int  Open ( vlc_object_t *p_this )
         p_sys->param.rc.b_stat_read = i_val & 2;
     }
 
+    p_sys->param.pf_log = x264_log;
+    p_sys->param.p_log_private = p_enc;
     /* We need to initialize pthreadw32 before we open the encoder,
        but only once for the whole application. Since pthreadw32
        doesn't keep a refcount, do it ourselves. */
 #ifdef PTW32_STATIC_LIB
-    vlc_value_t lock, count;
+    vlc_mutex_lock( &pthread_win32_mutex );
 
-    var_Create( p_enc->p_libvlc, "pthread_win32_mutex", VLC_VAR_MUTEX );
-    var_Get( p_enc->p_libvlc, "pthread_win32_mutex", &lock );
-    vlc_mutex_lock( lock.p_address );
-
-    var_Create( p_enc->p_libvlc, "pthread_win32_count", VLC_VAR_INTEGER );
-    var_Get( p_enc->p_libvlc, "pthread_win32_count", &count );
-
-    if( count.i_int == 0 )
+    if( pthread_win32_count == 0 )
     {
         msg_Dbg( p_enc, "initializing pthread-win32" );
         if( !pthread_win32_process_attach_np() || !pthread_win32_thread_attach_np() )
         {
             msg_Warn( p_enc, "pthread Win32 Initialization failed" );
-            vlc_mutex_unlock( lock.p_address );
+            vlc_mutex_unlock( &pthread_win32_mutex );
             return VLC_EGENERIC;
         }
     }
 
-    count.i_int++;
-    var_Set( p_enc->p_libvlc, "pthread_win32_count", count );
-    vlc_mutex_unlock( lock.p_address );
-
+    pthread_win32_count++;
+    vlc_mutex_unlock( &pthread_win32_mutex );
 #endif
 
-    /* Set lookahead value to lower than default,
-     * as rtp-output without mux doesn't handle
-     * difference that well yet*/
-    p_sys->param.rc.i_lookahead=5;
+    if( var_GetInteger( p_enc, SOUT_CFG_PREFIX "lookahead" ) != 40 )
+    {
+       p_sys->param.rc.i_lookahead = var_GetInteger( p_enc, SOUT_CFG_PREFIX "lookahead" );
+    }
+
+    /* We don't want repeated headers, we repeat p_extra ourself if needed */
+    p_sys->param.b_repeat_headers = 0;
+
+    char *psz_opts = var_InheritString( p_enc, SOUT_CFG_PREFIX "options" );
+    if (psz_opts && *psz_opts) {
+        config_chain_t *cfg = NULL;
+        config_ChainParseOptions(&cfg, psz_opts);
+        while (cfg) {
+            config_chain_t *next = cfg->p_next;
+            char *name  = cfg->psz_name;
+            char *value = cfg->psz_value;
+            int ret = x264_param_parse(&p_sys->param, name, value);
+            if (ret == X264_PARAM_BAD_NAME) {
+                msg_Err(p_enc, "Unknown option \"%s\"", name);
+            } else if (ret == X264_PARAM_BAD_VALUE) {
+                msg_Err(p_enc, "Bad value \"%s\" for option \"%s\"", value, name);
+            }
+            free(name);
+            free(value);
+            free(cfg);
+            cfg = next;
+        }
+    }
+    free(psz_opts);
 
     /* Open the encoder */
     p_sys->h = x264_encoder_open( &p_sys->param );
@@ -1137,36 +1366,73 @@ static int  Open ( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
-    /* alloc mem */
-    p_sys->i_buffer = 4 * p_enc->fmt_in.video.i_width *
-        p_enc->fmt_in.video.i_height + 1000;
-    p_sys->p_buffer = malloc( p_sys->i_buffer );
-    if( !p_sys->p_buffer )
-    {
-        Close( VLC_OBJECT(p_enc) );
-        return VLC_ENOMEM;
-    }
-
     /* get the globals headers */
-    p_enc->fmt_out.i_extra = 0;
-    p_enc->fmt_out.p_extra = NULL;
-
-    p_enc->fmt_out.i_extra = x264_encoder_headers( p_sys->h, &nal, &i_nal );
-    p_enc->fmt_out.p_extra = malloc( p_enc->fmt_out.i_extra );
-    if( !p_enc->fmt_out.p_extra )
+    size_t i_extra = x264_encoder_headers( p_sys->h, &nal, &i_nal );
+    uint8_t *p_extra = p_enc->fmt_out.p_extra = malloc( i_extra );
+    if( !p_extra )
     {
         Close( VLC_OBJECT(p_enc) );
         return VLC_ENOMEM;
     }
-    void *p_tmp = p_enc->fmt_out.p_extra;
+
     for( i = 0; i < i_nal; i++ )
     {
-        memcpy( p_tmp, nal[i].p_payload, nal[i].i_payload );
-        p_tmp += nal[i].i_payload;
+        if( nal[i].i_type != NAL_SEI )
+        {
+            memcpy( p_extra, nal[i].p_payload, nal[i].i_payload );
+            p_extra += nal[i].i_payload;
+            continue; /* next NAL */
+        }
+
+        /* we won't store this NAL in p_extra */
+        assert( i_extra >= (size_t)nal[i].i_payload );
+        i_extra -= nal[i].i_payload;
+
+        /* Make sure we only have one SEI NAL in the headers */
+        assert(p_sys->i_sei_size == 0);
+        p_sys->i_sei_size = nal[i].i_payload;
+
+        p_sys->p_sei = malloc( p_sys->i_sei_size );
+        if( !p_sys->p_sei )
+        {
+            free( p_extra );
+            Close( VLC_OBJECT(p_enc) );
+            return VLC_ENOMEM;
+        }
+        memcpy( p_sys->p_sei, nal[i].p_payload, nal[i].i_payload );
     }
+
+    p_enc->fmt_out.i_extra = i_extra;
 
     return VLC_SUCCESS;
 }
+
+/****************************************************************************
+ * Logging
+ ****************************************************************************/
+static void x264_log( void *data, int i_level, const char *psz, va_list args)
+{
+    encoder_t *p_enc = (encoder_t *)data;
+
+    switch( i_level )
+    {
+        case X264_LOG_ERROR:
+            i_level = VLC_MSG_ERR;
+            break;
+        case X264_LOG_WARNING:
+            i_level = VLC_MSG_WARN;
+            break;
+        case X264_LOG_INFO:
+            i_level = VLC_MSG_INFO;
+            break;
+        case X264_LOG_DEBUG:
+            i_level = VLC_MSG_DBG;
+        default:
+            i_level = VLC_MSG_DBG;
+    }
+
+    msg_GenericVa( p_enc, i_level, MODULE_STRING, psz, args );
+};
 
 /****************************************************************************
  * Encode:
@@ -1177,74 +1443,71 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pict )
     x264_picture_t pic;
     x264_nal_t *nal;
     block_t *p_block;
-    int i_nal, i_out, i;
+    int i_nal=0, i_out=0, i=0;
 
     /* init pic */
+#if X264_BUILD >= 98
+    x264_picture_init( &pic );
+#else
     memset( &pic, 0, sizeof( x264_picture_t ) );
-    pic.i_pts = p_pict->date;
-    pic.img.i_csp = X264_CSP_I420;
-    pic.img.i_plane = p_pict->i_planes;
-    for( i = 0; i < p_pict->i_planes; i++ )
-    {
-        pic.img.plane[i] = p_pict->p[i].p_pixels;
-        pic.img.i_stride[i] = p_pict->p[i].i_pitch;
-    }
+#endif
+    if( likely(p_pict) ) {
+       pic.i_pts = p_pict->date;
+       pic.img.i_csp = p_sys->i_colorspace;
+       pic.img.i_plane = p_pict->i_planes;
+       for( i = 0; i < p_pict->i_planes; i++ )
+       {
+           pic.img.plane[i] = p_pict->p[i].p_pixels;
+           pic.img.i_stride[i] = p_pict->p[i].i_pitch;
+       }
 
-    x264_encoder_encode( p_sys->h, &nal, &i_nal, &pic, &pic );
+       x264_encoder_encode( p_sys->h, &nal, &i_nal, &pic, &pic );
+    } else {
+       if( x264_encoder_delayed_frames( p_sys->h ) ) {
+           x264_encoder_encode( p_sys->h, &nal, &i_nal, NULL, &pic );
+       }
+    }
 
     if( !i_nal ) return NULL;
 
-    for( i = 0, i_out = 0; i < i_nal; i++ )
-    {
-        memcpy( p_sys->p_buffer + i_out, nal[i].p_payload, nal[i].i_payload );
+
+    /* Get size of block we need */
+    for( i = 0; i < i_nal; i++ )
         i_out += nal[i].i_payload;
-    }
 
-    p_block = block_New( p_enc, i_out );
+    p_block = block_New( p_enc, i_out + p_sys->i_sei_size );
     if( !p_block ) return NULL;
-    memcpy( p_block->p_buffer, p_sys->p_buffer, i_out );
 
-    if( pic.i_type == X264_TYPE_IDR || pic.i_type == X264_TYPE_I )
+    unsigned int i_offset = 0;
+    if( unlikely( p_sys->i_sei_size ) )
+    {
+       /* insert x264 headers SEI nal into the first picture block at the start */
+       memcpy( p_block->p_buffer, p_sys->p_sei, p_sys->i_sei_size );
+       i_offset = p_sys->i_sei_size;
+       p_sys->i_sei_size = 0;
+       free( p_sys->p_sei );
+       p_sys->p_sei = NULL;
+    }
+    /* copy encoded data directly to block */
+    memcpy( p_block->p_buffer + i_offset, nal[0].p_payload, i_out );
+
+    if( pic.b_keyframe )
         p_block->i_flags |= BLOCK_FLAG_TYPE_I;
-    else if( pic.i_type == X264_TYPE_P )
+    else if( pic.i_type == X264_TYPE_P || pic.i_type == X264_TYPE_I )
         p_block->i_flags |= BLOCK_FLAG_TYPE_P;
     else if( pic.i_type == X264_TYPE_B )
         p_block->i_flags |= BLOCK_FLAG_TYPE_B;
+    else
+        p_block->i_flags |= BLOCK_FLAG_TYPE_PB;
 
     /* This isn't really valid for streams with B-frames */
     p_block->i_length = INT64_C(1000000) *
         p_enc->fmt_in.video.i_frame_rate_base /
             p_enc->fmt_in.video.i_frame_rate;
 
+    /* scale pts-values back*/
     p_block->i_pts = pic.i_pts;
-
-    if( p_sys->param.i_bframe > 0 )
-    {
-        if( p_block->i_flags & BLOCK_FLAG_TYPE_B )
-        {
-            /* FIXME : this is wrong if bpyramid is set */
-            p_block->i_dts = p_block->i_pts;
-            p_sys->i_interpolated_dts = p_block->i_dts;
-        }
-        else
-        {
-            if( p_sys->i_interpolated_dts )
-            {
-                p_block->i_dts = p_sys->i_interpolated_dts;
-            }
-            else
-            {
-                /* Let's put something sensible */
-                p_block->i_dts = p_block->i_pts;
-            }
-
-            p_sys->i_interpolated_dts += p_block->i_length;
-        }
-    }
-    else
-    {
-        p_block->i_dts = p_block->i_pts;
-    }
+    p_block->i_dts = pic.i_dts;
 
     return p_block;
 }
@@ -1258,29 +1521,26 @@ static void Close( vlc_object_t *p_this )
     encoder_sys_t *p_sys = p_enc->p_sys;
 
     free( p_sys->psz_stat_name );
+    free( p_sys->p_sei );
+
+    msg_Dbg( p_enc, "framecount still in libx264 buffer: %d", x264_encoder_delayed_frames( p_sys->h ) );
 
     if( p_sys->h )
         x264_encoder_close( p_sys->h );
 
 #ifdef PTW32_STATIC_LIB
-    vlc_value_t lock, count;
+    vlc_mutex_lock( &pthread_win32_mutex );
+    pthread_win32_count--;
 
-    var_Get( p_enc->p_libvlc, "pthread_win32_mutex", &lock );
-    vlc_mutex_lock( lock.p_address );
-
-    var_Get( p_enc->p_libvlc, "pthread_win32_count", &count );
-    count.i_int--;
-    var_Set( p_enc->p_libvlc, "pthread_win32_count", count );
-
-    if( count.i_int == 0 )
+    if( pthread_win32_count == 0 )
     {
         pthread_win32_thread_detach_np();
         pthread_win32_process_detach_np();
         msg_Dbg( p_enc, "pthread-win32 deinitialized" );
     }
-    vlc_mutex_unlock( lock.p_address );
+
+    vlc_mutex_unlock( &pthread_win32_mutex );
 #endif
 
-    free( p_sys->p_buffer );
     free( p_sys );
 }

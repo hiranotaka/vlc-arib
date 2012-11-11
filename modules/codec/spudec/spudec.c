@@ -42,13 +42,20 @@ static int  DecoderOpen   ( vlc_object_t * );
 static int  PacketizerOpen( vlc_object_t * );
 static void Close         ( vlc_object_t * );
 
+#define DVDSUBTRANS_DISABLE_TEXT N_("Disable DVD subtitle transparency")
+#define DVDSUBTRANS_DISABLE_LONGTEXT N_("Removes all transparency effects " \
+                                        "used in DVD subtitles.")
+
 vlc_module_begin ()
     set_description( N_("DVD subtitles decoder") )
-    set_capability( "decoder", 50 )
+    set_shortname( N_("DVD subtitles") )
+    set_capability( "decoder", 75 )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_SCODEC )
     set_callbacks( DecoderOpen, Close )
 
+    add_bool( "dvdsub-transparency", false,
+              DVDSUBTRANS_DISABLE_TEXT, DVDSUBTRANS_DISABLE_LONGTEXT, true )
     add_submodule ()
     set_description( N_("DVD subtitles packetizer") )
     set_capability( "packetizer", 50 )
@@ -79,6 +86,7 @@ static int DecoderOpen( vlc_object_t *p_this )
     p_dec->p_sys = p_sys = malloc( sizeof( decoder_sys_t ) );
 
     p_sys->b_packetizer = false;
+    p_sys->b_disabletrans = var_InheritBool( p_dec, "dvdsub-transparency" );
     p_sys->i_spu_size = 0;
     p_sys->i_spu      = 0;
     p_sys->p_block    = NULL;
@@ -200,7 +208,7 @@ static block_t *Reassemble( decoder_t *p_dec, block_t **pp_block )
     *pp_block = NULL;
 
     if( p_sys->i_spu_size <= 0 &&
-        ( p_block->i_pts <= 0 || p_block->i_buffer < 4 ) )
+        ( p_block->i_pts <= VLC_TS_INVALID || p_block->i_buffer < 4 ) )
     {
         msg_Dbg( p_dec, "invalid starting packet (size < 4 or pts <=0)" );
         msg_Dbg( p_dec, "spu size: %d, i_pts: %"PRId64" i_buffer: %zu",

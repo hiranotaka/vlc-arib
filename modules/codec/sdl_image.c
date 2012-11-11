@@ -33,7 +33,7 @@
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
 
-#include <SDL/SDL_image.h>
+#include <SDL_image.h>
 
 /*****************************************************************************
  * decoder_sys_t : sdl decoder descriptor
@@ -173,8 +173,8 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     }
     p_dec->fmt_out.video.i_width = p_surface->w;
     p_dec->fmt_out.video.i_height = p_surface->h;
-    p_dec->fmt_out.video.i_aspect = VOUT_ASPECT_FACTOR * p_surface->w
-                                     / p_surface->h;
+    p_dec->fmt_out.video.i_sar_num = 1;
+    p_dec->fmt_out.video.i_sar_den = 1;
 
     /* Get a new picture. */
     p_pic = decoder_NewPicture( p_dec );
@@ -212,7 +212,7 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
             for ( i = 0; i < p_surface->h; i++ )
             {
-                vlc_memcpy( p_dst, p_src, i_pitch );
+                memcpy( p_dst, p_src, i_pitch );
                 p_src += p_surface->pitch;
                 p_dst += p_pic->p[0].i_pitch;
             }
@@ -263,7 +263,8 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         }
     }
 
-    p_pic->date = p_block->i_pts > 0 ? p_block->i_pts : p_block->i_dts;
+    p_pic->date = (p_block->i_pts > VLC_TS_INVALID) ?
+        p_block->i_pts : p_block->i_dts;
 
     SDL_FreeSurface( p_surface );
     block_Release( p_block ); *pp_block = NULL;

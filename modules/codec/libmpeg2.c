@@ -83,7 +83,6 @@ struct decoder_sys_t
      * Output properties
      */
     decoder_synchro_t *p_synchro;
-    int             i_aspect;
     int             i_sar_num;
     int             i_sar_den;
     mtime_t         i_last_frame_pts;
@@ -127,7 +126,7 @@ static int DpbDisplayPicture( decoder_t *, picture_t * );
  *****************************************************************************/
 vlc_module_begin ()
     set_description( N_("MPEG I/II video decoder (using libmpeg2)") )
-    set_capability( "decoder", 150 )
+    set_capability( "decoder", 50 )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_VCODEC )
     set_callbacks( OpenDecoder, CloseDecoder )
@@ -173,7 +172,8 @@ static int OpenDecoder( vlc_object_t *p_this )
     p_sys->i_previous_pts = 0;
     p_sys->i_current_dts  = 0;
     p_sys->i_previous_dts = 0;
-    p_sys->i_aspect = 0;
+    p_sys->i_sar_num = 0;
+    p_sys->i_sar_den = 0;
     p_sys->b_garbage_pic = false;
     p_sys->b_slice_i  = false;
     p_sys->b_second_field = false;
@@ -192,35 +192,26 @@ static int OpenDecoder( vlc_object_t *p_this )
     p_sys->i_gop_user_data = 0;
 
 #if defined( __i386__ ) || defined( __x86_64__ )
-    if( vlc_CPU() & CPU_CAPABILITY_MMX )
-    {
+    if( vlc_CPU_MMX() )
         i_accel |= MPEG2_ACCEL_X86_MMX;
-    }
-
-    if( vlc_CPU() & CPU_CAPABILITY_3DNOW )
-    {
+    if( vlc_CPU_3dNOW() )
         i_accel |= MPEG2_ACCEL_X86_3DNOW;
-    }
-
-    if( vlc_CPU() & CPU_CAPABILITY_MMXEXT )
-    {
+    if( vlc_CPU_MMXEXT() )
         i_accel |= MPEG2_ACCEL_X86_MMXEXT;
-    }
-
 #elif defined( __powerpc__ ) || defined( __ppc__ ) || defined( __ppc64__ )
-    if( vlc_CPU() & CPU_CAPABILITY_ALTIVEC )
-    {
+    if( vlc_CPU_ALTIVEC() )
         i_accel |= MPEG2_ACCEL_PPC_ALTIVEC;
-    }
 
 #elif defined(__arm__)
+# ifdef MPEG2_ACCEL_ARM
     i_accel |= MPEG2_ACCEL_ARM;
-
+# endif
 # ifdef MPEG2_ACCEL_ARM_NEON
-    if( vlc_CPU() & CPU_CAPABILITY_NEON )
-	i_accel |= MPEG2_ACCEL_ARM_NEON;
+    if( vlc_CPU_ARM_NEON() )
+        i_accel |= MPEG2_ACCEL_ARM_NEON;
 # endif
 
+    /* TODO: sparc */
 #else
     /* If we do not know this CPU, trust libmpeg2's feature detection */
     i_accel = MPEG2_ACCEL_DETECT;
@@ -281,7 +272,8 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
             mpeg2_custom_fbuf( p_sys->p_mpeg2dec, 1 );
 
             /* Set the first 2 reference frames */
-            p_sys->i_aspect = 0;
+            p_sys->i_sar_num = 0;
+            p_sys->i_sar_den = 0;
             GetAR( p_dec );
             for( int i = 0; i < 2; i++ )
             {
@@ -452,17 +444,21 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
                              & PIC_MASK_CODING_TYPE) == PIC_FLAG_CODING_TYPE_B )
                     p_sys->i_cc_flags = BLOCK_FLAG_TYPE_B;
                 else p_sys->i_cc_flags = BLOCK_FLAG_TYPE_I;
+                bool b_top_field_first = p_sys->p_info->current_picture->flags
+                                           & PIC_FLAG_TOP_FIELD_FIRST;
 
                 if( p_sys->i_gop_user_data > 2 )
                 {
                     /* We now have picture info for any cached user_data out of the gop */
-                    cc_Extract( &p_sys->cc, &p_sys->p_gop_user_data[0], p_sys->i_gop_user_data );
+                    cc_Extract( &p_sys->cc, b_top_field_first,
+                                &p_sys->p_gop_user_data[0], p_sys->i_gop_user_data );
                     p_sys->i_gop_user_data = 0;
                 }
 
                 /* Extract the CC from the user_data of the picture */
                 if( p_info->user_data_len > 2 )
-                    cc_Extract( &p_sys->cc, &p_info->user_data[0], p_info->user_data_len );
+                    cc_Extract( &p_sys->cc, b_top_field_first,
+                                &p_info->user_data[0], p_info->user_data_len );
             }
         }
         break;
@@ -651,7 +647,6 @@ static picture_t *GetNewPicture( decoder_t *p_dec )
     p_dec->fmt_out.video.i_height = p_sys->p_info->sequence->height;
     p_dec->fmt_out.video.i_visible_height =
         p_sys->p_info->sequence->picture_height;
-    p_dec->fmt_out.video.i_aspect = p_sys->i_aspect;
     p_dec->fmt_out.video.i_sar_num = p_sys->i_sar_num;
     p_dec->fmt_out.video.i_sar_den = p_sys->i_sar_den;
 
@@ -719,24 +714,21 @@ static block_t *GetCc( decoder_t *p_dec, bool pb_present[4] )
 static void GetAR( decoder_t *p_dec )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    int i_old_aspect = p_sys->i_aspect;
+    int i_old_sar_num = p_sys->i_sar_num;
+    int i_old_sar_den = p_sys->i_sar_den;
 
     /* Check whether the input gave a particular aspect ratio */
-    if( p_dec->fmt_in.video.i_aspect )
+    if( p_dec->fmt_in.video.i_sar_num > 0 &&
+        p_dec->fmt_in.video.i_sar_den > 0 )
     {
-        p_sys->i_aspect = p_dec->fmt_in.video.i_aspect;
+        p_sys->i_sar_num = p_dec->fmt_in.video.i_sar_num;
+        p_sys->i_sar_den = p_dec->fmt_in.video.i_sar_den;
     }
     else
     {
         /* Use the value provided in the MPEG sequence header */
         if( p_sys->p_info->sequence->pixel_height > 0 )
         {
-            p_sys->i_aspect =
-                ((uint64_t)p_sys->p_info->sequence->display_width) *
-                p_sys->p_info->sequence->pixel_width *
-                VOUT_ASPECT_FACTOR /
-                p_sys->p_info->sequence->display_height /
-                p_sys->p_info->sequence->pixel_height;
             p_sys->i_sar_num = p_sys->p_info->sequence->pixel_width;
             p_sys->i_sar_den = p_sys->p_info->sequence->pixel_height;
         }
@@ -745,23 +737,23 @@ static void GetAR( decoder_t *p_dec )
             /* Invalid aspect, assume 4:3.
              * This shouldn't happen and if it does it is a bug
              * in libmpeg2 (likely triggered by an invalid stream) */
-            p_sys->i_aspect = VOUT_ASPECT_FACTOR * 4 / 3;
             p_sys->i_sar_num = p_sys->p_info->sequence->picture_height * 4;
             p_sys->i_sar_den = p_sys->p_info->sequence->picture_width * 3;
         }
     }
 
-    if( p_sys->i_aspect == i_old_aspect )
+    if( p_sys->i_sar_num == i_old_sar_num &&
+        p_sys->i_sar_den == i_old_sar_den )
         return;
 
     if( p_sys->p_info->sequence->frame_period > 0 )
         msg_Dbg( p_dec,
-                 "%dx%d (display %d,%d), aspect %d, sar %i:%i, %u.%03u fps",
+                 "%dx%d (display %d,%d), sar %i:%i, %u.%03u fps",
                  p_sys->p_info->sequence->picture_width,
                  p_sys->p_info->sequence->picture_height,
                  p_sys->p_info->sequence->display_width,
                  p_sys->p_info->sequence->display_height,
-                 p_sys->i_aspect, p_sys->i_sar_num, p_sys->i_sar_den,
+                 p_sys->i_sar_num, p_sys->i_sar_den,
                  (uint32_t)((uint64_t)1001000000 * 27 /
                      p_sys->p_info->sequence->frame_period / 1001),
                  (uint32_t)((uint64_t)1001000000 * 27 /

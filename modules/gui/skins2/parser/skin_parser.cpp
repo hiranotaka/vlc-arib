@@ -27,9 +27,9 @@
 #include <math.h>
 
 SkinParser::SkinParser( intf_thread_t *pIntf, const string &rFileName,
-                        const string &rPath, bool useDTD, BuilderData *pData ):
-    XMLParser( pIntf, rFileName, useDTD ), m_path( rPath), m_pData(pData),
-    m_ownData(pData == NULL), m_xOffset( 0 ), m_yOffset( 0 )
+                        const string &rPath, BuilderData *pData ):
+    XMLParser( pIntf, rFileName ), m_path( rPath ), m_pData( pData ),
+    m_ownData( pData == NULL ), m_xOffset( 0 ), m_yOffset( 0 )
 {
     // Make sure the data is allocated
     if( m_pData == NULL )
@@ -52,36 +52,38 @@ SkinParser::~SkinParser()
     }
 }
 
+inline bool SkinParser::MissingAttr( AttrList_t &attr, const string &name,
+                                     const char *a )
+{
+    if( attr.find(a) == attr.end() )
+    {
+        msg_Err( getIntf(), "bad theme (element: %s, missing attribute: %s)",
+                 name.c_str(), a );
+        m_errors = true; return true;
+    }
+    return false;
+}
 
 void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 {
-#define CheckDefault( a, b ) \
-    if( attr.find(a) == attr.end() ) attr[strdup(a)] = strdup(b);
-#define RequireDefault( a ) \
-    if( attr.find(a) == attr.end() ) \
-    { \
-        msg_Err( getIntf(), "bad theme (element: %s, missing attribute: %s)", \
-                 rName.c_str(), a ); \
-        m_errors = true; return; \
-    }
+#define RequireAttr( attr, name, a ) \
+    if( MissingAttr( attr, name, a ) ) return;
 
     if( rName == "Include" )
     {
-        RequireDefault( "file" );
+        RequireAttr( attr, rName, "file" );
 
         OSFactory *pFactory = OSFactory::instance( getIntf() );
         string fullPath = m_path + pFactory->getDirSeparator() + attr["file"];
         msg_Dbg( getIntf(), "opening included XML file: %s", fullPath.c_str() );
-        // FIXME: We do not use the DTD to validate the included XML file,
-        // as the parser seems to dislike it otherwise...
-        SkinParser subParser( getIntf(), fullPath.c_str(), false, m_pData );
+        SkinParser subParser( getIntf(), fullPath.c_str(), m_path, m_pData );
         subParser.parse();
     }
 
     else if( rName == "IniFile" )
     {
-        RequireDefault( "id" );
-        RequireDefault( "file" );
+        RequireAttr( attr, rName, "id" );
+        RequireAttr( attr, rName, "file" );
 
         const BuilderData::IniFile iniFile( uniqueId( attr["id"] ),
                 attr["file"] );
@@ -90,15 +92,19 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Anchor" )
     {
-        RequireDefault( "priority" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "points", "(0,0)" );
-        CheckDefault( "range", "10" );
+        RequireAttr( attr, rName, "priority" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "points", "(0,0)" );
+        DefaultAttr( attr, "range", "10" );
 
-        const BuilderData::Anchor anchor( atoi( attr["x"] ) + m_xOffset,
-                atoi( attr["y"] ) + m_yOffset, attr["lefttop"],
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
+        const BuilderData::Anchor anchor( x + m_xOffset,
+                y + m_yOffset, attr["lefttop"],
                 atoi( attr["range"] ), atoi( attr["priority"] ),
                 attr["points"], m_curLayoutId );
         m_pData->m_listAnchor.push_back( anchor );
@@ -106,41 +112,45 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Bitmap" )
     {
-        RequireDefault( "id" );
-        RequireDefault( "file" );
-        RequireDefault( "alphacolor" );
-        CheckDefault( "nbframes", "1" );
-        CheckDefault( "fps", "4" );
+        RequireAttr( attr, rName, "id" );
+        RequireAttr( attr, rName, "file" );
+        RequireAttr( attr, rName, "alphacolor" );
+        DefaultAttr( attr, "nbframes", "1" );
+        DefaultAttr( attr, "fps", "4" );
+        DefaultAttr( attr, "loop", "0" );
 
         m_curBitmapId = uniqueId( attr["id"] );
         const BuilderData::Bitmap bitmap( m_curBitmapId,
                 attr["file"], convertColor( attr["alphacolor"] ),
-                atoi( attr["nbframes"] ), atoi( attr["fps"] ) );
+                atoi( attr["nbframes"] ), atoi( attr["fps"] ),
+                atoi( attr["loop"] ) );
         m_pData->m_listBitmap.push_back( bitmap );
     }
 
     else if( rName == "SubBitmap" )
     {
-        RequireDefault( "id" );
-        RequireDefault( "x" );
-        RequireDefault( "y" );
-        RequireDefault( "width" );
-        RequireDefault( "height" );
-        CheckDefault( "nbframes", "1" );
-        CheckDefault( "fps", "4" );
+        RequireAttr( attr, rName, "id" );
+        RequireAttr( attr, rName, "x" );
+        RequireAttr( attr, rName, "y" );
+        RequireAttr( attr, rName, "width" );
+        RequireAttr( attr, rName, "height" );
+        DefaultAttr( attr, "nbframes", "1" );
+        DefaultAttr( attr, "fps", "4" );
+        DefaultAttr( attr, "loop", "0" );
 
         const BuilderData::SubBitmap bitmap( uniqueId( attr["id"] ),
                 m_curBitmapId, atoi( attr["x"] ), atoi( attr["y"] ),
                 atoi( attr["width"] ), atoi( attr["height"] ),
-                atoi( attr["nbframes"] ), atoi( attr["fps"] ) );
+                atoi( attr["nbframes"] ), atoi( attr["fps"] ),
+                atoi( attr["loop"] ) );
         m_pData->m_listSubBitmap.push_back( bitmap );
     }
 
     else if( rName == "BitmapFont" )
     {
-        RequireDefault( "id" );
-        RequireDefault( "file" );
-        CheckDefault( "type", "digits" );
+        RequireAttr( attr, rName, "id" );
+        RequireAttr( attr, rName, "file" );
+        DefaultAttr( attr, "type", "digits" );
 
         const BuilderData::BitmapFont font( uniqueId( attr["id"] ),
                 attr["file"], attr["type"] );
@@ -149,7 +159,7 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "PopupMenu" )
     {
-        RequireDefault( "id" );
+        RequireAttr( attr, rName, "id" );
 
         m_popupPosList.push_back(0);
         m_curPopupId = uniqueId( attr["id"] );
@@ -159,8 +169,8 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "MenuItem" )
     {
-        RequireDefault( "label" );
-        CheckDefault( "action", "none" );
+        RequireAttr( attr, rName, "label" );
+        DefaultAttr( attr, "action", "none" );
 
         const BuilderData::MenuItem item( attr["label"], attr["action"],
                                           m_popupPosList.back(),
@@ -179,23 +189,27 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Button" )
     {
-        RequireDefault( "up" );
-        CheckDefault( "id", "none" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "down", "none" );
-        CheckDefault( "over", "none" );
-        CheckDefault( "action", "none" );
-        CheckDefault( "tooltiptext", "" );
-        CheckDefault( "help", "" );
+        RequireAttr( attr, rName, "up" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "down", "none" );
+        DefaultAttr( attr, "over", "none" );
+        DefaultAttr( attr, "action", "none" );
+        DefaultAttr( attr, "tooltiptext", "" );
+        DefaultAttr( attr, "help", "" );
 
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
         const BuilderData::Button button( uniqueId( attr["id"] ),
-                atoi( attr["x"] ) + m_xOffset, atoi( attr["y"] ) + m_yOffset,
+                x + m_xOffset, y + m_yOffset,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ), attr["visible"],
@@ -208,29 +222,33 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Checkbox" )
     {
-        RequireDefault( "up1" );
-        RequireDefault( "up2" );
-        RequireDefault( "state" );
-        CheckDefault( "id", "none" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "down1", "none" );
-        CheckDefault( "over1", "none" );
-        CheckDefault( "down2", "none" );
-        CheckDefault( "over2", "none" );
-        CheckDefault( "action1", "none" );
-        CheckDefault( "action2", "none" );
-        CheckDefault( "tooltiptext1", "" );
-        CheckDefault( "tooltiptext2", "" );
-        CheckDefault( "help", "" );
+        RequireAttr( attr, rName, "up1" );
+        RequireAttr( attr, rName, "up2" );
+        RequireAttr( attr, rName, "state" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "down1", "none" );
+        DefaultAttr( attr, "over1", "none" );
+        DefaultAttr( attr, "down2", "none" );
+        DefaultAttr( attr, "over2", "none" );
+        DefaultAttr( attr, "action1", "none" );
+        DefaultAttr( attr, "action2", "none" );
+        DefaultAttr( attr, "tooltiptext1", "" );
+        DefaultAttr( attr, "tooltiptext2", "" );
+        DefaultAttr( attr, "help", "" );
 
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
         const BuilderData::Checkbox checkbox( uniqueId( attr["id"] ),
-                atoi( attr["x"] ) + m_xOffset, atoi( attr["y"] ) + m_yOffset,
+                x + m_xOffset, y + m_yOffset,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ), attr["visible"],
@@ -245,9 +263,9 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Font" )
     {
-        RequireDefault( "id" );
-        RequireDefault( "file" );
-        CheckDefault( "size", "12" );
+        RequireAttr( attr, rName, "id" );
+        RequireAttr( attr, rName, "file" );
+        DefaultAttr( attr, "size", "12" );
 
         const BuilderData::Font fontData( uniqueId( attr["id"] ),
                 attr["file"], atoi( attr["size"] ) );
@@ -256,8 +274,8 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Group" )
     {
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
 
         m_xOffset += atoi( attr["x"] );
         m_yOffset += atoi( attr["y"] );
@@ -267,27 +285,37 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Image" )
     {
-        RequireDefault( "image" );
-        CheckDefault( "id", "none" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "action", "none" );
-        CheckDefault( "action2", "none" );
-        CheckDefault( "resize", "mosaic" );
-        CheckDefault( "help", "" );
+        RequireAttr( attr, rName, "image" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "width", "-1" );
+        DefaultAttr( attr, "height", "-1" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "action", "none" );
+        DefaultAttr( attr, "action2", "none" );
+        DefaultAttr( attr, "resize", "mosaic" );
+        DefaultAttr( attr, "help", "" );
+        DefaultAttr( attr, "art", "false" );
 
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
+        int width = getDimension( attr["width"], refWidth );
+        int height = getDimension( attr["height"], refHeight );
         const BuilderData::Image imageData( uniqueId( attr["id"] ),
-                atoi( attr["x"] ) + m_xOffset, atoi( attr["y"] ) + m_yOffset,
+                x + m_xOffset, y + m_yOffset, width, height,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ), attr["visible"],
                 attr["image"], attr["action"], attr["action2"], attr["resize"],
-                attr["help"], m_curLayer, m_curWindowId, m_curLayoutId,
+                attr["help"], convertBoolean( attr["art"] ),
+                m_curLayer, m_curWindowId, m_curLayoutId,
                 m_panelStack.back() );
         m_curLayer++;
         m_pData->m_listImage.push_back( imageData );
@@ -295,41 +323,68 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Layout" )
     {
-        RequireDefault( "width" );
-        RequireDefault( "height" );
-        CheckDefault( "id", "none" );
-        CheckDefault( "minwidth", "-1" );
-        CheckDefault( "maxwidth", "-1" );
-        CheckDefault( "minheight", "-1" );
-        CheckDefault( "maxheight", "-1" );
+        RequireAttr( attr, rName, "width" );
+        RequireAttr( attr, rName, "height" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "minwidth", "-1" );
+        DefaultAttr( attr, "maxwidth", "-1" );
+        DefaultAttr( attr, "minheight", "-1" );
+        DefaultAttr( attr, "maxheight", "-1" );
+
+        int refWidth = getRefWidth( true );
+        int refHeight = getRefHeight( true );
+        int width = getDimension( attr["width"], refWidth );
+        int height = getDimension( attr["height"], refHeight );
 
         m_curLayoutId = uniqueId( attr["id"] );
-        const BuilderData::Layout layout( m_curLayoutId, atoi( attr["width"] ),
-                atoi( attr["height"] ), atoi( attr["minwidth"] ),
-                atoi( attr["maxwidth"] ), atoi( attr["minheight"] ),
-                atoi( attr["maxheight"] ), m_curWindowId );
+        const BuilderData::Layout layout( m_curLayoutId,
+                width, height,
+                getDimension( attr["minwidth"], refWidth ),
+                getDimension( attr["maxwidth"], refWidth ),
+                getDimension( attr["minheight"], refHeight ),
+                getDimension( attr["maxheight"], refHeight ),
+                m_curWindowId );
+
+        updateWindowPos( width, height );
         m_pData->m_listLayout.push_back( layout );
         m_curLayer = 0;
     }
 
     else if( rName == "Panel" )
     {
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        RequireDefault( "width" );
-        RequireDefault( "height" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        RequireAttr( attr, rName, "width" );
+        RequireAttr( attr, rName, "height" );
+        DefaultAttr( attr, "position", "-1" );
+        DefaultAttr( attr, "xoffset", "0" );
+        DefaultAttr( attr, "yoffset", "0" );
+        DefaultAttr( attr, "xmargin", "0" );
+        DefaultAttr( attr, "ymargin", "0" );
+
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
+        int width = getDimension( attr["width"], refWidth );
+        int height = getDimension( attr["height"], refHeight );
+        convertPosition( attr["position"],
+                         attr["xoffset"], attr["yoffset"],
+                         attr["xmargin"], attr["ymargin"],
+                         width, height, refWidth, refHeight, &x, &y );
 
         string panelId = uniqueId( "none" );
         const BuilderData::Panel panel( panelId,
-                atoi( attr["x"] ) + m_xOffset, atoi( attr["y"] ) + m_yOffset,
+                x + m_xOffset, y + m_yOffset,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ),
-                atoi( attr["width"] ), atoi( attr["height" ] ),
+                width, height,
                 m_curLayer, m_curWindowId, m_curLayoutId, m_panelStack.back() );
         m_curLayer++;
         m_pData->m_listPanel.push_back( panel );
@@ -339,34 +394,51 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Playlist" )
     {
-        RequireDefault( "id" );
-        RequireDefault( "font" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "flat", "true" ); // Only difference here
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "width", "0" );
-        CheckDefault( "height", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "bgimage", "none" );
-        CheckDefault( "itemimage", "none" );
-        CheckDefault( "openimage", "none" );
-        CheckDefault( "closedimage", "none" );
-        CheckDefault( "fgcolor", "#000000" );
-        CheckDefault( "playcolor", "#FF0000" );
-        CheckDefault( "bgcolor1", "#FFFFFF" );
-        CheckDefault( "bgcolor2", "#FFFFFF" );
-        CheckDefault( "selcolor", "#0000FF" );
-        CheckDefault( "help", "" );
+        RequireAttr( attr, rName, "id" );
+        RequireAttr( attr, rName, "font" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "flat", "true" ); // Only difference here
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "width", "0" );
+        DefaultAttr( attr, "height", "0" );
+        DefaultAttr( attr, "position", "-1" );
+        DefaultAttr( attr, "xoffset", "0" );
+        DefaultAttr( attr, "yoffset", "0" );
+        DefaultAttr( attr, "xmargin", "0" );
+        DefaultAttr( attr, "ymargin", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "bgimage", "none" );
+        DefaultAttr( attr, "itemimage", "none" );
+        DefaultAttr( attr, "openimage", "none" );
+        DefaultAttr( attr, "closedimage", "none" );
+        DefaultAttr( attr, "fgcolor", "#000000" );
+        DefaultAttr( attr, "playcolor", "#FF0000" );
+        DefaultAttr( attr, "bgcolor1", "#FFFFFF" );
+        DefaultAttr( attr, "bgcolor2", "#FFFFFF" );
+        DefaultAttr( attr, "selcolor", "#0000FF" );
+        DefaultAttr( attr, "help", "" );
+
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
+        int width = getDimension( attr["width"], refWidth );
+        int height = getDimension( attr["height"], refHeight );
+        convertPosition( attr["position"],
+                         attr["xoffset"], attr["yoffset"],
+                         attr["xmargin"], attr["ymargin"],
+                         width, height, refWidth, refHeight, &x, &y );
 
         m_curTreeId = uniqueId( attr["id"] );
-        const BuilderData::Tree treeData( m_curTreeId, atoi( attr["x"] ) +
-                m_xOffset, atoi( attr["y"] ) + m_yOffset, attr["visible"],
+        const BuilderData::Tree treeData( m_curTreeId,
+                x + m_xOffset, y + m_yOffset, attr["visible"],
                 attr["flat"],
-                atoi( attr["width"]), atoi( attr["height"] ),
+                width, height,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ),
@@ -384,34 +456,51 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
     }
     else if( rName == "Playtree" )
     {
-        RequireDefault( "id" );
-        RequireDefault( "font" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "flat", "false" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "width", "0" );
-        CheckDefault( "height", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "bgimage", "none" );
-        CheckDefault( "itemimage", "none" );
-        CheckDefault( "openimage", "none" );
-        CheckDefault( "closedimage", "none" );
-        CheckDefault( "fgcolor", "#000000" );
-        CheckDefault( "playcolor", "#FF0000" );
-        CheckDefault( "bgcolor1", "#FFFFFF" );
-        CheckDefault( "bgcolor2", "#FFFFFF" );
-        CheckDefault( "selcolor", "#0000FF" );
-        CheckDefault( "help", "" );
+        RequireAttr( attr, rName, "id" );
+        RequireAttr( attr, rName, "font" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "flat", "false" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "width", "0" );
+        DefaultAttr( attr, "height", "0" );
+        DefaultAttr( attr, "position", "-1" );
+        DefaultAttr( attr, "xoffset", "0" );
+        DefaultAttr( attr, "yoffset", "0" );
+        DefaultAttr( attr, "xmargin", "0" );
+        DefaultAttr( attr, "ymargin", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "bgimage", "none" );
+        DefaultAttr( attr, "itemimage", "none" );
+        DefaultAttr( attr, "openimage", "none" );
+        DefaultAttr( attr, "closedimage", "none" );
+        DefaultAttr( attr, "fgcolor", "#000000" );
+        DefaultAttr( attr, "playcolor", "#FF0000" );
+        DefaultAttr( attr, "bgcolor1", "#FFFFFF" );
+        DefaultAttr( attr, "bgcolor2", "#FFFFFF" );
+        DefaultAttr( attr, "selcolor", "#0000FF" );
+        DefaultAttr( attr, "help", "" );
+
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
+        int width = getDimension( attr["width"], refWidth );
+        int height = getDimension( attr["height"], refHeight );
+        convertPosition( attr["position"],
+                         attr["xoffset"], attr["yoffset"],
+                         attr["xmargin"], attr["ymargin"],
+                         width, height, refWidth, refHeight, &x, &y );
 
         m_curTreeId = uniqueId( attr["id"] );
-        const BuilderData::Tree treeData( m_curTreeId, atoi( attr["x"] ) +
-                m_xOffset, atoi( attr["y"] ) + m_yOffset, attr["visible"],
+        const BuilderData::Tree treeData( m_curTreeId,
+                x + m_xOffset, y + m_yOffset, attr["visible"],
                 attr["flat"],
-                atoi( attr["width"]), atoi( attr["height"] ),
+                width, height,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ),
@@ -428,30 +517,34 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "RadialSlider" )
     {
-        RequireDefault( "sequence" );
-        RequireDefault( "nbimages" );
-        CheckDefault( "id", "none" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "minangle", "0" );
-        CheckDefault( "maxangle", "360" );
-        CheckDefault( "value", "none" );
-        CheckDefault( "tooltiptext", "" );
-        CheckDefault( "help", "" );
+        RequireAttr( attr, rName, "sequence" );
+        RequireAttr( attr, rName, "nbimages" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "minangle", "0" );
+        DefaultAttr( attr, "maxangle", "360" );
+        DefaultAttr( attr, "value", "none" );
+        DefaultAttr( attr, "tooltiptext", "" );
+        DefaultAttr( attr, "help", "" );
 
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
         const BuilderData::RadialSlider radial( uniqueId( attr["id"] ),
                 attr["visible"],
-                atoi( attr["x"] ) + m_xOffset, atoi( attr["y"] ) + m_yOffset,
+                x + m_xOffset, y + m_yOffset,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ), attr["sequence"],
-                atoi( attr["nbImages"] ), atof( attr["minAngle"] ) * M_PI /180,
-                atof( attr["maxAngle"] ) * M_PI / 180, attr["value"],
+                atoi( attr["nbimages"] ), atof( attr["minangle"] ) * M_PI /180,
+                atof( attr["maxangle"] ) * M_PI / 180, attr["value"],
                 attr["tooltiptext"], attr["help"], m_curLayer, m_curWindowId,
                 m_curLayoutId, m_panelStack.back() );
         m_curLayer++;
@@ -460,22 +553,22 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Slider" )
     {
-        RequireDefault( "up" );
-        RequireDefault( "points" );
-        CheckDefault( "id", "none" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "down", "none" );
-        CheckDefault( "over", "none" );
-        CheckDefault( "thickness", "10" );
-        CheckDefault( "value", "none" );
-        CheckDefault( "tooltiptext", "" );
-        CheckDefault( "help", "" );
+        RequireAttr( attr, rName, "up" );
+        RequireAttr( attr, rName, "points" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "down", "none" );
+        DefaultAttr( attr, "over", "none" );
+        DefaultAttr( attr, "thickness", "10" );
+        DefaultAttr( attr, "value", "none" );
+        DefaultAttr( attr, "tooltiptext", "" );
+        DefaultAttr( attr, "help", "" );
 
         string newValue = attr["value"];
         if( m_curTreeId != "" )
@@ -483,9 +576,14 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
             // Slider associated to a tree
             newValue = "playtree.slider";
         }
+
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
         const BuilderData::Slider slider( uniqueId( attr["id"] ),
-                attr["visible"], atoi( attr["x"] ) + m_xOffset,
-                atoi( attr["y"] ) + m_yOffset, attr["lefttop"],
+                attr["visible"], x + m_xOffset,
+                y + m_yOffset, attr["lefttop"],
                 attr["rightbottom"], convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ), attr["up"], attr["down"],
                 attr["over"], attr["points"], atoi( attr["thickness"] ),
@@ -498,11 +596,11 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "SliderBackground" )
     {
-        RequireDefault( "image" );
-        CheckDefault( "nbhoriz", "1" );
-        CheckDefault( "nbvert", "1" );
-        CheckDefault( "padhoriz", "0" );
-        CheckDefault( "padvert", "0" );
+        RequireAttr( attr, rName, "image" );
+        DefaultAttr( attr, "nbhoriz", "1" );
+        DefaultAttr( attr, "nbvert", "1" );
+        DefaultAttr( attr, "padhoriz", "0" );
+        DefaultAttr( attr, "padvert", "0" );
 
         // Retrieve the current slider data
         BuilderData::Slider &slider = m_pData->m_listSlider.back();
@@ -516,32 +614,42 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Text" )
     {
-        RequireDefault( "font" );
-        CheckDefault( "id", "none" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "text", "" );
-        CheckDefault( "color", "#000000" );
-        CheckDefault( "scrolling", "auto" );
-        CheckDefault( "alignment", "left" );
-        CheckDefault( "width", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "help", "" );
+        RequireAttr( attr, rName, "font" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "text", "" );
+        DefaultAttr( attr, "color", "#000000" );
+        DefaultAttr( attr, "scrolling", "auto" );
+        DefaultAttr( attr, "alignment", "left" );
+        DefaultAttr( attr, "focus", "true" );
+        DefaultAttr( attr, "width", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "help", "" );
+
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
+        int width = getDimension( attr["width"], refWidth );
 
         const BuilderData::Text textData( uniqueId( attr["id"] ),
-                atoi( attr["x"] ) + m_xOffset, atoi( attr["y"] ) + m_yOffset,
+                x + m_xOffset, y + m_yOffset,
                 attr["visible"], attr["font"],
-                attr["text"], atoi( attr["width"] ),
+                attr["text"],
+                width,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ),
                 convertColor( attr["color"] ),
                 attr["scrolling"], attr["alignment"],
-                attr["help"], m_curLayer, m_curWindowId, m_curLayoutId,
+                attr["focus"], attr["help"],
+                m_curLayer, m_curWindowId, m_curLayoutId,
                 m_panelStack.back() );
         m_curLayer++;
         m_pData->m_listText.push_back( textData );
@@ -549,11 +657,11 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Theme" )
     {
-        RequireDefault( "version" );
-        CheckDefault( "tooltipfont", "defaultfont" );
-        CheckDefault( "magnet", "15" );
-        CheckDefault( "alpha", "255" );
-        CheckDefault( "movealpha", "255" );
+        RequireAttr( attr, rName, "version" );
+        DefaultAttr( attr, "tooltipfont", "defaultfont" );
+        DefaultAttr( attr, "magnet", "15" );
+        DefaultAttr( attr, "alpha", "255" );
+        DefaultAttr( attr, "movealpha", "255" );
 
         // Check the version
         if( strcmp( attr["version"], SKINS_DTD_VERSION ) )
@@ -572,32 +680,48 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "ThemeInfo" )
     {
-        CheckDefault( "name", "" );
-        CheckDefault( "author", "" );
-        CheckDefault( "email", "" );
-        CheckDefault( "website", "" );
+        DefaultAttr( attr, "name", "" );
+        DefaultAttr( attr, "author", "" );
+        DefaultAttr( attr, "email", "" );
+        DefaultAttr( attr, "website", "" );
         msg_Info( getIntf(), "skin: %s  author: %s", attr["name"],
                   attr["author"] );
     }
 
     else if( rName == "Video" )
     {
-        CheckDefault( "id", "none" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "width", "0" );
-        CheckDefault( "height", "0" );
-        CheckDefault( "lefttop", "lefttop" );
-        CheckDefault( "rightbottom", "lefttop" );
-        CheckDefault( "xkeepratio", "false" );
-        CheckDefault( "ykeepratio", "false" );
-        CheckDefault( "autoresize", "false" );
-        CheckDefault( "help", "" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "width", "0" );
+        DefaultAttr( attr, "height", "0" );
+        DefaultAttr( attr, "position", "-1" );
+        DefaultAttr( attr, "xoffset", "0" );
+        DefaultAttr( attr, "yoffset", "0" );
+        DefaultAttr( attr, "xmargin", "0" );
+        DefaultAttr( attr, "ymargin", "0" );
+        DefaultAttr( attr, "lefttop", "lefttop" );
+        DefaultAttr( attr, "rightbottom", "lefttop" );
+        DefaultAttr( attr, "xkeepratio", "false" );
+        DefaultAttr( attr, "ykeepratio", "false" );
+        DefaultAttr( attr, "autoresize", "false" );
+        DefaultAttr( attr, "help", "" );
+
+        int refWidth = getRefWidth( false );
+        int refHeight = getRefHeight( false );
+
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
+        int width = getDimension( attr["width"], refWidth );
+        int height = getDimension( attr["height"], refHeight );
+        convertPosition( attr["position"],
+                         attr["xoffset"], attr["yoffset"],
+                         attr["xmargin"], attr["ymargin"],
+                         width, height, refWidth, refHeight, &x, &y );
 
         const BuilderData::Video videoData( uniqueId( attr["id"] ),
-                atoi( attr["x"] ) + m_xOffset, atoi( attr["y"] ) + m_yOffset,
-                atoi( attr["width"] ), atoi( attr["height" ]),
+                x + m_xOffset, y + m_yOffset, width, height,
                 attr["lefttop"], attr["rightbottom"],
                 convertBoolean( attr["xkeepratio"] ),
                 convertBoolean( attr["ykeepratio"] ),
@@ -610,21 +734,35 @@ void SkinParser::handleBeginElement( const string &rName, AttrList_t &attr )
 
     else if( rName == "Window" )
     {
-        CheckDefault( "id", "none" );
-        CheckDefault( "visible", "true" );
-        CheckDefault( "x", "0" );
-        CheckDefault( "y", "0" );
-        CheckDefault( "dragdrop", "true" );
-        CheckDefault( "playondrop", "true" );
+        DefaultAttr( attr, "id", "none" );
+        DefaultAttr( attr, "visible", "true" );
+        DefaultAttr( attr, "x", "0" );
+        DefaultAttr( attr, "y", "0" );
+        DefaultAttr( attr, "position", "-1" );
+        DefaultAttr( attr, "xoffset", "0" );
+        DefaultAttr( attr, "yoffset", "0" );
+        DefaultAttr( attr, "xmargin", "0" );
+        DefaultAttr( attr, "ymargin", "0" );
+        DefaultAttr( attr, "dragdrop", "true" );
+        DefaultAttr( attr, "playondrop", "true" );
 
         m_curWindowId = uniqueId( attr["id"] );
+
+        int refWidth = getRefWidth( true );
+        int refHeight = getRefHeight( true );
+        int x = getDimension( attr["x"], refWidth );
+        int y = getDimension( attr["y"], refHeight );
         const BuilderData::Window window( m_curWindowId,
-                atoi( attr["x"] ) + m_xOffset, atoi( attr["y"] ) + m_yOffset,
+                x + m_xOffset, y + m_yOffset,
+                attr["position"],
+                attr["xoffset"], attr["yoffset"],
+                attr["xmargin"], attr["ymargin"],
                 convertBoolean( attr["visible"] ),
                 convertBoolean( attr["dragdrop"] ),
                 convertBoolean( attr["playondrop"] ) );
         m_pData->m_listWindow.push_back( window );
     }
+#undef  RequireAttr
 }
 
 
@@ -731,4 +869,150 @@ const string SkinParser::uniqueId( const string &id )
     m_idSet.insert( newId );
 
     return newId;
+}
+
+int SkinParser::getRefWidth( bool toScreen )
+{
+    if( toScreen )
+    {
+        OSFactory *pOsFactory = OSFactory::instance( getIntf() );
+        return pOsFactory->getScreenWidth();
+    }
+
+    string panelId = m_panelStack.back();
+    if( panelId != "none" )
+    {
+        const BuilderData::Panel panel = m_pData->m_listPanel.back();
+        return panel.m_width;
+    }
+    else
+    {
+        const BuilderData::Layout layout = m_pData->m_listLayout.back();
+        return layout.m_width;
+    }
+}
+
+int SkinParser::getRefHeight( bool toScreen )
+{
+    if( toScreen )
+    {
+        OSFactory *pOsFactory = OSFactory::instance( getIntf() );
+        return pOsFactory->getScreenHeight();
+    }
+
+    string panelId = m_panelStack.back();
+    if( panelId != "none" )
+    {
+        const BuilderData::Panel panel = m_pData->m_listPanel.back();
+        return panel.m_height;
+    }
+    else
+    {
+        const BuilderData::Layout layout = m_pData->m_listLayout.back();
+        return layout.m_height;
+    }
+}
+
+
+int SkinParser::getDimension( string value, int refDimension )
+{
+    string::size_type leftPos;
+
+    leftPos = value.find( "%" );
+    if( leftPos != string::npos )
+    {
+        int val = atoi( value.substr( 0, leftPos ).c_str() );
+        return  val * refDimension / 100;
+    }
+
+    leftPos = value.find( "px" );
+    if( leftPos != string::npos )
+    {
+        int val = atoi( value.substr( 0, leftPos ).c_str() );
+        return val;
+    }
+
+    return atoi( value.c_str() );
+}
+
+
+int SkinParser::getPosition( string position )
+{
+    if( position == "-1" )
+        return POS_UNDEF;
+    else if( position == "Center" )
+        return POS_CENTER;
+    else if( position == "North" )
+        return POS_TOP;
+    else if( position == "South" )
+        return POS_BOTTOM;
+    else if( position == "West" )
+        return POS_LEFT;
+    else if( position == "East" )
+        return POS_RIGHT;
+    else if( position == "NorthWest" )
+        return POS_TOP | POS_LEFT;
+    else if( position == "NorthEast" )
+        return POS_TOP | POS_RIGHT;
+    else if( position == "SouthWest" )
+        return POS_BOTTOM | POS_LEFT;
+    else if( position == "SouthEast" )
+        return POS_BOTTOM | POS_RIGHT;
+
+    msg_Err( getIntf(), "unknown value '%s' for position",
+                          position.c_str() );
+    return POS_UNDEF;
+}
+
+
+void SkinParser::convertPosition( string position, string xOffset,
+                          string yOffset, string xMargin,
+                          string yMargin, int width, int height,
+                          int refWidth, int refHeight, int* p_x, int* p_y )
+{
+    int iPosition = getPosition( position );
+    if( iPosition == POS_UNDEF )
+        return;
+
+    int i_xOffset = getDimension( xOffset, refWidth );
+    int i_yOffset = getDimension( yOffset, refHeight );
+    int i_xMargin = getDimension( xMargin, refWidth );
+    int i_yMargin = getDimension( yMargin, refHeight );
+
+   // compute *p_x
+   if( iPosition & POS_LEFT )
+       *p_x = i_xMargin;
+   else if( iPosition & POS_RIGHT )
+       *p_x = refWidth - width - i_xMargin;
+   else
+       *p_x = ( refWidth - width ) / 2;
+
+   // compute *p_y
+   if( iPosition & POS_TOP )
+       *p_y = i_yMargin;
+   else if( iPosition & POS_BOTTOM )
+       *p_y = refHeight - height - i_yMargin;
+   else
+       *p_y = ( refHeight - height ) / 2;
+
+    // add offset
+    *p_x += i_xOffset;
+    *p_y += i_yOffset;
+}
+
+
+void SkinParser::updateWindowPos( int width, int height )
+{
+    BuilderData::Window win = m_pData->m_listWindow.back();
+    m_pData->m_listWindow.pop_back();
+
+    int refWidth = getRefWidth( true );
+    int refHeight = getRefHeight( true );
+    convertPosition( win.m_position,
+                     win.m_xOffset, win.m_yOffset,
+                     win.m_xMargin, win.m_yMargin,
+                     width, height, refWidth, refHeight,
+                     &win.m_xPos, &win.m_yPos );
+
+    m_pData->m_listWindow.push_back( win );
 }

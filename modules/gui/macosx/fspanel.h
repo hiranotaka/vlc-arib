@@ -1,11 +1,11 @@
 /*****************************************************************************
  * fspanel.h: MacOS X full screen panel
  *****************************************************************************
- * Copyright (C) 2006-2007 the VideoLAN team
+ * Copyright (C) 2006-2012 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jérôme Decoodt <djc at videolan dot org>
- *          Felix Kühne <fkuehne at videolan dot org>
+ *          Felix Paul Kühne <fkuehne at videolan dot org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+@class VLCWindow;
+
 @interface VLCFSPanel : NSWindow
 {
     NSTimer *fadeTimer,*hideAgainTimer;
@@ -35,6 +37,8 @@
     BOOL b_displayed;
     BOOL b_voutWasUpdated;
     int i_device;
+
+    VLCWindow *o_vout_window;
 }
 - (id)initWithContentRect: (NSRect)contentRect
                 styleMask: (NSUInteger)aStyle
@@ -49,7 +53,7 @@
 - (void)setStreamTitle: (NSString *)o_title;
 - (void)setStreamPos: (float)f_pos andTime: (NSString *)o_time;
 - (void)setSeekable: (BOOL)b_seekable;
-- (void)setVolumeLevel: (float)f_volumeLevel;
+- (void)setVolumeLevel: (int)i_volumeLevel;
 
 - (void)setNonActive: (id)noData;
 - (void)setActive: (id)noData;
@@ -69,8 +73,7 @@
 - (void)mouseDown: (NSEvent *)theEvent;
 - (void)mouseDragged: (NSEvent *)theEvent;
 
-- (BOOL)isDisplayed;
-- (void)setVoutWasUpdated: (int)i_screen;
+- (void)setVoutWasUpdated: (VLCWindow *)o_window;
 @end
 
 @interface VLCFSPanelView : NSView
@@ -79,6 +82,9 @@
     NSButton *o_prev, *o_next, *o_bwd, *o_fwd, *o_play, *o_fullscreen;
     NSTextField *o_streamTitle_txt, *o_streamPosition_txt;
     NSSlider *o_fs_timeSlider, *o_fs_volumeSlider;
+    NSImage *o_background_img, *o_vol_sld_img, *o_vol_mute_img, *o_vol_max_img, *o_time_sld_img;
+    NSTimeInterval last_fwd_event;
+    NSTimeInterval last_bwd_event;
 }
 - (id)initWithFrame: (NSRect)frameRect;
 - (void)drawRect: (NSRect)rect;
@@ -88,7 +94,7 @@
 - (void)setStreamTitle: (NSString *)o_title;
 - (void)setStreamPos: (float)f_pos andTime: (NSString *)o_time;
 - (void)setSeekable: (BOOL)b_seekable;
-- (void)setVolumeLevel: (float)f_volumeLevel;
+- (void)setVolumeLevel: (int)i_volumeLevel;
 - (IBAction)play:(id)sender;
 - (IBAction)prev:(id)sender;
 - (IBAction)next:(id)sender;
@@ -107,7 +113,7 @@
 
 @end
 
-@interface VLCFSVolumeSlider : NSSlider
+@interface VLCFSVolumeSlider : VLCVolumeSliderCommon
 {
 }
 - (void)drawKnobInRect: (NSRect)knobRect;

@@ -1,25 +1,25 @@
 /*****************************************************************************
  * libvlc_events.h:  libvlc_events external API structure
  *****************************************************************************
- * Copyright (C) 1998-2008 the VideoLAN team
+ * Copyright (C) 1998-2010 VLC authors and VideoLAN
  * $Id $
  *
  * Authors: Filippo Carone <littlejohn@videolan.org>
  *          Pierre d'Herbemont <pdherbemont@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef LIBVLC_EVENTS_H
@@ -34,103 +34,83 @@
 extern "C" {
 # endif
 
-/*****************************************************************************
- * Events handling
- *****************************************************************************/
-
-/** \defgroup libvlc_event libvlc_event
- * \ingroup libvlc_core
- * LibVLC Available Events
+/**
+ * \ingroup libvlc_event
  * @{
  */
 
-    /* Append new event types at the end. Do not remove, insert or
-     * re-order any entry. The cpp will prepend libvlc_ to the symbols. */
-#define DEFINE_LIBVLC_EVENT_TYPES \
-    DEF( MediaMetaChanged ), \
-    DEF( MediaSubItemAdded ), \
-    DEF( MediaDurationChanged ), \
-    DEF( MediaPreparsedChanged ), \
-    DEF( MediaFreed ), \
-    DEF( MediaStateChanged ), \
-    \
-    DEF( MediaPlayerNothingSpecial ), \
-    DEF( MediaPlayerOpening ), \
-    DEF( MediaPlayerBuffering ), \
-    DEF( MediaPlayerPlaying ), \
-    DEF( MediaPlayerPaused ), \
-    DEF( MediaPlayerStopped ), \
-    DEF( MediaPlayerForward ), \
-    DEF( MediaPlayerBackward ), \
-    DEF( MediaPlayerEndReached ), \
-    DEF( MediaPlayerEncounteredError ), \
-    DEF( MediaPlayerTimeChanged ), \
-    DEF( MediaPlayerPositionChanged ), \
-    DEF( MediaPlayerSeekableChanged ), \
-    DEF( MediaPlayerPausableChanged ), \
-    \
-    DEF( MediaListItemAdded ), \
-    DEF( MediaListWillAddItem ), \
-    DEF( MediaListItemDeleted ), \
-    DEF( MediaListWillDeleteItem ), \
-    \
-    DEF( MediaListViewItemAdded ), \
-    DEF( MediaListViewWillAddItem ), \
-    DEF( MediaListViewItemDeleted ), \
-    DEF( MediaListViewWillDeleteItem ), \
-    \
-    DEF( MediaListPlayerPlayed ), \
-    DEF( MediaListPlayerNextItemSet ), \
-    DEF( MediaListPlayerStopped ), \
-    \
-    DEF( MediaDiscovererStarted ), \
-    DEF( MediaDiscovererEnded ), \
-    \
-    DEF( MediaPlayerTitleChanged ), \
-    DEF( MediaPlayerSnapshotTaken ), \
-    DEF( MediaPlayerLengthChanged ), \
-    \
-    DEF( VlmMediaAdded ), \
-    DEF( VlmMediaRemoved ), \
-    DEF( VlmMediaChanged ), \
-    DEF( VlmMediaInstanceStarted ), \
-    DEF( VlmMediaInstanceStopped ), \
-    DEF( VlmMediaInstanceStatusInit ), \
-    DEF( VlmMediaInstanceStatusOpening ), \
-    DEF( VlmMediaInstanceStatusPlaying ), \
-    DEF( VlmMediaInstanceStatusPause ), \
-    DEF( VlmMediaInstanceStatusEnd ), \
-    DEF( VlmMediaInstanceStatusError ), \
-    /* New event types HERE */
+/**
+ * Event types
+ */
+enum libvlc_event_e {
+    /* Append new event types at the end of a category.
+     * Do not remove, insert or re-order any entry.
+     * Keep this in sync with lib/event.c:libvlc_event_type_name(). */
+    libvlc_MediaMetaChanged=0,
+    libvlc_MediaSubItemAdded,
+    libvlc_MediaDurationChanged,
+    libvlc_MediaParsedChanged,
+    libvlc_MediaFreed,
+    libvlc_MediaStateChanged,
 
-#ifdef __cplusplus
-enum libvlc_event_type_e {
-#else
-enum libvlc_event_type_t {
-#endif
-#define DEF(a) libvlc_##a
-    DEFINE_LIBVLC_EVENT_TYPES
-    libvlc_num_event_types
-#undef  DEF
+    libvlc_MediaPlayerMediaChanged=0x100,
+    libvlc_MediaPlayerNothingSpecial,
+    libvlc_MediaPlayerOpening,
+    libvlc_MediaPlayerBuffering,
+    libvlc_MediaPlayerPlaying,
+    libvlc_MediaPlayerPaused,
+    libvlc_MediaPlayerStopped,
+    libvlc_MediaPlayerForward,
+    libvlc_MediaPlayerBackward,
+    libvlc_MediaPlayerEndReached,
+    libvlc_MediaPlayerEncounteredError,
+    libvlc_MediaPlayerTimeChanged,
+    libvlc_MediaPlayerPositionChanged,
+    libvlc_MediaPlayerSeekableChanged,
+    libvlc_MediaPlayerPausableChanged,
+    libvlc_MediaPlayerTitleChanged,
+    libvlc_MediaPlayerSnapshotTaken,
+    libvlc_MediaPlayerLengthChanged,
+    libvlc_MediaPlayerVout,
+
+    libvlc_MediaListItemAdded=0x200,
+    libvlc_MediaListWillAddItem,
+    libvlc_MediaListItemDeleted,
+    libvlc_MediaListWillDeleteItem,
+
+    libvlc_MediaListViewItemAdded=0x300,
+    libvlc_MediaListViewWillAddItem,
+    libvlc_MediaListViewItemDeleted,
+    libvlc_MediaListViewWillDeleteItem,
+
+    libvlc_MediaListPlayerPlayed=0x400,
+    libvlc_MediaListPlayerNextItemSet,
+    libvlc_MediaListPlayerStopped,
+
+    libvlc_MediaDiscovererStarted=0x500,
+    libvlc_MediaDiscovererEnded,
+
+    libvlc_VlmMediaAdded=0x600,
+    libvlc_VlmMediaRemoved,
+    libvlc_VlmMediaChanged,
+    libvlc_VlmMediaInstanceStarted,
+    libvlc_VlmMediaInstanceStopped,
+    libvlc_VlmMediaInstanceStatusInit,
+    libvlc_VlmMediaInstanceStatusOpening,
+    libvlc_VlmMediaInstanceStatusPlaying,
+    libvlc_VlmMediaInstanceStatusPause,
+    libvlc_VlmMediaInstanceStatusEnd,
+    libvlc_VlmMediaInstanceStatusError
 };
 
-/* Implementing libvlc_event_type_name() needs the definition too. */
-#ifndef LIBVLC_EVENT_TYPES_KEEP_DEFINE
-#undef  DEFINE_LIBVLC_EVENT_TYPES
-#endif
-
 /**
- * An Event
- * \param type the even type
- * \param p_obj the sender object
- * \param u Event dependent content
+ * A LibVLC event
  */
-
-struct libvlc_event_t
+typedef struct libvlc_event_t
 {
-    libvlc_event_type_t type;
-    void * p_obj;
-    union event_type_specific
+    int   type; /**< Event type (see @ref libvlc_event_e) */
+    void *p_obj; /**< Object emitting the event */
+    union
     {
         /* media descriptor */
         struct
@@ -148,7 +128,7 @@ struct libvlc_event_t
         struct
         {
             int new_status;
-        } media_preparsed_changed;
+        } media_parsed_changed;
         struct
         {
             libvlc_media_t * md;
@@ -159,6 +139,10 @@ struct libvlc_event_t
         } media_state_changed;
 
         /* media instance */
+        struct
+        {
+            float new_cache;
+        } media_player_buffering;
         struct
         {
             float new_position;
@@ -179,6 +163,10 @@ struct libvlc_event_t
         {
             int new_pausable;
         } media_player_pausable_changed;
+        struct
+        {
+            int new_count;
+        } media_player_vout;
 
         /* media list */
         struct
@@ -201,28 +189,6 @@ struct libvlc_event_t
             libvlc_media_t * item;
             int index;
         } media_list_will_delete_item;
-
-        /* media list view */
-        struct
-        {
-            libvlc_media_t * item;
-            int index;
-        } media_list_view_item_added;
-        struct
-        {
-            libvlc_media_t * item;
-            int index;
-        } media_list_view_will_add_item;
-        struct
-        {
-            libvlc_media_t * item;
-            int index;
-        } media_list_view_item_deleted;
-        struct
-        {
-            libvlc_media_t * item;
-            int index;
-        } media_list_view_will_delete_item;
 
         /* media list player */
         struct
@@ -248,8 +214,14 @@ struct libvlc_event_t
             const char * psz_media_name;
             const char * psz_instance_name;
         } vlm_media_event;
-    } u;
-};
+
+        /* Extra MediaPlayer */
+        struct
+        {
+            libvlc_media_t * new_media;
+        } media_player_media_changed;
+    } u; /**< Type-dependent event description */
+} libvlc_event_t;
 
 
 /**@} */

@@ -1,26 +1,26 @@
 /*****************************************************************************
- * libvlc.h:  libvlc external API
+ * libvlc_media_discoverer.h:  libvlc external API
  *****************************************************************************
- * Copyright (C) 1998-2009 the VideoLAN team
+ * Copyright (C) 1998-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Clément Stenac <zorglub@videolan.org>
  *          Jean-Paul Saman <jpsaman@videolan.org>
  *          Pierre d'Herbemont <pdherbemont@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /**
@@ -31,12 +31,17 @@
 #ifndef VLC_LIBVLC_MEDIA_DISCOVERER_H
 #define VLC_LIBVLC_MEDIA_DISCOVERER_H 1
 
-/*****************************************************************************
- * Services/Media Discovery
- *****************************************************************************/
-/** \defgroup libvlc_media_discoverer libvlc_media_discoverer
+# ifdef __cplusplus
+extern "C" {
+# endif
+
+/** \defgroup libvlc_media_discoverer LibVLC media discovery
  * \ingroup libvlc
- * LibVLC Media Discoverer
+ * LibVLC media discovery finds available media via various means.
+ * This corresponds to the service discovery functionality in VLC media player.
+ * Different plugins find potential medias locally (e.g. user media directory),
+ * from peripherals (e.g. video capture device), on the local network
+ * (e.g. SAP) or on the Internet (e.g. Internet radios).
  * @{
  */
 
@@ -47,13 +52,11 @@ typedef struct libvlc_media_discoverer_t libvlc_media_discoverer_t;
  *
  * \param p_inst libvlc instance
  * \param psz_name service name
- * \param p_e an initialized exception object
- * \return media discover object
+ * \return media discover object or NULL in case of error
  */
-VLC_PUBLIC_API libvlc_media_discoverer_t *
+LIBVLC_API libvlc_media_discoverer_t *
 libvlc_media_discoverer_new_from_name( libvlc_instance_t * p_inst,
-                                       const char * psz_name,
-                                       libvlc_exception_t * p_e );
+                                       const char * psz_name );
 
 /**
  * Release media discover object. If the reference count reaches 0, then
@@ -61,15 +64,15 @@ libvlc_media_discoverer_new_from_name( libvlc_instance_t * p_inst,
  *
  * \param p_mdis media service discover object
  */
-VLC_PUBLIC_API void   libvlc_media_discoverer_release( libvlc_media_discoverer_t * p_mdis );
+LIBVLC_API void   libvlc_media_discoverer_release( libvlc_media_discoverer_t * p_mdis );
 
 /**
  * Get media service discover object its localized name.
  *
- * \param media discover object
+ * \param p_mdis media discover object
  * \return localized name
  */
-VLC_PUBLIC_API char * libvlc_media_discoverer_localized_name( libvlc_media_discoverer_t * p_mdis );
+LIBVLC_API char * libvlc_media_discoverer_localized_name( libvlc_media_discoverer_t * p_mdis );
 
 /**
  * Get media service discover media list.
@@ -77,7 +80,7 @@ VLC_PUBLIC_API char * libvlc_media_discoverer_localized_name( libvlc_media_disco
  * \param p_mdis media service discover object
  * \return list of media items
  */
-VLC_PUBLIC_API libvlc_media_list_t * libvlc_media_discoverer_media_list( libvlc_media_discoverer_t * p_mdis );
+LIBVLC_API libvlc_media_list_t * libvlc_media_discoverer_media_list( libvlc_media_discoverer_t * p_mdis );
 
 /**
  * Get event manager from media service discover object.
@@ -85,7 +88,7 @@ VLC_PUBLIC_API libvlc_media_list_t * libvlc_media_discoverer_media_list( libvlc_
  * \param p_mdis media service discover object
  * \return event manager object.
  */
-VLC_PUBLIC_API libvlc_event_manager_t *
+LIBVLC_API libvlc_event_manager_t *
         libvlc_media_discoverer_event_manager( libvlc_media_discoverer_t * p_mdis );
 
 /**
@@ -93,10 +96,16 @@ VLC_PUBLIC_API libvlc_event_manager_t *
  *
  * \param p_mdis media service discover object
  * \return true if running, false if not
+ *
+ * \libvlc_return_bool
  */
-VLC_PUBLIC_API int
+LIBVLC_API int
         libvlc_media_discoverer_is_running( libvlc_media_discoverer_t * p_mdis );
 
 /**@} */
+
+# ifdef __cplusplus
+}
+# endif
 
 #endif /* <vlc/libvlc.h> */

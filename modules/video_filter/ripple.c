@@ -143,7 +143,15 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
 
         i_num_lines = p_pic->p[i_index].i_visible_lines;
         i_pixel_pitch = p_pic->p[i_index].i_pixel_pitch;
-        i_visible_pixels = p_pic->p[i_index].i_visible_pitch/p_pic->p[i_index].i_pixel_pitch;
+        switch( p_filter->fmt_in.video.i_chroma )
+        {
+            CASE_PACKED_YUV_422
+                // Quick hack to fix u/v inversion occuring with 2 byte pixel pitch
+                i_pixel_pitch *= 2;
+                break;
+        }
+
+        i_visible_pixels = p_pic->p[i_index].i_visible_pitch/i_pixel_pitch;
 
         i_first_line = i_num_lines * 4 / 5;
 
@@ -152,7 +160,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
 
         for( i_line = 0 ; i_line < i_first_line ; i_line++ )
         {
-            vlc_memcpy( p_out, p_in, p_pic->p[i_index].i_visible_pitch );
+            memcpy( p_out, p_in, p_pic->p[i_index].i_visible_pitch );
             p_in += p_pic->p[i_index].i_pitch;
             p_out += p_outpic->p[i_index].i_pitch;
         }
@@ -167,30 +175,30 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
                                                             - i_first_line) )
                          * (double)(i_line - i_first_line)
                          / (double)i_num_lines
-                         / 8.0 )*p_pic->p[i_index].i_pixel_pitch;
+                         / 8.0 )*i_pixel_pitch;
 
             if( i_offset )
             {
                 if( i_offset < 0 )
                 {
-                    vlc_memcpy( p_out, p_in - i_offset,
+                    memcpy( p_out, p_in - i_offset,
                                 p_pic->p[i_index].i_visible_pitch + i_offset );
                     p_in -= p_pic->p[i_index].i_pitch;
                     p_out += p_outpic->p[i_index].i_pitch;
-                    vlc_memset( p_out + i_offset, black_pixel, -i_offset );
+                    memset( p_out + i_offset, black_pixel, -i_offset );
                 }
                 else
                 {
-                    vlc_memcpy( p_out + i_offset, p_in,
+                    memcpy( p_out + i_offset, p_in,
                                 p_pic->p[i_index].i_visible_pitch - i_offset );
-                    vlc_memset( p_out, black_pixel, i_offset );
+                    memset( p_out, black_pixel, i_offset );
                     p_in -= p_pic->p[i_index].i_pitch;
                     p_out += p_outpic->p[i_index].i_pitch;
                 }
             }
             else
             {
-                vlc_memcpy( p_out, p_in, p_pic->p[i_index].i_visible_pitch );
+                memcpy( p_out, p_in, p_pic->p[i_index].i_visible_pitch );
                 p_in -= p_pic->p[i_index].i_pitch;
                 p_out += p_outpic->p[i_index].i_pitch;
             }

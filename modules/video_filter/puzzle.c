@@ -33,6 +33,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_rand.h>
 
 #include "filter_picture.h"
 
@@ -58,11 +59,11 @@ vlc_module_begin()
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
-    add_integer_with_range( CFG_PREFIX "rows", 4, 2, 16, NULL,
+    add_integer_with_range( CFG_PREFIX "rows", 4, 2, 16,
                             ROWS_TEXT, ROWS_LONGTEXT, false )
-    add_integer_with_range( CFG_PREFIX "cols", 4, 2, 16, NULL,
+    add_integer_with_range( CFG_PREFIX "cols", 4, 2, 16,
                             COLS_TEXT, COLS_LONGTEXT, false )
-    add_bool( CFG_PREFIX "black-slot", false, NULL,
+    add_bool( CFG_PREFIX "black-slot", false,
               BLACKSLOT_TEXT, BLACKSLOT_LONGTEXT, false )
 
     set_callbacks( Open, Close )
@@ -95,13 +96,12 @@ struct filter_sys_t
     bool b_finished;
 
     /* */
-    vlc_mutex_t lock;
-    bool b_change;
     struct
     {
-        int i_cols;
-        int i_rows;
-        bool b_blackslot;
+        atomic_flag b_uptodate;
+        atomic_bool b_blackslot;
+        atomic_uint i_cols;
+        atomic_uint i_rows;
     } change;
 };
 
@@ -150,21 +150,20 @@ static int Open( vlc_object_t *p_this )
 
     p_sys->pi_order = NULL;
 
-    vlc_mutex_init( &p_sys->lock );
-    p_sys->change.i_rows =
-        var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "rows" );
-    p_sys->change.i_cols =
-        var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "cols" );
-    p_sys->change.b_blackslot =
-        var_CreateGetBoolCommand( p_filter, CFG_PREFIX "black-slot" );
-    p_sys->b_change = true;
+    atomic_init( &p_sys->change.i_rows,
+                 var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "rows" ) );
+    atomic_init( &p_sys->change.i_cols,
+                 var_CreateGetIntegerCommand( p_filter, CFG_PREFIX "cols" ) );
+    atomic_init( &p_sys->change.b_blackslot,
+               var_CreateGetBoolCommand( p_filter, CFG_PREFIX "black-slot" ) );
+    p_sys->change.b_uptodate = ATOMIC_FLAG_INIT;
 
     var_AddCallback( p_filter, CFG_PREFIX "rows", PuzzleCallback, p_sys );
     var_AddCallback( p_filter, CFG_PREFIX "cols", PuzzleCallback, p_sys );
     var_AddCallback( p_filter, CFG_PREFIX "black-slot", PuzzleCallback, p_sys );
 
     p_filter->pf_video_filter = Filter;
-    p_filter->pf_mouse = Mouse;
+    p_filter->pf_video_mouse = Mouse;
 
     return VLC_SUCCESS;
 }
@@ -181,7 +180,6 @@ static void Close( vlc_object_t *p_this )
     var_DelCallback( p_filter, CFG_PREFIX "cols", PuzzleCallback, p_sys );
     var_DelCallback( p_filter, CFG_PREFIX "black-slot", PuzzleCallback, p_sys );
 
-    vlc_mutex_destroy( &p_sys->lock );
     free( p_sys->pi_order );
 
     free( p_sys );
@@ -202,17 +200,13 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     }
 
     /* */
-    vlc_mutex_lock( &p_sys->lock );
-    if( p_sys->b_change )
+    if( !atomic_flag_test_and_set( &p_sys->change.b_uptodate ) )
     {
-        p_sys->i_rows      = p_sys->change.i_rows;
-        p_sys->i_cols      = p_sys->change.i_cols;
-        p_sys->b_blackslot = p_sys->change.b_blackslot;
-        p_sys->b_change = false;
-
+        p_sys->i_rows      = atomic_load( &p_sys->change.i_rows );
+        p_sys->i_cols      = atomic_load( &p_sys->change.i_cols );
+        p_sys->b_blackslot = atomic_load( &p_sys->change.b_blackslot );
         Shuffle( p_sys );
     }
-    vlc_mutex_unlock( &p_sys->lock );
 
     /* */
     const int i_rows = p_sys->i_rows;
@@ -222,65 +216,53 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     for( int i_plane = 0; i_plane < p_outpic->i_planes; i_plane++ )
     {
         const plane_t *p_in = &p_pic->p[i_plane];
-        const int i_pitch = p_in->i_pitch;
         plane_t *p_out = &p_outpic->p[i_plane];
 
         for( int i = 0; i < i_cols * i_rows; i++ )
         {
-            int i_col = i % i_cols;
-            int i_row = i / i_cols;
-            int i_ocol = p_sys->pi_order[i] % i_cols;
-            int i_orow = p_sys->pi_order[i] / i_cols;
-            int i_last_row = i_row + 1;
-            i_orow *= p_in->i_lines / i_rows;
-            i_row *= p_in->i_lines / i_rows;
-            i_last_row *= p_in->i_lines / i_rows;
+            int i_piece_height = p_out->i_visible_lines / i_rows;
+            int i_piece_width  = p_out->i_visible_pitch / i_cols;
+
+            int i_col = (i % i_cols) * i_piece_width;
+            int i_row = (i / i_cols) * i_piece_height;
+            int i_last_row = i_row + i_piece_height;
+
+            int i_ocol = (p_sys->pi_order[i] % i_cols) * i_piece_width;
+            int i_orow = (p_sys->pi_order[i] / i_cols) * i_piece_height;
 
             if( p_sys->b_blackslot && !p_sys->b_finished && i == p_sys->i_selected )
             {
                 uint8_t color = ( i_plane == Y_PLANE ? 0x0 : 0x80 );
-                for( ; i_row < i_last_row; i_row++, i_orow++ )
+                for( int r = i_row; r < i_last_row; r++ )
                 {
-                    memset( p_out->p_pixels + i_row * i_pitch + i_col * i_pitch / i_cols,
-                            color, i_pitch / i_cols );
+                    memset( p_out->p_pixels + r * p_out->i_pitch + i_col,
+                            color, i_piece_width );
                 }
             }
             else
             {
-                for( ; i_row < i_last_row; i_row++, i_orow++ )
+                for( int r = i_row, or = i_orow; r < i_last_row; r++, or++ )
                 {
-                    memcpy( p_out->p_pixels + i_row * i_pitch + i_col * i_pitch / i_cols,
-                            p_in->p_pixels + i_orow * i_pitch + i_ocol * i_pitch / i_cols,
-                            i_pitch / i_cols );
+                    memcpy( p_out->p_pixels + r * p_out->i_pitch + i_col,
+                            p_in->p_pixels + or * p_in->i_pitch  + i_ocol,
+                            i_piece_width );
                 }
             }
-        }
-    }
 
-    /* Draw the borders of the selected slot */
-    if( p_sys->i_selected != -1 && !p_sys->b_blackslot )
-    {
-        const plane_t *p_in = &p_pic->p[Y_PLANE];
-        const int i_pitch = p_in->i_pitch;
-        plane_t *p_out = &p_outpic->p[Y_PLANE];
-
-        int i_col = p_sys->i_selected % i_cols;
-        int i_row = p_sys->i_selected / i_cols;
-        int i_last_row = i_row + 1;
-        i_row *= p_in->i_lines / i_rows;
-        i_last_row *= p_in->i_lines / i_rows;
-        memset( p_out->p_pixels + i_row * i_pitch + i_col * i_pitch / i_cols,
-                0xff, i_pitch / i_cols );
-        for( ; i_row < i_last_row; i_row++ )
-        {
-            p_out->p_pixels[   i_row * i_pitch
-                             + i_col * i_pitch / i_cols ] = 0xff;
-            p_out->p_pixels[ i_row * i_pitch
-                             + (i_col+1) * i_pitch / i_cols - 1 ] = 0xff;
+            /* Draw the borders of the selected slot */
+            if( i_plane == 0 && !p_sys->b_blackslot && p_sys->i_selected == i )
+            {
+                memset( p_out->p_pixels + i_row * p_out->i_pitch + i_col,
+                        0xff, i_piece_width );
+                for( int r = i_row; r < i_last_row; r++ )
+                {
+                    p_out->p_pixels[r * p_out->i_pitch + i_col + 0             + 0 ] = 0xff;
+                    p_out->p_pixels[r * p_out->i_pitch + i_col + i_piece_width - 1 ] = 0xff;
+                }
+                memset( p_out->p_pixels + (i_last_row - 1) * p_out->i_pitch + i_col,
+                        0xff, i_piece_width );
+            }
         }
-        i_row--;
-        memset( p_out->p_pixels + i_row * i_pitch + i_col * i_pitch / i_cols,
-                0xff, i_pitch / i_cols );
     }
 
     /* Draw the 'Shuffle' button if the puzzle is finished */
@@ -320,7 +302,7 @@ static int Mouse( filter_t *p_filter, vlc_mouse_t *p_mouse,
         if( b_clicked &&
             p_new->i_x < SHUFFLE_WIDTH && p_new->i_y < SHUFFLE_HEIGHT )
         {
-            p_sys->b_change = true;
+            atomic_flag_clear( &p_sys->change.b_uptodate );
             return VLC_EGENERIC;
         }
         else
@@ -370,23 +352,15 @@ static int PuzzleCallback( vlc_object_t *p_this, char const *psz_var,
                            void *p_data )
 {
     VLC_UNUSED(p_this); VLC_UNUSED(oldval);
-    filter_sys_t *p_sys = (filter_sys_t *)p_data;
+    filter_sys_t *p_sys = p_data;
 
-    vlc_mutex_lock( &p_sys->lock );
     if( !strcmp( psz_var, CFG_PREFIX "rows" ) )
-    {
-        p_sys->change.i_rows = __MAX( 1, newval.i_int );
-    }
+        atomic_store( &p_sys->change.i_rows, __MAX( 1, newval.i_int ) );
     else if( !strcmp( psz_var, CFG_PREFIX "cols" ) )
-    {
-        p_sys->change.i_cols = __MAX( 1, newval.i_int );
-    }
+        atomic_store( &p_sys->change.i_cols, __MAX( 1, newval.i_int ) );
     else if( !strcmp( psz_var, CFG_PREFIX "black-slot" ) )
-    {
-        p_sys->change.b_blackslot = newval.b_bool;
-    }
-    p_sys->b_change = true;
-    vlc_mutex_unlock( &p_sys->lock );
+        atomic_store( &p_sys->change.b_blackslot, newval.b_bool );
+    atomic_flag_clear( &p_sys->change.b_uptodate );
 
     return VLC_SUCCESS;
 }
@@ -429,19 +403,19 @@ static bool IsValid( filter_sys_t *p_sys )
 
 static void Shuffle( filter_sys_t *p_sys )
 {
-    const int i_count = p_sys->i_cols * p_sys->i_rows;
+    const unsigned i_count = p_sys->i_cols * p_sys->i_rows;
 
     free( p_sys->pi_order );
 
     p_sys->pi_order = calloc( i_count, sizeof(*p_sys->pi_order) );
     do
     {
-        for( int i = 0; i < i_count; i++ )
+        for( unsigned i = 0; i < i_count; i++ )
             p_sys->pi_order[i] = -1;
 
-        for( int c = 0; c < i_count; )
+        for( unsigned c = 0; c < i_count; )
         {
-            int i = rand() % i_count;
+            unsigned i = ((unsigned)vlc_mrand48()) % i_count;
             if( p_sys->pi_order[i] == -1 )
                 p_sys->pi_order[i] = c++;
         }
@@ -451,9 +425,9 @@ static void Shuffle( filter_sys_t *p_sys )
 
     if( p_sys->b_blackslot )
     {
-        for( int i = 0; i < i_count; i++ )
+        for( unsigned i = 0; i < i_count; i++ )
         {
-            if( p_sys->pi_order[i] == i_count - 1 )
+            if( p_sys->pi_order[i] == (int)i_count - 1 )
             {
                 p_sys->i_selected = i;
                 break;
@@ -465,4 +439,3 @@ static void Shuffle( filter_sys_t *p_sys )
         p_sys->i_selected = -1;
     }
 }
-

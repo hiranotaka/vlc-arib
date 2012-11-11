@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Controller.hpp : Controller for the main interface
+ * controller.hpp : Controller for the main interface
  ****************************************************************************
  * Copyright (C) 2006-2008 the VideoLAN team
  * $Id$
@@ -32,12 +32,13 @@
 
 #include <QFrame>
 #include <QString>
+#include <QSizeGrip>
 
 #define MAIN_TB1_DEFAULT "64;39;64;38;65"
-#define MAIN_TB2_DEFAULT "0-2;64;3;1;4;64;7;10;9;64-4;37;65;35-4"
+#define MAIN_TB2_DEFAULT "0-2;64;3;1;4;64;7;9;64;10;20;19;64-4;37;65;35-4"
 #define ADV_TB_DEFAULT "12;11;13;14"
-#define INPT_TB_DEFAULT "5-1;15-1;33;6-1"
-#define FSC_TB_DEFAULT "0-2;64;3;1;4;64;37;64;38;64;8;65;35-4;34"
+#define INPT_TB_DEFAULT "43;33-4;44"
+#define FSC_TB_DEFAULT "0-2;64;3;1;4;64;37;64;38;64;8;65;25;35-4;34"
 
 #define I_PLAY_TOOLTIP N_("Play\nIf the playlist is empty, open a medium")
 
@@ -45,12 +46,13 @@ class QPixmap;
 class QLabel;
 
 class QGridLayout;
-class QHBoxLayout;
 class QBoxLayout;
+class QHBoxLayout;
+class QVBoxLayout;
 
 class QAbstractSlider;
 class QAbstractButton;
-class InputSlider;
+class SeekSlider;
 class QToolButton;
 
 class VolumeClickHandler;
@@ -64,8 +66,8 @@ typedef enum buttonType_e
     PLAY_BUTTON,
     STOP_BUTTON,
     OPEN_BUTTON,
-    PREVIOUS_BUTTON,
-    NEXT_BUTTON,
+    PREV_SLOW_BUTTON,
+    NEXT_FAST_BUTTON,
     SLOWER_BUTTON,
     FASTER_BUTTON,
     FULLSCREEN_BUTTON,
@@ -80,6 +82,13 @@ typedef enum buttonType_e
     SKIP_BACK_BUTTON,
     SKIP_FW_BUTTON,
     QUIT_BUTTON,
+    RANDOM_BUTTON,
+    LOOP_BUTTON,
+    INFO_BUTTON,
+    PREVIOUS_BUTTON,
+    NEXT_BUTTON,
+    OPEN_SUB_BUTTON,
+    FULLWIDTH_BUTTON,
     BUTTON_MAX,
 
     SPLITTER = 0x20,
@@ -90,6 +99,11 @@ typedef enum buttonType_e
     MENU_BUTTONS,
     TELETEXT_BUTTONS,
     ADVANCED_CONTROLLER,
+    PLAYBACK_BUTTONS,
+    ASPECT_RATIO_COMBOBOX,
+    SPEED_LABEL,
+    TIME_LABEL_ELAPSED,
+    TIME_LABEL_REMAINING,
     SPECIAL_MAX,
 
     WIDGET_SPACER = 0x40,
@@ -99,26 +113,37 @@ typedef enum buttonType_e
 
 
 static const char* const nameL[BUTTON_MAX] = { N_("Play"), N_("Stop"), N_("Open"),
-    N_("Previous"), N_("Next"), N_("Slower"), N_("Faster"), N_("Fullscreen"),
-   N_("De-Fullscreen"), N_("Extended panel"), N_("Playlist"), N_("Snapshot"),
-   N_("Record"), N_("A->B Loop"), N_("Frame By Frame"), N_("Trickplay Reverse"),
-   N_("Step backward" ), N_("Step forward"), N_("Quit") };
+    N_("Previous / Backward"), N_("Next / Forward"), N_("Slower"), N_("Faster"), N_("Fullscreen"),
+    N_("De-Fullscreen"), N_("Extended panel"), N_("Playlist"), N_("Snapshot"),
+    N_("Record"), N_("A->B Loop"), N_("Frame By Frame"), N_("Trickplay Reverse"),
+    N_("Step backward" ), N_("Step forward"), N_("Quit"), N_("Random"),
+    N_("Loop / Repeat"), N_("Information"), N_("Previous"), N_("Next"),
+    N_("Open subtitles"), N_("Dock fullscreen controller")
+};
 static const char* const tooltipL[BUTTON_MAX] = { I_PLAY_TOOLTIP,
     N_("Stop playback"), N_("Open a medium"),
-    N_("Previous media in the playlist"),
-    N_("Next media in the playlist"), N_("Slower"), N_("Faster"),
+    N_("Previous media in the playlist, skip backward when keep-pressed"),
+    N_("Next media in the playlist, skip forward when keep-pressed"), N_("Slower"), N_("Faster"),
     N_("Toggle the video in fullscreen"), N_("Toggle the video out fullscreen"),
-    N_("Show extended settings" ), N_( "Show playlist" ),
+    N_("Show extended settings" ), N_( "Toggle playlist" ),
     N_( "Take a snapshot" ), N_( "Record" ),
     N_( "Loop from point A to point B continuously." ), N_("Frame by frame"),
-    N_("Reverse"), N_("Step backward"), N_("Step forward"), N_("Quit") };
+    N_("Reverse"), N_("Step backward"), N_("Step forward"), N_("Quit"),
+    N_("Random"), N_("Change the loop and repeat modes"), N_("Information"),
+    N_("Previous media in the playlist"), N_("Next media in the playlist"),
+    N_("Open subtitles file"),
+    N_("Dock/undock fullscreen controller to/from bottom of screen")
+};
 static const QString iconL[BUTTON_MAX] ={ ":/toolbar/play_b", ":/toolbar/stop_b",
     ":/toolbar/eject", ":/toolbar/previous_b", ":/toolbar/next_b",
     ":/toolbar/slower", ":/toolbar/faster", ":/toolbar/fullscreen",
     ":/toolbar/defullscreen", ":/toolbar/extended", ":/toolbar/playlist",
     ":/toolbar/snapshot", ":/toolbar/record", ":/toolbar/atob_nob",
     ":/toolbar/frame", ":/toolbar/reverse", ":/toolbar/skip_back",
-    ":/toolbar/skip_fw", ":/toolbar/clear" };
+    ":/toolbar/skip_fw", ":/toolbar/clear", ":/buttons/playlist/shuffle_on",
+    ":/buttons/playlist/repeat_all", ":/menu/info",
+    ":/toolbar/previous_b", ":/toolbar/next_b", ":/toolbar/eject", ":/toolbar/space"
+};
 
 enum
 {
@@ -141,7 +166,7 @@ protected:
     intf_thread_t       *p_intf;
 
     QSignalMapper       *toolbarActionsMapper;
-    QHBoxLayout         *controlLayout;
+    QBoxLayout          *controlLayout;
     /* Change to BoxLayout if both dir are needed */
 
     AdvControlsWidget   *advControls;
@@ -157,15 +182,16 @@ private:
     QFrame *discFrame();
     QFrame *telexFrame();
     void applyAttributes( QToolButton *, bool b_flat, bool b_big );
+
+    QHBoxLayout         *buttonGroupLayout;
 protected slots:
     virtual void setStatus( int );
 
 signals:
-    void inputExists( bool ); /// This might be usefull in the IM ?
-    void inputPlaying( bool ); /// This might be usefull in the IM ?
+    void inputExists( bool ); /// This might be useful in the IM ?
+    void inputPlaying( bool ); /// This might be useful in the IM ?
     void inputIsRecordable( bool ); /// same ?
     void inputIsTrickPlayable( bool ); /// same ?
-    void sizeChanged();
 };
 
 /* Advanced Button Bar */
@@ -192,12 +218,17 @@ public:
     /* p_intf, advanced control visible or not, blingbling or not */
     ControlsWidget( intf_thread_t *_p_i, bool b_advControls,
                     QWidget *_parent = 0 );
-    virtual ~ControlsWidget();
+
+    void setGripVisible( bool b_visible )
+    { grip->setVisible( b_visible ); }
 
 protected:
     friend class MainInterface;
 
-    bool                 b_advancedVisible;
+    bool b_advancedVisible;
+
+private:
+    QSizeGrip *grip;
 
 protected slots:
     void toggleAdvanced();
@@ -215,6 +246,11 @@ signals:
 /* Default value of opacity for FS controller */
 #define DEFAULT_OPACITY 0.70
 
+/* Used to restore the minimum width after a full-width switch */
+#define FSC_WIDTH 800
+
+#define FSC_HEIGHT 72
+
 /***********************************
  * Fullscreen controller
  ***********************************/
@@ -228,6 +264,9 @@ public:
     /* Vout */
     void fullscreenChanged( vout_thread_t *, bool b_fs, int i_timeout );
     void mouseChanged( vout_thread_t *, int i_mousex, int i_mousey );
+    void toggleFullwidth();
+    void updateFullwidthGeometry( int number );
+    int targetScreen();
 
 signals:
     void keyPressed( QKeyEvent * );
@@ -245,27 +284,31 @@ protected:
     virtual void leaveEvent( QEvent *event );
     virtual void keyPressEvent( QKeyEvent *event );
 
+    virtual void customEvent( QEvent *event );
+
 private slots:
     void showFSC();
     void planHideFSC();
     void hideFSC() { hide(); }
     void slowHideFSC();
+    void restoreFSC();
     void centerFSC( int );
 
 private:
-    virtual void customEvent( QEvent *event );
-
     QTimer *p_hideTimer;
 #if HAVE_TRANSPARENCY
     QTimer *p_slowHideTimer;
     bool b_slow_hide_begin;
     int  i_slow_hide_timeout;
+    float f_opacity;
 #endif
 
     int i_mouse_last_x, i_mouse_last_y;
     bool b_mouse_over;
     int i_screennumber;
     QRect screenRes;
+    QRect previousScreenRes;
+    QPoint previousPosition;
 
     /* List of vouts currently tracked */
     QList<vout_thread_t *> vout;
@@ -276,6 +319,8 @@ private:
     int         i_hide_timeout;  /* FSC hiding timeout, same as mouse hiding timeout */
     int i_mouse_last_move_x;
     int i_mouse_last_move_y;
+
+    bool isWideFSC;
 };
 
 #endif

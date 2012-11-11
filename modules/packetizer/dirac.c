@@ -23,7 +23,7 @@
 
 /* Dirac packetizer, formed of three parts:
  *  1) Bitstream synchroniser (dirac_DoSync)
- *      - Given an arbitary sequence of bytes, extract whole Dirac Data Units
+ *      - Given an arbitrary sequence of bytes, extract whole Dirac Data Units
  *      - Maps timestamps in supplied block_t's to the extracted Data Unit
  *        A time stamp applies to the next Data Unit to commence at, or after
  *        the first byte of the block_t with the timestamp.
@@ -51,7 +51,7 @@
  *        distinguish from the fake dts case.)
  *
  *  DIRAC_NON_DATED is used to show a block should not have a time stamp
- *  associated (ie, don't interpolate a counter).  At the ouput, these
+ *  associated (ie, don't interpolate a counter).  At the output, these
  *  blocks get dated with the last used timestamp (or are merged with
  *  another encapsulation unit).
  */
@@ -170,7 +170,6 @@ typedef struct {
 } parse_info_t;
 
 typedef struct {
-    block_free_t pf_blk_release;
     /*> next_parse_offset of the final data unit in associated block_t */
     uint32_t u_last_next_offset;
     /*> picture number is invalid if block has flags DIRAC_NON_DATED */
@@ -216,38 +215,44 @@ enum {
 typedef struct {
     block_t fake;
     block_t *p_orig;
-    void *p_priv;
+    dirac_block_encap_t *p_dbe;
 } fake_block_t;
 
 static dirac_block_encap_t *dirac_RemoveBlockEncap( block_t *p_block )
 {
     fake_block_t *p_fake = (fake_block_t *)p_block;
-    dirac_block_encap_t *p_dbe = p_fake->p_priv;
-    if( !p_dbe ) return NULL;
-    p_fake->p_priv = NULL;
-    p_dbe->pf_blk_release = NULL;
+    dirac_block_encap_t *p_dbe = p_fake->p_dbe;
+
+    p_fake->p_dbe = NULL;
     return p_dbe;
 }
 
 static void dirac_ReleaseBlockAndEncap( block_t *p_block )
 {
     fake_block_t *p_fake = (fake_block_t *)p_block;
+
     free( dirac_RemoveBlockEncap( p_block ) );
-    p_fake->p_orig->pf_release( p_fake->p_orig );
+    block_Release( p_fake->p_orig );
     free( p_fake );
 }
 
 static void dirac_AddBlockEncap( block_t **pp_block, dirac_block_encap_t *p_dbe )
 {
-    fake_block_t *p_fake = calloc( 1, sizeof( *p_fake ) );
-    assert( p_fake ); /* must not fail, fixby: adding a p_priv to block_t */
-    p_fake->p_orig = *pp_block;
-    memcpy( &p_fake->fake, *pp_block, sizeof( block_t ) );
-    *pp_block = &p_fake->fake;
+    /* must not fail, fixby: adding a p_priv to block_t */
+    fake_block_t *p_fake = xcalloc( 1, sizeof( *p_fake ) );
+    block_t *in = *pp_block, *out = &p_fake->fake;
 
-    p_fake->p_priv = p_dbe;
-    p_dbe->pf_blk_release = p_fake->p_orig->pf_release;
-    p_fake->fake.pf_release = dirac_ReleaseBlockAndEncap;
+    block_Init( out, in->p_buffer, in->i_buffer );
+    out->i_flags = in->i_flags;
+    out->i_nb_samples = in->i_nb_samples;
+    out->i_pts = in->i_pts;
+    out->i_dts = in->i_dts;
+    out->i_length = in->i_length;
+    out->pf_release = dirac_ReleaseBlockAndEncap;
+    p_fake->p_orig = in;
+    p_fake->p_dbe = p_dbe;
+
+    *pp_block = out;
 }
 
 static dirac_block_encap_t *dirac_NewBlockEncap( block_t **pp_block )
@@ -259,7 +264,7 @@ static dirac_block_encap_t *dirac_NewBlockEncap( block_t **pp_block )
 
 static dirac_block_encap_t *dirac_GetBlockEncap( block_t *p_block )
 {
-    return (dirac_block_encap_t*) ((fake_block_t *)p_block)->p_priv;
+    return ((fake_block_t *)p_block)->p_dbe;
 }
 
 /***
@@ -279,7 +284,7 @@ static int block_ChainToArray( block_t *p_block, block_t ***ppp_array)
     block_ChainProperties( p_block, &i_num_blocks, NULL, NULL );
 
     *ppp_array = calloc( i_num_blocks, sizeof( block_t* ) );
-    if( !ppp_array ) return 0;
+    if( !*ppp_array ) return 0;
 
     for( int i = 0; i < i_num_blocks; i++ )
     {
@@ -292,7 +297,7 @@ static int block_ChainToArray( block_t *p_block, block_t ***ppp_array)
 
 /**
  * Destructively find and recover the earliest timestamp from start of
- * bytestream, upto i_length.
+ * bytestream, up to i_length.
  */
 static void dirac_RecoverTimestamps ( decoder_t *p_dec, size_t i_length )
 {
@@ -515,7 +520,7 @@ static bool dirac_UnpackSeqHdr( struct seq_hdr_t *p_sh, block_t *p_block )
     uint32_t u_video_format = dirac_uint( &bs ); /* index */
     if( u_video_format > 20 )
     {
-        /* dont know how to parse this header */
+        /* don't know how to parse this header */
         return false;
     }
 
@@ -786,7 +791,7 @@ sync_fail:
     /* recover any timestamps from the data that is about to be flushed */
     dirac_RecoverTimestamps( p_dec, p_sys->i_offset );
 
-    /* flush everything upto the start of the DU */
+    /* flush everything up to the start of the DU */
     block_SkipBytes( &p_sys->bytestream, p_sys->i_offset );
     block_BytestreamFlush( &p_sys->bytestream );
     p_sys->i_offset = 0;
@@ -1033,7 +1038,7 @@ static block_t *dirac_BuildEncapsulationUnit( decoder_t *p_dec, block_t *p_block
  *
  * Returns:
  *  0: everything ok
- *  1: EOS occured, please flush and reset
+ *  1: EOS occurred, please flush and reset
  *  2: picture number discontinuity, please flush and reset
  */
 static int dirac_TimeGenPush( decoder_t *p_dec, block_t *p_block_in )
@@ -1258,7 +1263,7 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
     block_t *p_output = NULL;
     block_t **pp_output = &p_output;
 
-    /* extract all the dated packets from the head of the ouput queue */
+    /* extract all the dated packets from the head of the output queue */
     /* explicitly nondated packets repeat the previous timestamps to
      * stop vlc discarding them */
     while( (p_block = p_sys->p_outqueue) )
@@ -1365,7 +1370,7 @@ static int Open( vlc_object_t *p_this )
     p_sys->i_dts_last_out = p_sys->i_pts_last_out = VLC_TS_INVALID;
 
     p_sys->i_state = NOT_SYNCED;
-    p_sys->bytestream = block_BytestreamInit();
+    block_BytestreamInit( &p_sys->bytestream );
 
     p_sys->pp_outqueue_last = &p_sys->p_outqueue;
     p_sys->pp_eu_last = &p_sys->p_eu;

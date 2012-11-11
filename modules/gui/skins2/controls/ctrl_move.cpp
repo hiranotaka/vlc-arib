@@ -66,9 +66,9 @@ bool CtrlMove::mouseOver( int x, int y ) const
 }
 
 
-void CtrlMove::draw( OSGraphics &rImage, int xDest, int yDest )
+void CtrlMove::draw( OSGraphics &rImage, int xDest, int yDest, int w, int h )
 {
-    m_rCtrl.draw( rImage, xDest, yDest );
+    m_rCtrl.draw( rImage, xDest, yDest, w, h );
 }
 
 
@@ -77,6 +77,13 @@ void CtrlMove::setLayout( GenericLayout *pLayout, const Position &rPosition )
     CtrlGeneric::setLayout( pLayout, rPosition );
     // Set the layout of the decorated control as well
     m_rCtrl.setLayout( pLayout, rPosition );
+}
+
+
+void CtrlMove::unsetLayout( )
+{
+    m_rCtrl.unsetLayout();
+    CtrlGeneric::unsetLayout();
 }
 
 

@@ -1,24 +1,24 @@
 /*****************************************************************************
  * update_crypto.c: DSA/SHA1 related functions used for updating
  *****************************************************************************
- * Copyright © 2008-2009 the VideoLAN team
+ * Copyright © 2008-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Rafaël Carré <funman@videolanorg>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either release 2 of the License, or
  * (at your option) any later release.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /**
@@ -42,7 +42,7 @@
 #include "vlc_common.h"
 #include <vlc_stream.h>
 #include <vlc_strings.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 
 #include "update.h"
 
@@ -55,7 +55,7 @@
 #define packet_header_len( c ) ( ( c & 0x03 ) + 1 ) /* number of bytes in a packet header */
 
 
-static inline int scalar_number( uint8_t *p, int header_len )
+static inline int scalar_number( const uint8_t *p, int header_len )
 {
     assert( header_len == 1 || header_len == 2 || header_len == 4 );
 
@@ -73,13 +73,23 @@ static inline int scalar_number( uint8_t *p, int header_len )
 /* number of data bytes in a MPI */
 #define mpi_len( mpi ) ( ( scalar_number( mpi, 2 ) + 7 ) / 8 )
 
+#define READ_MPI(n, bits) do { \
+    if( i_read + 2 > i_packet_len ) \
+        goto error; \
+    int len = mpi_len( p_buf ); \
+    if( len > (bits)/8 || i_read + 2 + len > i_packet_len ) \
+        goto error; \
+    len += 2; \
+    memcpy( n, p_buf, len ); \
+    p_buf += len; i_read += len; \
+    } while(0)
 
 /*
  * fill a public_key_packet_t structure from public key packet data
  * verify that it is a version 4 public key packet, using DSA
  */
-static int parse_public_key_packet( public_key_packet_t *p_key, uint8_t *p_buf,
-                                    size_t i_packet_len )
+static int parse_public_key_packet( public_key_packet_t *p_key,
+                                    const uint8_t *p_buf, size_t i_packet_len )
 {
 
     if( i_packet_len > 418 || i_packet_len < 6 )
@@ -98,64 +108,23 @@ static int parse_public_key_packet( public_key_packet_t *p_key, uint8_t *p_buf,
     if( p_key->algo != PUBLIC_KEY_ALGO_DSA )
         return VLC_EGENERIC;
 
-    /* read p */
-    if( i_read + 2 > i_packet_len )
-        return VLC_EGENERIC;
-
-    int i_p_len = mpi_len( p_buf );
-
-    if( i_p_len > 128 || i_read + 2 + i_p_len > i_packet_len )
-        return VLC_EGENERIC;
-
-    memcpy( p_key->p, p_buf, 2+i_p_len );
-    p_buf += 2+i_p_len; i_read += 2+i_p_len;
-
-    /* read q */
-    if( i_read + 2 > i_packet_len )
-        return VLC_EGENERIC;
-
-    int i_q_len = mpi_len( p_buf );
-
-    if( i_q_len > 20 || i_read+2+i_q_len > i_packet_len )
-        return VLC_EGENERIC;
-
-    memcpy( p_key->q, p_buf, 2+i_q_len );
-    p_buf += 2+i_q_len; i_read += 2+i_q_len;
-
-    /* read g */
-    if( i_read + 2 > i_packet_len )
-        return VLC_EGENERIC;
-
-    int i_g_len = mpi_len( p_buf );
-
-    if( i_g_len > 128 || i_read+2+i_g_len > i_packet_len )
-        return VLC_EGENERIC;
-
-    memcpy( p_key->g, p_buf, 2+i_g_len );
-    p_buf += 2+i_g_len; i_read += 2+i_g_len;
-
-    /* read y */
-    if( i_read + 2 > i_packet_len )
-        return VLC_EGENERIC;
-
-    int i_y_len = mpi_len( p_buf );
-
-
-    if( i_y_len > 128 || i_read+2+i_y_len > i_packet_len )
-        return VLC_EGENERIC;
-
-    memcpy( p_key->y, p_buf, 2+i_y_len );
-    i_read += 2+i_y_len;
+    READ_MPI(p_key->p, 1024);
+    READ_MPI(p_key->q, 160);
+    READ_MPI(p_key->g, 1024);
+    READ_MPI(p_key->y, 1024);
 
     if( i_read != i_packet_len ) /* some extra data eh ? */
         return VLC_EGENERIC;
 
     return VLC_SUCCESS;
+
+error:
+    return VLC_EGENERIC;
 }
 
 
 static size_t parse_signature_v3_packet( signature_packet_t *p_sig,
-                                      uint8_t *p_buf, size_t i_sig_len )
+                                      const uint8_t *p_buf, size_t i_sig_len )
 {
     size_t i_read = 1; /* we already read the version byte */
 
@@ -192,7 +161,7 @@ static size_t parse_signature_v3_packet( signature_packet_t *p_sig,
  * verify that it was used with a DSA public key, using SHA-1 digest
  */
 static size_t parse_signature_v4_packet( signature_packet_t *p_sig,
-                                      uint8_t *p_buf, size_t i_sig_len )
+                                      const uint8_t *p_buf, size_t i_sig_len )
 {
     size_t i_read = 1; /* we already read the version byte */
 
@@ -288,9 +257,9 @@ static size_t parse_signature_v4_packet( signature_packet_t *p_sig,
 
 
 static int parse_signature_packet( signature_packet_t *p_sig,
-                                   uint8_t *p_buf, size_t i_sig_len )
+                                   const uint8_t *p_buf, size_t i_packet_len )
 {
-    if( !i_sig_len ) /* 1st sanity check, we need at least the version */
+    if( !i_packet_len ) /* 1st sanity check, we need at least the version */
         return VLC_EGENERIC;
 
     p_sig->version = *p_buf++;
@@ -299,12 +268,12 @@ static int parse_signature_packet( signature_packet_t *p_sig,
     switch( p_sig->version )
     {
         case 3:
-            i_read = parse_signature_v3_packet( p_sig, p_buf, i_sig_len );
+            i_read = parse_signature_v3_packet( p_sig, p_buf, i_packet_len );
             break;
         case 4:
             p_sig->specific.v4.hashed_data = NULL;
             p_sig->specific.v4.unhashed_data = NULL;
-            i_read = parse_signature_v4_packet( p_sig, p_buf, i_sig_len );
+            i_read = parse_signature_v4_packet( p_sig, p_buf, i_packet_len );
             break;
         default:
             return VLC_EGENERIC;
@@ -335,30 +304,11 @@ static int parse_signature_packet( signature_packet_t *p_sig,
     p_buf--; /* rewind to the version byte */
     p_buf += i_read;
 
-    if( i_read + 2 > i_sig_len )
-        goto error;
+    READ_MPI(p_sig->r, 160);
+    READ_MPI(p_sig->s, 160);
 
-    size_t i_r_len = mpi_len( p_buf ); i_read += 2;
-    if( i_read + i_r_len > i_sig_len || i_r_len > 20 )
-        goto error;
-
-    memcpy( p_sig->r, p_buf, 2 + i_r_len );
-    p_buf += 2 + i_r_len;
-    i_read += i_r_len;
-
-    if( i_read + 2 > i_sig_len )
-        goto error;
-
-    size_t i_s_len = mpi_len( p_buf ); i_read += 2;
-    if( i_read + i_s_len > i_sig_len || i_s_len > 20 )
-        goto error;
-
-    memcpy( p_sig->s, p_buf, 2 + i_s_len );
-    p_buf += 2 + i_s_len;
-    i_read += i_s_len;
-
-    assert( i_read == i_sig_len );
-    if( i_read < i_sig_len ) /* some extra data, hm ? */
+    assert( i_read == i_packet_len );
+    if( i_read < i_packet_len ) /* some extra data, hm ? */
         goto error;
 
     return VLC_SUCCESS;
@@ -404,10 +354,10 @@ static long crc_octets( uint8_t *octets, size_t len )
  * Transform an armored document in binary format
  * Used on public keys and signatures
  */
-static int pgp_unarmor( char *p_ibuf, size_t i_ibuf_len,
+static int pgp_unarmor( const char *p_ibuf, size_t i_ibuf_len,
                         uint8_t *p_obuf, size_t i_obuf_len )
 {
-    char *p_ipos = p_ibuf;
+    const char *p_ipos = p_ibuf;
     uint8_t *p_opos = p_obuf;
     int i_end = 0;
     int i_header_skipped = 0;
@@ -442,10 +392,7 @@ static int pgp_unarmor( char *p_ibuf, size_t i_ibuf_len,
         if( p_ipos[i_line_len - 1] == '=' )
         {
             i_end = 1;
-            p_ipos[i_line_len - 1] = '\0';
         }
-        else
-            p_ipos[i_line_len] = '\0';
 
         p_opos += vlc_b64_decode_binary_to_buffer(  p_opos,
                         p_obuf - p_opos + i_obuf_len, p_ipos );
@@ -538,8 +485,8 @@ problem:
 int parse_public_key( const uint8_t *p_key_data, size_t i_key_len,
                       public_key_t *p_key, const uint8_t *p_sig_issuer )
 {
-    uint8_t *pos = (uint8_t*) p_key_data;
-    uint8_t *max_pos = pos + i_key_len;
+    const uint8_t *pos = p_key_data;
+    const uint8_t *max_pos = pos + i_key_len;
 
     int i_status = 0;
 #define PUBLIC_KEY_FOUND    0x01
@@ -653,41 +600,13 @@ error:
 }
 
 
-/* hash a text
- *   * provided as a buffer (\0 terminated)
- *   * with "\r\n" line endings if it's a text signature, else use UNIX line
- *   *  endings
- */
-static int hash_from_string( const char *psz_string, gcry_md_hd_t hd,
-        bool text_signature )
-{
-    while( *psz_string )
-    {
-        size_t i_len = strcspn( psz_string, "\r\n" );
-        if( !i_len )
-            break;
-
-        gcry_md_write( hd, psz_string, i_len );
-        if( text_signature )
-            gcry_md_putc( hd, '\r' );
-        gcry_md_putc( hd, '\n' );
-
-        psz_string += i_len;
-        while( *psz_string == '\r' || *psz_string == '\n' )
-            psz_string++;
-    }
-
-    return 0;
-}
-
-
 /* hash a binary file */
 static int hash_from_binary_file( const char *psz_file, gcry_md_hd_t hd )
 {
     uint8_t buffer[4096];
     size_t i_read;
 
-    FILE *f = utf8_fopen( psz_file, "r" );
+    FILE *f = vlc_fopen( psz_file, "r" );
     if( !f )
         return -1;
 
@@ -754,11 +673,26 @@ uint8_t *hash_sha1_from_text( const char *psz_string,
     if( gcry_md_open( &hd, GCRY_MD_SHA1, 0 ) )
         return NULL;
 
-    if( hash_from_string( psz_string, hd, p_sig->type == TEXT_SIGNATURE ) < 0 )
+    if( p_sig->type == TEXT_SIGNATURE )
+    while( *psz_string )
     {
-        gcry_md_close( hd );
-        return NULL;
+        size_t i_len = strcspn( psz_string, "\r\n" );
+
+        if( i_len )
+        {
+            gcry_md_write( hd, psz_string, i_len );
+            psz_string += i_len;
+        }
+        gcry_md_putc( hd, '\r' );
+        gcry_md_putc( hd, '\n' );
+
+        if( *psz_string == '\r' )
+            psz_string++;
+        if( *psz_string == '\n' )
+            psz_string++;
     }
+    else
+        gcry_md_write( hd, psz_string, strlen( psz_string ) );
 
     return hash_finish( hd, p_sig );
 }
@@ -847,6 +781,7 @@ uint8_t *hash_sha1_from_public_key( public_key_t *p_pkey )
         p_hash[0] != p_pkey->sig.hash_verification[0] ||
         p_hash[1] != p_pkey->sig.hash_verification[1] )
     {
+        free(p_hash);
         return NULL;
     }
 

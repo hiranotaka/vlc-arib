@@ -1,7 +1,7 @@
 /*****************************************************************************
  * fspanel.m: MacOS X full screen panel
  *****************************************************************************
- * Copyright (C) 2006-2008 the VideoLAN team
+ * Copyright (C) 2006-2012 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jérôme Decoodt <djc at videolan dot org>
@@ -11,7 +11,7 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -26,10 +26,11 @@
  * Preamble
  *****************************************************************************/
 #import "intf.h"
-#import "controls.h"
-#import "vout.h"
+#import "CoreInteraction.h"
+#import "MainWindow.h"
 #import "misc.h"
 #import "fspanel.h"
+#import "CompatibilityFixes.h"
 
 @interface VLCFSPanel ()
 - (void)hideMouse;
@@ -40,20 +41,21 @@
  *****************************************************************************/
 @implementation VLCFSPanel
 /* We override this initializer so we can set the NSBorderlessWindowMask styleMask, and set a few other important settings */
-- (id)initWithContentRect:(NSRect)contentRect 
-                styleMask:(NSUInteger)aStyle 
-                  backing:(NSBackingStoreType)bufferingType 
+- (id)initWithContentRect:(NSRect)contentRect
+                styleMask:(NSUInteger)aStyle
+                  backing:(NSBackingStoreType)bufferingType
                     defer:(BOOL)flag
 {
     id win = [super initWithContentRect:contentRect styleMask:NSTexturedBackgroundWindowMask backing:bufferingType defer:flag];
     [win setOpaque:NO];
     [win setHasShadow: NO];
     [win setBackgroundColor:[NSColor clearColor]];
-    
+    if (!OSX_SNOW_LEOPARD)
+        [win setCollectionBehavior: NSWindowCollectionBehaviorFullScreenAuxiliary];
+
     /* let the window sit on top of everything else and start out completely transparent */
     [win setLevel:NSModalPanelWindowLevel];
     i_device = 0;
-    [win center];
     hideAgainTimer = fadeTimer = nil;
     [self setNonActive:nil];
     return win;
@@ -68,14 +70,16 @@
         [self mouseEntered:NULL];
     if (!isInside)
         [self mouseExited:NULL];
-    
+
+    [self center];
+
     /* get a notification if VLC isn't the active app anymore */
     [[NSNotificationCenter defaultCenter]
     addObserver: self
        selector: @selector(setNonActive:)
            name: NSApplicationDidResignActiveNotification
          object: NSApp];
-    
+
     /* get a notification if VLC is the active app again */
     [[NSNotificationCenter defaultCenter]
     addObserver: self
@@ -84,10 +88,10 @@
          object: NSApp];
 }
 
-/* Windows created with NSBorderlessWindowMask normally can't be key, but we want ours to be */
+/* make sure that we don't become key, since we can't handle hotkeys */
 - (BOOL)canBecomeKeyWindow
 {
-    return YES;
+    return NO;
 }
 
 - (BOOL)mouseDownCanMoveWindow
@@ -99,11 +103,14 @@
 {
     [[NSNotificationCenter defaultCenter] removeObserver: self];
 
-    if( hideAgainTimer )
-    {
+    if(hideAgainTimer) {
         [hideAgainTimer invalidate];
         [hideAgainTimer release];
     }
+
+    if (o_vout_window)
+        [o_vout_window release];
+
     [self setFadeTimer:nil];
     [super dealloc];
 }
@@ -115,20 +122,17 @@
     NSRect theScreensFrame;
     NSRect theWindowsFrame;
     NSScreen *screen;
-    
+
     /* user-defined screen */
     screen = [NSScreen screenWithDisplayID: (CGDirectDisplayID)i_device];
-    
+
     if (!screen)
-    {
         /* invalid preferences or none specified, using main screen */
         screen = [NSScreen mainScreen];
-    }
 
     theScreensFrame = [screen frame];
-
     theWindowsFrame = [self frame];
-    
+
     theCoordinate.x = (theScreensFrame.size.width - theWindowsFrame.size.width) / 2 + theScreensFrame.origin.x;
     theCoordinate.y = (theScreensFrame.size.height / 3) - theWindowsFrame.size.height + theScreensFrame.origin.y;
     [self setFrameTopLeftPoint: theCoordinate];
@@ -159,16 +163,16 @@
     [[self contentView] setSeekable: b_seekable];
 }
 
-- (void)setVolumeLevel: (float)f_volumeLevel
+- (void)setVolumeLevel: (int)i_volumeLevel
 {
-    [[self contentView] setVolumeLevel: f_volumeLevel];
+    [[self contentView] setVolumeLevel: i_volumeLevel];
 }
 
 - (void)setNonActive:(id)noData
 {
     b_nonActive = YES;
     [self orderOut: self];
-    
+
     /* here's fadeOut, just without visibly fading */
     b_displayed = NO;
     [self setAlphaValue:0.0];
@@ -178,35 +182,26 @@
 
 - (void)setActive:(id)noData
 {
-    if( [[[VLCMain sharedInstance] controls] voutView] != nil )
-    {
-        if( [[[[VLCMain sharedInstance] controls] voutView] isFullscreen] )
-        {
-            b_nonActive = NO;
-            [self fadeIn];
-        }
-    }
+    b_nonActive = NO;
+    [[VLCMain sharedInstance] showFullscreenController];
 }
 
 /* This routine is called repeatedly to fade in the window */
 - (void)focus:(NSTimer *)timer
 {
     /* we need to push ourselves to front if the vout window was closed since our last display */
-    if( b_voutWasUpdated )
-    {
+    if(b_voutWasUpdated) {
         [self orderFront: self];
         b_voutWasUpdated = NO;
     }
 
-    if( [self alphaValue] < 1.0 )
+    if([self alphaValue] < 1.0)
         [self setAlphaValue:[self alphaValue]+0.1];
-    if( [self alphaValue] >= 1.0 )
-    {
+    if([self alphaValue] >= 1.0) {
         b_displayed = YES;
         [self setAlphaValue: 1.0];
         [self setFadeTimer:nil];
-        if( b_fadeQueued )
-        {
+        if(b_fadeQueued) {
             b_fadeQueued=NO;
             [self setFadeTimer:[NSTimer scheduledTimerWithTimeInterval:0.1 target:self selector:@selector(unfocus:) userInfo:NULL repeats:YES]];
         }
@@ -216,29 +211,26 @@
 /* This routine is called repeatedly to hide the window */
 - (void)unfocus:(NSTimer *)timer
 {
-    if( b_keptVisible )
-    {
+    if(b_keptVisible) {
         b_keptVisible = NO;
         b_fadeQueued = NO;
         [self setFadeTimer: NULL];
         [self fadeIn];
         return;
     }
-    if( [self alphaValue] > 0.0 )
+    if([self alphaValue] > 0.0)
         [self setAlphaValue:[self alphaValue]-0.05];
-    if( [self alphaValue] <= 0.05 )
-    {
+    if([self alphaValue] <= 0.05) {
         b_displayed = NO;
         [self setAlphaValue:0.0];
         [self setFadeTimer:nil];
-        if( b_fadeQueued )
-        {
+        if(b_fadeQueued) {
             b_fadeQueued=NO;
             [self setFadeTimer:
-                [NSTimer scheduledTimerWithTimeInterval:0.1 
-                                                 target:self 
-                                               selector:@selector(focus:) 
-                                               userInfo:NULL 
+                [NSTimer scheduledTimerWithTimeInterval:0.1
+                                                 target:self
+                                               selector:@selector(focus:)
+                                               userInfo:NULL
                                                 repeats:YES]];
         }
     }
@@ -247,8 +239,8 @@
 - (void)mouseExited:(NSEvent *)theEvent
 {
     /* give up our focus, so the vout may show us again without letting the user clicking it */
-    if( [[[[VLCMain sharedInstance] controls] voutView] isFullscreen] )
-        [[[[[VLCMain sharedInstance] controls] voutView] window] makeKeyWindow];
+    if (o_vout_window && var_GetBool(pl_Get(VLCIntf), "fullscreen"))
+        [o_vout_window makeKeyWindow];
 }
 
 - (void)hideMouse
@@ -260,20 +252,18 @@
 {
     /* in case that the user don't want us to appear, make sure we hide the mouse */
 
-    if( !config_GetInt( VLCIntf, "macosx-fspanel" ) )
-    {
-        float time = (float)var_CreateGetInteger( VLCIntf, "mouse-hide-timeout" ) / 1000.;
+    if(!config_GetInt(VLCIntf, "macosx-fspanel")) {
+        float time = (float)var_CreateGetInteger(VLCIntf, "mouse-hide-timeout") / 1000.;
         [self setFadeTimer:[NSTimer scheduledTimerWithTimeInterval:time target:self selector:@selector(hideMouse) userInfo:nil repeats:NO]];
         return;
     }
 
-    if( b_nonActive )
+    if(b_nonActive)
         return;
 
     [self orderFront: nil];
-    
-    if( [self alphaValue] < 1.0 || b_displayed != YES )
-    {
+
+    if([self alphaValue] < 1.0 || b_displayed != YES) {
         if (![self fadeTimer])
             [self setFadeTimer:[NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(focus:) userInfo:[NSNumber numberWithShort:1] repeats:YES]];
         else if ([[[self fadeTimer] userInfo] shortValue]==0)
@@ -284,11 +274,10 @@
 
 - (void)fadeOut
 {
-    if( NSPointInRect([NSEvent mouseLocation],[self frame]))
+    if(NSPointInRect([NSEvent mouseLocation],[self frame]))
         return;
 
-    if( ( [self alphaValue] > 0.0 ) )
-    {
+    if(([self alphaValue] > 0.0)) {
         if (![self fadeTimer])
             [self setFadeTimer:[NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(unfocus:) userInfo:[NSNumber numberWithShort:0] repeats:YES]];
         else if ([[[self fadeTimer] userInfo] shortValue]==1)
@@ -301,21 +290,19 @@
 {
     /* this will tell the timer to start over again or to start at all */
     b_keptVisible = YES;
-    
+
     /* get us a valid timer */
-    if(! b_alreadyCounting )
-    {
-        i_timeToKeepVisibleInSec = var_CreateGetInteger( VLCIntf, "mouse-hide-timeout" ) / 500;
-        if( hideAgainTimer )
-        {
+    if(! b_alreadyCounting) {
+        i_timeToKeepVisibleInSec = var_CreateGetInteger(VLCIntf, "mouse-hide-timeout") / 500;
+        if(hideAgainTimer) {
             [hideAgainTimer invalidate];
             [hideAgainTimer autorelease];
         }
         /* released in -autoHide and -dealloc */
         hideAgainTimer = [[NSTimer scheduledTimerWithTimeInterval: 0.5
-                                                          target: self 
+                                                          target: self
                                                         selector: @selector(keepVisible:)
-                                                        userInfo: nil 
+                                                        userInfo: nil
                                                          repeats: YES] retain];
         b_alreadyCounting = YES;
     }
@@ -324,12 +311,11 @@
 - (void)keepVisible:(NSTimer *)timer
 {
     /* if the user triggered an action, start over again */
-    if( b_keptVisible )
+    if(b_keptVisible)
         b_keptVisible = NO;
 
     /* count down until we hide ourselfes again and do so if necessary */
-    if( --i_timeToKeepVisibleInSec < 1 )
-    {
+    if(--i_timeToKeepVisibleInSec < 1) {
         [self hideMouse];
         [self fadeOut];
         [hideAgainTimer invalidate]; /* released in -autoHide and -dealloc */
@@ -364,16 +350,14 @@
     [self setFrameOrigin:point];
 }
 
-- (BOOL)isDisplayed
-{
-    return b_displayed;
-}
-
-- (void)setVoutWasUpdated: (int)i_newdevice;
+- (void)setVoutWasUpdated: (VLCWindow *)o_window
 {
     b_voutWasUpdated = YES;
-    if( i_newdevice != i_device )
-    {
+    if (o_vout_window)
+        [o_vout_window release];
+    o_vout_window = [o_window retain];
+    int i_newdevice = (int)[[o_vout_window screen] displayID];
+    if(i_newdevice != i_device) {
         i_device = i_newdevice;
         [self center];
     }
@@ -385,7 +369,7 @@
  *****************************************************************************/
 @implementation VLCFSPanelView
 
-#define addButton( o_button, imageOff, imageOn, _x, _y, action )                                \
+#define addButton(o_button, imageOff, imageOn, _x, _y, action, AXDesc, ToolTip)               \
     s_rc.origin.x = _x;                                                                         \
     s_rc.origin.y = _y;                                                                         \
     o_button = [[NSButton alloc] initWithFrame: s_rc];                                 \
@@ -398,10 +382,13 @@
     [o_button sizeToFit];                                                                       \
     [o_button setTarget: self];                                                                 \
     [o_button setAction: @selector(action:)];                                                   \
+    [[o_button cell] accessibilitySetOverrideValue:AXDesc forAttribute:NSAccessibilityDescriptionAttribute]; \
+    [[o_button cell] accessibilitySetOverrideValue:ToolTip forAttribute:NSAccessibilityTitleAttribute]; \
+    [o_button setToolTip: ToolTip]; \
     [self addSubview:o_button];
 
-#define addTextfield( o_text, align, font, color, size )                                    \
-    o_text = [[NSTextField alloc] initWithFrame: s_rc];                            \
+#define addTextfield(class, o_text, align, font, color)                                    \
+    o_text = [[class alloc] initWithFrame: s_rc];                            \
     [o_text setDrawsBackground: NO];                                                        \
     [o_text setBordered: NO];                                                               \
     [o_text setEditable: NO];                                                               \
@@ -409,7 +396,7 @@
     [o_text setStringValue: _NS("(no item is being played)")];                                                    \
     [o_text setAlignment: align];                                                           \
     [o_text setTextColor: [NSColor color]];                                                 \
-    [o_text setFont:[NSFont font:[NSFont smallSystemFontSize] - size]];                     \
+    [o_text setFont:[NSFont font:[NSFont smallSystemFontSize]]];                     \
     [self addSubview:o_text];
 
 - (id)initWithFrame:(NSRect)frameRect
@@ -417,20 +404,22 @@
     id view = [super initWithFrame:frameRect];
     fillColor = [[NSColor clearColor] retain];
     NSRect s_rc = [self frame];
-    addButton( o_prev, @"fs_skip_previous" , @"fs_skip_previous_highlight", 174, 15, prev );
-    addButton( o_bwd, @"fs_rewind"        , @"fs_rewind_highlight"       , 211, 14, backward );
-    addButton( o_play, @"fs_play"          , @"fs_play_highlight"         , 267, 10, play );
-    addButton( o_fwd, @"fs_forward"       , @"fs_forward_highlight"      , 313, 14, forward );
-    addButton( o_next, @"fs_skip_next"     , @"fs_skip_next_highlight"    , 365, 15, next );
-    addButton( o_fullscreen, @"fs_exit_fullscreen", @"fs_exit_fullscreen_hightlight", 507, 13, windowAction );
+    addButton(o_prev, @"fs_skip_previous" , @"fs_skip_previous_highlight", 174, 15, prev, _NS("Click to go to the previous playlist item."), _NS("Previous"));
+    addButton(o_bwd, @"fs_rewind"        , @"fs_rewind_highlight"       , 211, 14, backward, _NS("Click and hold to skip backward through the current media."), _NS("Backward"));
+    addButton(o_play, @"fs_play"          , @"fs_play_highlight"         , 267, 10, play, _NS("Click to play or pause the current media."), _NS("Play/Pause"));
+    addButton(o_fwd, @"fs_forward"       , @"fs_forward_highlight"      , 313, 14, forward, _NS("Click and hold to skip forward through the current media."), _NS("Forward"));
+    addButton(o_next, @"fs_skip_next"     , @"fs_skip_next_highlight"    , 365, 15, next, _NS("Click to go to the next playlist item."), _NS("Next"));
+    addButton(o_fullscreen, @"fs_exit_fullscreen", @"fs_exit_fullscreen_hightlight", 507, 13, toggleFullscreen, _NS("Click to exit fullscreen playback."), _NS("Toggle Fullscreen mode"));
 /*
-    addButton( o_button, @"image (off state)", @"image (on state)", 38, 51, something );
+    addButton(o_button, @"image (off state)", @"image (on state)", 38, 51, something, accessibility help string, usual tool tip);
  */
+    [o_fwd setContinuous:YES];
+    [o_bwd setContinuous:YES];
 
     /* time slider */
     s_rc = [self frame];
     s_rc.origin.x = 15;
-    s_rc.origin.y = 53;
+    s_rc.origin.y = 55;
     s_rc.size.width = 518;
     s_rc.size.height = 9;
     o_fs_timeSlider = [[VLCFSTimeSlider alloc] initWithFrame: s_rc];
@@ -440,40 +429,55 @@
     [o_fs_timeSlider setContinuous: YES];
     [o_fs_timeSlider setTarget: self];
     [o_fs_timeSlider setAction: @selector(fsTimeSliderUpdate:)];
+    [[o_fs_volumeSlider cell] accessibilitySetOverrideValue:_NS("Position") forAttribute:NSAccessibilityTitleAttribute];
+    [[o_fs_timeSlider cell] accessibilitySetOverrideValue:_NS("Click and move the mouse while keeping the button pressed to use this slider to change current playback position.") forAttribute:NSAccessibilityDescriptionAttribute];
     [self addSubview: o_fs_timeSlider];
 
     /* volume slider */
     s_rc = [self frame];
     s_rc.origin.x = 26;
-    s_rc.origin.y = 17.5;
+    s_rc.origin.y = 20;
     s_rc.size.width = 95;
     s_rc.size.height = 10;
     o_fs_volumeSlider = [[VLCFSVolumeSlider alloc] initWithFrame: s_rc];
     [o_fs_volumeSlider setMinValue:0];
-    [o_fs_volumeSlider setMaxValue:32];
-    [o_fs_volumeSlider setFloatValue: 0];
+    [o_fs_volumeSlider setMaxValue:AOUT_VOLUME_MAX];
+    [o_fs_volumeSlider setIntValue:AOUT_VOLUME_DEFAULT];
     [o_fs_volumeSlider setContinuous: YES];
     [o_fs_volumeSlider setTarget: self];
     [o_fs_volumeSlider setAction: @selector(fsVolumeSliderUpdate:)];
+    [[o_fs_volumeSlider cell] accessibilitySetOverrideValue:_NS("Volume") forAttribute:NSAccessibilityTitleAttribute];
+    [[o_fs_volumeSlider cell] accessibilitySetOverrideValue:_NS("Click and move the mouse while keeping the button pressed to use this slider to change the volume.") forAttribute:NSAccessibilityDescriptionAttribute];
     [self addSubview: o_fs_volumeSlider];
-    
+
     /* time counter and stream title output fields */
     s_rc = [self frame];
     s_rc.origin.x = 98;
     s_rc.origin.y = 64;
     s_rc.size.width = 352;
     s_rc.size.height = 14;
-    addTextfield( o_streamTitle_txt, NSCenterTextAlignment, systemFontOfSize, whiteColor, 0 );
-    s_rc.origin.x = 486;
+    addTextfield(NSTextField, o_streamTitle_txt, NSCenterTextAlignment, systemFontOfSize, whiteColor);
+    s_rc.origin.x = 471;
     s_rc.origin.y = 64;
-    s_rc.size.width = 50;
-    addTextfield( o_streamPosition_txt, NSRightTextAlignment, systemFontOfSize, whiteColor, 0 );
+    s_rc.size.width = 65;
+    addTextfield(VLCTimeField, o_streamPosition_txt, NSRightTextAlignment, systemFontOfSize, whiteColor);
+
+    o_background_img = [[NSImage imageNamed:@"fs_background"] retain];
+    o_vol_sld_img = [[NSImage imageNamed:@"fs_volume_slider_bar"] retain];
+    o_vol_mute_img = [[NSImage imageNamed:@"fs_volume_mute"] retain];
+    o_vol_max_img = [[NSImage imageNamed:@"fs_volume_max"] retain];
+    o_time_sld_img = [[NSImage imageNamed:@"fs_time_slider"] retain];
 
     return view;
 }
 
 - (void)dealloc
 {
+    [o_background_img release];
+    [o_vol_sld_img release];
+    [o_vol_mute_img release];
+    [o_vol_max_img release];
+    [o_time_sld_img release];
     [o_fs_timeSlider release];
     [o_fs_volumeSlider release];
     [o_prev release];
@@ -517,72 +521,89 @@
     [o_fs_timeSlider setEnabled: b_seekable];
 }
 
-- (void)setVolumeLevel: (float)f_volumeLevel
+- (void)setVolumeLevel: (int)i_volumeLevel
 {
-    [o_fs_volumeSlider setFloatValue: f_volumeLevel];
+    [o_fs_volumeSlider setIntValue: i_volumeLevel];
 }
 
 - (IBAction)play:(id)sender
 {
-    [[[VLCMain sharedInstance] controls] play: sender];
+    [[VLCCoreInteraction sharedInstance] play];
 }
 
 - (IBAction)forward:(id)sender
 {
-    [[[VLCMain sharedInstance] controls] forward: sender];
+    if (([NSDate timeIntervalSinceReferenceDate] - last_fwd_event) > 0.16) {
+        // we just skipped 4 "continous" events, otherwise we are too fast
+        [[VLCCoreInteraction sharedInstance] forwardExtraShort];
+        last_fwd_event = [NSDate timeIntervalSinceReferenceDate];
+    }
 }
 
 - (IBAction)backward:(id)sender
 {
-    [[[VLCMain sharedInstance] controls] backward: sender];
+    if (([NSDate timeIntervalSinceReferenceDate] - last_bwd_event) > 0.16) {
+        // we just skipped 4 "continous" events, otherwise we are too fast
+        [[VLCCoreInteraction sharedInstance] backwardExtraShort];
+        last_bwd_event = [NSDate timeIntervalSinceReferenceDate];
+    }
 }
 
 - (IBAction)prev:(id)sender
 {
-    [[[VLCMain sharedInstance] controls] prev: sender];
+    [[VLCCoreInteraction sharedInstance] previous];
 }
 
 - (IBAction)next:(id)sender
 {
-    [[[VLCMain sharedInstance] controls] next: sender];
+    [[VLCCoreInteraction sharedInstance] next];
 }
 
-- (IBAction)windowAction:(id)sender
+- (IBAction)toggleFullscreen:(id)sender
 {
-    [[[VLCMain sharedInstance] controls] windowAction: sender];
+    [[VLCCoreInteraction sharedInstance] toggleFullscreen];
 }
 
 - (IBAction)fsTimeSliderUpdate:(id)sender
 {
-    [[VLCMain sharedInstance] timesliderUpdate: sender];
+    input_thread_t * p_input;
+    p_input = pl_CurrentInput(VLCIntf);
+    if(p_input != NULL) {
+        vlc_value_t pos;
+
+        pos.f_float = [o_fs_timeSlider floatValue] / 10000.;
+        var_Set(p_input, "position", pos);
+        vlc_object_release(p_input);
+    }
+    [[VLCMain sharedInstance] updatePlaybackPosition];
 }
 
 - (IBAction)fsVolumeSliderUpdate:(id)sender
 {
-    [[[VLCMain sharedInstance] controls] volumeSliderUpdated: sender];
+    [[VLCCoreInteraction sharedInstance] setVolume: [sender intValue]];
 }
 
-#define addImage(image, _x, _y, mode, _width)                                               \
-    img = [NSImage imageNamed:image];                                              \
-    image_rect.size = [img size];                                                           \
+#define addImage(image, _x, _y, mode)                                                       \
+    image_size = [image size];                                                              \
+    image_rect.size = image_size;                                                           \
     image_rect.origin.x = 0;                                                                \
     image_rect.origin.y = 0;                                                                \
     frame.origin.x = _x;                                                                    \
     frame.origin.y = _y;                                                                    \
-    frame.size = [img size];                                                                \
-    if( _width ) frame.size.width = _width;                                                 \
-    [img drawInRect:frame fromRect:image_rect operation:mode fraction:1];
+    frame.size = image_size;                                                                \
+    [image drawInRect:frame fromRect:image_rect operation:mode fraction:1];
 
 - (void)drawRect:(NSRect)rect
 {
     NSRect frame = [self frame];
     NSRect image_rect;
+    NSSize image_size;
     NSImage *img;
-    addImage( @"fs_background", 0, 0, NSCompositeCopy, 0 );
-    addImage( @"fs_volume_slider_bar", 26, 22, NSCompositeSourceOver, 0 );
-    addImage( @"fs_volume_mute", 16, 18, NSCompositeSourceOver, 0 );
-    addImage( @"fs_volume_max", 124, 17, NSCompositeSourceOver, 0 );
-    addImage( @"fs_time_slider", 15, 53, NSCompositeSourceOver, 0);
+    addImage(o_background_img, 0, 0, NSCompositeCopy);
+    addImage(o_vol_sld_img, 26, 23, NSCompositeSourceOver);
+    addImage(o_vol_mute_img, 16, 18, NSCompositeSourceOver);
+    addImage(o_vol_max_img, 124, 18, NSCompositeSourceOver);
+    addImage(o_time_sld_img, 15, 53, NSCompositeSourceOver);
 }
 
 @end
@@ -611,7 +632,7 @@
     NSRectClip(NSZeroRect);
     [super drawRect:rect];
     [[NSGraphicsContext currentContext] restoreGraphicsState];
-    
+
     NSRect knobRect = [[self cell] knobRectFlipped:NO];
     knobRect.origin.y+=7.5;
     [[[NSColor blackColor] colorWithAlphaComponent:0.6] set];
@@ -644,7 +665,7 @@
     NSRectClip(NSZeroRect);
     [super drawRect:rect];
     [[NSGraphicsContext currentContext] restoreGraphicsState];
-    
+
     NSRect knobRect = [[self cell] knobRectFlipped:NO];
     knobRect.origin.y+=6;
     [[[NSColor blackColor] colorWithAlphaComponent:0.6] set];

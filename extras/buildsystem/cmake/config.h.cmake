@@ -77,7 +77,6 @@
 #cmakedefine HAVE_DL_WINDOWS
 #cmakedefine HAVE_DSHOW_H
 #cmakedefine HAVE_DVBPSI_DR_H
-#cmakedefine HAVE_DVBPSI_SDT
 #cmakedefine HAVE_DVDREAD_DVD_READER_H
 #cmakedefine HAVE_DYNAMIC_PLUGINS
 #cmakedefine HAVE_EBML_EBMLVERSION_H
@@ -188,7 +187,6 @@
 #cmakedefine HAVE_MPEG2DEC_MPEG2_H
 #cmakedefine HAVE_MUNMAP
 #cmakedefine HAVE_NANOSLEEP
-#cmakedefine HAVE_NCURSESW
 #cmakedefine HAVE_NETINET_IN_H
 #cmakedefine HAVE_NETINET_UDPLITE_H
 #cmakedefine HAVE_NET_IF_H

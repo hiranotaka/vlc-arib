@@ -25,6 +25,7 @@
 #include "ctrl_button.hpp"
 #include "../events/evt_generic.hpp"
 #include "../src/generic_bitmap.hpp"
+#include "../src/generic_layout.hpp"
 #include "../src/os_factory.hpp"
 #include "../src/os_graphics.hpp"
 #include "../commands/cmd_generic.hpp"
@@ -78,8 +79,26 @@ CtrlButton::CtrlButton( intf_thread_t *pIntf, const GenericBitmap &rBmpUp,
 
 CtrlButton::~CtrlButton()
 {
+    if( m_pImg )
+    {
+        m_pImg->stopAnim();
+        m_pImg->delObserver( this );
+    }
 }
 
+void CtrlButton::setLayout( GenericLayout *pLayout,
+                           const Position &rPosition )
+{
+    CtrlGeneric::setLayout( pLayout, rPosition );
+    m_pLayout->getActiveVar().addObserver( this );
+}
+
+
+void CtrlButton::unsetLayout()
+{
+    m_pLayout->getActiveVar().delObserver( this );
+    CtrlGeneric::unsetLayout();
+}
 
 void CtrlButton::handleEvent( EvtGeneric &rEvent )
 {
@@ -100,18 +119,27 @@ bool CtrlButton::mouseOver( int x, int y ) const
 }
 
 
-void CtrlButton::draw( OSGraphics &rImage, int xDest, int yDest )
+void CtrlButton::draw( OSGraphics &rImage, int xDest, int yDest, int w, int h )
 {
-    if( m_pImg )
+    const Position *pPos = getPosition();
+    rect region( pPos->getLeft(), pPos->getTop(),
+                 pPos->getWidth(), pPos->getHeight() );
+    rect clip( xDest, yDest, w, h );
+    rect inter;
+    if( rect::intersect( region, clip, &inter ) && m_pImg )
     {
         // Draw the current image
-        m_pImg->draw( rImage, xDest, yDest );
+        m_pImg->draw( rImage, inter.x, inter.y, inter.width, inter.height,
+                      inter.x - pPos->getLeft(),
+                      inter.y - pPos->getTop() );
     }
 }
 
-
 void CtrlButton::setImage( AnimBitmap *pImg )
 {
+    if( pImg == m_pImg )
+        return;
+
     AnimBitmap *pOldImg = m_pImg;
     m_pImg = pImg;
 
@@ -133,7 +161,8 @@ void CtrlButton::setImage( AnimBitmap *pImg )
 
 void CtrlButton::onUpdate( Subject<AnimBitmap> &rBitmap, void *arg )
 {
-    notifyLayout();
+    (void)rBitmap;(void)arg;
+    notifyLayout( m_pImg->getWidth(), m_pImg->getHeight() );
 }
 
 
@@ -192,5 +221,21 @@ void CtrlButton::CmdUpHidden::execute()
 void CtrlButton::CmdHiddenUp::execute()
 {
     m_pParent->setImage( &m_pParent->m_imgUp );
+}
+
+void CtrlButton::onUpdate( Subject<VarBool> &rVariable, void *arg  )
+{
+    // restart animation
+    if(     &rVariable == m_pVisible
+        ||  &rVariable == &m_pLayout->getActiveVar()
+      )
+    {
+        if( m_pImg )
+        {
+            m_pImg->stopAnim();
+            m_pImg->startAnim();
+        }
+    }
+    CtrlGeneric::onUpdate( rVariable, arg );
 }
 

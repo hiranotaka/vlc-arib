@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Messages.hpp : Information about a stream
+ * messages.hpp : Information about a stream
  ****************************************************************************
  * Copyright (C) 2006-2007 the VideoLAN team
  * $Id$
@@ -25,6 +25,11 @@
 #define QVLC_MESSAGES_DIALOG_H_ 1
 
 #include "util/qvlcframe.hpp"
+#include "util/singleton.hpp"
+#include "ui/messages_panel.h"
+#include <stdarg.h>
+#include <vlc_atomic.h>
+#include <QMutex>
 
 class QTabWidget;
 class QPushButton;
@@ -34,50 +39,45 @@ class QLabel;
 class QTextEdit;
 class QTreeWidget;
 class QTreeWidgetItem;
+class QLineEdit;
+class MsgEvent;
 
-class MessagesDialog : public QVLCFrame
+class MessagesDialog : public QVLCFrame, public Singleton<MessagesDialog>
 {
-    Q_OBJECT;
-public:
-    static MessagesDialog * getInstance( intf_thread_t *p_intf )
-    {
-        if( !instance)
-            instance = new MessagesDialog( p_intf );
-        return instance;
-    }
-    static void killInstance()
-    {
-        delete instance;
-        instance = NULL;
-    }
-
-
+    Q_OBJECT
 private:
     MessagesDialog( intf_thread_t * );
     virtual ~MessagesDialog();
 
-    static MessagesDialog *instance;
-    QTabWidget *mainTab;
-    QSpinBox *verbosityBox;
-    QLabel *verbosityLabel;
-    QTextEdit *messages;
-    QTreeWidget *modulesTree;
-    QPushButton *clearUpdateButton;
-    QPushButton *saveLogButton;
-    msg_subscription_t *sub;
-    msg_cb_data_t *cbData;
-    static void sinkMessage( msg_cb_data_t *, msg_item_t *, unsigned );
+    Ui::messagesPanelWidget ui;
+    msg_subscription_t sub;
+    static void sinkMessage( void *, msg_item_t *, unsigned );
     void customEvent( QEvent * );
-    void sinkMessage( msg_item_t *item );
+    void sinkMessage( const MsgEvent * );
+    bool matchFilter( const QString& );
+
+    vlc_atomic_t verbosity;
+    static void MsgCallback( void *, int, const msg_item_t *, const char *,
+                             va_list );
 
 private slots:
-    void updateTab( int );
-    void clearOrUpdate();
     bool save();
+    void updateConfig();
+    void changeVerbosity( int );
+    void updateOrClear();
+    void tabChanged( int );
+    void filterMessages();
+
 private:
-    void clear();
-    void updateTree();
     void buildTree( QTreeWidgetItem *, vlc_object_t * );
+
+    friend class    Singleton<MessagesDialog>;
+    QPushButton *updateButton;
+    QMutex messageLocker;
+#ifndef NDEBUG
+    QTreeWidget *pldebugTree;
+    void updatePLTree();
+#endif
 };
 
 #endif

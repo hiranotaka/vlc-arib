@@ -75,11 +75,11 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_INPUT_SCODEC )
     set_callbacks( Open, Close )
 
-    add_integer( "telx-override-page", -1, NULL,
+    add_integer( "telx-override-page", -1,
                  OVERRIDE_PAGE_TEXT, OVERRIDE_PAGE_LONGTEXT, true )
-    add_bool( "telx-ignore-subtitle-flag", false, NULL,
+    add_bool( "telx-ignore-subtitle-flag", false,
               IGNORE_SUB_FLAG_TEXT, IGNORE_SUB_FLAG_LONGTEXT, true )
-    add_bool( "telx-french-workaround", false, NULL,
+    add_bool( "telx-french-workaround", false,
               FRENCH_WORKAROUND_TEXT, FRENCH_WORKAROUND_LONGTEXT, true )
 
 vlc_module_end ()
@@ -685,7 +685,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     strcpy( p_sys->psz_prev_text, psz_text );
 
     /* Create the subpicture unit */
-    p_spu = decoder_NewSubpicture( p_dec );
+    p_spu = decoder_NewSubpicture( p_dec, NULL );
     if( !p_spu )
     {
         msg_Warn( p_dec, "can't get spu buffer" );
@@ -695,7 +695,6 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     /* Create a new subpicture region */
     memset( &fmt, 0, sizeof(video_format_t) );
     fmt.i_chroma = VLC_CODEC_TEXT;
-    fmt.i_aspect = 0;
     fmt.i_width = fmt.i_height = 0;
     fmt.i_x_offset = fmt.i_y_offset = 0;
     p_spu->p_region = subpicture_region_New( &fmt );

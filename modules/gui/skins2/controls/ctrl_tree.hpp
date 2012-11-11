@@ -17,9 +17,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef CTRL_TREE_HPP
@@ -34,122 +34,128 @@ class GenericFont;
 class GenericBitmap;
 
 /// Class for control tree
-class CtrlTree: public CtrlGeneric, public Observer<VarTree, tree_update>,
-    public Observer<VarPercent>
+class CtrlTree: public CtrlGeneric, public Observer<VarTree, tree_update>
 {
-    public:
-        CtrlTree( intf_thread_t *pIntf,
-                  VarTree &rTree,
-                  const GenericFont &rFont,
-                  const GenericBitmap *pBgBitmap,
-                  const GenericBitmap *pItemBitmap,
-                  const GenericBitmap *pOpenBitmap,
-                  const GenericBitmap *pClosedBitmap,
-                  uint32_t fgColor,
-                  uint32_t playColor,
-                  uint32_t bgColor1,
-                  uint32_t bgColor2,
-                  uint32_t selColor,
-                  const UString &rHelp,
-                  VarBool *pVisible,
-                  VarBool *pFlat );
-        virtual ~CtrlTree();
+public:
+    typedef VarTree::IteratorVisible Iterator;
 
-        /// Handle an event on the control
-        virtual void handleEvent( EvtGeneric &rEvent );
+    CtrlTree( intf_thread_t *pIntf,
+              VarTree &rTree,
+              const GenericFont &rFont,
+              const GenericBitmap *pBgBitmap,
+              const GenericBitmap *pItemBitmap,
+              const GenericBitmap *pOpenBitmap,
+              const GenericBitmap *pClosedBitmap,
+              uint32_t fgColor,
+              uint32_t playColor,
+              uint32_t bgColor1,
+              uint32_t bgColor2,
+              uint32_t selColor,
+              const UString &rHelp,
+              VarBool *pVisible,
+              VarBool *pFlat );
+    virtual ~CtrlTree();
 
-        /// Check whether coordinates are inside the control
-        virtual bool mouseOver( int x, int y ) const;
+    /// Handle an event on the control
+    virtual void handleEvent( EvtGeneric &rEvent );
 
-        /// Draw the control on the given graphics
-        virtual void draw( OSGraphics &rImage, int xDest, int yDest );
+    /// Check whether coordinates are inside the control
+    virtual bool mouseOver( int x, int y ) const;
 
-        /// Called when the layout is resized
-        virtual void onResize();
+    /// Draw the control on the given graphics
+    virtual void draw( OSGraphics &rImage, int xDest, int yDest, int w, int h );
 
-        /// Return true if the control can gain the focus
-        virtual bool isFocusable() const { return true; }
+    /// Called when the layout is resized
+    virtual void onResize();
 
-        /// Get the type of control (custom RTTI)
-        virtual string getType() const { return "tree"; }
+    /// Return true if the control can gain the focus
+    virtual bool isFocusable() const { return true; }
 
-        /// Make sure an item is visible
-        /// \param item an iterator to a tree item
-        /// \return true if it changed the position
-        bool ensureVisible( VarTree::Iterator item );
+    /// Return true if the control can be scrollable
+    virtual bool isScrollable() const { return true; }
 
-        /// Make sure an item is visible
-        /// \param itemIndex the absolute index in the tree
-        /// \return true if it changed the position
-        bool ensureVisible( int itemIndex );
+    /// Get the type of control (custom RTTI)
+    virtual string getType() const { return "tree"; }
 
-    private:
-        /// Tree associated to the control
-        VarTree &m_rTree;
-        /// Font
-        const GenericFont &m_rFont;
-        /// Background bitmap
-        const GenericBitmap *m_pBgBitmap;
-        /// Item (leaf) bitmap
-        // (TODO : add different bitmaps for different item types
-        //         like in the wx playlist)
-        const GenericBitmap *m_pItemBitmap;
-        /// Open (expanded) node bitmap
-        const GenericBitmap *m_pOpenBitmap;
-        /// Closed node bitmap
-        const GenericBitmap *m_pClosedBitmap;
-        /// Color of normal test
-        uint32_t m_fgColor;
-        /// Color of the playing item
-        uint32_t m_playColor;
-        /// Background colors, used when no background bitmap is given
-        uint32_t m_bgColor1, m_bgColor2;
-        /// Background of selected items
-        uint32_t m_selColor;
-        /// Pointer on the last selected item in the tree
-        VarTree *m_pLastSelected;
-        /// Image of the control
-        OSGraphics *m_pImage;
-        /// First item in the visible area
-        VarTree::Iterator m_firstPos;
+    /// Make sure an item is visible
+    /// \param item an iterator to a tree item
+    /// \return true if it changed the position
+    bool ensureVisible( const Iterator& it );
 
-        /// Don't move if the position variable is updated
-        bool m_dontMove;
+private:
+    /// Tree associated to the control
+    VarTree &m_rTree;
+    /// Font
+    const GenericFont &m_rFont;
+    /// Background bitmap
+    const GenericBitmap *m_pBgBitmap;
+    /// Item (leaf) bitmap
+    // (TODO : add different bitmaps for different item types
+    //         like in the wx playlist)
+    const GenericBitmap *m_pItemBitmap;
+    /// Open (expanded) node bitmap
+    const GenericBitmap *m_pOpenBitmap;
+    /// Closed node bitmap
+    const GenericBitmap *m_pClosedBitmap;
+    /// scaled bitmap
+    GenericBitmap *m_pScaledBitmap;
+    /// Image of the control
+    OSGraphics *m_pImage;
 
-        /// Do we want to "flaten" the tree ?
-        bool m_flat;
+    /// Color of normal test
+    uint32_t m_fgColor;
+    /// Color of the playing item
+    uint32_t m_playColor;
+    /// Background colors, used when no background bitmap is given
+    uint32_t m_bgColor1, m_bgColor2;
+    /// Background of selected items
+    uint32_t m_selColor;
 
-        /// Method called when the tree variable is modified
-        virtual void onUpdate( Subject<VarTree, tree_update> &rTree ,
-                               tree_update *);
+    /// First item in the visible area
+    Iterator m_firstPos;
+    /// Pointer on the last clicked item in the tree
+    Iterator m_lastClicked;
+    ///
+    Iterator m_itOver;
 
-        // Method called when the position variable of the tree is modified
-        virtual void onUpdate( Subject<VarPercent> &rPercent , void *);
+    /// Do we want to "flaten" the tree ?
+    bool m_flat;
+    /// Number of visible lines
+    float m_capacity;
+    /// flag for item deletion
+    bool m_bRefreshOnDelete;
 
-        /// Called when the position is set
-        virtual void onPositionChange();
+    /// Method called when the tree variable is modified
+    virtual void onUpdate( Subject<VarTree, tree_update> &rTree,
+                           tree_update *);
 
-        /// Compute the number of lines that can be displayed
-        int maxItems();
+    /// Called when the position is set
+    virtual void onPositionChange();
 
-        /// Compute the item's height (depends on fonts and images used)
-        int itemHeight();
+    /// Compute the number of lines that can be displayed
+    float maxItems();
 
-        /// Compute the width of an item's bitmap
-        int itemImageWidth();
+    /// Compute the item's height (depends on fonts and images used)
+    int itemHeight();
 
-        /// Check if the tree must be scrolled
-        void autoScroll();
+    /// Compute the width of an item's bitmap
+    int itemImageWidth();
 
-        /// Draw the image of the control
-        void makeImage();
+    /// Draw the image of the control
+    void makeImage();
 
-        /// Return the n'th displayed item (starting at position 0)
-        /**
-         *  Return m_rTree.end() if such an item cannot be found (n < 0, or
-         *  n too big)
-         */
-        VarTree::Iterator findItemAtPos( int n );
+    /// Return the n'th displayed item (starting at position 0)
+    Iterator findItemAtPos( int n );
+
+    /// return the nearest item
+    Iterator getNearestItem( const Iterator& it );
+
+    /// return whether the item is visible or not
+    bool isItemVisible( const Iterator& it );
+
+    void setSliderFromFirst();
+    Iterator getFirstFromSlider();
+    void setScrollStep();
 };
 
 #endif

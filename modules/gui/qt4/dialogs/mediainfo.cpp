@@ -29,12 +29,13 @@
 #include "dialogs/mediainfo.hpp"
 #include "input_manager.hpp"
 
+#include <vlc_url.h>
+
 #include <QTabWidget>
 #include <QGridLayout>
 #include <QLineEdit>
 #include <QLabel>
-
-MediaInfoDialog *MediaInfoDialog::instance = NULL;
+#include <QPushButton>
 
 /* This Dialog has two main modes:
     - General Mode that shows the current Played item, and the stats
@@ -47,22 +48,27 @@ MediaInfoDialog::MediaInfoDialog( intf_thread_t *_p_intf,
 {
     isMainInputInfo = ( p_item == NULL );
 
-    setWindowTitle( qtr( "Media Information" ) );
+    if ( isMainInputInfo )
+        setWindowTitle( qtr( "Current Media Information" ) );
+    else
+        setWindowTitle( qtr( "Media Information" ) );
     setWindowRole( "vlc-media-info" );
+
+    setWindowFlags( Qt::Window | Qt::CustomizeWindowHint | Qt::WindowCloseButtonHint );
 
     /* TabWidgets and Tabs creation */
     infoTabW = new QTabWidget;
 
     MP = new MetaPanel( infoTabW, p_intf );
-    infoTabW->addTab( MP, qtr( "&General" ) );
-    EMP = new ExtraMetaPanel( infoTabW, p_intf );
-    infoTabW->addTab( EMP, qtr( "&Extra Metadata" ) );
-    IP = new InfoPanel( infoTabW, p_intf );
-    infoTabW->addTab( IP, qtr( "&Codec Details" ) );
+    infoTabW->insertTab( META_PANEL, MP, qtr( "&General" ) );
+    EMP = new ExtraMetaPanel( infoTabW );
+    infoTabW->insertTab( EXTRAMETA_PANEL, EMP, qtr( "&Metadata" ) );
+    IP = new InfoPanel( infoTabW );
+    infoTabW->insertTab( INFO_PANEL, IP, qtr( "Co&dec" ) );
     if( isMainInputInfo )
     {
-        ISP = new InputStatsPanel( infoTabW, p_intf );
-        infoTabW->addTab( ISP, qtr( "&Statistics" ) );
+        ISP = new InputStatsPanel( infoTabW );
+        infoTabW->insertTab( INPUTSTATS_PANEL, ISP, qtr( "S&tatistics" ) );
     }
 
     QGridLayout *layout = new QGridLayout( this );
@@ -74,7 +80,8 @@ MediaInfoDialog::MediaInfoDialog( intf_thread_t *_p_intf,
     closeButton->setDefault( true );
 
     QLabel *uriLabel = new QLabel( qtr( "Location:" ) );
-    QLineEdit *uriLine = new QLineEdit;
+    uriLine = new QLineEdit;
+    uriLine->setReadOnly( true );
 
     layout->addWidget( infoTabW, 0, 0, 1, 8 );
     layout->addWidget( uriLabel, 1, 0, 1, 1 );
@@ -88,7 +95,7 @@ MediaInfoDialog::MediaInfoDialog( intf_thread_t *_p_intf,
     BUTTONACT( saveMetaButton, saveMeta() );
 
     /* Let the MetaData Panel update the URI */
-    CONNECT( MP, uriSet( const QString& ), uriLine, setText( const QString& ) );
+    CONNECT( MP, uriSet( const QString& ), this, updateURI( const QString& ) );
     CONNECT( MP, editing(), saveMetaButton, show() );
 
     /* Display the buttonBar according to the Tab selected */
@@ -102,14 +109,14 @@ MediaInfoDialog::MediaInfoDialog( intf_thread_t *_p_intf,
          * Connects on the various signals of input_Manager
          * For the currently playing element
          **/
-        CONNECT( THEMIM->getIM(), infoChanged( input_item_t* ),
-                 IP, update( input_item_t* ) );
-        CONNECT( THEMIM->getIM(), currentMetaChanged( input_item_t* ),
-                 MP, update( input_item_t* ) );
-        CONNECT( THEMIM->getIM(), currentMetaChanged( input_item_t* ),
-                 EMP, update( input_item_t* ) );
-        CONNECT( THEMIM->getIM(), statisticsUpdated( input_item_t* ),
-                 ISP, update( input_item_t* ) );
+        DCONNECT( THEMIM->getIM(), infoChanged( input_item_t* ),
+                  IP, update( input_item_t* ) );
+        DCONNECT( THEMIM->getIM(), currentMetaChanged( input_item_t* ),
+                  MP, update( input_item_t* ) );
+        DCONNECT( THEMIM->getIM(), currentMetaChanged( input_item_t* ),
+                  EMP, update( input_item_t* ) );
+        DCONNECT( THEMIM->getIM(), statisticsUpdated( input_item_t* ),
+                  ISP, update( input_item_t* ) );
 
         if( THEMIM->getInput() )
             p_item = input_GetItem( THEMIM->getInput() );
@@ -121,15 +128,15 @@ MediaInfoDialog::MediaInfoDialog( intf_thread_t *_p_intf,
     if( p_item )
         updateAllTabs( p_item );
 
-    readSettings( "Mediainfo", QSize( 600 , 480 ) );
+    restoreWidgetPosition( "Mediainfo", QSize( 600 , 480 ) );
 }
 
 MediaInfoDialog::~MediaInfoDialog()
 {
-    writeSettings( "Mediainfo" );
+    saveWidgetPosition( "Mediainfo" );
 }
 
-void MediaInfoDialog::showTab( int i_tab = 0 )
+void MediaInfoDialog::showTab( panel i_tab = META_PANEL )
 {
     infoTabW->setCurrentIndex( i_tab );
     show();
@@ -182,3 +189,19 @@ void MediaInfoDialog::updateButtons( int i_tab )
         saveMetaButton->hide();
 }
 
+void MediaInfoDialog::updateURI( const QString& uri )
+{
+    QString location;
+
+    /* If URI points to a local file, show the path instead of the URI */
+    char *path = make_path( qtu( uri ) );
+    if( path != NULL )
+    {
+        location = qfu( path );
+        free( path );
+    }
+    else
+        location = uri;
+
+    uriLine->setText( location );
+}

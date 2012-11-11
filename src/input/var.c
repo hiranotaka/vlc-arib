@@ -1,24 +1,24 @@
 /*****************************************************************************
  * var.c: object variables for input thread
  *****************************************************************************
- * Copyright (C) 2004-2007 the VideoLAN team
+ * Copyright (C) 2004-2007 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -29,6 +29,8 @@
 #endif
 
 #include <vlc_common.h>
+#include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -86,8 +88,6 @@ static const vlc_input_callback_t p_input_callbacks[] =
 {
     CALLBACK( "state", StateCallback ),
     CALLBACK( "rate", RateCallback ),
-    CALLBACK( "rate-slower", RateCallback ),
-    CALLBACK( "rate-faster", RateCallback ),
     CALLBACK( "position", PositionCallback ),
     CALLBACK( "position-offset", PositionCallback ),
     CALLBACK( "time", TimeCallback ),
@@ -136,13 +136,7 @@ void input_ControlVarInit ( input_thread_t *p_input )
     var_Change( p_input, "state", VLC_VAR_SETVALUE, &val, NULL );
 
     /* Rate */
-    var_Create( p_input, "rate", VLC_VAR_INTEGER );
-    val.i_int = p_input->p->i_rate;
-    var_Change( p_input, "rate", VLC_VAR_SETVALUE, &val, NULL );
-
-    var_Create( p_input, "rate-slower", VLC_VAR_VOID );
-
-    var_Create( p_input, "rate-faster", VLC_VAR_VOID );
+    var_Create( p_input, "rate", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT );
 
     var_Create( p_input, "frame-next", VLC_VAR_VOID );
 
@@ -174,7 +168,7 @@ void input_ControlVarInit ( input_thread_t *p_input )
     var_Change( p_input, "program", VLC_VAR_SETTEXT, &text, NULL );
 
     /* Programs */
-    var_Create( p_input, "programs", VLC_VAR_LIST | VLC_VAR_DOINHERIT );
+    var_Create( p_input, "programs", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
     text.psz_string = _("Programs");
     var_Change( p_input, "programs", VLC_VAR_SETTEXT, &text, NULL );
 
@@ -304,16 +298,26 @@ void input_ControlVarNavigation( input_thread_t *p_input )
         var_AddCallback( p_input, val.psz_string,
                          NavigationCallback, (void *)(intptr_t)i );
 
+        char psz_length[MSTRTIME_MAX_SIZE + sizeof(" []")] = "";
+        if( p_input->p->title[i]->i_length > 0 )
+        {
+            strcpy( psz_length, " [" );
+            secstotimestr( &psz_length[2], p_input->p->title[i]->i_length / CLOCK_FREQ );
+            strcat( psz_length, "]" );
+        }
+
         if( p_input->p->title[i]->psz_name == NULL ||
             *p_input->p->title[i]->psz_name == '\0' )
         {
-            if( asprintf( &text.psz_string, _("Title %i"),
-                      i + p_input->p->i_title_offset ) == -1 )
+            if( asprintf( &text.psz_string, _("Title %i%s"),
+                          i + p_input->p->i_title_offset, psz_length ) == -1 )
                 continue;
         }
         else
         {
-            text.psz_string = strdup( p_input->p->title[i]->psz_name );
+            if( asprintf( &text.psz_string, "%s%s",
+                          p_input->p->title[i]->psz_name, psz_length ) == -1 )
+                continue;
         }
         var_Change( p_input, "navigation", VLC_VAR_ADDCHOICE, &val, &text );
 
@@ -357,7 +361,7 @@ void input_ControlVarNavigation( input_thread_t *p_input )
 void input_ControlVarTitle( input_thread_t *p_input, int i_title )
 {
     input_title_t *t = p_input->p->title[i_title];
-    vlc_value_t val, text;
+    vlc_value_t text;
     int  i;
 
     /* Create/Destroy command variables */
@@ -366,7 +370,7 @@ void input_ControlVarTitle( input_thread_t *p_input, int i_title )
         var_Destroy( p_input, "next-chapter" );
         var_Destroy( p_input, "prev-chapter" );
     }
-    else if( var_Get( p_input, "next-chapter", &val ) != VLC_SUCCESS )
+    else if( var_Type( p_input, "next-chapter" ) == 0 )
     {
         var_Create( p_input, "next-chapter", VLC_VAR_VOID );
         text.psz_string = _("Next chapter");
@@ -383,6 +387,7 @@ void input_ControlVarTitle( input_thread_t *p_input, int i_title )
     var_Change( p_input, "chapter", VLC_VAR_CLEARCHOICES, NULL, NULL );
     for( i = 0; i <  t->i_seekpoint; i++ )
     {
+        vlc_value_t val;
         val.i_int = i;
 
         if( t->seekpoint[i]->psz_name == NULL ||
@@ -430,7 +435,7 @@ void input_ConfigVarInit ( input_thread_t *p_input )
         var_Create( p_input, "sub-track-id",
                     VLC_VAR_INTEGER|VLC_VAR_DOINHERIT );
 
-        var_Create( p_input, "sub-file", VLC_VAR_FILE | VLC_VAR_DOINHERIT );
+        var_Create( p_input, "sub-file", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
         var_Create( p_input, "sub-autodetect-file", VLC_VAR_BOOL |
                     VLC_VAR_DOINHERIT );
         var_Create( p_input, "sub-autodetect-path", VLC_VAR_STRING |
@@ -561,21 +566,11 @@ static int RateCallback( vlc_object_t *p_this, char const *psz_cmd,
                          vlc_value_t oldval, vlc_value_t newval, void *p_data )
 {
     input_thread_t *p_input = (input_thread_t*)p_this;
-    VLC_UNUSED(oldval); VLC_UNUSED(p_data);
+    VLC_UNUSED(oldval); VLC_UNUSED(p_data); VLC_UNUSED(psz_cmd);
 
-    /* Problem with this way: the "rate" variable is update after the input thread do the change */
-    if( !strcmp( psz_cmd, "rate-slower" ) )
-    {
-        input_ControlPush( p_input, INPUT_CONTROL_SET_RATE_SLOWER, NULL );
-    }
-    else if( !strcmp( psz_cmd, "rate-faster" ) )
-    {
-        input_ControlPush( p_input, INPUT_CONTROL_SET_RATE_FASTER, NULL );
-    }
-    else
-    {
-        input_ControlPush( p_input, INPUT_CONTROL_SET_RATE, &newval );
-    }
+    newval.i_int = INPUT_RATE_DEFAULT / newval.f_float;
+    input_ControlPush( p_input, INPUT_CONTROL_SET_RATE, &newval );
+
     return VLC_SUCCESS;
 }
 
@@ -636,6 +631,11 @@ static int TimeCallback( vlc_object_t *p_this, char const *psz_cmd,
 
             val.f_float = (double)newval.i_time/(double)i_length;
             var_Change( p_input, "position", VLC_VAR_SETVALUE, &val, NULL );
+            /*
+             * Notify the intf that a new event has been occurred.
+             * XXX this is a bit hackish but it's the only way to do it now.
+             */
+            var_SetInteger( p_input, "intf-event", INPUT_EVENT_POSITION );
         }
 
         /* */

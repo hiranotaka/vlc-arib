@@ -1,25 +1,25 @@
 /*****************************************************************************
  * sap.c : SAP announce handler
  *****************************************************************************
- * Copyright (C) 2002-2008 the VideoLAN team
+ * Copyright (C) 2002-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Clément Stenac <zorglub@videolan.org>
  *          Rémi Denis-Courmont <rem # videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -35,7 +35,6 @@
 #include <stdlib.h>                                                /* free() */
 #include <stdio.h>                                              /* sprintf() */
 #include <string.h>
-#include <ctype.h>                                  /* tolower(), isxdigit() */
 #include <assert.h>
 
 #include <vlc_sout.h>
@@ -104,8 +103,7 @@ sap_handler_t *SAP_Create (vlc_object_t *p_announce)
 {
     sap_handler_t *p_sap;
 
-    p_sap = vlc_custom_create (p_announce, sizeof (*p_sap),
-                               VLC_OBJECT_GENERIC, "sap sender");
+    p_sap = vlc_custom_create (p_announce, sizeof (*p_sap), "sap sender");
     if (p_sap == NULL)
         return NULL;
 
@@ -172,6 +170,7 @@ static void AddressDestroy (sap_address_t *addr)
  * \param p_this the SAP Handler object
  * \return nothing
  */
+VLC_NORETURN
 static void *RunThread (void *self)
 {
     sap_address_t *addr = self;
@@ -211,7 +210,6 @@ int SAP_Add (sap_handler_t *p_sap, session_descriptor_t *p_session)
 {
     int i;
     char psz_addr[NI_MAXNUMERICHOST];
-    bool b_ipv6 = false, b_ssm = false;
     sap_session_t *p_sap_session;
     mtime_t i_hash;
     union
@@ -243,18 +241,11 @@ int SAP_Add (sap_handler_t *p_sap, session_descriptor_t *p_session)
             memcpy( a6->s6_addr + 2, "\x00\x00\x00\x00\x00\x00"
                    "\x00\x00\x00\x00\x00\x02\x7f\xfe", 14 );
             if( IN6_IS_ADDR_MULTICAST( a6 ) )
-            {
-                /* SSM <=> ff3x::/32 */
-                b_ssm = (U32_AT (a6->s6_addr) & 0xfff0ffff) == 0xff300000;
-
                 /* force flags to zero, preserve scope */
                 a6->s6_addr[1] &= 0xf;
-            }
             else
                 /* Unicast IPv6 - assume global scope */
                 memcpy( a6->s6_addr, "\xff\x0e", 2 );
-
-            b_ipv6 = true;
             break;
         }
 #endif
@@ -280,11 +271,7 @@ int SAP_Add (sap_handler_t *p_sap, session_descriptor_t *p_session)
                 ipv4 = 0;
             else
             /* other addresses => 224.2.127.254 */
-            {
-                /* SSM: 232.0.0.0/8 */
-                b_ssm = (ipv4 & htonl (255 << 24)) == htonl (232 << 24);
                 ipv4 = htonl (0xe0027ffe);
-            }
 
             if( ipv4 == 0 )
             {
@@ -308,7 +295,7 @@ int SAP_Add (sap_handler_t *p_sap, session_descriptor_t *p_session)
 
     if( i )
     {
-        msg_Err( p_sap, "%s", vlc_gai_strerror( i ) );
+        msg_Err( p_sap, "%s", gai_strerror( i ) );
         return VLC_EGENERIC;
     }
 

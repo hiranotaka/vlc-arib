@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Psychedelic.c : Psychedelic video effect plugin for vlc
+ * psychedelic.c : Psychedelic video effect plugin for vlc
  *****************************************************************************
  * Copyright (C) 2000-2006 the VideoLAN team
  * $Id$
@@ -84,6 +84,13 @@ static int Create( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
 
+    const vlc_fourcc_t fourcc = p_filter->fmt_in.video.i_chroma;
+    const vlc_chroma_description_t *p_chroma = vlc_fourcc_GetChromaDescription( fourcc );
+    if( !p_chroma || p_chroma->plane_count != 3 || p_chroma->pixel_size != 1 ) {
+        msg_Err( p_filter, "Unsupported chroma (%4.4s)", (char*)&fourcc );
+        return VLC_EGENERIC;
+    }
+
     /* Allocate structure */
     p_filter->p_sys = malloc( sizeof( filter_sys_t ) );
     if( p_filter->p_sys == NULL )
@@ -157,10 +164,10 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     v = p_filter->p_sys->v;
     for( y = 0; y<p_outpic->p[U_PLANE].i_lines; y++)
     {
-        vlc_memset(
+        memset(
                 p_outpic->p[U_PLANE].p_pixels+y*p_outpic->p[U_PLANE].i_pitch,
                 u, p_outpic->p[U_PLANE].i_pitch );
-        vlc_memset(
+        memset(
                 p_outpic->p[V_PLANE].p_pixels+y*p_outpic->p[V_PLANE].i_pitch,
                 v, p_outpic->p[V_PLANE].i_pitch );
         if( v == 0 && u != 0 )
@@ -174,8 +181,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     }
 
     /* luminance */
-    vlc_memcpy( p_outpic->p[Y_PLANE].p_pixels, p_pic->p[Y_PLANE].p_pixels,
-                p_outpic->p[Y_PLANE].i_lines * p_outpic->p[Y_PLANE].i_pitch );
+    plane_CopyPixels( &p_outpic->p[Y_PLANE], &p_pic->p[Y_PLANE] );
 
     /* image visualization */
     fmt_out = p_filter->fmt_out.video;

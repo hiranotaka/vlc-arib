@@ -33,11 +33,11 @@
 
 #include "ui/equalizer.h"
 #include "ui/video_effects.h"
-#include "ui/v4l2.h"
 
 #include <QTabWidget>
 
 #define BANDS 10
+#define NUM_CP_CTRL 7
 #define NUM_SP_CTRL 5
 
 class QSignalMapper;
@@ -48,21 +48,20 @@ class ExtVideo: public QObject
     friend class ExtendedDialog;
 public:
     ExtVideo( struct intf_thread_t *, QTabWidget * );
-    virtual ~ExtVideo();
     /*void gotoConf( QObject* );*/
 private:
     Ui::ExtVideoWidget ui;
     QSignalMapper* filterMapper;
     intf_thread_t *p_intf;
-    vout_thread_t *p_vout;
     void initComboBoxItems( QObject* );
     void setWidgetValue( QObject* );
-    void ChangeVFiltersString( const char *psz_name, bool b_add );
     void clean();
 private slots:
     void updateFilters();
     void updateFilterOptions();
     void cropChange();
+    void browseLogo();
+    void browseEraseFile();
 };
 
 class ExtV4l2 : public QWidget
@@ -70,14 +69,13 @@ class ExtV4l2 : public QWidget
     Q_OBJECT
 public:
     ExtV4l2( intf_thread_t *, QWidget * );
-    virtual ~ExtV4l2();
 
     virtual void showEvent( QShowEvent *event );
 
 private:
     intf_thread_t *p_intf;
-    Ui::ExtV4l2Widget ui;
     QGroupBox *box;
+    QLabel *help;
 
 private slots:
     void Refresh( void );
@@ -91,21 +89,22 @@ class Equalizer: public QWidget
     friend class ExtendedDialog;
 public:
     Equalizer( intf_thread_t *, QWidget * );
-    virtual ~Equalizer();
     QComboBox *presetsComboBox;
 
     char * createValuesFromPreset( int i_preset );
     void updateUIFromCore();
+    void changeFreqLabels( bool );
 private:
     Ui::EqualizerWidget ui;
     QSlider *bands[BANDS];
     QLabel *band_texts[BANDS];
+    bool b_vlcBands;
 
-    void delCallbacks( aout_instance_t * );
-    void addCallbacks( aout_instance_t * );
+    void delCallbacks( vlc_object_t * );
+    void addCallbacks( vlc_object_t * );
 
     intf_thread_t *p_intf;
-    void clean();
+    void clean() { enable(); }
 private slots:
     void enable(bool);
     void enable();
@@ -113,7 +112,35 @@ private slots:
     void setPreamp();
     void setCoreBands();
     void setCorePreset(int);
-    void updateUISliderValues( int );
+};
+
+class Compressor: public QWidget
+{
+    Q_OBJECT
+public:
+    Compressor( intf_thread_t *, QWidget * );
+
+private:
+    QSlider *compCtrl[NUM_CP_CTRL];
+    QLabel *ctrl_texts[NUM_CP_CTRL];
+    QLabel *ctrl_readout[NUM_CP_CTRL];
+    float controlVars[NUM_CP_CTRL];
+    float oldControlVars[NUM_CP_CTRL];
+
+    QCheckBox *enableCheck;
+
+    intf_thread_t *p_intf;
+
+    void delCallbacks( vlc_object_t * );
+    void addCallbacks( vlc_object_t * );
+
+    void updateSliders(float *);
+    void setValues();
+
+private slots:
+    void enable(bool);
+    void enable();
+    void setInitValues();
 };
 
 class Spatializer: public QWidget
@@ -121,7 +148,6 @@ class Spatializer: public QWidget
     Q_OBJECT
 public:
     Spatializer( intf_thread_t *, QWidget * );
-    virtual ~Spatializer();
 
 private:
     QSlider *spatCtrl[NUM_SP_CTRL];
@@ -132,14 +158,31 @@ private:
 
     QCheckBox *enableCheck;
 
-    void delCallbacks( aout_instance_t * );
-    void addCallbacks( aout_instance_t * );
+    void delCallbacks( vlc_object_t * );
+    void addCallbacks( vlc_object_t * );
     intf_thread_t *p_intf;
+
+    void setValues();
+
 private slots:
     void enable(bool);
     void enable();
-    void setValues(float *);
     void setInitValues();
+};
+
+class SyncWidget : public QWidget
+{
+    Q_OBJECT
+public:
+    SyncWidget( QWidget * );
+    void setValue( double d );
+signals:
+    void valueChanged( double );
+private slots:
+    void valueChangedHandler( double d );
+private:
+    QDoubleSpinBox spinBox;
+    QLabel spinLabel;
 };
 
 class SyncControls : public QWidget
@@ -148,22 +191,28 @@ class SyncControls : public QWidget
     friend class ExtendedDialog;
 public:
     SyncControls( intf_thread_t *, QWidget * );
-    virtual ~SyncControls() {};
+    virtual ~SyncControls();
 private:
     intf_thread_t *p_intf;
-    QDoubleSpinBox *AVSpin;
-    QDoubleSpinBox *subsSpin;
+    SyncWidget *AVSpin;
+    SyncWidget *subsSpin;
     QDoubleSpinBox *subSpeedSpin;
+    QDoubleSpinBox *subDurationSpin;
 
     bool b_userAction;
 
     void clean();
+
+    void initSubsDuration();
+    void subsdelayClean();
+    void subsdelaySetFactor( double );
 public slots:
     void update();
 private slots:
     void advanceAudio( double );
     void advanceSubs( double );
     void adjustSubsSpeed( double );
+    void adjustSubsDuration( double );
 };
 
 #endif

@@ -49,7 +49,7 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_INPUT_DEMUX )
     set_description( N_("VC1 video demuxer" ) )
     set_capability( "demux", 0 )
-    add_float( "vc1-fps", 25.0, NULL, FPS_TEXT, FPS_LONGTEXT, true )
+    add_float( "vc1-fps", 25.0, FPS_TEXT, FPS_LONGTEXT, true )
     set_callbacks( Open, Close )
     add_shortcut( "vc1" )
 vlc_module_end ()
@@ -96,11 +96,15 @@ static int Open( vlc_object_t * p_this )
                  "continuing anyway" );
     }
 
+    p_sys = malloc( sizeof( demux_sys_t ) );
+    if( unlikely(p_sys == NULL) )
+        return VLC_ENOMEM;
+
     p_demux->pf_demux  = Demux;
     p_demux->pf_control= Control;
-    p_demux->p_sys     = p_sys = malloc( sizeof( demux_sys_t ) );
+    p_demux->p_sys     = p_sys;
     p_sys->p_es        = NULL;
-    p_sys->i_dts       = 1;
+    p_sys->i_dts       = 0;
     p_sys->f_fps = var_CreateGetFloat( p_demux, "vc1-fps" );
     if( p_sys->f_fps < 0.001 )
         p_sys->f_fps = 0.0;
@@ -142,8 +146,8 @@ static int Demux( demux_t *p_demux)
         return 0;
 
     /*  */
-    p_block_in->i_dts = 1;
-    p_block_in->i_pts = 1;
+    p_block_in->i_dts = VLC_TS_0;
+    p_block_in->i_pts = VLC_TS_0;
 
     while( (p_block_out = p_sys->p_packetizer->pf_packetize( p_sys->p_packetizer, &p_block_in )) )
     {
@@ -159,9 +163,9 @@ static int Demux( demux_t *p_demux)
                 p_sys->p_es = es_out_Add( p_demux->out, &p_sys->p_packetizer->fmt_out);
             }
 
-            es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_dts );
-            p_block_out->i_dts = p_sys->i_dts;
-            p_block_out->i_pts = p_sys->i_dts;
+            es_out_Control( p_demux->out, ES_OUT_SET_PCR, VLC_TS_0 + p_sys->i_dts );
+            p_block_out->i_dts = VLC_TS_0 + p_sys->i_dts;
+            p_block_out->i_pts = VLC_TS_0 + p_sys->i_dts;
 
             es_out_Send( p_demux->out, p_sys->p_es, p_block_out );
 

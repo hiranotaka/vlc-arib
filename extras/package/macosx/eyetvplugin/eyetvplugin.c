@@ -309,13 +309,9 @@ static long VLCEyeTVPluginPacketsArrived(VLCEyeTVPluginGlobals_t *globals, EyeTV
                             {
                                 if( globals->activePIDs[i].pid == pid )
                                 {
-                                    if( packetBufferSize <= (sizeof(packetBuffer)-sizeof(TransportStreamPacket)) )
-                                    {
-                                        /* copy packet in our buffer */
-                                        memcpy(packetBuffer+packetBufferSize, *packets, sizeof(TransportStreamPacket));
-                                        packetBufferSize += sizeof(TransportStreamPacket);
-                                    }
-                                    else
+                                    memcpy(packetBuffer+packetBufferSize, *packets, sizeof(TransportStreamPacket));
+                                    packetBufferSize += sizeof(TransportStreamPacket);
+                                    if( packetBufferSize > (sizeof(packetBuffer)-sizeof(TransportStreamPacket)) )
                                     {
                                         /* flush buffer to VLC */
                                         ssize_t sent = write(i_vlcSock, packetBuffer, packetBufferSize);
@@ -324,13 +320,14 @@ static long VLCEyeTVPluginPacketsArrived(VLCEyeTVPluginGlobals_t *globals, EyeTV
                                             if( sent == -1 )
                                                 printf("data sending failed (errno=%d)\n", errno);
                                             else
-                                                printf("data sending incomplete (sent=%d)\n", sent);
+                                                printf("data sending incomplete (sent=%zd)\n", sent);
                                             close(i_vlcSock);
                                             i_vlcSock = -1;
                                             return 0;
                                         }
                                         packetBufferSize = 0;
                                     }
+
                                     if( i > 0 )
                                     {
                                        /* if we assume that consecutive packets would have the same PID in most cases,
@@ -373,7 +370,7 @@ static long VLCEyeTVPluginPacketsArrived(VLCEyeTVPluginGlobals_t *globals, EyeTV
                             if( sent == -1 )
                                 printf("data sending failed (errno=%d)\n", errno);
                             else
-                                printf("data sending incomplete (sent=%d)\n", sent);
+                                printf("data sending incomplete (sent=%zd)\n", sent);
                             close(i_vlcSock);
                             i_vlcSock = -1;
                             return 0;
@@ -414,7 +411,7 @@ static long VLCEyeTVPluginServiceChanged(VLCEyeTVPluginGlobals_t *globals,
     
     if( globals ) 
     {
-        printf("DeviceID: %ld, ", deviceID);
+        printf("DeviceID: %ld, ", (long)deviceID);
         printf("HeadendID: %ld, ", headendID);
         printf("TransponderID: %ld, ", transponderID);
         printf("ServiceID: %ld\n\n", serviceID);

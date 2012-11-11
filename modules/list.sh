@@ -19,7 +19,8 @@ i=0
 
 for modfile in `find . -name "Modules.am"`
 do
- for module in `awk '/^SOURCES_/{sub(/SOURCES_/,"",$1); print $1}' "$modfile"`
+ for module in `awk '/^SOURCES_/{sub(/SOURCES_/,"",$1); print $1}' "$modfile"`\
+               `awk '/^lib.*_plugin_la_SOURCES/{sub(/lib/,""); sub(/_plugin_la_SOURCES/,"",$1); print $1}' "$modfile"`
  do
   echo $module >> $TEMPFILE
   if ! grep -q " \* $module:" $LISTFILE
@@ -44,7 +45,7 @@ echo "--------------------------------------"
 
 for module in `awk -F'[ :]' '/ \* /{print $3}' $LISTFILE`
 do
- if ! grep -q $module $TEMPFILE
+ if ! grep -wq $module $TEMPFILE
  then
   i=1
   echo "$module is listed but does not exist"
@@ -65,6 +66,6 @@ grep " \* " $LISTFILE | LC_CTYPE=C sort -c && echo "OK"
 
 
 echo ""
-echo "`cat $TEMPFILE| wc -l` modules listed in Modules.am files"
+echo "`sort -u $TEMPFILE | wc -l` modules listed in Modules.am files"
 
 rm -f $TEMPFILE

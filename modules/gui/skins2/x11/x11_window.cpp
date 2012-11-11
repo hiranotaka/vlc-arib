@@ -28,23 +28,46 @@
 
 #include "../src/generic_window.hpp"
 #include "../src/vlcproc.hpp"
+#include "../src/vout_manager.hpp"
 #include "x11_window.hpp"
 #include "x11_display.hpp"
 #include "x11_graphics.hpp"
 #include "x11_dragdrop.hpp"
 #include "x11_factory.hpp"
 
+#include <assert.h>
+#include <limits.h>
 
 X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
                       X11Display &rDisplay, bool dragDrop, bool playOnDrop,
-                      X11Window *pParentWindow ):
+                      X11Window *pParentWindow, GenericWindow::WindowType_t type ):
     OSWindow( pIntf ), m_rDisplay( rDisplay ), m_pParent( pParentWindow ),
-    m_dragDrop( dragDrop )
+    m_dragDrop( dragDrop ), m_pDropTarget( NULL ), m_type ( type )
 {
     XSetWindowAttributes attr;
     unsigned long valuemask;
+    string name_type;
 
-    if (pParentWindow)
+    if( type == GenericWindow::FullscreenWindow )
+    {
+        m_wnd_parent = DefaultRootWindow( XDISPLAY );
+
+        int i_screen = DefaultScreen( XDISPLAY );
+
+        attr.event_mask = ExposureMask | StructureNotifyMask;
+        attr.background_pixel = BlackPixel( XDISPLAY, i_screen );
+        attr.backing_store = Always;
+        valuemask = CWBackingStore | CWBackPixel | CWEventMask;
+
+        if( NET_WM_STATE_FULLSCREEN == None )
+        {
+            attr.override_redirect = True;
+            valuemask = valuemask | CWOverrideRedirect;
+        }
+
+        name_type = "Fullscreen";
+    }
+    else if( type == GenericWindow::VoutWindow )
     {
         m_wnd_parent = pParentWindow->m_wnd;
 
@@ -54,6 +77,17 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
         attr.backing_store = Always;
         attr.background_pixel = BlackPixel( XDISPLAY, i_screen );
         valuemask = CWBackingStore | CWBackPixel | CWEventMask;
+
+        name_type = "VoutWindow";
+    }
+    else if( type == GenericWindow::FscWindow )
+    {
+        m_wnd_parent = DefaultRootWindow( XDISPLAY );
+
+        attr.event_mask = ExposureMask | StructureNotifyMask;
+        valuemask = CWEventMask;
+
+        name_type = "FscWindow";
     }
     else
     {
@@ -61,10 +95,12 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
 
         attr.event_mask = ExposureMask | StructureNotifyMask;
         valuemask = CWEventMask;
+
+        name_type = "TopWindow";
     }
 
     // Create the window
-    m_wnd = XCreateWindow( XDISPLAY, m_wnd_parent, -10, 0, 1, 1, 0, 0,
+    m_wnd = XCreateWindow( XDISPLAY, m_wnd_parent, -10, 0, 10, 10, 0, 0,
                            InputOutput, CopyFromParent, valuemask, &attr );
 
     // wait for X server to process the previous commands
@@ -77,9 +113,19 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
     }
 
     // Select events received by the window
-    XSelectInput( XDISPLAY, m_wnd, ExposureMask|KeyPressMask|
-                  PointerMotionMask|ButtonPressMask|ButtonReleaseMask|
-                  LeaveWindowMask|FocusChangeMask );
+    long event_mask;
+    if( type == GenericWindow::VoutWindow )
+    {
+        event_mask =  ExposureMask|KeyPressMask|
+                      LeaveWindowMask|FocusChangeMask;
+    }
+    else
+    {
+        event_mask =  ExposureMask|KeyPressMask|
+                      PointerMotionMask|ButtonPressMask|ButtonReleaseMask|
+                      LeaveWindowMask|FocusChangeMask;
+    }
+    XSelectInput( XDISPLAY, m_wnd, event_mask );
 
     // Store a pointer on the generic window in a map
     X11Factory *pFactory = (X11Factory*)X11Factory::instance( getIntf() );
@@ -105,7 +151,7 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
     {
         // Create a Dnd object for this window
         m_pDropTarget = new X11DragDrop( getIntf(), m_rDisplay, m_wnd,
-                                         playOnDrop );
+                                         playOnDrop, &rWindow );
 
         // Register the window as a drop target
         Atom xdndAtom = XInternAtom( XDISPLAY, "XdndAware", False );
@@ -118,10 +164,62 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
     }
 
     // Change the window title
-    XStoreName( XDISPLAY, m_wnd, "VLC" );
+    string name_window = "VLC (" + name_type + ")";
+    XStoreName( XDISPLAY, m_wnd, name_window.c_str() );
 
-    // Associate the window to the main "parent" window
-    XSetTransientForHint( XDISPLAY, m_wnd, m_rDisplay.getMainWindow() );
+    // Set the WM_TRANSIENT_FOR property
+    if( type == GenericWindow::FscWindow )
+    {
+        // Associate the fsc window to the fullscreen window
+        VoutManager* pVoutManager = VoutManager::instance( getIntf() );
+        GenericWindow* pWin = pVoutManager->getVoutMainWindow();
+        Window wnd = (Window) pWin->getOSHandle();
+        XSetTransientForHint( XDISPLAY, m_wnd, wnd );
+    }
+    else
+    {
+        // Associate the regular top-level window to the offscren main window
+        XSetTransientForHint( XDISPLAY, m_wnd, m_rDisplay.getMainWindow() );
+    }
+
+    // initialize Class Hint
+    XClassHint classhint;
+    classhint.res_name = (char*) "vlc";
+    classhint.res_class = (char*) "Vlc";
+    XSetClassHint( XDISPLAY, m_wnd, &classhint );
+
+    // copies WM_HINTS from the main window
+    XWMHints *wm = XGetWMHints( XDISPLAY, m_rDisplay.getMainWindow() );
+    if( wm )
+    {
+        XSetWMHints( XDISPLAY, m_wnd, wm );
+        XFree( wm );
+    }
+
+    // initialize WM_CLIENT_MACHINE
+    char* hostname = NULL;
+    long host_name_max = sysconf( _SC_HOST_NAME_MAX );
+    if( host_name_max <= 0 )
+        host_name_max = _POSIX_HOST_NAME_MAX;
+    hostname = new char[host_name_max];
+    if( hostname && gethostname( hostname, host_name_max ) == 0 )
+    {
+        hostname[host_name_max - 1] = '\0';
+
+        XTextProperty textprop;
+        textprop.value = (unsigned char *) hostname;
+        textprop.encoding = XA_STRING;
+        textprop.format = 8;
+        textprop.nitems = strlen( hostname );
+        XSetWMClientMachine( XDISPLAY, m_wnd, &textprop);
+    }
+    delete[] hostname;
+
+    // initialize EWMH pid
+    pid_t pid = getpid();
+    assert(  NET_WM_PID != None );
+    XChangeProperty( XDISPLAY, m_wnd, NET_WM_PID, XA_CARDINAL, 32,
+                     PropModeReplace, (unsigned char *)&pid, 1 );
 
 }
 
@@ -132,24 +230,22 @@ X11Window::~X11Window()
     pFactory->m_windowMap[m_wnd] = NULL;
     pFactory->m_dndMap[m_wnd] = NULL;
 
-    if( m_dragDrop )
-    {
-        delete m_pDropTarget;
-    }
+    delete m_pDropTarget;
+
     XDestroyWindow( XDISPLAY, m_wnd );
     XSync( XDISPLAY, False );
 }
 
-void X11Window::reparent( void* OSHandle, int x, int y, int w, int h )
+void X11Window::reparent( uint32_t OSHandle, int x, int y, int w, int h )
 {
     // Reparent the window
     Window new_parent =
            OSHandle ? (Window) OSHandle : DefaultRootWindow( XDISPLAY );
 
+    XReparentWindow( XDISPLAY, m_wnd, new_parent, x, y);
     if( w && h )
         XResizeWindow( XDISPLAY, m_wnd, w, h );
 
-    XReparentWindow( XDISPLAY, m_wnd, new_parent, x, y);
     m_wnd_parent = new_parent;
 }
 
@@ -157,7 +253,26 @@ void X11Window::reparent( void* OSHandle, int x, int y, int w, int h )
 void X11Window::show() const
 {
     // Map the window
-    XMapRaised( XDISPLAY, m_wnd );
+    if( m_type == GenericWindow::VoutWindow )
+    {
+       XLowerWindow( XDISPLAY, m_wnd );
+       XMapWindow( XDISPLAY, m_wnd );
+    }
+    else if( m_type == GenericWindow::FullscreenWindow )
+    {
+        XMapRaised( XDISPLAY, m_wnd );
+        setFullscreen();
+        toggleOnTop( true );
+    }
+    else if(  m_type == GenericWindow::FscWindow )
+    {
+        XMapRaised( XDISPLAY, m_wnd );
+        toggleOnTop( true );
+    }
+    else
+    {
+        XMapRaised( XDISPLAY, m_wnd );
+    }
 }
 
 
@@ -166,7 +281,6 @@ void X11Window::hide() const
     // Unmap the window
     XUnmapWindow( XDISPLAY, m_wnd );
 }
-
 
 void X11Window::moveResize( int left, int top, int width, int height ) const
 {
@@ -185,87 +299,87 @@ void X11Window::raise() const
 
 void X11Window::setOpacity( uint8_t value ) const
 {
-    // Sorry, the opacity cannot be changed :)
+    if( NET_WM_WINDOW_OPACITY == None )
+        return;
+
+    if( 255==value )
+        XDeleteProperty(XDISPLAY, m_wnd, NET_WM_WINDOW_OPACITY);
+    else
+    {
+        uint32_t opacity = value * ((uint32_t)-1/255);
+        XChangeProperty(XDISPLAY, m_wnd, NET_WM_WINDOW_OPACITY, XA_CARDINAL, 32,
+                        PropModeReplace, (unsigned char *) &opacity, 1L);
+    }
+    XSync( XDISPLAY, False );
+}
+
+
+void X11Window::setFullscreen( ) const
+{
+    if( NET_WM_STATE_FULLSCREEN != None )
+    {
+        XClientMessageEvent event;
+        memset( &event, 0, sizeof( XClientMessageEvent ) );
+
+        event.type = ClientMessage;
+        event.message_type = NET_WM_STATE;
+        event.display = XDISPLAY;
+        event.window = m_wnd;
+        event.format = 32;
+        event.data.l[ 0 ] = 1;
+        event.data.l[ 1 ] = NET_WM_STATE_FULLSCREEN;
+ 
+        XSendEvent( XDISPLAY,
+                    DefaultRootWindow( XDISPLAY ),
+                    False, SubstructureNotifyMask|SubstructureRedirectMask,
+                    (XEvent*)&event );
+    }
 }
 
 
 void X11Window::toggleOnTop( bool onTop ) const
 {
-    int i_ret, i_format;
-    unsigned long i, i_items, i_bytesafter;
-    Atom net_wm_supported, net_wm_state, net_wm_state_on_top,net_wm_state_above;
-    union { Atom *p_atom; unsigned char *p_char; } p_args;
-
-    p_args.p_atom = NULL;
-
-    net_wm_supported = XInternAtom( XDISPLAY, "_NET_SUPPORTED", False );
-
-    i_ret = XGetWindowProperty( XDISPLAY, DefaultRootWindow( XDISPLAY ),
-                                net_wm_supported,
-                                0, 16384, False, AnyPropertyType,
-                                &net_wm_supported,
-                                &i_format, &i_items, &i_bytesafter,
-                                (unsigned char **)&p_args );
-
-    if( i_ret != Success || i_items == 0 ) return; /* Not supported */
-
-    net_wm_state = XInternAtom( XDISPLAY, "_NET_WM_STATE", False );
-    net_wm_state_on_top = XInternAtom( XDISPLAY, "_NET_WM_STATE_STAYS_ON_TOP",
-                                       False );
-
-    for( i = 0; i < i_items; i++ )
+    if( NET_WM_STAYS_ON_TOP != None )
     {
-        if( p_args.p_atom[i] == net_wm_state_on_top ) break;
-    }
-
-    if( i == i_items )
-    { /* use _NET_WM_STATE_ABOVE if window manager
-       * doesn't handle _NET_WM_STATE_STAYS_ON_TOP */
-
-        net_wm_state_above = XInternAtom( XDISPLAY, "_NET_WM_STATE_ABOVE",
-                                          False);
-        for( i = 0; i < i_items; i++ )
-        {
-            if( p_args.p_atom[i] == net_wm_state_above ) break;
-        }
- 
-        XFree( p_args.p_atom );
-        if( i == i_items )
-            return; /* Not supported */
-
         /* Switch "on top" status */
         XClientMessageEvent event;
         memset( &event, 0, sizeof( XClientMessageEvent ) );
 
         event.type = ClientMessage;
-        event.message_type = net_wm_state;
+        event.message_type = NET_WM_STATE;
         event.display = XDISPLAY;
         event.window = m_wnd;
         event.format = 32;
         event.data.l[ 0 ] = onTop; /* set property */
-        event.data.l[ 1 ] = net_wm_state_above;
+        event.data.l[ 1 ] = NET_WM_STAYS_ON_TOP;
 
         XSendEvent( XDISPLAY, DefaultRootWindow( XDISPLAY ),
-                    False, SubstructureRedirectMask, (XEvent*)&event );
-        return;
+                    False, SubstructureNotifyMask|SubstructureRedirectMask, (XEvent*)&event );
     }
+    else if( NET_WM_STATE_ABOVE != None )
+    {
+        /* Switch "above" state */
+        XClientMessageEvent event;
+        memset( &event, 0, sizeof( XClientMessageEvent ) );
 
-    XFree( p_args.p_atom );
+        event.type = ClientMessage;
+        event.message_type = NET_WM_STATE;
+        event.display = XDISPLAY;
+        event.window = m_wnd;
+        event.format = 32;
+        event.data.l[ 0 ] = onTop; /* set property */
+        event.data.l[ 1 ] = NET_WM_STATE_ABOVE;
 
-    /* Switch "on top" status */
-    XClientMessageEvent event;
-    memset( &event, 0, sizeof( XClientMessageEvent ) );
+        XSendEvent( XDISPLAY, DefaultRootWindow( XDISPLAY ),
+                    False, SubstructureNotifyMask|SubstructureRedirectMask, (XEvent*)&event );
+    }
+}
 
-    event.type = ClientMessage;
-    event.message_type = net_wm_state;
-    event.display = XDISPLAY;
-    event.window = m_wnd;
-    event.format = 32;
-    event.data.l[ 0 ] = onTop; /* set property */
-    event.data.l[ 1 ] = net_wm_state_on_top;
 
-    XSendEvent( XDISPLAY, DefaultRootWindow( XDISPLAY ),
-                False, SubstructureRedirectMask, (XEvent*)&event );
+bool X11Window::invalidateRect( int x, int y, int w, int h ) const
+{
+    XClearArea( XDISPLAY, m_wnd, x, y, w, h, True );
+    return true;
 }
 
 #endif

@@ -1,26 +1,26 @@
 /*****************************************************************************
  * clock.c: Clock/System date convertions, stream management
  *****************************************************************************
- * Copyright (C) 1999-2008 the VideoLAN team
+ * Copyright (C) 1999-2008 VLC authors and VideoLAN
  * Copyright (C) 2008 Laurent Aimar
  * $Id$
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
  *          Laurent Aimar < fenrir _AT_ videolan _DOT_ org >
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -144,10 +144,6 @@ struct input_clock_t
     /* */
     vlc_mutex_t lock;
 
-    /* Reference point */
-    bool          b_has_reference;
-    clock_point_t ref;
-
     /* Last point
      * It is used to detect unexpected stream discontinuities */
     clock_point_t last;
@@ -169,10 +165,18 @@ struct input_clock_t
         unsigned i_index;
     } late;
 
+    /* Reference point */
+    clock_point_t ref;
+    bool          b_has_reference;
+
+    /* External clock drift */
+    mtime_t       i_external_clock;
+    bool          b_has_external_clock;
+
     /* Current modifiers */
+    bool    b_paused;
     int     i_rate;
     mtime_t i_pts_delay;
-    bool    b_paused;
     mtime_t i_pause_date;
 };
 
@@ -193,6 +197,7 @@ input_clock_t *input_clock_New( int i_rate )
     vlc_mutex_init( &cl->lock );
     cl->b_has_reference = false;
     cl->ref = clock_point_Create( VLC_TS_INVALID, VLC_TS_INVALID );
+    cl->b_has_external_clock = false;
 
     cl->last = clock_point_Create( VLC_TS_INVALID, VLC_TS_INVALID );
 
@@ -272,6 +277,7 @@ void input_clock_Update( input_clock_t *cl, vlc_object_t *p_log,
         cl->b_has_reference = true;
         cl->ref = clock_point_Create( i_ck_stream,
                                       __MAX( cl->i_ts_max + CR_MEAN_PTS_GAP, i_ck_system ) );
+        cl->b_has_external_clock = false;
     }
 
     /* Compute the drift between the stream clock and the system clock
@@ -329,6 +335,7 @@ void input_clock_Reset( input_clock_t *cl )
 
     cl->b_has_reference = false;
     cl->ref = clock_point_Create( VLC_TS_INVALID, VLC_TS_INVALID );
+    cl->b_has_external_clock = false;
     cl->i_ts_max = VLC_TS_INVALID;
 
     vlc_mutex_unlock( &cl->lock );
@@ -482,15 +489,41 @@ int input_clock_GetState( input_clock_t *cl,
     return VLC_SUCCESS;
 }
 
-void input_clock_ChangeSystemOrigin( input_clock_t *cl, mtime_t i_system )
+void input_clock_ChangeSystemOrigin( input_clock_t *cl, bool b_absolute, mtime_t i_system )
 {
     vlc_mutex_lock( &cl->lock );
 
     assert( cl->b_has_reference );
-    const mtime_t i_offset = i_system - cl->ref.i_system - ClockGetTsOffset( cl );
+    mtime_t i_offset;
+    if( b_absolute )
+    {
+        i_offset = i_system - cl->ref.i_system - ClockGetTsOffset( cl );
+    }
+    else
+    {
+        if( !cl->b_has_external_clock )
+        {
+            cl->b_has_external_clock = true;
+            cl->i_external_clock     = i_system;
+        }
+        i_offset = i_system - cl->i_external_clock;
+    }
 
     cl->ref.i_system += i_offset;
     cl->last.i_system += i_offset;
+
+    vlc_mutex_unlock( &cl->lock );
+}
+
+void input_clock_GetSystemOrigin( input_clock_t *cl, mtime_t *pi_system, mtime_t *pi_delay )
+{
+    vlc_mutex_lock( &cl->lock );
+
+    assert( cl->b_has_reference );
+
+    *pi_system = cl->ref.i_system;
+    if( pi_delay )
+        *pi_delay  = cl->i_pts_delay;
 
     vlc_mutex_unlock( &cl->lock );
 }

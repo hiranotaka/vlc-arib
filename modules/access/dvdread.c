@@ -46,23 +46,13 @@
 #   include <unistd.h>
 #endif
 
-#include <fcntl.h>
 #include <sys/types.h>
-#include <sys/stat.h>
 
-#ifdef HAVE_DVDREAD_DVD_READER_H
-  #include <dvdread/dvd_reader.h>
-  #include <dvdread/ifo_types.h>
-  #include <dvdread/ifo_read.h>
-  #include <dvdread/nav_read.h>
-  #include <dvdread/nav_print.h>
-#else
-  #include <libdvdread/dvd_reader.h>
-  #include <libdvdread/ifo_types.h>
-  #include <libdvdread/ifo_read.h>
-  #include <libdvdread/nav_read.h>
-  #include <libdvdread/nav_print.h>
-#endif
+#include <dvdread/dvd_reader.h>
+#include <dvdread/ifo_types.h>
+#include <dvdread/ifo_read.h>
+#include <dvdread/nav_read.h>
+#include <dvdread/nav_print.h>
 
 #include <assert.h>
 
@@ -73,31 +63,6 @@
 #define ANGLE_LONGTEXT N_( \
     "Default DVD angle." )
 
-#define CACHING_TEXT N_("Caching value in ms")
-#define CACHING_LONGTEXT N_( \
-    "Caching value for DVDs. " \
-    "This value should be set in milliseconds." )
-
-#define CSSMETHOD_TEXT N_("Method used by libdvdcss for decryption")
-#define CSSMETHOD_LONGTEXT N_( \
-    "Set the method used by libdvdcss for key decryption.\n" \
-    "title: decrypted title key is guessed from the encrypted sectors of " \
-           "the stream. Thus it should work with a file as well as the " \
-           "DVD device. But it sometimes takes much time to decrypt a title " \
-           "key and may even fail. With this method, the key is only checked "\
-           "at the beginning of each title, so it won't work if the key " \
-           "changes in the middle of a title.\n" \
-    "disc: the disc key is first cracked, then all title keys can be " \
-           "decrypted instantly, which allows us to check them often.\n" \
-    "key: the same as \"disc\" if you don't have a file with player keys " \
-           "at compilation time. If you do, the decryption of the disc key " \
-           "will be faster with this method. It is the one that was used by " \
-           "libcss.\n" \
-    "The default method is: key.")
-
-static const char *const psz_css_list[] = { "title", "disc", "key" };
-static const char *const psz_css_list_text[] = { N_("title"), N_("Disc"), N_("Key") };
-
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
@@ -106,17 +71,11 @@ vlc_module_begin ()
     set_description( N_("DVDRead Input (no menu support)") )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
-    add_integer( "dvdread-angle", 1, NULL, ANGLE_TEXT,
+    add_integer( "dvdread-angle", 1, ANGLE_TEXT,
         ANGLE_LONGTEXT, false )
-    add_integer( "dvdread-caching", DEFAULT_PTS_DELAY / 1000, NULL,
-        CACHING_TEXT, CACHING_LONGTEXT, true )
-    add_string( "dvdread-css-method", NULL, NULL, CSSMETHOD_TEXT,
-                CSSMETHOD_LONGTEXT, true )
-        change_string_list( psz_css_list, psz_css_list_text, 0 )
+    add_obsolete_string( "dvdread-css-method" ) /* obsolete since 1.1.0 */
     set_capability( "access_demux", 0 )
-    add_shortcut( "dvd" )
-    add_shortcut( "dvdread" )
-    add_shortcut( "dvdsimple" )
+    add_shortcut( "dvd", "dvdread", "dvdsimple" )
     set_callbacks( Open, Close )
 vlc_module_end ()
 
@@ -172,7 +131,8 @@ struct demux_sys_t
     input_title_t **titles;
 
     /* Video */
-    int i_aspect;
+    int i_sar_num;
+    int i_sar_den;
 
     /* SPU */
     uint32_t clut[16];
@@ -180,7 +140,7 @@ struct demux_sys_t
 
 static int Control   ( demux_t *, int, va_list );
 static int Demux     ( demux_t * );
-static int DemuxBlock( demux_t *, uint8_t *, int );
+static int DemuxBlock( demux_t *, const uint8_t *, int );
 
 static void DemuxTitles( demux_t *, int * );
 static void ESNew( demux_t *, int, int );
@@ -197,62 +157,47 @@ static int Open( vlc_object_t *p_this )
 {
     demux_t      *p_demux = (demux_t*)p_this;
     demux_sys_t  *p_sys;
-    char         *psz_name;
-    char         *psz_dvdcss_env;
-    dvd_reader_t *p_dvdread;
+    char         *psz_file;
     ifo_handle_t *p_vmg_file;
 
-    if( !p_demux->psz_path || !*p_demux->psz_path )
+    if( !p_demux->psz_file || !*p_demux->psz_file )
     {
         /* Only when selected */
-        if( !p_this->b_force ) return VLC_EGENERIC;
+        if( !p_demux->psz_access || !*p_demux->psz_access )
+            return VLC_EGENERIC;
 
-        psz_name = var_CreateGetString( p_this, "dvd" );
-        if( !psz_name )
-        {
-            psz_name = strdup("");
-        }
+        psz_file = var_InheritString( p_this, "dvd" );
     }
     else
-        psz_name = ToLocaleDup( p_demux->psz_path );
+        psz_file = strdup( p_demux->psz_file );
 
-#ifdef WIN32
-    if( psz_name[0] && psz_name[1] == ':' &&
-        psz_name[2] == '\\' && psz_name[3] == '\0' ) psz_name[2] = '\0';
-#endif
-
-    /* Override environment variable DVDCSS_METHOD with config option */
-    psz_dvdcss_env = config_GetPsz( p_demux, "dvdread-css-method" );
-    if( psz_dvdcss_env && *psz_dvdcss_env )
-#ifdef HAVE_SETENV
-        setenv( "DVDCSS_METHOD", psz_dvdcss_env, 1 );
-#else
+#if defined( WIN32 ) || defined( __OS2__ )
+    if( psz_file != NULL )
     {
-        /* FIXME: this create a small memory leak */
-        char *psz_env;
-        psz_env = malloc( strlen("DVDCSS_METHOD=") +
-                          strlen( psz_dvdcss_env ) + 1 );
-        if( !psz_env )
-        {
-            free( psz_dvdcss_env );
-            return VLC_ENOMEM;
-        }
-        sprintf( psz_env, "%s%s", "DVDCSS_METHOD=", psz_dvdcss_env );
-        putenv( psz_env );
+        size_t flen = strlen( psz_file );
+        if( flen > 0 && psz_file[flen - 1] == '\\' )
+            psz_file[flen - 1] = '\0';
     }
+    else
+        psz_file = strdup("");
 #endif
-    free( psz_dvdcss_env );
+    if( unlikely(psz_file == NULL) )
+        return VLC_EGENERIC;
 
     /* Open dvdread */
-    if( !(p_dvdread = DVDOpen( psz_name )) )
+    const char *psz_path = ToLocale( psz_file );
+    dvd_reader_t *p_dvdread = DVDOpen( psz_path );
+
+    LocaleFree( psz_path );
+    if( p_dvdread == NULL )
     {
-        msg_Err( p_demux, "DVDRead cannot open source: %s", psz_name );
+        msg_Err( p_demux, "DVDRead cannot open source: %s", psz_file );
         dialog_Fatal( p_demux, _("Playback failure"),
-                        _("DVDRead could not open the disc \"%s\"."), psz_name );
-        free( psz_name );
+                      _("DVDRead could not open the disc \"%s\"."), psz_file );
+        free( psz_file );
         return VLC_EGENERIC;
     }
-    free( psz_name );
+    free( psz_file );
 
     /* Ifo allocation & initialisation */
     if( !( p_vmg_file = ifoOpen( p_dvdread, 0 ) ) )
@@ -266,7 +211,8 @@ static int Open( vlc_object_t *p_this )
     DEMUX_INIT_COMMON(); p_sys = p_demux->p_sys;
 
     ps_track_init( p_sys->tk );
-    p_sys->i_aspect = -1;
+    p_sys->i_sar_num = 0;
+    p_sys->i_sar_den = 0;
     p_sys->i_title_cur_time = (mtime_t) 0;
     p_sys->i_cell_cur_time = (mtime_t) 0;
     p_sys->i_cell_duration = (mtime_t) 0;
@@ -285,15 +231,11 @@ static int Open( vlc_object_t *p_this )
     DemuxTitles( p_demux, &p_sys->i_angle );
     if( DvdReadSetArea( p_demux, 0, 0, p_sys->i_angle ) != VLC_SUCCESS )
     {
-        Close( p_this );
         msg_Err( p_demux, "DvdReadSetArea(0,0,%i) failed (can't decrypt DVD?)",
                  p_sys->i_angle );
+        Close( p_this );
         return VLC_EGENERIC;
     }
-
-    /* Update default_pts to a suitable value for dvdread access */
-    var_Create( p_demux, "dvdread-caching",
-                VLC_VAR_INTEGER|VLC_VAR_DOINHERIT );
 
     return VLC_SUCCESS;
 }
@@ -316,6 +258,11 @@ static void Close( vlc_object_t *p_this )
             if( tk->es ) es_out_Del( p_demux->out, tk->es );
         }
     }
+
+    /* Free the array of titles */
+    for( int i = 0; i < p_sys->i_titles; i++ )
+        vlc_input_title_Delete( p_sys->titles[i] );
+    TAB_CLEAN( p_sys->i_titles, p_sys->titles );
 
     /* Close libdvdread */
     if( p_sys->p_title ) DVDCloseFile( p_sys->p_title );
@@ -472,7 +419,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
         case DEMUX_GET_PTS_DELAY:
             pi64 = (int64_t*)va_arg( args, int64_t * );
-            *pi64 = (int64_t)var_GetInteger( p_demux, "dvdread-caching" )*1000;
+            *pi64 =
+                INT64_C(1000) * var_InheritInteger( p_demux, "disc-caching" );
             return VLC_SUCCESS;
 
         /* TODO implement others */
@@ -596,27 +544,20 @@ static int Demux( demux_t *p_demux )
 /*****************************************************************************
  * DemuxBlock: demux a given block
  *****************************************************************************/
-static int DemuxBlock( demux_t *p_demux, uint8_t *pkt, int i_pkt )
+static int DemuxBlock( demux_t *p_demux, const uint8_t *p, int len )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
-    uint8_t     *p = pkt;
 
-    while( p && p < &pkt[i_pkt] )
+    while( len > 0 )
     {
-        block_t *p_pkt;
-        int i_size = &pkt[i_pkt] - p;
-
-        if( i_size < 6 )
-            break;
- 
-        i_size = ps_pkt_size( p, i_size );
-        if( i_size <= 0 )
+        int i_size = ps_pkt_size( p, len );
+        if( i_size <= 0 || i_size > len )
         {
             break;
         }
 
         /* Create a block */
-        p_pkt = block_New( p_demux, i_size );
+        block_t *p_pkt = block_New( p_demux, i_size );
         memcpy( p_pkt->p_buffer, p, i_size);
 
         /* Parse it and send it */
@@ -681,6 +622,7 @@ static int DemuxBlock( demux_t *p_demux, uint8_t *pkt, int i_pkt )
         }
 
         p += i_size;
+        len -= i_size;
     }
 
     return VLC_SUCCESS;
@@ -713,19 +655,12 @@ static void ESNew( demux_t *p_demux, int i_id, int i_lang )
     /* Add a new ES */
     if( tk->fmt.i_cat == VIDEO_ES )
     {
-        switch( p_sys->i_aspect )
-        {
-        case 1: tk->fmt.video.i_aspect = VOUT_ASPECT_FACTOR; break;
-        case 2: tk->fmt.video.i_aspect = VOUT_ASPECT_FACTOR * 4 / 3; break;
-        case 3: tk->fmt.video.i_aspect = VOUT_ASPECT_FACTOR * 16 / 9; break;
-        case 4: tk->fmt.video.i_aspect = VOUT_ASPECT_FACTOR * 221 / 10; break;
-        default:
-            tk->fmt.video.i_aspect = 0;
-            break;
-        }
+        tk->fmt.video.i_sar_num = p_sys->i_sar_num;
+        tk->fmt.video.i_sar_den = p_sys->i_sar_den;
     }
     else if( tk->fmt.i_cat == AUDIO_ES )
     {
+#if 0
         int i_audio = -1;
         /* find the audio number PLEASE find another way */
         if( (i_id&0xbdf8) == 0xbd88 )       /* dts */
@@ -744,6 +679,7 @@ static void ESNew( demux_t *p_demux, int i_id, int i_lang )
         {
             i_audio = i_id&0x1f;
         }
+#endif
 
         if( psz_language[0] ) tk->fmt.psz_language = strdup( psz_language );
     }
@@ -906,7 +842,41 @@ static int DvdReadSetArea( demux_t *p_demux, int i_title, int i_chapter,
 
 
         ESNew( p_demux, 0xe0, 0 ); /* Video, FIXME ? */
-        p_sys->i_aspect = p_vts->vtsi_mat->vts_video_attr.display_aspect_ratio;
+        const video_attr_t *p_attr = &p_vts->vtsi_mat->vts_video_attr;
+        int i_video_height = p_attr->video_format != 0 ? 576 : 480;
+        int i_video_width;
+        switch( p_attr->picture_size )
+        {
+        case 0:
+            i_video_width = 720;
+            break;
+        case 1:
+            i_video_width = 704;
+            break;
+        case 2:
+            i_video_width = 352;
+            break;
+        default:
+        case 3:
+            i_video_width = 352;
+            i_video_height /= 2;
+            break;
+        }
+        switch( p_attr->display_aspect_ratio )
+        {
+        case 0:
+            p_sys->i_sar_num = 4 * i_video_height;
+            p_sys->i_sar_den = 3 * i_video_width;
+            break;
+        case 3:
+            p_sys->i_sar_num = 16 * i_video_height;
+            p_sys->i_sar_den =  9 * i_video_width;
+            break;
+        default:
+            p_sys->i_sar_num = 0;
+            p_sys->i_sar_den = 0;
+            break;
+        }
 
 #define audio_control \
     p_sys->p_vts_file->vts_pgcit->pgci_srp[pgc_id-1].pgc->audio_control[i-1]

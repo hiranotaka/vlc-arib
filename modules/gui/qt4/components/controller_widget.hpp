@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Controller_widget.cpp : Controller Widget for the controllers
+ * controller_widget.hpp : Controller Widget for the controllers
  ****************************************************************************
  * Copyright (C) 2006-2008 the VideoLAN team
  * $Id$
@@ -29,12 +29,15 @@
 #endif
 
 #include "qt4.hpp"
+#include "input_manager.hpp"
+#include <vlc_vout.h>                       /* vout_thread_t for aspect ratio combobox */
 
 #include <QWidget>
-#include <QFrame>
 #include <QToolButton>
+#include <QComboBox>
 
 class QLabel;
+class QFrame;
 class QSpinBox;
 class QAbstractSlider;
 
@@ -50,14 +53,42 @@ class PlayButton : public QToolButton
 {
     Q_OBJECT
 private slots:
-    void updateButton( bool );
+    void updateButtonIcons( bool );
+};
+
+class LoopButton : public QToolButton
+{
+    Q_OBJECT
+public slots:
+    void updateButtonIcons( int );
 };
 
 class AtoB_Button : public QToolButton
 {
     Q_OBJECT
 private slots:
-    void setIcons( bool, bool );
+    void updateButtonIcons( bool, bool );
+};
+
+class AspectRatioComboBox : public QComboBox
+{
+    Q_OBJECT
+public:
+    AspectRatioComboBox( intf_thread_t* _p_intf ) : p_intf( _p_intf )
+    {
+        CONNECT( THEMIM->getIM(), voutChanged( bool ),
+                 this, updateRatios() );
+        CONNECT( this, currentIndexChanged( int ),
+                 this, updateAspectRatio( int ) );
+        updateRatios();
+    }
+
+public slots:
+    void updateRatios();
+    void updateAspectRatio( int );
+
+private:
+    intf_thread_t* p_intf;
 };
 
 #define VOLUME_MAX 200
@@ -69,19 +100,31 @@ public:
     SoundWidget( QWidget *parent, intf_thread_t  *_p_i, bool,
                  bool b_special = false );
     virtual ~SoundWidget();
+    void setMuted( bool );
+
+protected:
+    virtual bool eventFilter( QObject *obj, QEvent *e );
 
 private:
     intf_thread_t       *p_intf;
     QLabel              *volMuteLabel;
     QAbstractSlider     *volumeSlider;
     QFrame              *volumeControlWidget;
-    bool                 b_my_volume;
     QMenu               *volumeMenu;
-    virtual bool eventFilter( QObject *obj, QEvent *e );
+
+    bool                b_is_muted;
+    bool                b_ignore_valuechanged;
+
 protected slots:
-    void updateVolume( int );
-    void updateVolume( void );
+    void userUpdateVolume( int );
+    void libUpdateVolume( float );
+    void updateMuteStatus( bool );
+    void refreshLabels( void );
     void showVolumeMenu( QPoint pos );
+    void valueChangedFilter( int );
+
+signals:
+    void valueReallyChanged( int );
 };
 
 #endif

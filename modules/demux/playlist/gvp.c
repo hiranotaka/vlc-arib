@@ -68,7 +68,6 @@ struct demux_sys_t
  * Local prototypes
  *****************************************************************************/
 static int Demux( demux_t *p_demux);
-static int Control( demux_t *p_demux, int i_query, va_list args );
 
 /*****************************************************************************
  * Import_GVP: main import function
@@ -130,6 +129,8 @@ static int Demux( demux_t *p_demux )
     input_item_t *p_input;
 
     input_item_t *p_current_input = GetCurrentItem(p_demux);
+
+    input_item_node_t *p_subitems = input_item_node_Create( p_current_input );
 
     p_sys->p_current_input = p_current_input;
 
@@ -202,15 +203,17 @@ static int Demux( demux_t *p_demux )
     }
     else
     {
-        p_input = input_item_New( p_demux, psz_url, psz_title );
+        p_input = input_item_New( psz_url, psz_title );
 #define SADD_INFO( type, field ) if( field ) { input_item_AddInfo( \
                     p_input, _("Google Video"), type, "%s", field ) ; }
         SADD_INFO( "gvp_version", psz_version );
         SADD_INFO( "docid", psz_docid );
         SADD_INFO( "description", psz_description );
-        input_item_AddSubItem( p_current_input, p_input );
+        input_item_node_AppendItem( p_subitems, p_input );
         vlc_gc_decref( p_input );
     }
+
+    input_item_node_PostAndDelete( p_subitems );
 
     vlc_gc_decref(p_current_input);
 
@@ -221,10 +224,4 @@ static int Demux( demux_t *p_demux )
     free( psz_description );
 
     return 0; /* Needed for correct operation of go back */
-}
-
-static int Control( demux_t *p_demux, int i_query, va_list args )
-{
-    VLC_UNUSED(p_demux); VLC_UNUSED(i_query); VLC_UNUSED(args);
-    return VLC_EGENERIC;
 }

@@ -79,12 +79,6 @@ struct sout_mux_sys_t
     int pi_chan_table[AOUT_CHAN_MAX];
 };
 
-
-static const uint32_t pi_channels_src[] =
-    { AOUT_CHAN_LEFT, AOUT_CHAN_RIGHT,
-      AOUT_CHAN_MIDDLELEFT, AOUT_CHAN_MIDDLERIGHT,
-      AOUT_CHAN_REARLEFT, AOUT_CHAN_REARRIGHT, AOUT_CHAN_REARCENTER,
-      AOUT_CHAN_CENTER, AOUT_CHAN_LFE, 0 };
 static const uint32_t pi_channels_in[] =
     { WAVE_SPEAKER_FRONT_LEFT, WAVE_SPEAKER_FRONT_RIGHT,
       WAVE_SPEAKER_SIDE_LEFT, WAVE_SPEAKER_SIDE_RIGHT,
@@ -164,7 +158,8 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
     GUID subformat_guid = {0, 0, 0x10,{0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71}};
     sout_mux_sys_t *p_sys = p_mux->p_sys;
     WAVEFORMATEX *p_waveformat = &p_sys->waveformat.Format;
-    int i_bytes_per_sample, i_format;
+    int i_bytes_per_sample;
+    uint16_t i_format;
     bool b_ext;
 
     if( p_input->p_fmt->i_cat != AUDIO_ES )
@@ -186,13 +181,9 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
     p_sys->i_channel_mask = 0;
     if( p_input->p_fmt->audio.i_physical_channels )
     {
-        unsigned int i;
- 
-        for( i = 0; i < sizeof(pi_channels_in)/sizeof(uint32_t); i++ )
-        {
-            if( p_input->p_fmt->audio.i_physical_channels & pi_channels_src[i])
+        for( unsigned i = 0; i < pi_vlc_chan_order_wg4[i]; i++ )
+            if( p_input->p_fmt->audio.i_physical_channels & pi_vlc_chan_order_wg4[i])
                 p_sys->i_channel_mask |= pi_channels_in[i];
-        }
 
         p_sys->b_chan_reorder =
             aout_CheckChannelReorder( pi_channels_in, pi_channels_out,
@@ -204,8 +195,7 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
                  p_sys->i_channel_mask, (int)p_sys->b_chan_reorder );
     }
 
-    i_format = p_input->p_fmt->i_codec == VLC_CODEC_FL32 ?
-        WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM;
+    fourcc_to_wf_tag( p_input->p_fmt->i_codec, &i_format );
     b_ext = p_sys->b_ext = p_input->p_fmt->audio.i_channels > 2;
 
     /* Build a WAV header for the output data */

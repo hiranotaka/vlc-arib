@@ -16,9 +16,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef VOUTMANAGER_HPP
@@ -28,12 +28,17 @@
 
 #include <vlc_vout.h>
 #include <vlc_vout_window.h>
+#include <vlc_keys.h>
 #include "../utils/position.hpp"
 #include "../commands/cmd_generic.hpp"
 #include "../controls/ctrl_video.hpp"
+#include "../events/evt_key.hpp"
+#include "../events/evt_scroll.hpp"
+#include "../src/fsc_window.hpp"
 
 class VarBool;
 class GenericWindow;
+class FscWindow;
 
 #include <stdio.h>
 
@@ -41,11 +46,10 @@ class SavedWnd
 {
 public:
     SavedWnd( vout_window_t* pWnd, VoutWindow* pVoutWindow = NULL,
-               CtrlVideo* pCtrlVideo = NULL, int height = 0, int width = 0 ) :
-       pWnd( pWnd ), pVoutWindow( pVoutWindow ), pCtrlVideo( pCtrlVideo ),
-       height( height ), width( width ) {}
-
-    ~SavedWnd() {}
+               CtrlVideo* pCtrlVideo = NULL, int height = -1, int width = -1 )
+            : pWnd( pWnd ), pVoutWindow( pVoutWindow ),
+              pCtrlVideo( pCtrlVideo ), height( height ), width( width ) { }
+    ~SavedWnd() { }
 
     vout_window_t* pWnd;
     VoutWindow *pVoutWindow;
@@ -56,84 +60,111 @@ public:
 
 class VoutMainWindow: public GenericWindow
 {
-    public:
+public:
 
-        VoutMainWindow( intf_thread_t *pIntf, int left = 0, int top = 0 ) :
-                GenericWindow( pIntf, left, top, false, false, NULL )
-        {
-            resize( 10, 10 );
-            move( -50, -50 );
-        }
-        virtual ~VoutMainWindow() {}
+    VoutMainWindow( intf_thread_t *pIntf, int left = 0, int top = 0 ) :
+            GenericWindow( pIntf, left, top, false, false, NULL,
+                           GenericWindow::FullscreenWindow )
+    {
+        resize( 10, 10 );
+        move( -50, -50 );
+    }
+    virtual ~VoutMainWindow() { }
 
+#ifdef WIN32
+
+    virtual void processEvent( EvtKey &rEvtKey )
+    {
+        // Only do the action when the key is down
+        if( rEvtKey.getKeyState() == EvtKey::kDown )
+            var_SetInteger( getIntf()->p_libvlc, "key-pressed",
+                             rEvtKey.getModKey() );
+    }
+
+    virtual void processEvent( EvtScroll &rEvtScroll )
+    {
+        // scroll events sent to core as hotkeys
+        int i_vlck = 0;
+        i_vlck |= rEvtScroll.getMod();
+        i_vlck |= ( rEvtScroll.getDirection() == EvtScroll::kUp ) ?
+                  KEY_MOUSEWHEELUP : KEY_MOUSEWHEELDOWN;
+
+        var_SetInteger( getIntf()->p_libvlc, "key-pressed", i_vlck );
+    }
+
+#endif
 };
 
 
 /// Singleton object handling VLC internal state and playlist
-class VoutManager: public SkinObject
+class VoutManager: public SkinObject, public Observer<VarBool>
 {
-    public:
-        /// Get the instance of VoutManager
-        /// Returns NULL if the initialization of the object failed
-        static VoutManager *instance( intf_thread_t *pIntf );
+public:
+    /// Get the instance of VoutManager
+    /// Returns NULL if the initialization of the object failed
+    static VoutManager *instance( intf_thread_t *pIntf );
 
-        /// Delete the instance of VoutManager
-        static void destroy( intf_thread_t *pIntf );
+    /// Delete the instance of VoutManager
+    static void destroy( intf_thread_t *pIntf );
 
-        /// Accept Wnd
-        void* acceptWnd( vout_window_t* pWnd );
+    /// accept window request (vout window provider)
+    void acceptWnd( vout_window_t *pWnd, int width, int height );
 
-        /// Release Wnd
-        void releaseWnd( vout_window_t* pWnd );
+    // release window (vout window provider)
+    void releaseWnd( vout_window_t *pWnd );
 
-        /// set size Wnd
-        void setSizeWnd( vout_window_t* pWnd, int width, int height );
+    /// set window size (vout window provider)
+    void setSizeWnd( vout_window_t* pWnd, int width, int height );
 
-        /// set fullscreen Wnd
-        void setFullscreenWnd( vout_window_t* pWnd, bool b_fullscreen );
+    /// set fullscreen mode (vout window provider)
+    void setFullscreenWnd( vout_window_t* pWnd, bool b_fullscreen );
 
-        /// Callback to request a vout window
-        static void *getWindow( intf_thread_t *pIntf, vout_window_t *pWnd );
+    // Register Video Controls (when building theme)
+    void registerCtrlVideo( CtrlVideo* p_CtrlVideo );
 
-        // Window provider (release)
-        static void releaseWindow( intf_thread_t *pIntf, vout_window_t *pWnd  );
+    // Register Video Controls (when building theme)
+    void registerFSC( FscWindow* p_Win );
 
-        /// Callback to change a vout window
-        static int controlWindow( struct vout_window_t *pWnd,
-                                  int query, va_list args );
+    // get the fullscreen controller window
+    FscWindow* getFscWindow( ) { return m_pFscWindow; }
 
-        // Register Video Controls (when building theme)
-        void registerCtrlVideo( CtrlVideo* p_CtrlVideo );
+    // save and restore vouts (when changing theme)
+    void saveVoutConfig( );
+    void restoreVoutConfig( bool b_success );
 
-        // save and restore vouts (when changing theme)
-        void saveVoutConfig( );
-        void restoreVoutConfig( bool b_success );
+    // save and restore vouts (when swapping Layout)
+    void discardVout( CtrlVideo* pCtrlVideo );
+    void requestVout( CtrlVideo* pCtrlVideo );
 
-        // save and restore vouts (when swapping Layout)
-        void discardVout( CtrlVideo* pCtrlVideo );
-        void requestVout( CtrlVideo* pCtrlVideo );
+    // get a useable video Control
+    CtrlVideo* getBestCtrlVideo( );
 
-        // get a useable video Control
-        CtrlVideo* getBestCtrlVideo( );
+    // get the VoutMainWindow
+    VoutMainWindow* getVoutMainWindow() { return m_pVoutMainWindow; }
 
-        // get the VoutMainWindow
-        VoutMainWindow* getVoutMainWindow() { return m_pVoutMainWindow; }
+    // test if vout are running
+    bool hasVout() { return ( m_SavedWndVec.size() != 0 ) ; }
 
-        // test if vout are running
-        bool hasVout() { return ( m_SavedWndVec.size() != 0 ) ; }
+    /// called when fullscreen variable changed
+    virtual void onUpdate( Subject<VarBool> &rVariable , void* );
 
-    protected:
-        // Protected because it is a singleton
-        VoutManager( intf_thread_t *pIntf );
-        virtual ~VoutManager();
+    /// reconfigure fullscreen (multiple screens)
+    virtual void configureFullscreen( VoutWindow& rWindow );
 
-    private:
+protected:
+    // Protected because it is a singleton
+    VoutManager( intf_thread_t *pIntf );
+    virtual ~VoutManager();
 
-        vector<CtrlVideo *> m_pCtrlVideoVec;
-        vector<CtrlVideo *> m_pCtrlVideoVecBackup;
-        vector<SavedWnd> m_SavedWndVec;
+private:
 
-        VoutMainWindow* m_pVoutMainWindow;
+    vector<CtrlVideo *> m_pCtrlVideoVec;
+    vector<CtrlVideo *> m_pCtrlVideoVecBackup;
+    vector<SavedWnd> m_SavedWndVec;
+
+    VoutMainWindow* m_pVoutMainWindow;
+
+    FscWindow* m_pFscWindow;
 };
 
 

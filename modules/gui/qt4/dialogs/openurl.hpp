@@ -30,6 +30,7 @@
 
 #include <vlc_common.h>
 #include "util/qvlcframe.hpp"
+#include "util/singleton.hpp"
 
 class ClickLineEdit;
 
@@ -38,23 +39,17 @@ class OpenUrlDialog : public QVLCDialog
     Q_OBJECT
 
 private:
-    OpenUrlDialog( QWidget *, intf_thread_t *, bool bClipboard = true );
     QString lastUrl;
     bool bClipboard, bShouldEnqueue;
     ClickLineEdit *edit;
-
-    static OpenUrlDialog *instance;
 
 private slots:
     void enqueue();
     void play();
 
 public:
+    OpenUrlDialog( intf_thread_t *, bool bClipboard = true );
     virtual ~OpenUrlDialog() {}
-
-    static OpenUrlDialog* getInstance( QWidget *parent,
-                                       intf_thread_t *p_intf,
-                                       bool bClipboard = true );
 
     QString url() const;
     bool shouldEnqueue() const;
@@ -62,6 +57,7 @@ public:
 
 public slots:
     virtual void close() { play(); };
+
 };
 
 #endif

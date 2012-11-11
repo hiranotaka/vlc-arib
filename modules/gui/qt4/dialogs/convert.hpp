@@ -1,5 +1,5 @@
 /*****************************************************************************
- * GotoTime.hpp : GotoTime dialogs
+ * convert.hpp : GotoTime dialogs
  ****************************************************************************
  * Copyright (C) 2007 the VideoLAN team
  * $Id$
@@ -32,7 +32,7 @@ class VLCProfileSelector;
 
 class ConvertDialog : public QVLCDialog
 {
-    Q_OBJECT;
+    Q_OBJECT
 public:
     ConvertDialog( QWidget *, intf_thread_t *, const QString& );
     virtual ~ConvertDialog(){}
@@ -49,6 +49,8 @@ private slots:
     virtual void close();
     virtual void cancel();
     void fileBrowse();
+    void dumpChecked(bool);
+    void setDestinationFileExtension();
 };
 
 #endif

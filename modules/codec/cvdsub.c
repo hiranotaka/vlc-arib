@@ -1,5 +1,5 @@
 /*****************************************************************************
- * cvd.c : CVD Subtitle decoder
+ * cvdsub.c : CVD Subtitle decoder
  *****************************************************************************
  * Copyright (C) 2003, 2004 the VideoLAN team
  * $Id$
@@ -214,7 +214,6 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
 static block_t *Reassemble( decoder_t *p_dec, block_t *p_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    uint8_t *p_buffer;
 
     if( p_block->i_buffer < SPU_HEADER_LEN )
     {
@@ -224,13 +223,11 @@ static block_t *Reassemble( decoder_t *p_dec, block_t *p_block )
         return NULL;
     }
 
-    p_buffer = p_block->p_buffer;
-
     /* From the scant data on the format, there is only only way known
      * to detect the first packet in a subtitle.  The first packet
      * seems to have a valid PTS while later packets for the same
      * image don't. */
-    if( p_sys->i_state == SUBTITLE_BLOCK_EMPTY && p_block->i_pts == 0 )
+    if( p_sys->i_state == SUBTITLE_BLOCK_EMPTY && p_block->i_pts <= VLC_TS_INVALID )
     {
         msg_Warn( p_dec, "first packet expected but no PTS present");
         return NULL;
@@ -500,7 +497,7 @@ static subpicture_t *DecodePacket( decoder_t *p_dec, block_t *p_data )
     int i;
 
     /* Allocate the subpicture internal data. */
-    p_spu = decoder_NewSubpicture( p_dec );
+    p_spu = decoder_NewSubpicture( p_dec, NULL );
     if( !p_spu ) return NULL;
 
     p_spu->i_start = p_data->i_pts;
@@ -510,7 +507,8 @@ static subpicture_t *DecodePacket( decoder_t *p_dec, block_t *p_data )
     /* Create new SPU region */
     memset( &fmt, 0, sizeof(video_format_t) );
     fmt.i_chroma = VLC_CODEC_YUVP;
-    fmt.i_aspect = VOUT_ASPECT_FACTOR;
+    fmt.i_sar_num = 1;
+    fmt.i_sar_den = 1;
     fmt.i_width = fmt.i_visible_width = p_sys->i_width;
     fmt.i_height = fmt.i_visible_height = p_sys->i_height;
     fmt.i_x_offset = fmt.i_y_offset = 0;

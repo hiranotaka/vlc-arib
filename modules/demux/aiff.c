@@ -118,7 +118,7 @@ static int Open( vlc_object_t *p_this )
     /* Fill p_demux field */
     DEMUX_INIT_COMMON(); p_sys = p_demux->p_sys;
     es_format_Init( &p_sys->fmt, UNKNOWN_ES, 0 );
-    p_sys->i_time = 1;
+    p_sys->i_time = 0;
     p_sys->i_ssnd_pos = -1;
 
     for( ;; )
@@ -143,7 +143,8 @@ static int Open( vlc_object_t *p_this )
             p_sys->fmt.audio.i_rate     = GetF80BE( &p_peek[16] );
 
             msg_Dbg( p_demux, "COMM: channels=%d samples_frames=%d bits=%d rate=%d",
-                     GetWBE( &p_peek[8] ), GetDWBE( &p_peek[10] ), GetWBE( &p_peek[14] ), GetF80BE( &p_peek[16] ) );
+                     GetWBE( &p_peek[8] ), GetDWBE( &p_peek[10] ), GetWBE( &p_peek[14] ),
+                     GetF80BE( &p_peek[16] ) );
         }
         else if( !memcmp( p_peek, "SSND", 4 ) )
         {
@@ -181,7 +182,7 @@ static int Open( vlc_object_t *p_this )
     p_sys->i_ssnd_fsize = p_sys->fmt.audio.i_channels *
                           ((p_sys->fmt.audio.i_bitspersample + 7) / 8);
 
-    if( p_sys->i_ssnd_fsize <= 0 )
+    if( p_sys->i_ssnd_fsize <= 0 || p_sys->fmt.audio.i_rate == 0 )
     {
         msg_Err( p_demux, "invalid audio parameters" );
         goto error;
@@ -240,7 +241,7 @@ static int Demux( demux_t *p_demux )
     }
 
     /* Set PCR */
-    es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_time);
+    es_out_Control( p_demux->out, ES_OUT_SET_PCR, VLC_TS_0 + p_sys->i_time);
 
     /* we will read 100ms at once */
     i_read = p_sys->i_ssnd_fsize * ( p_sys->fmt.audio.i_rate / 10 );
@@ -254,7 +255,7 @@ static int Demux( demux_t *p_demux )
     }
 
     p_block->i_dts =
-    p_block->i_pts = p_sys->i_time;
+    p_block->i_pts = VLC_TS_0 + p_sys->i_time;
 
     p_sys->i_time += (int64_t)1000000 *
                      p_block->i_buffer /
@@ -309,7 +310,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 {
                     return VLC_EGENERIC;
                 }
-                p_sys->i_time = 1 + (int64_t)1000000 * i_frame / p_sys->fmt.audio.i_rate;
+                p_sys->i_time = (int64_t)1000000 * i_frame / p_sys->fmt.audio.i_rate;
                 return VLC_SUCCESS;
             }
             return VLC_EGENERIC;

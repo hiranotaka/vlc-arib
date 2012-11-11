@@ -35,6 +35,7 @@
 #include <vlc_image.h>
 
 #include <vlc_filter.h>
+#include <vlc_url.h>
 #include "filter_picture.h"
 
 /*****************************************************************************
@@ -59,19 +60,22 @@ static int EraseCallback( vlc_object_t *, char const *,
 #define POSY_TEXT N_("Y coordinate")
 #define POSY_LONGTEXT N_("Y coordinate of the mask.")
 
+#define ERASE_HELP N_("Remove zones of the video using a picture as mask")
+
 #define CFG_PREFIX "erase-"
 
 vlc_module_begin ()
     set_description( N_("Erase video filter") )
     set_shortname( N_( "Erase" ))
     set_capability( "video filter2", 0 )
+    set_help(ERASE_HELP)
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
-    add_file( CFG_PREFIX "mask", NULL, NULL,
-              MASK_TEXT, MASK_LONGTEXT, false )
-    add_integer( CFG_PREFIX "x", 0, NULL, POSX_TEXT, POSX_LONGTEXT, false )
-    add_integer( CFG_PREFIX "y", 0, NULL, POSY_TEXT, POSY_LONGTEXT, false )
+    add_loadfile( CFG_PREFIX "mask", NULL,
+                  MASK_TEXT, MASK_LONGTEXT, false )
+    add_integer( CFG_PREFIX "x", 0, POSX_TEXT, POSX_LONGTEXT, false )
+    add_integer( CFG_PREFIX "y", 0, POSY_TEXT, POSY_LONGTEXT, false )
 
     add_shortcut( "erase" )
     set_callbacks( Create, Destroy )
@@ -101,8 +105,10 @@ static void LoadMask( filter_t *p_filter, const char *psz_filename )
     memset( &fmt_out, 0, sizeof( video_format_t ) );
     fmt_out.i_chroma = VLC_CODEC_YUVA;
     p_image = image_HandlerCreate( p_filter );
+    char *psz_url = vlc_path2uri( psz_filename, NULL );
     p_filter->p_sys->p_mask =
-        image_ReadUrl( p_image, psz_filename, &fmt_in, &fmt_out );
+        image_ReadUrl( p_image, psz_url, &fmt_in, &fmt_out );
+    free( psz_url );
     if( p_filter->p_sys->p_mask )
     {
         if( p_old_mask )
@@ -139,7 +145,7 @@ static int Create( vlc_object_t *p_this )
             break;
 
         default:
-            msg_Err( p_filter, "Unsupported input chroma (%4s)",
+            msg_Err( p_filter, "Unsupported input chroma (%4.4s)",
                      (char*)&(p_filter->fmt_in.video.i_chroma) );
             return VLC_EGENERIC;
     }
@@ -240,14 +246,11 @@ static void FilterErase( filter_t *p_filter, picture_t *p_inpic,
 
     for( int i_plane = 0; i_plane < p_inpic->i_planes; i_plane++ )
     {
-        const int i_pitch = p_inpic->p[i_plane].i_pitch;
+        const int i_pitch = p_outpic->p[i_plane].i_pitch;
         const int i_2pitch = i_pitch<<1;
         const int i_visible_pitch = p_inpic->p[i_plane].i_visible_pitch;
-        const int i_lines = p_inpic->p[i_plane].i_lines;
         const int i_visible_lines = p_inpic->p[i_plane].i_visible_lines;
 
-        uint8_t *p_inpix = p_inpic->p[i_plane].p_pixels;
-        uint8_t *p_outpix = p_outpic->p[i_plane].p_pixels;
         uint8_t *p_mask = p_sys->p_mask->A_PIXELS;
         int i_x = p_sys->i_x, i_y = p_sys->i_y;
 
@@ -273,10 +276,10 @@ static void FilterErase( filter_t *p_filter, picture_t *p_inpic,
         i_width  = __MIN( i_visible_pitch - i_x, i_width  );
 
         /* Copy original pixel buffer */
-        vlc_memcpy( p_outpix, p_inpix, i_pitch * i_lines );
+        plane_CopyPixels( &p_outpic->p[i_plane], &p_inpic->p[i_plane] );
 
         /* Horizontal linear interpolation of masked areas */
-        p_outpix = p_outpic->p[i_plane].p_pixels + i_y*i_pitch + i_x;
+        uint8_t *p_outpix = p_outpic->p[i_plane].p_pixels + i_y*i_pitch + i_x;
         for( y = 0; y < i_height;
              y++, p_mask += i_mask_pitch, p_outpix += i_pitch )
         {

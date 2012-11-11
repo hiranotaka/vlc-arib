@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Controller.cpp : Controller for the main interface
+ * actions_manager.cpp : Controller for the main interface
  ****************************************************************************
  * Copyright (C) 2006-2008 the VideoLAN team
  * $Id$
@@ -27,13 +27,13 @@
 #endif
 
 #include <vlc_vout.h>
-#include <vlc_aout.h>
 #include <vlc_keys.h>
 
 #include "actions_manager.hpp"
 #include "dialogs_provider.hpp" /* Opening Dialogs */
 #include "input_manager.hpp"
 #include "main_interface.hpp" /* Show playlist */
+#include "components/controller.hpp" /* Toggle FSC controller width */
 
 ActionsManager * ActionsManager::instance = NULL;
 
@@ -80,15 +80,23 @@ void ActionsManager::doAction( int id_action )
         case REVERSE_ACTION:
             THEMIM->getIM()->reverse(); break;
         case SKIP_BACK_ACTION:
-            var_SetInteger( p_intf->p_libvlc, "key-action",
-                    ACTIONID_JUMP_BACKWARD_SHORT );
+            skipBackward();
             break;
         case SKIP_FW_ACTION:
-            var_SetInteger( p_intf->p_libvlc, "key-action",
-                    ACTIONID_JUMP_FORWARD_SHORT );
+            skipForward();
             break;
         case QUIT_ACTION:
             THEDP->quit();  break;
+        case RANDOM_ACTION:
+            THEMIM->toggleRandom(); break;
+        case INFO_ACTION:
+            THEDP->mediaInfoDialog(); break;
+        case OPEN_SUB_ACTION:
+            THEDP->loadSubtitlesFile(); break;
+        case FULLWIDTH_ACTION:
+            if( p_intf->p_sys->p_mi )
+                p_intf->p_sys->p_mi->getFullscreenControllerWidget()->toggleFullwidth();
+            break;
         default:
             msg_Dbg( p_intf, "Action: %i", id_action );
             break;
@@ -114,10 +122,11 @@ void ActionsManager::play()
  */
 void ActionsManager::fullscreen()
 {
+    bool fs = var_ToggleBool( THEPL, "fullscreen" );
     vout_thread_t *p_vout = THEMIM->getVout();
     if( p_vout)
     {
-        var_ToggleBool( p_vout, "fullscreen" );
+        var_SetBool( p_vout, "fullscreen", fs );
         vlc_object_release( p_vout );
     }
 }
@@ -154,7 +163,7 @@ void ActionsManager::record()
 
             char *psz = input_item_GetURI( p_item );
             if( psz )
-                THEDP->streamingDialog( NULL, psz, true );
+                THEDP->streamingDialog( NULL, qfu(psz), true );
         }
 #endif
     }
@@ -169,16 +178,30 @@ void ActionsManager::frame()
 
 void ActionsManager::toggleMuteAudio()
 {
-     aout_ToggleMute( THEPL, NULL );
+     playlist_MuteToggle( THEPL );
 }
 
 void ActionsManager::AudioUp()
 {
-    aout_VolumeUp( THEPL, 1, NULL );
+    playlist_VolumeUp( THEPL, 1, NULL );
 }
 
 void ActionsManager::AudioDown()
 {
-    aout_VolumeDown( THEPL, 1, NULL );
+    playlist_VolumeDown( THEPL, 1, NULL );
+}
+
+void ActionsManager::skipForward()
+{
+    input_thread_t *p_input = THEMIM->getInput();
+    if( p_input )
+        THEMIM->getIM()->jumpFwd();
+}
+
+void ActionsManager::skipBackward()
+{
+    input_thread_t *p_input = THEMIM->getInput();
+    if( p_input )
+        THEMIM->getIM()->jumpBwd();
 }
 

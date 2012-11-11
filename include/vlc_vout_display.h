@@ -6,19 +6,19 @@
  *
  * Authors: Laurent Aimar <fenrir _AT_ videolan _DOT_ org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef VLC_VOUT_DISPLAY_H
@@ -31,6 +31,7 @@
 
 #include <vlc_es.h>
 #include <vlc_picture.h>
+#include <vlc_picture_pool.h>
 #include <vlc_subpicture.h>
 #include <vlc_keys.h>
 #include <vlc_mouse.h>
@@ -59,6 +60,16 @@ typedef enum
     VOUT_DISPLAY_ALIGN_TOP,
     VOUT_DISPLAY_ALIGN_BOTTOM,
 } vout_display_align_t;
+
+/**
+ * Window management state.
+ */
+enum {
+    VOUT_WINDOW_STATE_NORMAL=0,
+    VOUT_WINDOW_STATE_ABOVE=1,
+    VOUT_WINDOW_STATE_BELOW=2,
+    VOUT_WINDOW_STACK_MASK=3,
+};
 
 /**
  * Initial/Current configuration for a vout_display_t
@@ -102,17 +113,19 @@ typedef struct {
 } vout_display_cfg_t;
 
 /**
- * Informations from a vout_display_t to configure
+ * Information from a vout_display_t to configure
  * the core behaviour.
  *
- * By default they are all false.
+ * By default they are all false or NULL.
  *
  */
 typedef struct {
-    bool is_slow;            /* The picture memory has slow read/write */
-    bool has_double_click;    /* Is double-click generated */
-    bool has_hide_mouse;      /* Is mouse automatically hidden */
-    bool has_pictures_invalid;/* Will VOUT_DISPLAY_EVENT_PICTURES_INVALID be used */
+    bool is_slow;                           /* The picture memory has slow read/write */
+    bool has_double_click;                  /* Is double-click generated */
+    bool has_hide_mouse;                    /* Is mouse automatically hidden */
+    bool has_pictures_invalid;              /* Will VOUT_DISPLAY_EVENT_PICTURES_INVALID be used */
+    bool has_event_thread;                  /* Will events (key at least) be emitted using an independent thread */
+    const vlc_fourcc_t *subpicture_chromas; /* List of supported chromas for subpicture rendering. */
 } vout_display_info_t;
 
 /**
@@ -132,9 +145,9 @@ enum {
      * being requested (externally or by VOUT_DISPLAY_EVENT_FULLSCREEN */
     VOUT_DISPLAY_CHANGE_FULLSCREEN,     /* const vout_display_cfg_t *p_cfg */
 
-    /* Ask the module to acknowledge/refuse the "always on top" state change
-     * after being requested externally or by VOUT_DISPLAY_EVENT_ON_TOP */
-    VOUT_DISPLAY_CHANGE_ON_TOP,         /* int b_on_top */
+    /* Ask the module to acknowledge/refuse the window management state change
+     * after being requested externally or by VOUT_DISPLAY_WINDOW_STATE */
+    VOUT_DISPLAY_CHANGE_WINDOW_STATE,         /* unsigned state */
 
     /* Ask the module to acknowledge/refuse the display size change requested
      * (externally or by VOUT_DISPLAY_EVENT_DISPLAY_SIZE) */
@@ -157,6 +170,9 @@ enum {
      * The cropping requested is stored by video_format_t::i_x/y_offset and
      * video_format_t::i_visible_width/height */
     VOUT_DISPLAY_CHANGE_SOURCE_CROP,   /* const video_format_t *p_source */
+
+    /* Ask an opengl interface if available. */
+    VOUT_DISPLAY_GET_OPENGL,           /* vlc_gl_t ** */
 };
 
 /**
@@ -173,7 +189,7 @@ enum {
     VOUT_DISPLAY_EVENT_PICTURES_INVALID,    /* The buffer are now invalid and need to be changed */
 
     VOUT_DISPLAY_EVENT_FULLSCREEN,
-    VOUT_DISPLAY_EVENT_ON_TOP,
+    VOUT_DISPLAY_EVENT_WINDOW_STATE,
 
     VOUT_DISPLAY_EVENT_DISPLAY_SIZE,        /* The display size need to change : int i_width, int i_height, bool is_fullscreen */
 
@@ -210,7 +226,7 @@ struct vout_display_owner_t {
      *
      * You can send it at any time i.e. from any vout_display_t functions or
      * from another thread.
-     * Becarefull, it does not ensure correct serialization if it is used
+     * Be careful, it does not ensure correct serialization if it is used
      * from multiple threads.
      */
     void            (*event)(vout_display_t *, int, va_list);
@@ -256,40 +272,46 @@ struct vout_display_t {
      */
     video_format_t fmt;
 
-    /* Informations
+    /* Information
      *
      * You can only set them in the open function.
      */
     vout_display_info_t info;
 
-    /* Return a new picture_t (mandatory).
+    /* Return a pointer over the current picture_pool_t* (mandatory).
      *
+     * For performance reasons, it is best to provide at least count
+     * pictures but it is not mandatory.
      * You can return NULL when you cannot/do not want to allocate
-     * more pictures.
-     * If you want to create a pool of reusable pictures, you can
-     * use a picture_pool_t.
+     * pictures.
+     * The vout display module keeps the ownership of the pool and can
+     * destroy it only when closing or on invalid pictures control.
      */
-    picture_t *(*get)(vout_display_t *);
+    picture_pool_t *(*pool)(vout_display_t *, unsigned count);
 
-    /* Prepare a picture for display (optional).
+    /* Prepare a picture and an optional subpicture for display (optional).
      *
      * It is called before the next pf_display call to provide as much
-     * time as possible to prepare the given picture for display.
+     * time as possible to prepare the given picture and the subpicture
+     * for display.
      * You are guaranted that pf_display will always be called and using
-     * the exact same picture_t.
-     * You cannot change the pixel content of the picture_t.
+     * the exact same picture_t and subpicture_t.
+     * You cannot change the pixel content of the picture_t or of the
+     * subpicture_t.
      */
-    void       (*prepare)(vout_display_t *, picture_t *);
+    void       (*prepare)(vout_display_t *, picture_t *, subpicture_t *);
 
-    /* Display a picture (mandatory).
+    /* Display a picture and an optional subpicture (mandatory).
      *
-     * The picture must be displayed as soon as possible.
-     * You cannot change the pixel content of the picture_t.
+     * The picture and the optional subpicture must be displayed as soon as
+     * possible.
+     * You cannot change the pixel content of the picture_t or of the
+     * subpicture_t.
      *
-     * This function gives away the ownership of the picture, so you must
-     * release it as soon as possible.
+     * This function gives away the ownership of the picture and of the
+     * subpicture, so you must release them as soon as possible.
      */
-    void       (*display)(vout_display_t *, picture_t *);
+    void       (*display)(vout_display_t *, picture_t *, subpicture_t *);
 
     /* Control on the module (mandatory) */
     int        (*control)(vout_display_t *, int, va_list);
@@ -338,9 +360,9 @@ static inline void vout_display_SendEventFullscreen(vout_display_t *vd, bool is_
 {
     vout_display_SendEvent(vd, VOUT_DISPLAY_EVENT_FULLSCREEN, is_fullscreen);
 }
-static inline void vout_display_SendEventOnTop(vout_display_t *vd, bool is_on_top)
+static inline void vout_display_SendWindowState(vout_display_t *vd, unsigned state)
 {
-    vout_display_SendEvent(vd, VOUT_DISPLAY_EVENT_ON_TOP, is_on_top);
+    vout_display_SendEvent(vd, VOUT_DISPLAY_EVENT_WINDOW_STATE, state);
 }
 /* The mouse position (State and Moved event) must be expressed against vout_display_t::source unit */
 static inline void vout_display_SendEventMouseState(vout_display_t *vd, int x, int y, int button_mask)
@@ -373,6 +395,10 @@ static inline vout_window_t *vout_display_NewWindow(vout_display_t *vd, const vo
 {
     return vd->owner.window_new(vd, cfg);
 }
+/**
+ * Deletes a window created by vout_display_NewWindow if window is non NULL
+ * or any unused windows otherwise.
+ */
 static inline void vout_display_DeleteWindow(vout_display_t *vd,
                                              vout_window_t *window)
 {
@@ -385,7 +411,7 @@ static inline void vout_display_DeleteWindow(vout_display_t *vd,
  *
  * This asssumes that the picture is already cropped.
  */
-VLC_EXPORT( void, vout_display_GetDefaultDisplaySize, (unsigned *width, unsigned *height, const video_format_t *source, const vout_display_cfg_t *) );
+VLC_API void vout_display_GetDefaultDisplaySize(unsigned *width, unsigned *height, const video_format_t *source, const vout_display_cfg_t *);
 
 
 /**
@@ -408,7 +434,7 @@ typedef struct {
  * \param p_cfg Display configuration
  * \param b_clip If true, prevent the video to go outside the display (break zoom).
  */
-VLC_EXPORT( void, vout_display_PlacePicture, (vout_display_place_t *place, const video_format_t *source, const vout_display_cfg_t *cfg, bool do_clipping) );
+VLC_API void vout_display_PlacePicture(vout_display_place_t *place, const video_format_t *source, const vout_display_cfg_t *cfg, bool do_clipping);
 
 #endif /* VLC_VOUT_DISPLAY_H */
 

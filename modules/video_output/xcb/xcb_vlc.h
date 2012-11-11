@@ -26,6 +26,10 @@
 # define ORDER XCB_IMAGE_ORDER_LSB_FIRST
 #endif
 
+#ifndef XCB_CURSOR_NONE
+# define XCB_CURSOR_NONE ((xcb_cursor_t) 0U)
+#endif
+
 #include <vlc_picture.h>
 #include <vlc_vout_display.h>
 
@@ -38,14 +42,15 @@ void DestroyKeyHandler (key_handler_t *);
 int ProcessKeyEvent (key_handler_t *, xcb_generic_event_t *);
 
 /* common.c */
-xcb_connection_t *Connect (vlc_object_t *obj);
 struct vout_window_t *GetWindow (vout_display_t *obj,
-                                 xcb_connection_t *pconn,
+                                 xcb_connection_t **restrict pconn,
                                  const xcb_screen_t **restrict pscreen,
-                                 bool *restrict pshm);
+                                 uint8_t *restrict pdepth);
 int GetWindowSize (struct vout_window_t *wnd, xcb_connection_t *conn,
                    unsigned *restrict width, unsigned *restrict height);
+bool CheckSHM (vlc_object_t *obj, xcb_connection_t *conn);
 xcb_cursor_t CreateBlankCursor (xcb_connection_t *, const xcb_screen_t *);
+void RegisterMouseEvents (vlc_object_t *, xcb_connection_t *, xcb_window_t);
 
 int CheckError (vout_display_t *, xcb_connection_t *conn,
                 const char *str, xcb_void_cookie_t);

@@ -6,6 +6,7 @@
  *
  * Authors: Cyril Deguet     <asmax@via.ecp.fr>
  *          Olivier Teulière <ipkiss@via.ecp.fr>
+ *          Erwan Tulou      <erwan10 aT videolan Dot org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,44 +28,56 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_aout.h>
 #include <vlc_playlist.h>
 #include "volume.hpp"
+#include <math.h>
 
 Volume::Volume( intf_thread_t *pIntf ): VarPercent( pIntf )
 {
-    // Initial value
-    audio_volume_t val;
+    // compute preferred step in [0.,1.] range
+    m_step = (float)config_GetInt( pIntf, "volume-step" )
+             / (float)AOUT_VOLUME_MAX;
 
-    aout_VolumeGet( getIntf()->p_sys->p_playlist, &val );
-    VarPercent::set( val * 2.0 / AOUT_VOLUME_MAX );
+    // set current volume from the playlist
+    playlist_t* pPlaylist = pIntf->p_sys->p_playlist;
+    setVolume( var_GetFloat( pPlaylist, "volume" ), false );
 }
 
 
 void Volume::set( float percentage, bool updateVLC )
 {
-    // Avoid looping forever...
-    if( (int)(get() * AOUT_VOLUME_MAX) !=
-        (int)(percentage * AOUT_VOLUME_MAX) )
+    VarPercent::set( percentage );
+    if( updateVLC )
     {
-        VarPercent::set( percentage );
-
-        if( updateVLC )
-            aout_VolumeSet( getIntf()->p_sys->p_playlist,
-                            (int)(get() * AOUT_VOLUME_MAX / 2.0) );
+        playlist_t* pPlaylist = getIntf()->p_sys->p_playlist;
+        playlist_VolumeSet( pPlaylist, getVolume() );
     }
+}
+
+
+void Volume::setVolume( float volume, bool updateVLC )
+{
+    // translate from [0.,AOUT_VOLUME_MAX/AOUT_VOLUME_DEFAULT] into [0.,1.]
+    float percentage = (volume > 0.f ) ?
+                       volume * AOUT_VOLUME_DEFAULT / AOUT_VOLUME_MAX :
+                       0.f;
+    set( percentage, updateVLC );
+}
+
+
+float Volume::getVolume() const
+{
+    // translate from [0.,1.] into [0.,AOUT_VOLUME_MAX/AOUT_VOLUME_DEFAULT]
+    return get() * AOUT_VOLUME_MAX / AOUT_VOLUME_DEFAULT;
 }
 
 
 string Volume::getAsStringPercent() const
 {
-    int value = (int)(100. * VarPercent::get());
-    // 0 <= value <= 100, so we need 4 chars
-    char *str = new char[4];
-    snprintf( str, 4, "%d", value );
-    string ret = str;
-    delete[] str;
-
-    return ret;
+    int value = lround( getVolume() * 100. );
+    // 0 <= value <= 200, so we need 4 chars
+    char str[4];
+    snprintf( str, 4, "%i", value );
+    return string(str);
 }
 

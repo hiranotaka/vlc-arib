@@ -1,25 +1,25 @@
 /*****************************************************************************
  * art.c : Art metadata handling
  *****************************************************************************
- * Copyright (C) 1998-2008 the VideoLAN team
+ * Copyright (C) 1998-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Antoine Cellerier <dionoea@videolan.org>
  *          Clément Stenac <zorglub@videolan.org
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -27,18 +27,15 @@
 #endif
 
 #include <assert.h>
+#include <sys/stat.h>
+
 #include <vlc_common.h>
 #include <vlc_playlist.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 #include <vlc_strings.h>
 #include <vlc_stream.h>
 #include <vlc_url.h>
-
-#include <limits.h>                                             /* PATH_MAX */
-
-#ifdef HAVE_SYS_STAT_H
-#   include <sys/stat.h>
-#endif
+#include <vlc_md5.h>
 
 #include "../libvlc.h"
 #include "playlist_internal.h"
@@ -56,23 +53,25 @@ static void ArtCacheCreateDir( const char *psz_dir )
         if( !*psz ) break;
         *psz = 0;
         if( !EMPTY_STR( psz_newdir ) )
-            utf8_mkdir( psz_newdir, 0700 );
+            vlc_mkdir( psz_newdir, 0700 );
         *psz = DIR_SEP_CHAR;
         psz++;
     }
-    utf8_mkdir( psz_dir, 0700 );
+    vlc_mkdir( psz_dir, 0700 );
 }
 
-static char* ArtCacheGetDirPath( const char *psz_title, const char *psz_artist,
-                                 const char *psz_album )
+static char* ArtCacheGetDirPath( const char *psz_arturl, const char *psz_artist,
+                                 const char *psz_album,  const char *psz_title )
 {
     char *psz_dir;
     char *psz_cachedir = config_GetUserDir(VLC_CACHE_DIR);
 
     if( !EMPTY_STR(psz_artist) && !EMPTY_STR(psz_album) )
     {
-        char *psz_album_sanitized = filename_sanitize( psz_album );
-        char *psz_artist_sanitized = filename_sanitize( psz_artist );
+        char *psz_album_sanitized = strdup( psz_album );
+        filename_sanitize( psz_album_sanitized );
+        char *psz_artist_sanitized = strdup( psz_artist );
+        filename_sanitize( psz_artist_sanitized );
         if( asprintf( &psz_dir, "%s" DIR_SEP "art" DIR_SEP "artistalbum"
                       DIR_SEP "%s" DIR_SEP "%s", psz_cachedir,
                       psz_artist_sanitized, psz_album_sanitized ) == -1 )
@@ -82,11 +81,25 @@ static char* ArtCacheGetDirPath( const char *psz_title, const char *psz_artist,
     }
     else
     {
-        char * psz_title_sanitized = filename_sanitize( psz_title );
-        if( asprintf( &psz_dir, "%s" DIR_SEP "art" DIR_SEP "title" DIR_SEP
-                      "%s", psz_cachedir, psz_title_sanitized ) == -1 )
+        /* If artist or album are missing, cache by art download URL.
+         * If the URL is an attachment://, add the title to the cache name.
+         * It will be md5 hashed to form a valid cache filename.
+         * We assume that psz_arturl is always the download URL and not the
+         * already hashed filename.
+         * (We should never need to call this function if art has already been
+         * downloaded anyway).
+         */
+        struct md5_s md5;
+        InitMD5( &md5 );
+        AddMD5( &md5, psz_arturl, strlen( psz_arturl ) );
+        if( !strncmp( psz_arturl, "attachment://", 13 ) )
+            AddMD5( &md5, psz_title, strlen( psz_title ) );
+        EndMD5( &md5 );
+        char * psz_arturl_sanitized = psz_md5_hash( &md5 );
+        if( asprintf( &psz_dir, "%s" DIR_SEP "art" DIR_SEP "arturl" DIR_SEP
+                      "%s", psz_cachedir, psz_arturl_sanitized ) == -1 )
             psz_dir = NULL;
-        free( psz_title_sanitized );
+        free( psz_arturl_sanitized );
     }
     free( psz_cachedir );
     return psz_dir;
@@ -97,6 +110,7 @@ static char *ArtCachePath( input_item_t *p_item )
     char* psz_path = NULL;
     const char *psz_artist;
     const char *psz_album;
+    const char *psz_arturl;
     const char *psz_title;
 
     vlc_mutex_lock( &p_item->lock );
@@ -108,15 +122,16 @@ static char *ArtCachePath( input_item_t *p_item )
 
     psz_artist = vlc_meta_Get( p_item->p_meta, vlc_meta_Artist );
     psz_album = vlc_meta_Get( p_item->p_meta, vlc_meta_Album );
+    psz_arturl = vlc_meta_Get( p_item->p_meta, vlc_meta_ArtworkURL );
     psz_title = vlc_meta_Get( p_item->p_meta, vlc_meta_Title );
-
     if( !psz_title )
         psz_title = p_item->psz_name;
 
-    if( (!psz_artist || !psz_album ) && !psz_title )
+
+    if( (EMPTY_STR(psz_artist) || EMPTY_STR(psz_album) ) && !psz_arturl )
         goto end;
 
-    psz_path = ArtCacheGetDirPath( psz_title, psz_artist, psz_album );
+    psz_path = ArtCacheGetDirPath( psz_arturl, psz_artist, psz_album, psz_title );
 
 end:
     vlc_mutex_unlock( &p_item->lock );
@@ -131,7 +146,8 @@ static char *ArtCacheName( input_item_t *p_item, const char *psz_type )
 
     ArtCacheCreateDir( psz_path );
 
-    char *psz_ext = filename_sanitize( psz_type ? psz_type : "" );
+    char *psz_ext = strdup( psz_type ? psz_type : "" );
+    filename_sanitize( psz_ext );
     char *psz_filename;
     if( asprintf( &psz_filename, "%s" DIR_SEP "art%s", psz_path, psz_ext ) < 0 )
         psz_filename = NULL;
@@ -151,7 +167,7 @@ int playlist_FindArtInCache( input_item_t *p_item )
         return VLC_EGENERIC;
 
     /* Check if file exists */
-    DIR *p_dir = utf8_opendir( psz_path );
+    DIR *p_dir = vlc_opendir( psz_path );
     if( !p_dir )
     {
         free( psz_path );
@@ -160,7 +176,7 @@ int playlist_FindArtInCache( input_item_t *p_item )
 
     bool b_found = false;
     char *psz_filename;
-    while( !b_found && (psz_filename = utf8_readdir( p_dir )) )
+    while( !b_found && (psz_filename = vlc_readdir( p_dir )) )
     {
         if( !strncmp( psz_filename, "art", 3 ) )
         {
@@ -168,7 +184,7 @@ int playlist_FindArtInCache( input_item_t *p_item )
             if( asprintf( &psz_file, "%s" DIR_SEP "%s",
                           psz_path, psz_filename ) != -1 )
             {
-                char *psz_uri = make_URI( psz_file );
+                char *psz_uri = vlc_path2uri( psz_file, "file" );
                 if( psz_uri )
                 {
                     input_item_SetArtURL( p_item, psz_uri );
@@ -188,17 +204,77 @@ int playlist_FindArtInCache( input_item_t *p_item )
     return b_found ? VLC_SUCCESS : VLC_EGENERIC;
 }
 
+static char * GetDirByItemUIDs( char *psz_uid )
+{
+    char *psz_cachedir = config_GetUserDir(VLC_CACHE_DIR);
+    char *psz_dir;
+    if( asprintf( &psz_dir, "%s" DIR_SEP
+                  "by-iiuid" DIR_SEP
+                  "%s",
+                  psz_cachedir, psz_uid ) == -1 )
+    {
+        psz_dir = NULL;
+    }
+    free( psz_cachedir );
+    return psz_dir;
+}
+
+static char * GetFileByItemUID( char *psz_dir, const char *psz_type )
+{
+    char *psz_file;
+    if( asprintf( &psz_file, "%s" DIR_SEP "%s", psz_dir, psz_type ) == -1 )
+    {
+        psz_file = NULL;
+    }
+    return psz_file;
+}
+
+int playlist_FindArtInCacheUsingItemUID( input_item_t *p_item )
+{
+    char *uid = input_item_GetInfo( p_item, "uid", "md5" );
+    if ( ! *uid )
+    {
+        free( uid );
+        return VLC_EGENERIC;
+    }
+
+    /* we have an input item uid set */
+    bool b_done = false;
+    char *psz_byuiddir = GetDirByItemUIDs( uid );
+    char *psz_byuidfile = GetFileByItemUID( psz_byuiddir, "arturl" );
+    free( psz_byuiddir );
+    if( psz_byuidfile )
+    {
+        FILE *fd = vlc_fopen( psz_byuidfile, "rb" );
+        if ( fd )
+        {
+            char sz_cachefile[2049];
+            /* read the cache hash url */
+            if ( fgets( sz_cachefile, 2048, fd ) != NULL )
+            {
+                input_item_SetArtURL( p_item, sz_cachefile );
+                b_done = true;
+            }
+            fclose( fd );
+        }
+        free( psz_byuidfile );
+    }
+    free( uid );
+    if ( b_done ) return VLC_SUCCESS;
+
+    return VLC_EGENERIC;
+}
 
 /* */
-int playlist_SaveArt( playlist_t *p_playlist, input_item_t *p_item,
-                      const uint8_t *p_buffer, int i_buffer, const char *psz_type )
+int playlist_SaveArt( vlc_object_t *obj, input_item_t *p_item,
+                      const void *data, size_t length, const char *psz_type )
 {
     char *psz_filename = ArtCacheName( p_item, psz_type );
 
     if( !psz_filename )
         return VLC_EGENERIC;
 
-    char *psz_uri = make_URI( psz_filename );
+    char *psz_uri = vlc_path2uri( psz_filename, "file" );
     if( !psz_uri )
     {
         free( psz_filename );
@@ -207,7 +283,7 @@ int playlist_SaveArt( playlist_t *p_playlist, input_item_t *p_item,
 
     /* Check if we already dumped it */
     struct stat s;
-    if( !utf8_stat( psz_filename, &s ) )
+    if( !vlc_stat( psz_filename, &s ) )
     {
         input_item_SetArtURL( p_item, psz_uri );
         free( psz_filename );
@@ -216,22 +292,50 @@ int playlist_SaveArt( playlist_t *p_playlist, input_item_t *p_item,
     }
 
     /* Dump it otherwise */
-    FILE *f = utf8_fopen( psz_filename, "wb" );
+    FILE *f = vlc_fopen( psz_filename, "wb" );
     if( f )
     {
-        if( fwrite( p_buffer, i_buffer, 1, f ) != 1 )
+        if( fwrite( data, 1, length, f ) != length )
         {
-            msg_Err( p_playlist, "%s: %m", psz_filename );
+            msg_Err( obj, "%s: %m", psz_filename );
         }
         else
         {
-            msg_Dbg( p_playlist, "album art saved to %s", psz_filename );
+            msg_Dbg( obj, "album art saved to %s", psz_filename );
             input_item_SetArtURL( p_item, psz_uri );
         }
         fclose( f );
     }
-    free( psz_filename );
     free( psz_uri );
+
+    /* save uid info */
+    char *uid = input_item_GetInfo( p_item, "uid", "md5" );
+    if ( ! *uid )
+    {
+        free( uid );
+        goto end;
+    }
+
+    char *psz_byuiddir = GetDirByItemUIDs( uid );
+    char *psz_byuidfile = GetFileByItemUID( psz_byuiddir, "arturl" );
+    ArtCacheCreateDir( psz_byuiddir );
+    free( psz_byuiddir );
+
+    if ( psz_byuidfile )
+    {
+        f = vlc_fopen( psz_byuidfile, "wb" );
+        if ( f )
+        {
+            if( fputs( "file://", f ) < 0 || fputs( psz_filename, f ) < 0 )
+                msg_Err( obj, "Error writing %s: %m", psz_byuidfile );
+            fclose( f );
+        }
+        free( psz_byuidfile );
+    }
+    free( uid );
+    /* !save uid info */
+end:
+    free( psz_filename );
     return VLC_SUCCESS;
 }
 

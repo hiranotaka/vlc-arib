@@ -51,31 +51,31 @@ static block_t *DoWork( filter_t *, block_t * );
 vlc_module_begin ()
     set_description( N_("Parametric Equalizer") )
     set_shortname( N_("Parametric Equalizer" ) )
-    set_capability( "audio filter2", 0 )
+    set_capability( "audio filter", 0 )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_AFILTER )
 
-    add_float( "param-eq-lowf", 100, NULL, N_("Low freq (Hz)"),"", false )
-    add_float_with_range( "param-eq-lowgain", 0, -20.0, 20.0, NULL,
-                          N_("Low freq gain (dB)"), "",false )
-    add_float( "param-eq-highf", 10000, NULL, N_("High freq (Hz)"),"", false )
-    add_float_with_range( "param-eq-highgain", 0, -20.0, 20.0, NULL,
-                          N_("High freq gain (dB)"),"",false )
-    add_float( "param-eq-f1", 300, NULL, N_("Freq 1 (Hz)"),"", false )
-    add_float_with_range( "param-eq-gain1", 0, -20.0, 20.0, NULL,
-                          N_("Freq 1 gain (dB)"), "",false )
-    add_float_with_range( "param-eq-q1", 3, 0.1, 100.0, NULL,
-                          N_("Freq 1 Q"), "",false )
-    add_float( "param-eq-f2", 1000, NULL, N_("Freq 2 (Hz)"),"", false )
-    add_float_with_range( "param-eq-gain2", 0, -20.0, 20.0, NULL,
-                          N_("Freq 2 gain (dB)"),"",false )
-    add_float_with_range( "param-eq-q2", 3, 0.1, 100.0, NULL,
-                          N_("Freq 2 Q"),"",false )
-    add_float( "param-eq-f3", 3000, NULL, N_("Freq 3 (Hz)"),"", false )
-    add_float_with_range( "param-eq-gain3", 0, -20.0, 20.0, NULL,
-                          N_("Freq 3 gain (dB)"),"",false )
-    add_float_with_range( "param-eq-q3", 3, 0.1, 100.0, NULL,
-                          N_("Freq 3 Q"),"",false )
+    add_float( "param-eq-lowf", 100, N_("Low freq (Hz)"),NULL, false )
+    add_float_with_range( "param-eq-lowgain", 0, -20.0, 20.0,
+                          N_("Low freq gain (dB)"), NULL,false )
+    add_float( "param-eq-highf", 10000, N_("High freq (Hz)"),NULL, false )
+    add_float_with_range( "param-eq-highgain", 0, -20.0, 20.0,
+                          N_("High freq gain (dB)"),NULL,false )
+    add_float( "param-eq-f1", 300, N_("Freq 1 (Hz)"),NULL, false )
+    add_float_with_range( "param-eq-gain1", 0, -20.0, 20.0,
+                          N_("Freq 1 gain (dB)"), NULL,false )
+    add_float_with_range( "param-eq-q1", 3, 0.1, 100.0,
+                          N_("Freq 1 Q"), NULL,false )
+    add_float( "param-eq-f2", 1000, N_("Freq 2 (Hz)"),NULL, false )
+    add_float_with_range( "param-eq-gain2", 0, -20.0, 20.0,
+                          N_("Freq 2 gain (dB)"),NULL,false )
+    add_float_with_range( "param-eq-q2", 3, 0.1, 100.0,
+                          N_("Freq 2 Q"),NULL,false )
+    add_float( "param-eq-f3", 3000, N_("Freq 3 (Hz)"),NULL, false )
+    add_float_with_range( "param-eq-gain3", 0, -20.0, 20.0,
+                          N_("Freq 3 gain (dB)"),NULL,false )
+    add_float_with_range( "param-eq-q3", 3, 0.1, 100.0,
+                          N_("Freq 3 Q"),NULL,false )
 
     set_callbacks( Open, Close )
 vlc_module_end ()
@@ -106,54 +106,33 @@ struct filter_sys_t
 static int Open( vlc_object_t *p_this )
 {
     filter_t     *p_filter = (filter_t *)p_this;
-    filter_sys_t *p_sys;
-    bool         b_fit = true;
     unsigned     i_samplerate;
 
-    if( p_filter->fmt_in.audio.i_format != VLC_CODEC_FL32 ||
-        p_filter->fmt_out.audio.i_format != VLC_CODEC_FL32 )
-    {
-        b_fit = false;
-        p_filter->fmt_in.audio.i_format = VLC_CODEC_FL32;
-        p_filter->fmt_out.audio.i_format = VLC_CODEC_FL32;
-        msg_Warn( p_filter, "bad input or output format" );
-    }
-    if ( !AOUT_FMTS_SIMILAR( &p_filter->fmt_in.audio, &p_filter->fmt_out.audio ) )
-    {
-        b_fit = false;
-        memcpy( &p_filter->fmt_out.audio, &p_filter->fmt_in.audio,
-                sizeof(audio_sample_format_t) );
-        msg_Warn( p_filter, "input and output formats are not similar" );
-    }
-
-    if ( ! b_fit )
-    {
-        return VLC_EGENERIC;
-    }
-
     /* Allocate structure */
-    p_sys = p_filter->p_sys = malloc( sizeof( *p_sys ) );
+    filter_sys_t *p_sys = p_filter->p_sys = malloc( sizeof( *p_sys ) );
     if( !p_sys )
         return VLC_EGENERIC;
 
+    p_filter->fmt_in.audio.i_format = VLC_CODEC_FL32;
+    p_filter->fmt_out.audio = p_filter->fmt_in.audio;
     p_filter->pf_audio_filter = DoWork;
 
-    p_sys->f_lowf = config_GetFloat( p_this, "param-eq-lowf");
-    p_sys->f_lowgain = config_GetFloat( p_this, "param-eq-lowgain");
-    p_sys->f_highf = config_GetFloat( p_this, "param-eq-highf");
-    p_sys->f_highgain = config_GetFloat( p_this, "param-eq-highgain");
+    p_sys->f_lowf = var_InheritFloat( p_this, "param-eq-lowf");
+    p_sys->f_lowgain = var_InheritFloat( p_this, "param-eq-lowgain");
+    p_sys->f_highf = var_InheritFloat( p_this, "param-eq-highf");
+    p_sys->f_highgain = var_InheritFloat( p_this, "param-eq-highgain");
  
-    p_sys->f_f1 = config_GetFloat( p_this, "param-eq-f1");
-    p_sys->f_Q1 = config_GetFloat( p_this, "param-eq-q1");
-    p_sys->f_gain1 = config_GetFloat( p_this, "param-eq-gain1");
+    p_sys->f_f1 = var_InheritFloat( p_this, "param-eq-f1");
+    p_sys->f_Q1 = var_InheritFloat( p_this, "param-eq-q1");
+    p_sys->f_gain1 = var_InheritFloat( p_this, "param-eq-gain1");
  
-    p_sys->f_f2 = config_GetFloat( p_this, "param-eq-f2");
-    p_sys->f_Q2 = config_GetFloat( p_this, "param-eq-q2");
-    p_sys->f_gain2 = config_GetFloat( p_this, "param-eq-gain2");
+    p_sys->f_f2 = var_InheritFloat( p_this, "param-eq-f2");
+    p_sys->f_Q2 = var_InheritFloat( p_this, "param-eq-q2");
+    p_sys->f_gain2 = var_InheritFloat( p_this, "param-eq-gain2");
 
-    p_sys->f_f3 = config_GetFloat( p_this, "param-eq-f3");
-    p_sys->f_Q3 = config_GetFloat( p_this, "param-eq-q3");
-    p_sys->f_gain3 = config_GetFloat( p_this, "param-eq-gain3");
+    p_sys->f_f3 = var_InheritFloat( p_this, "param-eq-f3");
+    p_sys->f_Q3 = var_InheritFloat( p_this, "param-eq-q3");
+    p_sys->f_gain3 = var_InheritFloat( p_this, "param-eq-gain3");
  
 
     i_samplerate = p_filter->fmt_in.audio.i_rate;

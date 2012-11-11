@@ -32,12 +32,12 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_aout.h>
 #include <vlc_codec.h>
 #include <vlc_block.h>
 #include <vlc_bits.h>
 
 #include <vlc_block_helper.h>
+#include "packetizer_helper.h"
 
 #include <assert.h>
 
@@ -141,15 +141,6 @@ struct decoder_sys_t
 };
 
 enum {
-    STATE_NOSYNC,
-    STATE_SYNC,
-    STATE_HEADER,
-    STATE_NEXT_SYNC,
-    STATE_GET_DATA,
-    STATE_SEND_DATA
-};
-
-enum {
     TYPE_NONE,
     TYPE_RAW,
     TYPE_ADTS,
@@ -206,7 +197,7 @@ static int OpenPacketizer( vlc_object_t *p_this )
     /* Misc init */
     p_sys->i_state = STATE_NOSYNC;
     date_Set( &p_sys->end_date, 0 );
-    p_sys->bytestream = block_BytestreamInit();
+    block_BytestreamInit( &p_sys->bytestream );
     p_sys->b_latm_cfg = false;
 
     /* Set output properties */
@@ -299,13 +290,13 @@ static block_t *PacketizeRawBlock( decoder_t *p_dec, block_t **pp_block )
     p_block = *pp_block;
     *pp_block = NULL; /* Don't reuse this block */
 
-    if( !date_Get( &p_sys->end_date ) && !p_block->i_pts )
+    if( !date_Get( &p_sys->end_date ) && p_block->i_pts <= VLC_TS_INVALID )
     {
         /* We've just started the stream, wait for the first PTS. */
         block_Release( p_block );
         return NULL;
     }
-    else if( p_block->i_pts != 0 &&
+    else if( p_block->i_pts > VLC_TS_INVALID &&
              p_block->i_pts != date_Get( &p_sys->end_date ) )
     {
         date_Set( &p_sys->end_date, p_block->i_pts );
@@ -816,20 +807,23 @@ static int LOASParse( decoder_t *p_dec, uint8_t *p_buffer, int i_buffer )
             p_sys->i_rate = st->cfg.i_samplerate;
             p_sys->i_frame_length = st->cfg.i_frame_length;
 
-            /* FIXME And if it changes ? */
-            if( !p_dec->fmt_out.i_extra && st->i_extra > 0 )
+            if ( p_sys->i_channels > 0 && p_sys->i_rate > 0 &&
+                 p_sys->i_frame_length > 0 )
             {
-                p_dec->fmt_out.i_extra = st->i_extra;
-                p_dec->fmt_out.p_extra = malloc( st->i_extra );
-                if( !p_dec->fmt_out.p_extra )
+                /* FIXME And if it changes ? */
+                if( !p_dec->fmt_out.i_extra && st->i_extra > 0 )
                 {
-                    p_dec->fmt_out.i_extra = 0;
-                    return 0;
+                    p_dec->fmt_out.i_extra = st->i_extra;
+                    p_dec->fmt_out.p_extra = malloc( st->i_extra );
+                    if( !p_dec->fmt_out.p_extra )
+                    {
+                        p_dec->fmt_out.i_extra = 0;
+                        return 0;
+                    }
+                    memcpy( p_dec->fmt_out.p_extra, st->extra, st->i_extra );
                 }
-                memcpy( p_dec->fmt_out.p_extra, st->extra, st->i_extra );
+                p_sys->b_latm_cfg = true;
             }
-
-            p_sys->b_latm_cfg = true;
         }
     }
     /* Wait for the configuration */
@@ -992,7 +986,7 @@ static block_t *PacketizeStreamBlock( decoder_t *p_dec, block_t **pp_block )
         return NULL;
     }
 
-    if( !date_Get( &p_sys->end_date ) && !(*pp_block)->i_pts )
+    if( !date_Get( &p_sys->end_date ) && (*pp_block)->i_pts <= VLC_TS_INVALID )
     {
         /* We've just started the stream, wait for the first PTS. */
         block_Release( *pp_block );
@@ -1042,7 +1036,7 @@ static block_t *PacketizeStreamBlock( decoder_t *p_dec, block_t **pp_block )
         case STATE_SYNC:
             /* New frame, set the Presentation Time Stamp */
             p_sys->i_pts = p_sys->bytestream.p_block->i_pts;
-            if( p_sys->i_pts != 0 &&
+            if( p_sys->i_pts > VLC_TS_INVALID &&
                 p_sys->i_pts != date_Get( &p_sys->end_date ) )
             {
                 date_Set( &p_sys->end_date, p_sys->i_pts );
@@ -1179,7 +1173,7 @@ static block_t *PacketizeStreamBlock( decoder_t *p_dec, block_t **pp_block )
             SetupOutput( p_dec, p_out_buffer );
             /* Make sure we don't reuse the same pts twice */
             if( p_sys->i_pts == p_sys->bytestream.p_block->i_pts )
-                p_sys->i_pts = p_sys->bytestream.p_block->i_pts = 0;
+                p_sys->i_pts = p_sys->bytestream.p_block->i_pts = VLC_TS_INVALID;
 
             /* So p_block doesn't get re-added several times */
             *pp_block = block_BytestreamPop( &p_sys->bytestream );
@@ -1205,8 +1199,9 @@ static void SetupOutput( decoder_t *p_dec, block_t *p_block )
         msg_Info( p_dec, "AAC channels: %d samplerate: %d",
                   p_sys->i_channels, p_sys->i_rate );
 
+        const mtime_t i_end_date = date_Get( &p_sys->end_date );
         date_Init( &p_sys->end_date, p_sys->i_rate, 1 );
-        date_Set( &p_sys->end_date, p_sys->i_pts );
+        date_Set( &p_sys->end_date, i_end_date );
     }
 
     p_dec->fmt_out.audio.i_rate     = p_sys->i_rate;
@@ -1216,8 +1211,7 @@ static void SetupOutput( decoder_t *p_dec, block_t *p_block )
 
 #if 0
     p_dec->fmt_out.audio.i_original_channels = p_sys->i_channels_conf;
-    p_dec->fmt_out.audio.i_physical_channels =
-        p_sys->i_channels_conf & AOUT_CHAN_PHYSMASK;
+    p_dec->fmt_out.audio.i_physical_channels = p_sys->i_channels_conf;
 #endif
 
     p_block->i_pts = p_block->i_dts = date_Get( &p_sys->end_date );

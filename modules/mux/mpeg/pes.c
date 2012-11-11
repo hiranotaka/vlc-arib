@@ -35,7 +35,6 @@
 #include <vlc_block.h>
 #include <assert.h>
 
-#include <vlc_codecs.h>
 #include "pes.h"
 #include "bits.h"
 
@@ -314,12 +313,11 @@ static inline int PESHeader( uint8_t *p_hdr, mtime_t i_pts, mtime_t i_dts,
  *                       To allow unbounded PES packets in transport stream
  *                       VIDEO_ES, set to INT_MAX.
  */
-int  EStoPES ( sout_instance_t *p_sout, block_t **pp_pes, block_t *p_es,
+int  EStoPES ( block_t **pp_pes, block_t *p_es,
                    es_format_t *p_fmt, int i_stream_id,
                    int b_mpeg2, int b_data_alignment, int i_header_size,
                    int i_max_pes_size )
 {
-    VLC_UNUSED(p_sout);
     block_t *p_pes;
     mtime_t i_pts, i_dts, i_length;
 
@@ -342,13 +340,42 @@ int  EStoPES ( sout_instance_t *p_sout, block_t **pp_pes, block_t *p_es,
         i_max_pes_size = PES_PAYLOAD_SIZE_MAX;
     }
 
-    if( p_fmt->i_codec == VLC_CODEC_MP4V &&
+    if( ( p_fmt->i_codec == VLC_CODEC_MP4V ||
+          p_fmt->i_codec == VLC_CODEC_H264 ) &&
         p_es->i_flags & BLOCK_FLAG_TYPE_I )
     {
-        /* For MPEG4 video, add VOL before I-frames */
+        /* For MPEG4 video, add VOL before I-frames,
+           for H264 add SPS/PPS before keyframes*/
         p_es = block_Realloc( p_es, p_fmt->i_extra, p_es->i_buffer );
 
         memcpy( p_es->p_buffer, p_fmt->p_extra, p_fmt->i_extra );
+    }
+
+    if( p_fmt->i_codec == VLC_CODEC_H264 )
+    {
+        unsigned offset=2;
+        while(offset < p_es->i_buffer )
+        {
+            if( p_es->p_buffer[offset-2] == 0 &&
+                p_es->p_buffer[offset-1] == 0 &&
+                p_es->p_buffer[offset] == 1 )
+                break;
+            offset++;
+        }
+        offset++;
+        if( offset <= p_es->i_buffer-4 &&
+            ((p_es->p_buffer[offset] & 0x1f) != 9) ) /* Not AUD */
+        {
+            /* Make similar AUD as libavformat does */
+            p_es = block_Realloc( p_es, 6, p_es->i_buffer );
+            p_es->p_buffer[0] = 0x00;
+            p_es->p_buffer[1] = 0x00;
+            p_es->p_buffer[2] = 0x00;
+            p_es->p_buffer[3] = 0x01;
+            p_es->p_buffer[4] = 0x09;
+            p_es->p_buffer[5] = 0xe0;
+        }
+
     }
 
     i_pts = p_es->i_pts <= 0 ? 0 : p_es->i_pts * 9 / 100; // 90000 units clock
@@ -358,10 +385,6 @@ int  EStoPES ( sout_instance_t *p_sout, block_t **pp_pes, block_t *p_es,
     p_data = p_es->p_buffer;
 
     *pp_pes = p_pes = NULL;
-
-#ifndef NDEBUG
-    memset( header, 0, 50 );
-#endif
 
     do
     {
@@ -383,7 +406,7 @@ int  EStoPES ( sout_instance_t *p_sout, block_t **pp_pes, block_t *p_es,
         }
         else
         {
-            p_pes->p_next = block_New( p_sout, i_pes_header + i_pes_payload );
+            p_pes->p_next = block_Alloc( i_pes_header + i_pes_payload );
             p_pes = p_pes->p_next;
 
             p_pes->i_dts    = 0;
@@ -391,7 +414,7 @@ int  EStoPES ( sout_instance_t *p_sout, block_t **pp_pes, block_t *p_es,
             p_pes->i_length = 0;
             if( i_pes_payload > 0 )
             {
-                vlc_memcpy( p_pes->p_buffer + i_pes_header, p_data,
+                memcpy( p_pes->p_buffer + i_pes_header, p_data,
                             i_pes_payload );
             }
             i_pes_count++;

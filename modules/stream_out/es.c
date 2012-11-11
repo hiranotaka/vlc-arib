@@ -83,27 +83,27 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_SOUT_STREAM )
 
     set_section( N_("Generic"), NULL )
-    add_string( SOUT_CFG_PREFIX "access", "", NULL, ACCESS_TEXT,
+    add_string( SOUT_CFG_PREFIX "access", "", ACCESS_TEXT,
                 ACCESS_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "mux", "", NULL, MUX_TEXT,
+    add_string( SOUT_CFG_PREFIX "mux", "", MUX_TEXT,
                 MUX_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "dst", "", NULL, DEST_TEXT,
+    add_string( SOUT_CFG_PREFIX "dst", "", DEST_TEXT,
                 DEST_LONGTEXT, true )
 
     set_section( N_("Audio"), NULL )
-    add_string( SOUT_CFG_PREFIX "access-audio", "", NULL, ACCESSA_TEXT,
+    add_string( SOUT_CFG_PREFIX "access-audio", "", ACCESSA_TEXT,
                 ACCESSA_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "mux-audio", "", NULL, MUXA_TEXT,
+    add_string( SOUT_CFG_PREFIX "mux-audio", "", MUXA_TEXT,
                 MUXA_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "dst-audio", "", NULL, DESTA_TEXT,
+    add_string( SOUT_CFG_PREFIX "dst-audio", "", DESTA_TEXT,
                 DESTA_LONGTEXT, true )
 
     set_section( N_("Video"), NULL )
-    add_string( SOUT_CFG_PREFIX "access-video", "", NULL, ACCESSV_TEXT,
+    add_string( SOUT_CFG_PREFIX "access-video", "", ACCESSV_TEXT,
                 ACCESSV_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "mux-video", "", NULL, MUXV_TEXT,
+    add_string( SOUT_CFG_PREFIX "mux-video", "", MUXV_TEXT,
                 MUXV_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "dst-video", "", NULL, DESTV_TEXT,
+    add_string( SOUT_CFG_PREFIX "dst-video", "", DESTV_TEXT,
                 DESTV_LONGTEXT, true )
 
     set_callbacks( Open, Close )
@@ -272,7 +272,6 @@ static char * es_print_url( const char *psz_fmt, vlc_fourcc_t i_fourcc, int i_co
 static sout_stream_id_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
-    sout_instance_t   *p_sout = p_stream->p_sout;
     sout_stream_id_t  *id;
 
     const char        *psz_access;
@@ -354,7 +353,7 @@ static sout_stream_id_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
              psz_access, psz_mux, psz_dst );
 
     /* *** find and open appropriate access module *** */
-    p_access = sout_AccessOutNew( p_sout, psz_access, psz_dst );
+    p_access = sout_AccessOutNew( p_stream, psz_access, psz_dst );
     if( p_access == NULL )
     {
         msg_Err( p_stream, "no suitable sout access module for `%s/%s://%s'",
@@ -369,7 +368,7 @@ static sout_stream_id_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
     }
 
     /* *** find and open appropriate mux module *** */
-    p_mux = sout_MuxNew( p_sout, psz_mux, p_access );
+    p_mux = sout_MuxNew( p_stream->p_sout, psz_mux, p_access );
     if( p_mux == NULL )
     {
         msg_Err( p_stream, "no suitable sout mux module for `%s/%s://%s'",
@@ -404,7 +403,7 @@ static sout_stream_id_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
     }
 
     if( !sout_AccessOutCanControlPace( p_access ) )
-        p_sout->i_out_pace_nocontrol++;
+        p_stream->p_sout->i_out_pace_nocontrol++;
 
     return id;
 }

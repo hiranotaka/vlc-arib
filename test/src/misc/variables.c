@@ -24,7 +24,7 @@
 #include <limits.h>
 
 #include "../../libvlc/test.h"
-#include <../src/control/libvlc_internal.h>
+#include "../lib/libvlc_internal.h"
 
 const char *psz_var_name[] = { "a", "abcdef", "abcdefg", "abc123", "abc-123", "é€!!" };
 const int i_var_count = 6;
@@ -154,13 +154,15 @@ static void test_strings( libvlc_int_t *p_libvlc )
 
 static void test_address( libvlc_int_t *p_libvlc )
 {
+    char dummy[i_var_count];
+
     int i;
     for( i = 0; i < i_var_count; i++ )
          var_Create( p_libvlc, psz_var_name[i], VLC_VAR_ADDRESS );
 
     for( i = 0; i < i_var_count; i++ )
     {
-        var_value[i].p_address = rand();
+        var_value[i].p_address = dummy + i;
         var_SetAddress( p_libvlc, psz_var_name[i], var_value[i].p_address );
     }
 
@@ -322,11 +324,11 @@ static void test_change( libvlc_int_t *p_libvlc )
 
     /* Test everything is right */
     var_Change( p_libvlc, "bla", VLC_VAR_GETMIN, &val, NULL );
-    assert( val.i_int = i_min );
+    assert( val.i_int == i_min );
     var_Change( p_libvlc, "bla", VLC_VAR_GETMAX, &val, NULL );
-    assert( val.i_int = i_max );
+    assert( val.i_int == i_max );
     var_Change( p_libvlc, "bla", VLC_VAR_GETSTEP, &val, NULL );
-    assert( val.i_int = i_step );
+    assert( val.i_int == i_step );
 
     var_Destroy( p_libvlc, "bla" );
 }
@@ -446,9 +448,8 @@ int main( void )
     test_init();
 
     log( "Testing the core variables\n" );
-    libvlc_exception_init( &ex );
-    p_vlc = libvlc_new( test_defaults_nargs, test_defaults_args, &ex );
-    catch();
+    p_vlc = libvlc_new( test_defaults_nargs, test_defaults_args );
+    assert( p_vlc != NULL );
 
     test_variables( p_vlc );
 

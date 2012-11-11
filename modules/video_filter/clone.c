@@ -44,6 +44,8 @@
 #define VOUTLIST_LONGTEXT N_("You can use specific video output modules " \
         "for the clones. Use a comma-separated list of modules." )
 
+#define CLONE_HELP N_("Duplicate your video to multiple windows " \
+        "and/or video output modules")
 #define CFG_PREFIX "clone-"
 
 static int  Open ( vlc_object_t * );
@@ -53,11 +55,13 @@ vlc_module_begin ()
     set_description( N_("Clone video filter") )
     set_capability( "video splitter", 0 )
     set_shortname( N_("Clone" ))
+    set_help(CLONE_HELP)
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
-    add_integer( CFG_PREFIX "count", 2, NULL, COUNT_TEXT, COUNT_LONGTEXT, false )
-    add_string ( CFG_PREFIX "vout-list", NULL, NULL, VOUTLIST_TEXT, VOUTLIST_LONGTEXT, true )
+    add_integer( CFG_PREFIX "count", 2, COUNT_TEXT, COUNT_LONGTEXT, false )
+    add_module_list( CFG_PREFIX "vout-list", "vout display", NULL,
+                     VOUTLIST_TEXT, VOUTLIST_LONGTEXT, true )
 
     add_shortcut( "clone" )
     set_callbacks( Open, Close )
@@ -70,7 +74,7 @@ static const char *const ppsz_filter_options[] = {
     "count", "vout-list", NULL
 };
 
-#define VOUTSEPARATOR ','
+#define VOUTSEPARATOR ':'
 
 static int Filter( video_splitter_t *, picture_t *pp_dst[], picture_t * );
 

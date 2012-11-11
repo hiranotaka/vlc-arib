@@ -42,8 +42,18 @@ typedef struct spectrum_data
 {
     int *peaks;
     int *prev_heights;
+
+    unsigned i_prev_nb_samples;
+    int16_t *p_prev_s16_buff;
 } spectrum_data;
 
+typedef struct
+{
+    int *peaks;
+
+    unsigned i_prev_nb_samples;
+    int16_t *p_prev_s16_buff;
+} spectrometer_data;
 
 /*****************************************************************************
  * aout_filter_sys_t: visualizer audio filter method descriptor
@@ -53,7 +63,9 @@ typedef struct spectrum_data
  *****************************************************************************/
 struct filter_sys_t
 {
-    vout_thread_t   *p_vout;
+    vout_thread_t*  p_vout;
+    vlc_mutex_t     lock;
+    bool            b_close;
 
     int             i_width;
     int             i_height;
@@ -77,5 +89,5 @@ int spectrometer_Run
         (visual_effect_t * , vlc_object_t *, const block_t *, picture_t *);
 
 /* Default vout size */
-#define VOUT_WIDTH 800
-#define VOUT_HEIGHT 640
+#define VOUT_WIDTH  800
+#define VOUT_HEIGHT 500

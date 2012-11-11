@@ -59,11 +59,21 @@ Win32Graphics::~Win32Graphics()
 }
 
 
-void Win32Graphics::clear()
+void Win32Graphics::clear( int xDest, int yDest, int width, int height )
 {
-    // Clear the transparency mask
-    DeleteObject( m_mask );
-    m_mask = CreateRectRgn( 0, 0, 0, 0 );
+    if( width <= 0 || height <= 0 )
+    {
+        // Clear the transparency mask
+        DeleteObject( m_mask );
+        m_mask = CreateRectRgn( 0, 0, 0, 0 );
+    }
+    else
+    {
+        HRGN mask = CreateRectRgn( xDest, yDest,
+                                   xDest + width, yDest + height );
+        CombineRgn( m_mask, m_mask, mask, RGN_DIFF );
+        DeleteObject( mask );
+    }
 }
 
 
@@ -71,6 +81,7 @@ void Win32Graphics::drawBitmap( const GenericBitmap &rBitmap,
                                 int xSrc, int ySrc, int xDest, int yDest,
                                 int width, int height, bool blend )
 {
+    (void)blend;
     // Get the bitmap size if necessary
     if( width == -1 )
     {
@@ -181,19 +192,10 @@ void Win32Graphics::drawBitmap( const GenericBitmap &rBitmap,
     bf.AlphaFormat = AC_SRC_ALPHA;
 
     // Blend the image onto the internal DC
-    BOOL (WINAPI *AlphaBlend)( HDC, int, int, int, int, HDC, int, int,
-                               int, int, BLENDFUNCTION );
-    AlphaBlend = ((Win32Factory*)OSFactory::instance( getIntf() ))->AlphaBlend;
-    if( AlphaBlend &&
-        !AlphaBlend( m_hDC, xDest, yDest, width, height, hDC, 0, 0,
+    if( !AlphaBlend( m_hDC, xDest, yDest, width, height, hDC, 0, 0,
                      width, height, bf ) )
     {
         msg_Err( getIntf(), "AlphaBlend() failed" );
-    }
-    else if( !AlphaBlend )
-    {
-        // Copy the image onto the internal DC
-        BitBlt( m_hDC, xDest, yDest, width, height, hDC, 0, 0, SRCCOPY );
     }
 
     // Add the bitmap mask to the global graphics mask
@@ -319,7 +321,7 @@ void Win32Graphics::copyToWindow( OSWindow &rWindow, int xSrc, int ySrc,
 {
     // Initialize painting
     HWND hWnd = ((Win32Window&)rWindow).getHandle();
-    HDC wndDC = GetWindowDC( hWnd );
+    HDC wndDC = GetDC( hWnd );
     HDC srcDC = m_hDC;
 
     // Draw image on window

@@ -1,7 +1,7 @@
 /*****************************************************************************
 * eyetv.h: small class to control the notification parts of the EyeTV plugin
 *****************************************************************************
-* Copyright (C) 2006-2007 the VideoLAN team
+* Copyright (C) 2006-2007 VLC authors and VideoLAN
 * $Id$
 *
 * Authors: Felix Kühne <fkuehne at videolan dot org>
@@ -29,13 +29,13 @@
     BOOL b_eyeTVactive;
     BOOL b_deviceConnected;
 }
+@property (readonly) BOOL eyeTVRunning;
+@property (readonly) BOOL deviceConnected;
+@property (readwrite) int channel;
+
 - (void)globalNotificationReceived: (NSNotification *)theNotification;
-- (BOOL)isEyeTVrunning;
-- (BOOL)isDeviceConnected;
 - (void)launchEyeTV;
-- (int)currentChannel;
 - (int)switchChannelUp:(BOOL)b_yesOrNo;
-- (void)selectChannel:(int)theChannelNum;
 - (NSEnumerator *)allChannels;
 
 @end

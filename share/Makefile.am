@@ -1,73 +1,72 @@
 CLEANFILES = skins2/default.vlt
+MOSTLYCLEANFILES =
+EXTRA_DIST =
 
-nobase_dist_data_DATA = applications/vlc.desktop
+appdatadir = $(datadir)/applications
+if !HAVE_WIN32
+appdata_DATA = vlc.desktop
+endif
+EXTRA_DIST += vlc.desktop.in
+CLEANFILES += $(appdata_DATA)
 
-dist_vlcdata_DATA = \
-	$(DIST_icons) \
-	$(DIST_icons16) \
-	$(DIST_icons32) \
-	$(DIST_icons48) \
-	$(DIST_icons128)
+vlc.desktop: vlc.desktop.in $(top_builddir)/config.status
+	$(AM_V_GEN)sed -e 's,\@bindir\@,$(bindir),g' < "$<" > tmp-$@
+	$(AM_V_at)$(DESKTOP_FILE_VALIDATE) tmp-$@
+	$(AM_V_at)mv -f tmp-$@ $@
+
+iconsdatadir = $(datadir)/icons/hicolor
+icons16dir = $(iconsdatadir)/16x16/apps
+icons32dir = $(iconsdatadir)/32x32/apps
+icons48dir = $(iconsdatadir)/48x48/apps
+icons128dir = $(iconsdatadir)/128x128/apps
+icons256dir = $(iconsdatadir)/256x256/apps
+
+if !HAVE_WIN32
+dist_vlcdata_DATA = icons/vlc.ico
+dist_icons16_DATA = icons/16x16/vlc.png icons/16x16/vlc.xpm
+dist_icons32_DATA = icons/32x32/vlc.png icons/32x32/vlc.xpm \
+			icons/32x32/vlc-xmas.xpm
+dist_icons48_DATA = icons/48x48/vlc.png icons/48x48/vlc-xmas.png
+dist_icons128_DATA = icons/128x128/vlc.png icons/128x128/vlc-xmas.png
+dist_icons256_DATA = icons/256x256/vlc.png
+
 nobase_dist_vlcdata_SCRIPTS = \
 	utils/gnome-vlc-default.sh \
 	utils/audio-vlc-default.sh \
 	utils/video-vlc-default.sh \
 	$(NULL)
+endif
 
-EXTRA_DIST = \
+EXTRA_DIST += \
 	$(skins2_default_vlt_FILES) \
-	$(DIST_rsrc) \
 	$(DIST_skins2) \
-	$(DIST_http) \
+	$(DIST_icons) \
 	$(DIST_http_lua) \
-	$(DIST_lua) \
+	osdmenu/default.cfg.in \
 	$(DIST_osdmenu_default) \
-	$(DIST_mozilla) \
-	$(DIST_maemo)
+	$(DIST_solid)
+CLEANFILES += osdmenu/default.cfg
 
 nobase_vlcdata_DATA =
 if BUILD_SKINS
 nobase_vlcdata_DATA += skins2/default.vlt
 nobase_vlcdata_DATA += $(DIST_skins2)
 endif
-if BUILD_HTTPD
-nobase_vlcdata_DATA += $(DIST_http)
-endif
 if BUILD_OSDMENU
 nobase_vlcdata_DATA += \
+	osdmenu/default.cfg \
 	$(DIST_osdmenu_default)
 endif
-if BUILD_LUA
-nobase_vlcdata_DATA += $(DIST_lua)
-if BUILD_HTTPD
-nobase_vlcdata_DATA += $(DIST_http_lua)
-endif
-endif
-if BUILD_MOZILLA
-# TODO: move to the mozilla directory
-nobase_vlcdata_DATA += $(DIST_mozilla)
-endif
-if BUILD_HILDON
-nobase_vlcdata_DATA += $(DIST_maemo) $(maemo_FILES)
+if KDE_SOLID
+soliddata_DATA = $(DIST_solid)
 endif
 
-DIST_rsrc = \
-	newres.h \
-	resource.h \
-	vlc_wince_rc.rc \
-	vlc_beos.rsrc \
-	vlc_win32_rc.rc.in \
-	libvlc_win32_rc.rc.in
+osdmenu/default.cfg: osdmenu/default.cfg.in $(top_builddir)/config.status
+	$(AM_V_GEN)mkdir -p osdmenu; \
+	  	   sed -e 's,\@vlcdatadir\@,$(vlcdatadir),g' < "$<" > $@
 
-DIST_icons = vlc.ico
-
-DIST_icons16 = vlc16x16.png vlc16x16.xpm
-
-DIST_icons32 = vlc32x32.png vlc32x32.xpm vlc32x32-christmas.xpm
-
-DIST_icons48 = vlc48x48.png vlc48x48-christmas.png
-
-DIST_icons128 = vlc128x128.png vlc128x128-christmas.png
+DIST_icons = \
+	vlc512x512.png
 
 DIST_skins2 = \
 	skins2/fonts/FreeSans.ttf \
@@ -77,7 +76,7 @@ DIST_skins2 = \
 	skins2/winamp2.xml
 
 skins2_default_vlt_FILES = \
-        skins2/default/theme.xml \
+	    skins2/default/theme.xml \
 	skins2/default/subX/about.png \
 	skins2/default/subX/eq.png \
 	skins2/default/subX/font.otf \
@@ -90,75 +89,11 @@ skins2_default_vlt_FILES = \
 
 skins2/default.vlt: $(skins2_default_vlt_FILES)
 	mkdir -p skins2
-	tar cvvzf skins2/default.vlt --exclude .svn -C $(srcdir)/skins2 default/
-
-DIST_http = \
-	http/.hosts \
-	http/dialogs/.hosts \
-	http/dialogs/browse \
-	http/dialogs/footer \
-	http/dialogs/input \
-	http/dialogs/main \
-	http/dialogs/mosaic \
-	http/dialogs/playlist \
-	http/dialogs/sout \
-	http/dialogs/vlm \
-	http/favicon.ico \
-	http/images/delete.png \
-	http/images/delete_small.png \
-	http/images/eject.png \
-	http/images/empty.png \
-	http/images/fullscreen.png \
-	http/images/help.png \
-	http/images/info.png \
-	http/images/loop.png \
-	http/images/minus.png \
-	http/images/next.png \
-	http/images/pause.png \
-	http/images/play.png \
-	http/images/playlist.png \
-	http/images/playlist_small.png \
-	http/images/plus.png \
-	http/images/prev.png \
-	http/images/refresh.png \
-	http/images/repeat.png \
-	http/images/sd.png \
-	http/images/shuffle.png \
-	http/images/slider_bar.png \
-	http/images/slider_left.png \
-	http/images/slider_point.png \
-	http/images/slider_right.png \
-	http/images/snapshot.png \
-	http/images/slow.png \
-	http/images/sort.png \
-	http/images/sout.png \
-	http/images/speaker.png \
-	http/images/speaker_mute.png \
-	http/images/stop.png \
-	http/images/vlc16x16.png \
-	http/images/volume_down.png \
-	http/images/volume_up.png \
-	http/images/white.png \
-	http/images/white_cross_small.png \
-	http/index.html \
-	http/js/functions.js \
-	http/js/mosaic.js \
-	http/js/vlm.js \
-	http/mosaic.html \
-	http/requests/browse.xml \
-	http/requests/playlist.xml \
-	http/requests/status.xml \
-	http/requests/vlm.xml \
-	http/requests/vlm_cmd.xml \
-	http/requests/readme \
-	http/style.css \
-	http/iehacks.css \
-	http/vlm.html \
-	http/vlm_export.html \
-	http/flash.html
-
+	(cd "$(srcdir)/skins2"; find default -print0 | \
+		LC_ALL=C sort -z | \
+		tar cvv --exclude .svn --no-recursion --null -T -) | \
+	gzip -n > skins2/default.vlt
 DIST_osdmenu_default = \
-	osdmenu/default.cfg \
 	osdmenu/default/unselected.png \
 	osdmenu/default/selection/bw.png \
 	osdmenu/default/selection/esc.png \
@@ -188,128 +123,279 @@ DIST_osdmenu_default = \
 	osdmenu/default/volume/volume_09.png \
 	osdmenu/default/volume/volume_10.png
 
-DIST_lua= \
+#
+# LUA
+#
+luac_verbose = $(luac_verbose_$(V))
+luac_verbose_ = $(luac_verbose_$(AM_DEFAULT_VERBOSITY))
+luac_verbose_0 = @echo "  LUAC   $@";
+
+.lua.luac:
+	$(AM_V_at)for f in $(EXTRA_DIST); do \
+		test "$(srcdir)" = . || f="$(srcdir)/$$f"; \
+		if test $$f = $<; then \
+			exit 0; \
+		fi; \
+	done; \
+	echo "Attempt to byte-compile unknown file: $(<)!"; \
+	exit 1
+	$(AM_V_at)mkdir -p "$$(dirname '$@')"
+	$(luac_verbose)$(LUAC) -o $@ $<
+
+if BUILD_LUA
+nobase_vlclib_DATA = \
+	lua/intf/cli.luac \
+	lua/intf/dummy.luac \
+	lua/intf/dumpmeta.luac \
+	lua/intf/luac.luac \
+	lua/intf/modules/common.luac \
+	lua/intf/modules/host.luac \
+	lua/intf/telnet.luac \
+	lua/meta/art/02_frenchtv.luac \
+	lua/meta/art/03_lastfm.luac \
+	lua/meta/art/01_googleimage.luac \
+	lua/meta/art/00_musicbrainz.luac \
+	lua/meta/fetcher/tvrage.luac \
+	lua/meta/reader/filename.luac \
+	lua/modules/dkjson.luac \
+	lua/modules/sandbox.luac \
+	lua/modules/simplexml.luac \
+	lua/playlist/anevia_streams.luac \
+	lua/playlist/anevia_xml.luac \
+	lua/playlist/appletrailers.luac \
+	lua/playlist/bbc_co_uk.luac \
+	lua/playlist/break.luac \
+	lua/playlist/canalplus.luac \
+	lua/playlist/cue.luac \
+	lua/playlist/dailymotion.luac \
+	lua/playlist/extreme.luac \
+	lua/playlist/france2.luac \
+	lua/playlist/googlevideo.luac \
+	lua/playlist/jamendo.luac \
+	lua/playlist/joox.luac \
+	lua/playlist/katsomo.luac \
+	lua/playlist/koreus.luac \
+	lua/playlist/lelombrik.luac \
+	lua/playlist/metacafe.luac \
+	lua/playlist/metachannels.luac \
+	lua/playlist/mpora.luac \
+	lua/playlist/pinkbike.luac \
+	lua/playlist/pluzz.luac \
+	lua/playlist/rockbox_fm_presets.luac \
+	lua/playlist/soundcloud.luac \
+	lua/playlist/vimeo.luac \
+	lua/playlist/youtube.luac \
+	lua/playlist/youtube_homepage.luac \
+	lua/playlist/zapiks.luac \
+	lua/sd/assembleenationale.luac \
+	lua/sd/fmc.luac \
+	lua/sd/freebox.luac \
+	lua/sd/icecast.luac \
+	lua/sd/jamendo.luac \
+	lua/sd/metachannels.luac \
+	$(NULL)
+
+nobase_doc_DATA = \
 	lua/README.txt \
-	lua/meta/README.txt \
-	lua/meta/01_musicbrainz.lua \
-	lua/meta/10_googleimage.lua \
-	lua/playlist/README.txt \
-	lua/playlist/anevia_streams.lua \
-	lua/playlist/appletrailers.lua \
-	lua/playlist/break.lua \
-	lua/playlist/dailymotion.lua \
-	lua/playlist/france2.lua \
-	lua/playlist/joox.lua \
-	lua/playlist/katsomo.lua \
-	lua/playlist/lelombrik.lua \
-	lua/playlist/youtube.lua \
-	lua/playlist/youtube_homepage.lua \
-	lua/playlist/megavideo.lua \
-	lua/playlist/metacafe.lua \
-	lua/playlist/googlevideo.lua \
-	lua/playlist/mpora.lua \
-	lua/playlist/vimeo.lua \
+	lua/extensions/README.txt \
 	lua/intf/README.txt \
+	lua/intf/dumpmeta.lua \
+	lua/meta/art/README.txt \
+	lua/meta/art/01_googleimage.lua \
+	lua/meta/fetcher/README.txt \
+	lua/meta/fetcher/tvrage.lua \
+	lua/meta/reader/README.txt \
+	lua/meta/reader/filename.lua \
+	lua/playlist/README.txt \
+	lua/playlist/soundcloud.lua \
+	lua/playlist/youtube.lua \
+	lua/sd/README.txt \
+	lua/sd/icecast.lua \
+	$(NULL)
+
+if BUILD_HTTPD
+nobase_vlclib_DATA += \
+	lua/intf/http.luac \
+	lua/intf/modules/httprequests.luac \
+	$(NULL)
+nobase_vlcdata_DATA += $(DIST_http_lua)
+nobase_doc_DATA += lua/http/requests/README.txt
+endif
+endif
+MOSTLYCLEANFILES += $(nobase_vlclib_DATA)
+
+EXTRA_DIST += \
+	lua/README.txt \
+	lua/extensions/README.txt \
+	lua/intf/README.txt \
+	lua/intf/cli.lua \
+	lua/intf/dummy.lua \
+	lua/intf/dumpmeta.lua \
 	lua/intf/http.lua \
-	lua/intf/rc.lua \
-	lua/intf/hotkeys.lua \
+	lua/intf/luac.lua \
 	lua/intf/modules/common.lua \
 	lua/intf/modules/host.lua \
-	lua/intf/modules/sandbox.lua \
+	lua/intf/modules/httprequests.lua \
 	lua/intf/telnet.lua \
-	lua/intf/dummy.lua
+	lua/meta/art/README.txt \
+	lua/meta/art/02_frenchtv.lua \
+	lua/meta/art/03_lastfm.lua \
+	lua/meta/art/01_googleimage.lua \
+	lua/meta/art/00_musicbrainz.lua \
+	lua/meta/fetcher/README.txt \
+	lua/meta/fetcher/tvrage.lua \
+	lua/meta/reader/README.txt \
+	lua/meta/reader/filename.lua \
+	lua/modules/dkjson.lua \
+	lua/modules/sandbox.lua \
+	lua/modules/simplexml.lua \
+	lua/playlist/README.txt \
+	lua/playlist/anevia_streams.lua \
+	lua/playlist/anevia_xml.lua \
+	lua/playlist/appletrailers.lua \
+	lua/playlist/bbc_co_uk.lua \
+	lua/playlist/break.lua \
+	lua/playlist/canalplus.lua \
+	lua/playlist/cue.lua \
+	lua/playlist/dailymotion.lua \
+	lua/playlist/extreme.lua \
+	lua/playlist/france2.lua \
+	lua/playlist/googlevideo.lua \
+	lua/playlist/jamendo.lua \
+	lua/playlist/joox.lua \
+	lua/playlist/katsomo.lua \
+	lua/playlist/koreus.lua \
+	lua/playlist/lelombrik.lua \
+	lua/playlist/metacafe.lua \
+	lua/playlist/metachannels.lua \
+	lua/playlist/mpora.lua \
+	lua/playlist/pinkbike.lua \
+	lua/playlist/pluzz.lua \
+	lua/playlist/rockbox_fm_presets.lua \
+	lua/playlist/soundcloud.lua \
+	lua/playlist/vimeo.lua \
+	lua/playlist/youtube.lua \
+	lua/playlist/youtube_homepage.lua \
+	lua/playlist/zapiks.lua \
+	lua/sd/README.txt \
+	lua/sd/assembleenationale.lua \
+	lua/sd/fmc.lua \
+	lua/sd/freebox.lua \
+	lua/sd/icecast.lua \
+	lua/sd/jamendo.lua \
+	lua/sd/metachannels.lua
 
 DIST_http_lua = \
-	lua/http/.hosts \
+	lua/http/view.html \
+	lua/http/mobile.html \
+	lua/http/dialogs/create_stream.html \
+	lua/http/dialogs/equalizer_window.html \
+	lua/http/dialogs/mosaic_window.html \
+	lua/http/dialogs/batch_window.html \
+	lua/http/dialogs/error_window.html \
+	lua/http/dialogs/browse_window.html \
+	lua/http/dialogs/stream_window.html \
+	lua/http/dialogs/offset_window.html \
+	lua/http/dialogs/stream_config_window.html \
+	lua/http/dialogs/old/browse \
+	lua/http/dialogs/old/footer \
+	lua/http/dialogs/old/input \
+	lua/http/dialogs/old/main \
+	lua/http/dialogs/old/playlist \
+	lua/http/dialogs/old/sout \
+	lua/http/dialogs/old/vlm \
 	lua/http/custom.lua \
-	lua/http/dialogs/.hosts \
-	lua/http/dialogs/browse \
-	lua/http/dialogs/footer \
-	lua/http/dialogs/input \
-	lua/http/dialogs/main \
-	lua/http/dialogs/mosaic \
-	lua/http/dialogs/playlist \
-	lua/http/dialogs/sout \
-	lua/http/dialogs/vlm \
-	lua/http/favicon.ico \
-	lua/http/images/delete.png \
-	lua/http/images/delete_small.png \
-	lua/http/images/eject.png \
-	lua/http/images/empty.png \
-	lua/http/images/fullscreen.png \
-	lua/http/images/help.png \
-	lua/http/images/info.png \
-	lua/http/images/loop.png \
-	lua/http/images/minus.png \
-	lua/http/images/next.png \
-	lua/http/images/pause.png \
-	lua/http/images/play.png \
-	lua/http/images/playlist.png \
-	lua/http/images/playlist_small.png \
-	lua/http/images/plus.png \
-	lua/http/images/prev.png \
-	lua/http/images/refresh.png \
-	lua/http/images/repeat.png \
-	lua/http/images/reset.png \
-	lua/http/images/sd.png \
-	lua/http/images/shuffle.png \
-	lua/http/images/slider_bar.png \
-	lua/http/images/slider_left.png \
-	lua/http/images/slider_point.png \
-	lua/http/images/slider_right.png \
-	lua/http/images/snapshot.png \
-	lua/http/images/slow.png \
-	lua/http/images/sort.png \
-	lua/http/images/sout.png \
-	lua/http/images/speaker.png \
-	lua/http/images/speaker_mute.png \
-	lua/http/images/stop.png \
-	lua/http/images/vlc16x16.png \
-	lua/http/images/volume_down.png \
-	lua/http/images/volume_up.png \
-	lua/http/images/white.png \
-	lua/http/images/white_cross_small.png \
-	lua/http/index.html \
-	lua/http/js/functions.js \
-	lua/http/js/mosaic.js \
-	lua/http/js/vlm.js \
-	lua/http/mosaic.html \
-	lua/http/requests/browse.xml \
-	lua/http/requests/playlist.xml \
-	lua/http/requests/status.xml \
-	lua/http/requests/vlm.xml \
-	lua/http/requests/vlm_cmd.xml \
-	lua/http/requests/readme \
-	lua/http/style.css \
-	lua/http/iehacks.css \
 	lua/http/vlm.html \
+	lua/http/old/images/loop.png \
+	lua/http/images/buttons.png \
+	lua/http/images/speaker-32.png \
+	lua/http/old/images/fullscreen.png \
+	lua/http/images/vlc-48.png \
+	lua/http/old/images/prev.png \
+	lua/http/old/images/play.png \
+	lua/http/images/Audio-48.png \
+	lua/http/old/images/empty.png \
+	lua/http/old/images/minus.png \
+	lua/http/old/images/slider_right.png \
+	lua/http/old/images/slider_point.png \
+	lua/http/old/images/pause.png \
+	lua/http/old/images/speaker_mute.png \
+	lua/http/old/images/delete_small.png \
+	lua/http/old/images/snapshot.png \
+	lua/http/images/Folder-48.png \
+	lua/http/old/images/info.png \
+	lua/http/old/images/refresh.png \
+	lua/http/old/images/sout.png \
+	lua/http/old/images/sort.png \
+	lua/http/old/images/white_cross_small.png \
+	lua/http/old/images/shuffle.png \
+	lua/http/images/Other-48.png \
+	lua/http/old/images/repeat.png \
+	lua/http/old/images/slow.png \
+	lua/http/old/images/slider_left.png \
+	lua/http/old/images/help.png \
+	lua/http/old/images/stop.png \
+	lua/http/old/images/sd.png \
+	lua/http/old/images/speaker.png \
+	lua/http/old/images/delete.png \
+	lua/http/images/Back-48.png \
+	lua/http/images/Video-48.png \
+	lua/http/old/images/playlist_small.png \
+	lua/http/old/images/eject.png \
+	lua/http/old/images/playlist.png \
+	lua/http/old/images/volume_up.png \
+	lua/http/old/images/next.png \
+	lua/http/old/images/volume_down.png \
+	lua/http/old/images/slider_bar.png \
+	lua/http/images/vlc16x16.png \
+	lua/http/old/images/plus.png \
+	lua/http/old/images/white.png \
+	lua/http/old/images/reset.png \
+	lua/http/mobile_equalizer.html \
 	lua/http/vlm_export.html \
-	lua/http/flash.html
+	lua/http/mobile_browse.html \
+	lua/http/favicon.ico \
+	lua/http/mobile_view.html \
+	lua/http/requests/playlist.xml \
+	lua/http/requests/playlist.json \
+	lua/http/requests/README.txt \
+	lua/http/requests/playlist_jstree.xml \
+	lua/http/requests/browse.xml \
+	lua/http/requests/browse.json \
+	lua/http/requests/vlm_cmd.xml \
+	lua/http/requests/status.xml \
+	lua/http/requests/status.json \
+	lua/http/requests/vlm.xml \
+	lua/http/index.html \
+	lua/http/css/ui-lightness/jquery-ui-1.8.13.custom.css \
+	lua/http/css/ui-lightness/images/ui-bg_diagonals-thick_20_666666_40x40.png \
+	lua/http/css/ui-lightness/images/ui-bg_flat_10_000000_40x100.png \
+	lua/http/css/ui-lightness/images/ui-icons_ffffff_256x240.png \
+	lua/http/css/ui-lightness/images/ui-bg_gloss-wave_35_f6a828_500x100.png \
+	lua/http/css/ui-lightness/images/ui-bg_glass_65_ffffff_1x400.png \
+	lua/http/css/ui-lightness/images/ui-icons_222222_256x240.png \
+	lua/http/css/ui-lightness/images/ui-bg_glass_100_f6f6f6_1x400.png \
+	lua/http/css/ui-lightness/images/ui-bg_highlight-soft_100_eeeeee_1x100.png \
+	lua/http/css/ui-lightness/images/ui-bg_highlight-soft_75_ffe45c_1x100.png \
+	lua/http/css/ui-lightness/images/ui-bg_diagonals-thick_18_b81900_40x40.png \
+	lua/http/css/ui-lightness/images/ui-icons_ffd27a_256x240.png \
+	lua/http/css/ui-lightness/images/ui-icons_228ef1_256x240.png \
+	lua/http/css/ui-lightness/images/ui-icons_ef8c08_256x240.png \
+	lua/http/css/ui-lightness/images/ui-bg_glass_100_fdf5ce_1x400.png \
+	lua/http/css/main.css \
+	lua/http/css/mobile.css \
+	lua/http/js/jquery-1.5.1.min.js \
+	lua/http/old/js/functions.js \
+	lua/http/old/js/vlm.js \
+	lua/http/js/ui.js \
+	lua/http/js/common.js \
+	lua/http/js/jquery.jstree.js \
+	lua/http/js/controlers.js \
+	lua/http/js/jquery-ui-1.8.13.custom.min.js \
+	lua/http/old/style.css
 
-DIST_mozilla = \
-	mozilla/fullscreen.xpm \
-	mozilla/pause.xpm \
-	mozilla/play.xpm \
-	mozilla/skip_next.xpm \
-	mozilla/skip_previous.xpm \
-	mozilla/stop.xpm \
-	mozilla/time_icon.xpm \
-	mozilla/time_line.xpm \
-	mozilla/volume_knob.xpm \
-	mozilla/volume_max.xpm \
-	mozilla/volume_mute.xpm \
-	mozilla/volume_slider_bar.xpm
-
-DIST_maemo = \
-	maemo/vlc_intf.rc \
-	maemo/vlc_left_tab_active.png \
-	maemo/vlc_left_tab_passive.png \
-	maemo/playlist.png
-
-maemo_FILES = \
-	../modules/gui/qt4/pixmaps/play.png \
-	../modules/gui/qt4/pixmaps/pause.png \
-	../modules/gui/qt4/pixmaps/stop.png \
-	../modules/gui/qt4/pixmaps/previous.png \
-	../modules/gui/qt4/pixmaps/next.png \
-	vlc32x32.png
+DIST_solid = \
+	solid/vlc-openbd.desktop \
+	solid/vlc-opencda.desktop \
+	solid/vlc-opendvd.desktop \
+	solid/vlc-openvcd.desktop

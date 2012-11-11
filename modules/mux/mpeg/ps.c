@@ -35,7 +35,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
-#include <vlc_codecs.h>
 #include <vlc_block.h>
 
 #include "bits.h"
@@ -67,14 +66,12 @@ vlc_module_begin ()
     set_category( CAT_SOUT )
     set_subcategory( SUBCAT_SOUT_MUX )
     set_capability( "sout mux", 50 )
-    add_shortcut( "ps" )
-    add_shortcut( "mpeg1" )
-    add_shortcut( "dvd" )
+    add_shortcut( "ps", "mpeg1", "dvd" )
     set_callbacks( Open, Close )
 
-    add_integer( SOUT_CFG_PREFIX "dts-delay", 200, NULL, DTS_TEXT,
+    add_integer( SOUT_CFG_PREFIX "dts-delay", 200, DTS_TEXT,
                  DTS_LONGTEXT, true )
-    add_integer( SOUT_CFG_PREFIX "pes-max-size", PES_PAYLOAD_SIZE_MAX, NULL,
+    add_integer( SOUT_CFG_PREFIX "pes-max-size", PES_PAYLOAD_SIZE_MAX,
                  PES_SIZE_TEXT, PES_SIZE_LONGTEXT, true )
 vlc_module_end ()
 
@@ -89,7 +86,6 @@ static int Mux      ( sout_mux_t * );
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
-static int  MuxGetStream        ( sout_mux_t *, int *, mtime_t * );
 
 static void MuxWritePackHeader  ( sout_mux_t *, block_t **, mtime_t );
 static void MuxWriteSystemHeader( sout_mux_t *, block_t **, mtime_t );
@@ -457,10 +453,10 @@ static int Mux( sout_mux_t *p_mux )
         block_t *p_ps, *p_data;
 
         mtime_t        i_dts;
-        int            i_stream;
 
         /* Choose which stream to mux */
-        if( MuxGetStream( p_mux, &i_stream, &i_dts ) )
+        int i_stream = sout_MuxGetStream( p_mux, 1, &i_dts );
+        if( i_stream < 0 )
         {
             return VLC_SUCCESS;
         }
@@ -515,8 +511,7 @@ static int Mux( sout_mux_t *p_mux )
 
         /* Get and mux a packet */
         p_data = block_FifoGet( p_input->p_fifo );
-         EStoPES ( p_mux->p_sout, &p_data, p_data,
-                       p_input->p_fmt, p_stream->i_stream_id,
+         EStoPES ( &p_data, p_data, p_input->p_fmt, p_stream->i_stream_id,
                        p_sys->b_mpeg2, 0, 0, p_sys->i_pes_max_size );
 
         block_ChainAppend( &p_ps, p_data );
@@ -798,44 +793,4 @@ static void MuxWritePSM( sout_mux_t *p_mux, block_t **p_buf, mtime_t i_dts )
     }
 
     block_ChainAppend( p_buf, p_hdr );
-}
-
-/*
- * Find stream to be muxed.
- */
-static int MuxGetStream( sout_mux_t *p_mux, int *pi_stream, mtime_t *pi_dts )
-{
-    mtime_t i_dts;
-    int     i_stream, i;
-
-    for( i = 0, i_dts = 0, i_stream = -1; i < p_mux->i_nb_inputs; i++ )
-    {
-        sout_input_t *p_input = p_mux->pp_inputs[i];
-        block_t *p_data;
-
-        if( block_FifoCount( p_input->p_fifo ) <= 0 )
-        {
-            if( p_input->p_fmt->i_cat == AUDIO_ES ||
-                p_input->p_fmt->i_cat == VIDEO_ES )
-            {
-                /* We need that audio+video fifo contain at least 1 packet */
-                return VLC_EGENERIC;
-            }
-
-            /* SPU */
-            continue;
-        }
-
-        p_data = block_FifoShow( p_input->p_fifo );
-        if( i_stream == -1 || p_data->i_dts < i_dts )
-        {
-            i_stream = i;
-            i_dts    = p_data->i_dts;
-        }
-    }
-
-    *pi_stream = i_stream;
-    *pi_dts = i_dts;
-
-    return VLC_SUCCESS;
 }

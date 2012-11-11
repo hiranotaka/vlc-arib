@@ -56,14 +56,15 @@ m_tooltipfont( tooltipfont ), m_magnet( magnet ), m_alpha( alpha ), m_moveAlpha(
     /// Type definition
     struct Bitmap
     {
-        Bitmap( const string & id, const string & fileName, uint32_t alphaColor, int nbFrames, int fps ):
-m_id( id ), m_fileName( fileName ), m_alphaColor( alphaColor ), m_nbFrames( nbFrames ), m_fps( fps ) {}
+        Bitmap( const string & id, const string & fileName, uint32_t alphaColor, int nbFrames, int fps, int nbLoops ):
+m_id( id ), m_fileName( fileName ), m_alphaColor( alphaColor ), m_nbFrames( nbFrames ), m_fps( fps ), m_nbLoops( nbLoops ) {}
 
         string m_id;
         string m_fileName;
         uint32_t m_alphaColor;
         int m_nbFrames;
         int m_fps;
+        int m_nbLoops;
     };
     /// List
     list<Bitmap> m_listBitmap;
@@ -71,8 +72,8 @@ m_id( id ), m_fileName( fileName ), m_alphaColor( alphaColor ), m_nbFrames( nbFr
     /// Type definition
     struct SubBitmap
     {
-        SubBitmap( const string & id, const string & parent, int x, int y, int width, int height, int nbFrames, int fps ):
-m_id( id ), m_parent( parent ), m_x( x ), m_y( y ), m_width( width ), m_height( height ), m_nbFrames( nbFrames ), m_fps( fps ) {}
+        SubBitmap( const string & id, const string & parent, int x, int y, int width, int height, int nbFrames, int fps, int nbLoops ):
+m_id( id ), m_parent( parent ), m_x( x ), m_y( y ), m_width( width ), m_height( height ), m_nbFrames( nbFrames ), m_fps( fps ), m_nbLoops( nbLoops ) {}
 
         string m_id;
         string m_parent;
@@ -82,6 +83,7 @@ m_id( id ), m_parent( parent ), m_x( x ), m_y( y ), m_width( width ), m_height( 
         int m_height;
         int m_nbFrames;
         int m_fps;
+        int m_nbLoops;
     };
     /// List
     list<SubBitmap> m_listSubBitmap;
@@ -152,12 +154,17 @@ m_pos( pos ), m_popupId( popupId ) {}
     /// Type definition
     struct Window
     {
-        Window( const string & id, int xPos, int yPos, bool visible, bool dragDrop, bool playOnDrop ):
-m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_visible( visible ), m_dragDrop( dragDrop ), m_playOnDrop( playOnDrop ) {}
+        Window( const string & id, int xPos, int yPos, const string & position, const string & xOffset, const string & yOffset, const string & xMargin, const string & yMargin, bool visible, bool dragDrop, bool playOnDrop ):
+m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_position( position ), m_xOffset( xOffset ), m_yOffset( yOffset ), m_xMargin( xMargin ), m_yMargin( yMargin ), m_visible( visible ), m_dragDrop( dragDrop ), m_playOnDrop( playOnDrop ) {}
 
         string m_id;
         int m_xPos;
         int m_yPos;
+        string m_position;
+        string m_xOffset;
+        string m_yOffset;
+        string m_xMargin;
+        string m_yMargin;
         bool m_visible;
         bool m_dragDrop;
         bool m_playOnDrop;
@@ -265,12 +272,14 @@ m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_leftTop( leftTop ), m_rightBottom(
     /// Type definition
     struct Image
     {
-        Image( const string & id, int xPos, int yPos, const string & leftTop, const string & rightBottom, bool xKeepRatio, bool yKeepRatio, const string & visible, const string & bmpId, const string & actionId, const string & action2Id, const string & resize, const string & help, int layer, const string & windowId, const string & layoutId, const string & panelId ):
-m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_leftTop( leftTop ), m_rightBottom( rightBottom ), m_xKeepRatio( xKeepRatio ), m_yKeepRatio( yKeepRatio ), m_visible( visible ), m_bmpId( bmpId ), m_actionId( actionId ), m_action2Id( action2Id ), m_resize( resize ), m_help( help ), m_layer( layer ), m_windowId( windowId ), m_layoutId( layoutId ), m_panelId( panelId ) {}
+        Image( const string & id, int xPos, int yPos, int width, int height, const string & leftTop, const string & rightBottom, bool xKeepRatio, bool yKeepRatio, const string & visible, const string & bmpId, const string & actionId, const string & action2Id, const string & resize, const string & help, bool art, int layer, const string & windowId, const string & layoutId, const string & panelId ):
+m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_width( width ), m_height( height ), m_leftTop( leftTop ), m_rightBottom( rightBottom ), m_xKeepRatio( xKeepRatio ), m_yKeepRatio( yKeepRatio ), m_visible( visible ), m_bmpId( bmpId ), m_actionId( actionId ), m_action2Id( action2Id ), m_resize( resize ), m_help( help ), m_art( art ), m_layer( layer ), m_windowId( windowId ), m_layoutId( layoutId ), m_panelId( panelId ) {}
 
         string m_id;
         int m_xPos;
         int m_yPos;
+        int m_width;
+        int m_height;
         string m_leftTop;
         string m_rightBottom;
         bool m_xKeepRatio;
@@ -281,6 +290,7 @@ m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_leftTop( leftTop ), m_rightBottom(
         string m_action2Id;
         string m_resize;
         string m_help;
+        bool m_art;
         int m_layer;
         string m_windowId;
         string m_layoutId;
@@ -327,8 +337,8 @@ m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_leftTop( leftTop ), m_rightBottom(
     /// Type definition
     struct Text
     {
-        Text( const string & id, int xPos, int yPos, const string & visible, const string & fontId, const string & text, int width, const string & leftTop, const string & rightBottom, bool xKeepRatio, bool yKeepRatio, uint32_t color, const string & scrolling, const string & alignment, const string & help, int layer, const string & windowId, const string & layoutId, const string & panelId ):
-m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_visible( visible ), m_fontId( fontId ), m_text( text ), m_width( width ), m_leftTop( leftTop ), m_rightBottom( rightBottom ), m_xKeepRatio( xKeepRatio ), m_yKeepRatio( yKeepRatio ), m_color( color ), m_scrolling( scrolling ), m_alignment( alignment ), m_help( help ), m_layer( layer ), m_windowId( windowId ), m_layoutId( layoutId ), m_panelId( panelId ) {}
+        Text( const string & id, int xPos, int yPos, const string & visible, const string & fontId, const string & text, int width, const string & leftTop, const string & rightBottom, bool xKeepRatio, bool yKeepRatio, uint32_t color, const string & scrolling, const string & alignment, const string & focus, const string & help, int layer, const string & windowId, const string & layoutId, const string & panelId ):
+m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_visible( visible ), m_fontId( fontId ), m_text( text ), m_width( width ), m_leftTop( leftTop ), m_rightBottom( rightBottom ), m_xKeepRatio( xKeepRatio ), m_yKeepRatio( yKeepRatio ), m_color( color ), m_scrolling( scrolling ), m_alignment( alignment ), m_focus( focus ), m_help( help ), m_layer( layer ), m_windowId( windowId ), m_layoutId( layoutId ), m_panelId( panelId ) {}
 
         string m_id;
         int m_xPos;
@@ -344,6 +354,7 @@ m_id( id ), m_xPos( xPos ), m_yPos( yPos ), m_visible( visible ), m_fontId( font
         uint32_t m_color;
         string m_scrolling;
         string m_alignment;
+        string m_focus;
         string m_help;
         int m_layer;
         string m_windowId;

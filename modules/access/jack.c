@@ -41,14 +41,12 @@
 #include <vlc_plugin.h>
 #include <vlc_input.h>
 #include <vlc_demux.h>
-#include <vlc_codecs.h>
 #include <vlc_url.h>
 #include <vlc_strings.h>
 
 #include <jack/jack.h>
 #include <jack/ringbuffer.h>
 
-#include <errno.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -58,10 +56,6 @@
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
-#define CACHING_TEXT N_("Caching value in ms")
-#define CACHING_LONGTEXT N_( \
-    "Make VLC buffer audio data captured from jack for the specified " \
-    "length in milliseconds." )
 #define PACE_TEXT N_( "Pace" )
 #define PACE_LONGTEXT N_( \
     "Read the audio stream at VLC pace rather than Jack pace." )
@@ -76,12 +70,10 @@ vlc_module_begin ()
      set_category( CAT_INPUT )
      set_subcategory( SUBCAT_INPUT_ACCESS )
 
-     add_integer( "jack-input-caching", DEFAULT_PTS_DELAY / 1000, NULL,
-         CACHING_TEXT, CACHING_LONGTEXT, true )
-     add_bool( "jack-input-use-vlc-pace", false, NULL,
+     add_bool( "jack-input-use-vlc-pace", false,
          PACE_TEXT, PACE_LONGTEXT, true )
-     add_bool( "jack-input-auto-connect", false, NULL,
-         AUTO_CONNECT_TEXT, AUTO_CONNECT_LONGTEXT, true )
+     add_bool( "jack-input-auto-connect", false,
+         AUTO_CONNECT_TEXT, AUTO_CONNECT_LONGTEXT, false )
 
      add_shortcut( "jack" )
      set_callbacks( Open, Close )
@@ -148,8 +140,6 @@ static int Open( vlc_object_t *p_this )
     Parse( p_demux );
 
     /* Create var */
-    var_Create( p_demux, "jack-input-caching",
-        VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
     var_Create( p_demux, "jack-input-use-vlc-pace",
         VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
     var_Create( p_demux, "jack-input-auto-connect",
@@ -159,7 +149,7 @@ static int Open( vlc_object_t *p_this )
     /* define name and connect to jack server */
     char p_vlc_client_name[32];
     sprintf( p_vlc_client_name, "vlc-input-%d", getpid() );
-    p_sys->p_jack_client = jack_client_new( p_vlc_client_name );
+    p_sys->p_jack_client = jack_client_open( p_vlc_client_name, JackNullOption, NULL );
     if( p_sys->p_jack_client == NULL )
     {
         msg_Err( p_demux, "failed to connect to JACK server" );
@@ -366,8 +356,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
     case DEMUX_GET_PTS_DELAY:
         pi64 = ( int64_t* )va_arg( args, int64_t * );
-        *pi64 = ( int64_t )var_GetInteger( p_demux, "jack-input-caching" )
-            * 1000;
+        *pi64 = INT64_C(1000) * var_InheritInteger( p_demux, "live-caching" );
         return VLC_SUCCESS;
 
     case DEMUX_GET_TIME:
@@ -444,7 +433,7 @@ int Process( jack_nframes_t i_frames, void *p_arg )
         }
     }
 
-    return 1;
+    return 0;
 }
 
 
@@ -541,7 +530,7 @@ static void Port_finder( demux_t *p_demux )
                 i_out_ports++;
             }
             /* alloc an array to store all the matched ports */
-            p_sys->pp_jack_port_table = realloc( p_sys->pp_jack_port_table,
+            p_sys->pp_jack_port_table = xrealloc( p_sys->pp_jack_port_table,
                 (i_out_ports * sizeof( char * ) + i_total_out_ports * sizeof( char * ) ) );
 
             for(int i=0; i<i_out_ports;i++)
@@ -564,7 +553,7 @@ static void Port_finder( demux_t *p_demux )
 static void Parse( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
-    char *psz_dup = strdup( p_demux->psz_path );
+    char *psz_dup = strdup( p_demux->psz_location );
     char *psz_parser = psz_dup;
 
     if( !strncmp( psz_parser, "channels=", strlen( "channels=" ) ) )

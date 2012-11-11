@@ -46,11 +46,6 @@
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
-#define CACHING_TEXT N_("Caching value in ms")
-#define CACHING_LONGTEXT N_( \
-    "Caching value for MMS streams. This " \
-    "value should be set in milliseconds." )
-
 #define ALL_TEXT N_("Force selection of all streams")
 #define ALL_LONGTEXT N_( \
     "MMS streams can contain several elementary streams, with different " \
@@ -76,23 +71,16 @@ vlc_module_begin ()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
 
-    add_integer( "mms-caching", 19 * DEFAULT_PTS_DELAY / 1000, NULL,
-                 CACHING_TEXT, CACHING_LONGTEXT, true )
-
-    add_integer( "mms-timeout", 5000, NULL, TIMEOUT_TEXT, TIMEOUT_LONGTEXT,
+    add_integer( "mms-timeout", 5000, TIMEOUT_TEXT, TIMEOUT_LONGTEXT,
                  true )
 
-    add_bool( "mms-all", false, NULL, ALL_TEXT, ALL_LONGTEXT, true )
-    add_integer( "mms-maxbitrate", 0, NULL, BITRATE_TEXT, BITRATE_LONGTEXT ,
+    add_bool( "mms-all", false, ALL_TEXT, ALL_LONGTEXT, true )
+    add_integer( "mms-maxbitrate", 0, BITRATE_TEXT, BITRATE_LONGTEXT ,
                  false )
-    add_string( "mmsh-proxy", NULL, NULL, PROXY_TEXT, PROXY_LONGTEXT,
+    add_string( "mmsh-proxy", NULL, PROXY_TEXT, PROXY_LONGTEXT,
                     false )
 
-    add_shortcut( "mms" )
-    add_shortcut( "mmsu" )
-    add_shortcut( "mmst" )
-    add_shortcut( "mmsh" )
-    add_shortcut( "http" )
+    add_shortcut( "mms", "mmsu", "mmst", "mmsh", "http" )
     set_callbacks( Open, Close )
 vlc_module_end ()
 
@@ -110,13 +98,6 @@ struct access_sys_t
 static int Open( vlc_object_t *p_this )
 {
     access_t *p_access = (access_t*)p_this;
-
-    /* First set ipv4/ipv6 */
-    var_Create( p_access, "ipv4", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
-    var_Create( p_access, "ipv6", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
-
-    /* mms-caching */
-    var_Create( p_access, "mms-caching", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
 
     /* use specified method */
     if( *p_access->psz_access )
@@ -138,7 +119,7 @@ static int Open( vlc_object_t *p_this )
 
     if( MMSTUOpen ( p_access ) )
     {
-        if( p_access->b_die )
+        if( !vlc_object_alive(p_access) )
             return VLC_EGENERIC;
 
         /* try mmsh if mmstu failed */

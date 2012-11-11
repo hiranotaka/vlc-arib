@@ -1,26 +1,26 @@
 /*****************************************************************************
  * decoder_synchro.c : frame dropping routines
  *****************************************************************************
- * Copyright (C) 1999-2005 the VideoLAN team
+ * Copyright (C) 1999-2005 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
  *          Samuel Hocevar <sam@via.ecp.fr>
  *          Jean-Marc Dressler <polux@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*
@@ -116,8 +116,8 @@ struct decoder_synchro_t
 
     /* */
     int             i_frame_rate;
-    bool      b_no_skip;
-    bool      b_quiet;
+    bool            b_no_skip;
+    bool            b_quiet;
 
     /* date of the beginning of the decoding of the current picture */
     mtime_t         decoding_start;
@@ -130,7 +130,7 @@ struct decoder_synchro_t
     unsigned int    pi_meaningful[4];            /* number of durations read */
 
     /* render_time filled by SynchroChoose() */
-    int i_render_time;
+    int             i_render_time;
 
     /* stream context */
     int             i_nb_ref;                /* Number of reference pictures */
@@ -166,8 +166,8 @@ decoder_synchro_t * decoder_SynchroInit( decoder_t *p_dec, int i_frame_rate )
         return NULL;
 
     p_synchro->p_dec = p_dec;
-    p_synchro->b_no_skip = !config_GetInt( p_dec, "skip-frames" );
-    p_synchro->b_quiet = config_GetInt( p_dec, "quiet-synchro" );
+    p_synchro->b_no_skip = !var_InheritBool( p_dec, "skip-frames" );
+    p_synchro->b_quiet = var_InheritBool( p_dec, "quiet-synchro" );
 
     /* We use a fake stream pattern, which is often right. */
     p_synchro->i_n_p = p_synchro->i_eta_p = DEFAULT_NB_P;
@@ -215,7 +215,7 @@ bool decoder_SynchroChoose( decoder_synchro_t * p_synchro, int i_coding_type,
                                     + p_synchro->i_render_time)
 #define S (*p_synchro)
     mtime_t         now, period;
-    mtime_t         pts = 0;
+    mtime_t         pts;
     bool      b_decode = 0;
     int       i_current_rate;
 
@@ -369,25 +369,24 @@ void decoder_SynchroEnd( decoder_synchro_t * p_synchro, int i_coding_type,
 {
     mtime_t     tau;
 
-    if( !b_garbage )
-    {
-        tau = mdate() - p_synchro->decoding_start;
+    if( b_garbage )
+        return;
 
-        /* If duration too high, something happened (pause ?), so don't
-         * take it into account. */
-        if( tau < 3 * p_synchro->p_tau[i_coding_type]
-             || ( !p_synchro->pi_meaningful[i_coding_type]
-                   && tau < MAX_VALID_TAU ) )
+    tau = mdate() - p_synchro->decoding_start;
+
+    /* If duration too high, something happened (pause ?), so don't
+     * take it into account. */
+    if( tau < 3 * p_synchro->p_tau[i_coding_type] ||
+          ( !p_synchro->pi_meaningful[i_coding_type] && tau < MAX_VALID_TAU ) )
+    {
+        /* Mean with average tau, to ensure stability. */
+        p_synchro->p_tau[i_coding_type] =
+            (p_synchro->pi_meaningful[i_coding_type]
+             * p_synchro->p_tau[i_coding_type] + tau)
+            / (p_synchro->pi_meaningful[i_coding_type] + 1);
+        if( p_synchro->pi_meaningful[i_coding_type] < MAX_PIC_AVERAGE )
         {
-            /* Mean with average tau, to ensure stability. */
-            p_synchro->p_tau[i_coding_type] =
-                (p_synchro->pi_meaningful[i_coding_type]
-                 * p_synchro->p_tau[i_coding_type] + tau)
-                / (p_synchro->pi_meaningful[i_coding_type] + 1);
-            if( p_synchro->pi_meaningful[i_coding_type] < MAX_PIC_AVERAGE )
-            {
-                p_synchro->pi_meaningful[i_coding_type]++;
-            }
+            p_synchro->pi_meaningful[i_coding_type]++;
         }
     }
 }
@@ -416,8 +415,7 @@ void decoder_SynchroNewPicture( decoder_synchro_t * p_synchro, int i_coding_type
     switch( i_coding_type )
     {
     case I_CODING_TYPE:
-        if( p_synchro->i_eta_p
-             && p_synchro->i_eta_p != p_synchro->i_n_p )
+        if( p_synchro->i_eta_p && p_synchro->i_eta_p != p_synchro->i_n_p )
         {
 #if 0
             if( !p_synchro->b_quiet )

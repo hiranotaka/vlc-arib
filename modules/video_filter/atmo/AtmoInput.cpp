@@ -8,19 +8,29 @@
  * $Id$
  */
 
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
+#include "AtmoDefs.h"
 #include "AtmoInput.h"
 
+#if defined(_ATMO_VLC_PLUGIN_)
+CAtmoInput::CAtmoInput(CAtmoDynData *pAtmoDynData) : CThread(pAtmoDynData->getAtmoFilter())
+{
+  m_pAtmoDynData         = pAtmoDynData;
+  m_pAtmoColorCalculator = new CAtmoColorCalculator(pAtmoDynData->getAtmoConfig());
+}
+#else
 CAtmoInput::CAtmoInput(CAtmoDynData *pAtmoDynData)
 {
-  this->m_pAtmoDynData = pAtmoDynData;
+  m_pAtmoDynData = pAtmoDynData;
+  m_pAtmoColorCalculator = new CAtmoColorCalculator(pAtmoDynData->getAtmoConfig());
 }
+#endif
 
 CAtmoInput::~CAtmoInput(void)
 {
-}
-
-void CAtmoInput::WaitForNextFrame(DWORD timeout)
-{
-    return;
+  delete m_pAtmoColorCalculator;
 }
 

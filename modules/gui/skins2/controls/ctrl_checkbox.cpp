@@ -111,6 +111,11 @@ CtrlCheckbox::CtrlCheckbox( intf_thread_t *pIntf,
 
 CtrlCheckbox::~CtrlCheckbox()
 {
+    if( m_pImgCurrent )
+    {
+        m_pImgCurrent->stopAnim();
+        m_pImgCurrent->delObserver( this );
+    }
     m_rVariable.delObserver( this );
 }
 
@@ -134,18 +139,34 @@ bool CtrlCheckbox::mouseOver( int x, int y ) const
 }
 
 
-void CtrlCheckbox::draw( OSGraphics &rImage, int xDest, int yDest )
+void CtrlCheckbox::draw( OSGraphics &rImage, int xDest, int yDest, int w, int h )
 {
-    if( m_pImgCurrent )
+    if( !m_pImgCurrent )
+        return;
+
+    const Position *pPos = getPosition();
+    // rect region( pPos->getLeft(), pPos->getTop(),
+    //              pPos->getWidth(), pPos->getHeight() );
+    rect region( pPos->getLeft(), pPos->getTop(),
+                 m_pImgCurrent->getWidth(), m_pImgCurrent->getHeight() );
+    rect clip( xDest, yDest, w, h );
+    rect inter;
+    if( rect::intersect( region, clip, &inter ) )
     {
         // Draw the current image
-        m_pImgCurrent->draw( rImage, xDest, yDest );
+        m_pImgCurrent->draw( rImage,
+                      inter.x, inter.y, inter.width, inter.height,
+                      inter.x - pPos->getLeft(),
+                      inter.y - pPos->getTop() );
     }
 }
 
 
 void CtrlCheckbox::setImage( AnimBitmap *pImg )
 {
+    if( pImg == m_pImgCurrent )
+        return;
+
     AnimBitmap *pOldImg = m_pImgCurrent;
     m_pImgCurrent = pImg;
 
@@ -175,24 +196,7 @@ void CtrlCheckbox::CmdUpOverDownOver::execute()
 void CtrlCheckbox::CmdDownOverUpOver::execute()
 {
     m_pParent->releaseMouse();
-
-    // There is a little trick here: since we update the image of the control
-    // before executing the command, there is no way that the observed variable
-    // can have changed, so changeButton() has not been called, and m_pImgUp is
-    // still the "old" up state. That's why we don't use it, and use the other
-    // one instead. Otherwise, we would notice a "phantom effect", where the
-    // old up image is displayed for a few milliseconds, until the variable is
-    // updated and the correct up image is displayed.
-    // Executing the action before refreshing the state wouldn't work, because
-    // the variable may be updated asynchronously (when triggered by a callback
-    // from an object variable).
-
-    // Invert the state variable
-    if( m_pParent->m_pImgUp == &m_pParent->m_imgUp1 )
-        m_pParent->setImage( &m_pParent->m_imgUp2 );
-    else
-        m_pParent->setImage( &m_pParent->m_imgUp1 );
-
+    m_pParent->setImage( m_pParent->m_pImgUp );
     // Execute the command
     m_pParent->m_pCommand->execute();
 }
@@ -242,13 +246,15 @@ void CtrlCheckbox::CmdHiddenUp::execute()
 
 void CtrlCheckbox::onVarBoolUpdate( VarBool &rVariable )
 {
+    (void)rVariable;
     changeButton();
 }
 
 
 void CtrlCheckbox::onUpdate( Subject<AnimBitmap> &rBitmap, void *arg )
 {
-    notifyLayout();
+    (void)rBitmap;(void)arg;
+    notifyLayout( m_pImgCurrent->getWidth(), m_pImgCurrent->getHeight() );
 }
 
 
@@ -276,7 +282,5 @@ void CtrlCheckbox::changeButton()
 
     // Notify the window the tooltip has changed
     notifyTooltipChange();
-    // Refresh
-    notifyLayout();
 }
 

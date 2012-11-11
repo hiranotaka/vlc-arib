@@ -1,7 +1,7 @@
 /*****************************************************************************
- * Messages.cpp : Information about an item
+ * messages.cpp : Information about an item
  ****************************************************************************
- * Copyright (C) 2006-2007 the VideoLAN team
+ * Copyright (C) 2006-2011 the VideoLAN team
  * $Id$
  *
  * Authors: Jean-Baptiste Kempf <jb (at) videolan.org>
@@ -26,158 +26,174 @@
 
 #include "dialogs/messages.hpp"
 
-#include <QSpinBox>
-#include <QLabel>
-#include <QTextEdit>
+#include <QPlainTextEdit>
 #include <QTextCursor>
+#include <QTextBlock>
 #include <QFileDialog>
 #include <QTextStream>
 #include <QMessageBox>
 #include <QTabWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
-#include <QHeaderView>
 #include <QMutex>
+#include <QLineEdit>
+#include <QScrollBar>
+#include <QMutex>
+#include <QMutexLocker>
 
 #include <assert.h>
 
-MessagesDialog *MessagesDialog::instance = NULL;
-
 enum {
-    MsgEvent_Type = QEvent::User + MsgEventType + 1,
+    MsgEvent_Type = QEvent::User + MsgEventTypeOffset + 1,
 };
 
 class MsgEvent : public QEvent
 {
 public:
-    MsgEvent( msg_item_t *msg )
-        : QEvent( (QEvent::Type)MsgEvent_Type ), msg(msg)
-    {
-        msg_Hold( msg );
-    }
-    virtual ~MsgEvent()
-    {
-        msg_Release( msg );
-    }
+    MsgEvent( int, const msg_item_t *, const char * );
 
-    msg_item_t *msg;
+    int priority;
+    uintptr_t object_id;
+    QString object_type;
+    QString header;
+    QString module;
+    QString text;
 };
 
-struct msg_cb_data_t
+MsgEvent::MsgEvent( int type, const msg_item_t *msg, const char *text )
+    : QEvent( (QEvent::Type)MsgEvent_Type ),
+      priority( type ),
+      object_id( msg->i_object_id ),
+      object_type( qfu(msg->psz_object_type) ),
+      header( qfu(msg->psz_header) ),
+      module( qfu(msg->psz_module) ),
+      text( qfu(text) )
 {
-    MessagesDialog *self;
-};
-static void MsgCallback( msg_cb_data_t *, msg_item_t *, unsigned );
+}
 
 MessagesDialog::MessagesDialog( intf_thread_t *_p_intf)
                : QVLCFrame( _p_intf )
 {
     setWindowTitle( qtr( "Messages" ) );
     setWindowRole( "vlc-messages" );
-
-    /* General widgets */
-    QGridLayout *mainLayout = new QGridLayout( this );
-    mainTab = new QTabWidget( this );
-    mainTab->setTabPosition( QTabWidget::North );
-
-
-    /* Messages */
-    QWidget     *msgWidget = new QWidget;
-    QGridLayout *msgLayout = new QGridLayout( msgWidget );
-
-    messages = new QTextEdit();
-    messages->setReadOnly( true );
-    messages->setGeometry( 0, 0, 440, 600 );
-    messages->setHorizontalScrollBarPolicy( Qt::ScrollBarAlwaysOff );
-    messages->setTextInteractionFlags( Qt::TextSelectableByMouse );
-
-    msgLayout->addWidget( messages, 0, 0, 1, 0 );
-    mainTab->addTab( msgWidget, qtr( "Messages" ) );
-
+    /* Build Ui */
+    ui.setupUi( this );
+    ui.bottomButtonsBox->addButton( new QPushButton( qtr("&Close"), this ),
+                                         QDialogButtonBox::RejectRole );
 
     /* Modules tree */
-    QWidget     *treeWidget = new QWidget;
-    QGridLayout *treeLayout = new QGridLayout( treeWidget );
-
-    modulesTree = new QTreeWidget();
-    modulesTree->header()->hide();
-
-    treeLayout->addWidget( modulesTree, 0, 0, 1, 0 );
-    mainTab->addTab( treeWidget, qtr( "Modules tree" ) );
-
+    ui.modulesTree->setHeaderHidden( true );
 
     /* Buttons and general layout */
-    QPushButton *closeButton = new QPushButton( qtr( "&Close" ) );
-    closeButton->setDefault( true );
-    clearUpdateButton = new QPushButton( qtr( "C&lear" ) );
-    saveLogButton = new QPushButton( qtr( "&Save as..." ) );
-    saveLogButton->setToolTip( qtr( "Saves all the displayed logs to a file" ) );
+    ui.saveLogButton->setToolTip( qtr( "Saves all the displayed logs to a file" ) );
 
-    verbosityBox = new QSpinBox();
-    verbosityBox->setRange( 0, 2 );
-    verbosityBox->setValue( config_GetInt( p_intf, "verbose" ) );
-    verbosityBox->setWrapping( true );
-    verbosityBox->setMaximumWidth( 50 );
+    int i_verbosity = var_InheritInteger( p_intf, "verbose" );
+    changeVerbosity( i_verbosity );
+    ui.verbosityBox->setValue( qMin( i_verbosity, 2 ) );
 
-    verbosityLabel = new QLabel( qtr( "Verbosity Level" ) );
+    getSettings()->beginGroup( "Messages" );
+    ui.filterEdit->setText( getSettings()->value( "messages-filter" ).toString() );
+    getSettings()->endGroup();
 
-    mainLayout->addWidget( mainTab, 0, 0, 1, 0 );
-    mainLayout->addWidget( verbosityLabel, 1, 0, 1, 1 );
-    mainLayout->addWidget( verbosityBox, 1, 1 );
-    mainLayout->setColumnStretch( 2, 10 );
-    mainLayout->addWidget( saveLogButton, 1, 3 );
-    mainLayout->addWidget( clearUpdateButton, 1, 4 );
-    mainLayout->addWidget( closeButton, 1, 5 );
+    updateButton = new QPushButton( QIcon(":/update"), "" );
+    updateButton->setFlat( true );
+    ui.mainTab->setCornerWidget( updateButton );
 
-    BUTTONACT( closeButton, hide() );
-    BUTTONACT( clearUpdateButton, clearOrUpdate() );
-    BUTTONACT( saveLogButton, save() );
-    CONNECT( mainTab, currentChanged( int ),
-             this, updateTab( int ) );
+#ifndef NDEBUG
+    QWidget *pldebugTab = new QWidget();
+    QVBoxLayout *pldebugTabLayout = new QVBoxLayout();
+    pldebugTab->setLayout( pldebugTabLayout );
+    ui.mainTab->addTab( pldebugTab, "Playlist Tree" );
+    pldebugTree = new QTreeWidget();
+    pldebugTree->headerItem()->setText( 0, "Name" );
+    pldebugTree->headerItem()->setText( 1, "PL id" );
+    pldebugTree->headerItem()->setText( 2, "Item id" );
+    pldebugTree->headerItem()->setText( 3, "PL flags" );
+    pldebugTree->headerItem()->setText( 4, "Item flags" );
+    pldebugTree->setColumnCount( 5 );
+    pldebugTabLayout->addWidget( pldebugTree );
+#endif
+
+    tabChanged(0);
+
+    BUTTONACT( updateButton, updateOrClear() );
+    BUTTONACT( ui.saveLogButton, save() );
+    CONNECT( ui.filterEdit, editingFinished(), this, updateConfig() );
+    CONNECT( ui.filterEdit, textChanged(QString), this, filterMessages() );
+    CONNECT( ui.bottomButtonsBox, rejected(), this, hide() );
+    CONNECT( ui.verbosityBox, valueChanged( int ),
+             this, changeVerbosity( int ) );
+
+    CONNECT( ui.mainTab, currentChanged( int ), this, tabChanged( int ) );
 
     /* General action */
-    readSettings( "Messages", QSize( 600, 450 ) );
-
+    restoreWidgetPosition( "Messages", QSize( 600, 450 ) );
 
     /* Hook up to LibVLC messaging */
-    cbData = new msg_cb_data_t;
-    cbData->self = this;
-    sub = msg_Subscribe( p_intf->p_libvlc, MsgCallback, cbData );
+    vlc_Subscribe( &sub, MsgCallback, this );
+
+    buildTree( NULL, VLC_OBJECT( p_intf->p_libvlc ) );
 }
 
 MessagesDialog::~MessagesDialog()
 {
-    writeSettings( "Messages" );
-    msg_Unsubscribe( sub );
-    delete cbData;
+    saveWidgetPosition( "Messages" );
+    vlc_Unsubscribe( &sub );
 };
 
-void MessagesDialog::updateTab( int index )
+void MessagesDialog::changeVerbosity( int i_verbosity )
 {
-    /* Second tab : modules tree */
-    if( index == 1 )
-    {
-        verbosityLabel->hide();
-        verbosityBox->hide();
-        clearUpdateButton->setText( qtr( "&Update" ) );
-        saveLogButton->hide();
-        updateTree();
-    }
-    /* First tab : messages */
-    else
-    {
-        verbosityLabel->show();
-        verbosityBox->show();
-        clearUpdateButton->setText( qtr( "&Clear" ) );
-        saveLogButton->show();
-    }
+    vlc_atomic_set( &this->verbosity, i_verbosity );
 }
 
-void MessagesDialog::sinkMessage( msg_item_t *item )
+void MessagesDialog::updateConfig()
 {
-    if ((item->i_type == VLC_MSG_WARN && verbosityBox->value() < 1)
-     || (item->i_type == VLC_MSG_DBG && verbosityBox->value() < 2 ))
-        return;
+    getSettings()->beginGroup( "Messages" );
+    getSettings()->setValue( "messages-filter", ui.filterEdit->text() );
+    getSettings()->endGroup();
+}
+
+void MessagesDialog::filterMessages()
+{
+    QMutexLocker locker( &messageLocker );
+    QPlainTextEdit *messages = ui.messages;
+    QTextBlock block = messages->document()->firstBlock();
+
+    while( block.isValid() )
+    {
+        block.setVisible( matchFilter( block.text().toLower() ) );
+        block = block.next();
+    }
+
+    /* Consider the whole QTextDocument as dirty now */
+    messages->document()->markContentsDirty( 0, messages->document()->characterCount() );
+
+    /* FIXME This solves a bug (Qt?) with the viewport not resizing the
+       vertical scroll bar when one or more QTextBlock are hidden */
+    QSize vsize = messages->viewport()->size();
+    messages->viewport()->resize( vsize + QSize( 1, 1 ) );
+    messages->viewport()->resize( vsize );
+}
+
+bool MessagesDialog::matchFilter( const QString& text )
+{
+    const QString& filter = ui.filterEdit->text();
+
+    if( filter.isEmpty() || text.contains( filter.toLower() ) )
+        return true;
+    return false;
+}
+
+void MessagesDialog::sinkMessage( const MsgEvent *msg )
+{
+    QMutexLocker locker( &messageLocker );
+
+    QPlainTextEdit *messages = ui.messages;
+    /* Only scroll if the viewport is at the end.
+       Don't bug user by auto-changing/losing viewport on insert(). */
+    bool b_autoscroll = ( messages->verticalScrollBar()->value()
+                          + messages->verticalScrollBar()->pageStep()
+                          >= messages->verticalScrollBar()->maximum() );
 
     /* Copy selected text to the clipboard */
     if( messages->textCursor().hasSelection() )
@@ -188,37 +204,42 @@ void MessagesDialog::sinkMessage( msg_item_t *item )
          messages->textCursor().anchor() != messages->textCursor().position() )
          messages->moveCursor( QTextCursor::End );
 
-    messages->setFontItalic( true );
-    messages->setTextColor( "darkBlue" );
-    messages->insertPlainText( qfu( item->psz_module ) );
+    /* Start a new logic block so we can hide it on-demand */
+    messages->textCursor().insertBlock();
 
-    switch (item->i_type)
+    QString buf = QString( "<i><font color='darkblue'>%1</font>" ).arg( msg->module );
+
+    switch ( msg->priority )
     {
         case VLC_MSG_INFO:
-            messages->setTextColor( "blue" );
-            messages->insertPlainText( " info: " );
+            buf += "<font color='blue'> info: </font>";
             break;
         case VLC_MSG_ERR:
-            messages->setTextColor( "red" );
-            messages->insertPlainText( " error: " );
+            buf += "<font color='red'> error: </font>";
             break;
         case VLC_MSG_WARN:
-            messages->setTextColor( "green" );
-            messages->insertPlainText( " warning: " );
+            buf += "<font color='green'> warning: </font>";
             break;
         case VLC_MSG_DBG:
         default:
-            messages->setTextColor( "grey" );
-            messages->insertPlainText( " debug: " );
+            buf += "<font color='grey'> debug: </font>";
             break;
     }
 
-    /* Add message Regular black Font */
-    messages->setFontItalic( false );
-    messages->setTextColor( "black" );
-    messages->insertPlainText( qfu(item->psz_msg) );
-    messages->insertPlainText( "\n" );
-    messages->ensureCursorVisible();
+    /* Insert the prefix */
+    messages->textCursor().insertHtml( buf /* + "</i>" */ );
+
+    /* Insert the message */
+    messages->textCursor().insertHtml( msg->text );
+
+    /* Pass the new message thru the filter */
+    QTextBlock b = messages->document()->lastBlock();
+    b.setVisible( matchFilter( b.text() ) );
+
+    /* Tell the QTextDocument to recompute the size of the given area */
+    messages->document()->markContentsDirty( b.position(), b.length() );
+
+    if ( b_autoscroll ) messages->ensureCursorVisible();
 }
 
 void MessagesDialog::customEvent( QEvent *event )
@@ -226,20 +247,7 @@ void MessagesDialog::customEvent( QEvent *event )
     MsgEvent *msge = static_cast<MsgEvent *>(event);
 
     assert( msge );
-    sinkMessage( msge->msg );
-}
-
-void MessagesDialog::clearOrUpdate()
-{
-    if( mainTab->currentIndex() )
-        updateTree();
-    else
-        clear();
-}
-
-void MessagesDialog::clear()
-{
-    messages->clear();
+    sinkMessage( msge );
 }
 
 bool MessagesDialog::save()
@@ -261,8 +269,15 @@ bool MessagesDialog::save()
         }
 
         QTextStream out( &file );
-        out << messages->toPlainText() << "\n";
 
+        QTextBlock block = ui.messages->document()->firstBlock();
+        while( block.isValid() )
+        {
+            if( block.isVisible() )
+                out << block.text() << "\n";
+
+            block = block.next();
+        }
         return true;
     }
     return false;
@@ -276,20 +291,17 @@ void MessagesDialog::buildTree( QTreeWidgetItem *parentItem,
     if( parentItem )
         item = new QTreeWidgetItem( parentItem );
     else
-        item = new QTreeWidgetItem( modulesTree );
+        item = new QTreeWidgetItem( ui.modulesTree );
 
     char *name = vlc_object_get_name( p_obj );
-    if( name != NULL )
-    {
-        item->setText( 0, qfu( p_obj->psz_object_type ) + " \"" +
-                       qfu( name ) + "\" (" +
-                       QString::number((uintptr_t)p_obj) + ")" );
-        free( name );
-    }
-    else
-        item->setText( 0, qfu( p_obj->psz_object_type ) + " (" +
-                       QString::number((uintptr_t)p_obj) + ")" );
-
+    item->setText( 0, QString("%1%2 (0x%3)")
+                   .arg( qfu( p_obj->psz_object_type ) )
+                   .arg( ( name != NULL )
+                         ? QString( " \"%1\"" ).arg( qfu( name ) )
+                             : "" )
+                   .arg( (uintptr_t)p_obj, 0, 16 )
+                 );
+    free( name );
     item->setExpanded( true );
 
     vlc_list_t *l = vlc_list_children( p_obj );
@@ -298,18 +310,69 @@ void MessagesDialog::buildTree( QTreeWidgetItem *parentItem,
     vlc_list_release( l );
 }
 
-void MessagesDialog::updateTree()
+void MessagesDialog::updateOrClear()
 {
-    modulesTree->clear();
-    buildTree( NULL, VLC_OBJECT( p_intf->p_libvlc ) );
+    if( ui.mainTab->currentIndex() == 1)
+    {
+        ui.modulesTree->clear();
+        buildTree( NULL, VLC_OBJECT( p_intf->p_libvlc ) );
+    }
+    else if( ui.mainTab->currentIndex() == 0 )
+        ui.messages->clear();
+#ifndef NDEBUG
+    else
+        updatePLTree();
+#endif
 }
 
-static void MsgCallback( msg_cb_data_t *data, msg_item_t *item, unsigned )
+void MessagesDialog::tabChanged( int i )
 {
+    updateButton->setIcon( i != 0 ? QIcon(":/update") : QIcon(":/toolbar/clear") );
+    updateButton->setToolTip( i != 0 ? qtr("Update the tree")
+                                     : qtr("Clear the messages") );
+}
+
+void MessagesDialog::MsgCallback( void *self, int type, const msg_item_t *item,
+                                  const char *format, va_list ap )
+{
+    MessagesDialog *dialog = (MessagesDialog *)self;
+    char *str;
+    int verbosity = vlc_atomic_get( &dialog->verbosity );
+
+    if( verbosity < 0 || verbosity < (type - VLC_MSG_ERR)
+     || unlikely(vasprintf( &str, format, ap ) == -1) )
+        return;
+
     int canc = vlc_savecancel();
-
-    QApplication::postEvent( data->self, new MsgEvent( item ) );
-
+    QApplication::postEvent( dialog, new MsgEvent( type, item, str ) );
     vlc_restorecancel( canc );
+    free( str );
 }
 
+#ifndef NDEBUG
+static QTreeWidgetItem * PLWalk( playlist_item_t *p_node )
+{
+    QTreeWidgetItem *current = new QTreeWidgetItem();
+    current->setText( 0, qfu( p_node->p_input->psz_name ) );
+    current->setToolTip( 0, qfu( p_node->p_input->psz_uri ) );
+    current->setText( 1, QString("%1").arg( p_node->i_id ) );
+    current->setText( 2, QString("%1").arg( p_node->p_input->i_id ) );
+    current->setText( 3, QString("0x%1").arg( p_node->i_flags, 0, 16 ) );
+    current->setText( 4, QString("0x%1").arg(  p_node->p_input->i_type, 0, 16 ) );
+    for ( int i = 0; p_node->i_children > 0 && i < p_node->i_children; i++ )
+        current->addChild( PLWalk( p_node->pp_children[ i ] ) );
+    return current;
+}
+
+void MessagesDialog::updatePLTree()
+{
+    playlist_t *p_playlist = THEPL;
+    pldebugTree->clear();
+    PL_LOCK;
+    pldebugTree->addTopLevelItem( PLWalk( p_playlist->p_root_category ) );
+    PL_UNLOCK;
+    pldebugTree->expandAll();
+    for ( int i=0; i< 5; i++ )
+        pldebugTree->resizeColumnToContents( i );
+}
+#endif

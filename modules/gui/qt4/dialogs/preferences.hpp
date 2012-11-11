@@ -33,17 +33,18 @@ class AdvPrefsPanel;
 class SPrefsPanel;
 class QTreeWidgetItem;
 class QTreeWidget;
-class QHBoxLayout;
-class QVBoxLayout;
 class QGroupBox;
 class QRadioButton;
 class QWidget;
 class QCheckBox;
 class QLabel;
+class SearchLineEdit;
+class QStackedWidget;
+class QSplitter;
 
 class PrefsDialog : public QVLCDialog
 {
-    Q_OBJECT;
+    Q_OBJECT
 public:
     PrefsDialog( QWidget *, intf_thread_t * );
     virtual ~PrefsDialog() {}
@@ -53,20 +54,22 @@ public:
 #endif
 
 private:
-    QGridLayout *main_layout;
+    enum { SIMPLE, ADVANCED };
+    QStackedWidget *stack;
 
-    QWidget *main_panel;
-    QHBoxLayout *main_panel_l;
+    QWidget *simple_split_widget;
+    QSplitter *advanced_split_widget;
 
-    AdvPrefsPanel *advanced_panel;
-    SPrefsPanel *current_simple_panel;
+    QStackedWidget *advanced_panels_stack;
+    QStackedWidget *simple_panels_stack;
     SPrefsPanel *simple_panels[SPrefsMax];
 
-    QWidget *tree_panel;
-    QHBoxLayout *tree_panel_l;
+    QWidget *simple_tree_panel;
+    QWidget *advanced_tree_panel;
 
     SPrefsCatList *simple_tree;
     PrefsTree *advanced_tree;
+    SearchLineEdit *tree_filter;
 
     QGroupBox *types;
     QRadioButton *small,*all;
@@ -79,6 +82,7 @@ private slots:
 
     void changeAdvPanel( QTreeWidgetItem * );
     void changeSimplePanel( int );
+    void advancedTreeFilterChanged( const QString & );
 
     void save();
     void cancel();

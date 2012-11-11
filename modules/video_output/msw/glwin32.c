@@ -20,208 +20,229 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
-
-#include <errno.h>                                                 /* ENOMEM */
-
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_interface.h>
-#include <vlc_vout.h>
+#include <vlc_vout_display.h>
 
 #include <windows.h>
 #include <ddraw.h>
 #include <commctrl.h>
 
-#include <multimon.h>
 #undef GetSystemMetrics
 
 #ifndef MONITOR_DEFAULTTONEAREST
 #   define MONITOR_DEFAULTTONEAREST 2
 #endif
 
-#include <GL/gl.h>
-
-#include "vout.h"
-
-/*****************************************************************************
- * Local prototypes.
- *****************************************************************************/
-static int  OpenVideo  ( vlc_object_t * );
-static void CloseVideo ( vlc_object_t * );
-
-static int  Init      ( vout_thread_t * );
-static void End       ( vout_thread_t * );
-static int  Manage    ( vout_thread_t * );
-static void GLSwapBuffers( vout_thread_t * );
-static void FirstSwap( vout_thread_t * );
+#include "../opengl.h"
+#include <GL/wglew.h>
+#include "common.h"
 
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
-vlc_module_begin ()
-    set_category( CAT_VIDEO )
-    set_subcategory( SUBCAT_VIDEO_VOUT )
-    set_shortname( "OpenGL" )
-    set_description( N_("OpenGL video output") )
-    set_capability( "opengl provider", 100 )
-    add_shortcut( "glwin32" )
-    set_callbacks( OpenVideo, CloseVideo )
+static int  Open (vlc_object_t *);
+static void Close(vlc_object_t *);
 
-    /* FIXME: Hack to avoid unregistering our window class */
-    linked_with_a_crap_library_which_uses_atexit ()
-vlc_module_end ()
-
-#if 0 /* FIXME */
-    /* check if we registered a window class because we need to
-     * unregister it */
-    WNDCLASS wndclass;
-    if( GetClassInfo( GetModuleHandle(NULL), "VLC DirectX", &wndclass ) )
-        UnregisterClass( "VLC DirectX", GetModuleHandle(NULL) );
-#endif
+vlc_module_begin()
+    set_category(CAT_VIDEO)
+    set_subcategory(SUBCAT_VIDEO_VOUT)
+    set_shortname("OpenGL")
+    set_description(N_("OpenGL video output"))
+    set_capability("vout display", 160)
+    add_shortcut("glwin32", "opengl")
+    set_callbacks(Open, Close)
+vlc_module_end()
 
 /*****************************************************************************
- * OpenVideo: allocate OpenGL provider
- *****************************************************************************
- * This function creates and initializes a video window.
+ * Local prototypes.
  *****************************************************************************/
-static int OpenVideo( vlc_object_t *p_this )
+static picture_pool_t *Pool  (vout_display_t *, unsigned);
+static void           Prepare(vout_display_t *, picture_t *, subpicture_t *);
+static void           Display(vout_display_t *, picture_t *, subpicture_t *);
+static int            Control(vout_display_t *, int, va_list);
+static void           Manage (vout_display_t *);
+
+static void           Swap   (vlc_gl_t *);
+static void          *OurGetProcAddress(vlc_gl_t *, const char *);
+
+/**
+ * It creates an OpenGL vout display.
+ */
+static int Open(vlc_object_t *object)
 {
-    vout_thread_t * p_vout = (vout_thread_t *)p_this;
+    vout_display_t *vd = (vout_display_t *)object;
+    vout_display_sys_t *sys;
 
     /* Allocate structure */
-    p_vout->p_sys = calloc( 1, sizeof( vout_sys_t ) );
-    if( p_vout->p_sys == NULL )
+    vd->sys = sys = calloc(1, sizeof(*sys));
+    if (!sys)
         return VLC_ENOMEM;
 
-    /* Initialisations */
-    p_vout->pf_init = Init;
-    p_vout->pf_end = End;
-    p_vout->pf_manage = Manage;
-    p_vout->pf_swap = FirstSwap;
-    p_vout->pf_control = Control;
-
-    if( CommonInit( p_vout ) )
+    /* */
+    if (CommonInit(vd))
         goto error;
 
-    return VLC_SUCCESS;
+    EventThreadUpdateTitle(sys->event, VOUT_TITLE " (OpenGL output)");
 
-error:
-    CloseVideo( VLC_OBJECT(p_vout) );
-    return VLC_EGENERIC;
-}
-
-/*****************************************************************************
- * Init: initialize video thread output method
- *****************************************************************************/
-static int Init( vout_thread_t *p_vout )
-{
-    PIXELFORMATDESCRIPTOR pfd;
-    int iFormat;
-
-    /* Change the window title bar text */
-    EventThreadUpdateTitle( p_vout->p_sys->p_event, VOUT_TITLE " (OpenGL output)" );
-
-    p_vout->p_sys->hGLDC = GetDC( p_vout->p_sys->hvideownd );
+    /* */
+    sys->hGLDC = GetDC(sys->hvideownd);
 
     /* Set the pixel format for the DC */
-    memset( &pfd, 0, sizeof( pfd ) );
-    pfd.nSize = sizeof( pfd );
+    PIXELFORMATDESCRIPTOR pfd;
+    memset(&pfd, 0, sizeof(pfd));
+    pfd.nSize = sizeof(pfd);
     pfd.nVersion = 1;
     pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
     pfd.iPixelType = PFD_TYPE_RGBA;
     pfd.cColorBits = 24;
     pfd.cDepthBits = 16;
     pfd.iLayerType = PFD_MAIN_PLANE;
-    iFormat = ChoosePixelFormat( p_vout->p_sys->hGLDC, &pfd );
-    SetPixelFormat( p_vout->p_sys->hGLDC, iFormat, &pfd );
+    SetPixelFormat(sys->hGLDC,
+                   ChoosePixelFormat(sys->hGLDC, &pfd), &pfd);
 
     /* Create and enable the render context */
-    p_vout->p_sys->hGLRC = wglCreateContext( p_vout->p_sys->hGLDC );
-    wglMakeCurrent( p_vout->p_sys->hGLDC, p_vout->p_sys->hGLRC );
+    sys->hGLRC = wglCreateContext(sys->hGLDC);
+    wglMakeCurrent(sys->hGLDC, sys->hGLRC);
+
+    const char *extensions = (const char*)glGetString(GL_EXTENSIONS);
+#ifdef WGL_EXT_swap_control
+    if (HasExtension(extensions, "WGL_EXT_swap_control")) {
+        PFNWGLSWAPINTERVALEXTPROC SwapIntervalEXT = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
+        if (SwapIntervalEXT)
+            SwapIntervalEXT(1);
+    }
+#endif
+
+    /* */
+    sys->gl.lock = NULL;
+    sys->gl.unlock = NULL;
+    sys->gl.swap = Swap;
+    sys->gl.getProcAddress = OurGetProcAddress;
+    sys->gl.sys = vd;
+
+    video_format_t fmt = vd->fmt;
+    const vlc_fourcc_t *subpicture_chromas;
+    sys->vgl = vout_display_opengl_New(&fmt, &subpicture_chromas, &sys->gl);
+    if (!sys->vgl)
+        goto error;
+
+    vout_display_info_t info = vd->info;
+    info.has_double_click = true;
+    info.has_hide_mouse = false;
+    info.has_event_thread = true;
+    info.subpicture_chromas = subpicture_chromas;
+
+   /* Setup vout_display now that everything is fine */
+    vd->fmt  = fmt;
+    vd->info = info;
+
+    vd->pool    = Pool;
+    vd->prepare = Prepare;
+    vd->display = Display;
+    vd->control = Control;
+    vd->manage  = Manage;
 
     return VLC_SUCCESS;
+
+error:
+    Close(object);
+    return VLC_EGENERIC;
 }
 
-/*****************************************************************************
- * End: terminate Sys video thread output method
- *****************************************************************************
- * Terminate an output method created by Create.
- * It is called at the end of the thread.
- *****************************************************************************/
-static void End( vout_thread_t *p_vout )
+/**
+ * It destroys an OpenGL vout display.
+ */
+static void Close(vlc_object_t *object)
 {
-    wglMakeCurrent( NULL, NULL );
-    wglDeleteContext( p_vout->p_sys->hGLRC );
-    ReleaseDC( p_vout->p_sys->hvideownd, p_vout->p_sys->hGLDC );
-    return;
+    vout_display_t *vd = (vout_display_t *)object;
+    vout_display_sys_t *sys = vd->sys;
+
+    if (sys->vgl)
+        vout_display_opengl_Delete(sys->vgl);
+
+    if (sys->hGLDC && sys->hGLRC)
+        wglMakeCurrent(NULL, NULL);
+    if (sys->hGLRC)
+        wglDeleteContext(sys->hGLRC);
+    if (sys->hGLDC)
+        ReleaseDC(sys->hvideownd, sys->hGLDC);
+
+    CommonClean(vd);
+
+    free(sys);
 }
 
-/*****************************************************************************
- * CloseVideo: destroy Sys video thread output method
- *****************************************************************************
- * Terminate an output method created by Create
- *****************************************************************************/
-static void CloseVideo( vlc_object_t *p_this )
+/* */
+static picture_pool_t *Pool(vout_display_t *vd, unsigned count)
 {
-    vout_thread_t * p_vout = (vout_thread_t *)p_this;
+    vout_display_sys_t *sys = vd->sys;
 
-    CommonClean( p_vout );
-
-    free( p_vout->p_sys );
+    if (!sys->pool)
+        sys->pool = vout_display_opengl_GetPool(sys->vgl, count);
+    return sys->pool;
 }
 
-/*****************************************************************************
- * Manage: handle Sys events
- *****************************************************************************
- * This function should be called regularly by the video output thread.
- * It returns a non null value if an error occurred.
- *****************************************************************************/
-static int Manage( vout_thread_t *p_vout )
+static void Prepare(vout_display_t *vd, picture_t *picture, subpicture_t *subpicture)
 {
-    vout_sys_t *p_sys = p_vout->p_sys;
+    vout_display_sys_t *sys = vd->sys;
 
-    const int i_width  = p_sys->rect_dest.right - p_sys->rect_dest.left;
-    const int i_height = p_sys->rect_dest.bottom - p_sys->rect_dest.top;
-    glViewport( 0, 0, i_width, i_height );
-
-    CommonManage( p_vout );
-    return VLC_SUCCESS;
+    vout_display_opengl_Prepare(sys->vgl, picture, subpicture);
 }
 
-/*****************************************************************************
- * GLSwapBuffers: swap front/back buffers
- *****************************************************************************/
-static void GLSwapBuffers( vout_thread_t *p_vout )
+static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpicture)
 {
-    SwapBuffers( p_vout->p_sys->hGLDC );
+    vout_display_sys_t *sys = vd->sys;
+
+    vout_display_opengl_Display(sys->vgl, &vd->source);
+
+    picture_Release(picture);
+    if (subpicture)
+        subpicture_Delete(subpicture);
+
+    CommonDisplay(vd);
 }
 
-/*
-** this function is only used once when the first picture is received
-** this function will show the video window once a picture is ready
-*/
-
-static void FirstSwap( vout_thread_t *p_vout )
+static int Control(vout_display_t *vd, int query, va_list args)
 {
-    /* get initial picture buffer swapped to front buffer */
-    GLSwapBuffers( p_vout );
+    switch (query) {
+    case VOUT_DISPLAY_GET_OPENGL: {
+        vlc_gl_t **gl = va_arg(args, vlc_gl_t **);
+        *gl = &vd->sys->gl;
 
-    /*
-    ** Video window is initially hidden, show it now since we got a
-    ** picture to show.
-    */
-    SetWindowPos( p_vout->p_sys->hvideownd, NULL, 0, 0, 0, 0,
-        SWP_ASYNCWINDOWPOS|
-        SWP_FRAMECHANGED|
-        SWP_SHOWWINDOW|
-        SWP_NOMOVE|
-        SWP_NOSIZE|
-        SWP_NOZORDER );
-
-    /* use and restores proper swap function for further pictures */
-    p_vout->pf_swap = GLSwapBuffers;
+        CommonDisplay(vd);
+        return VLC_SUCCESS;
+    }
+    default:
+        return CommonControl(vd, query, args);
+    }
 }
+
+static void Manage (vout_display_t *vd)
+{
+    vout_display_sys_t *sys = vd->sys;
+
+    CommonManage(vd);
+
+    const int width  = sys->rect_dest.right  - sys->rect_dest.left;
+    const int height = sys->rect_dest.bottom - sys->rect_dest.top;
+    glViewport(0, 0, width, height);
+}
+
+static void Swap(vlc_gl_t *gl)
+{
+    vout_display_t *vd = gl->sys;
+
+    SwapBuffers(vd->sys->hGLDC);
+}
+
+static void *OurGetProcAddress(vlc_gl_t *gl, const char *name)
+{
+    VLC_UNUSED(gl);
+    return wglGetProcAddress(name);
+}
+

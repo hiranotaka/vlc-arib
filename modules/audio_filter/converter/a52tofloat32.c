@@ -95,9 +95,9 @@ vlc_module_begin ()
     set_description( N_("ATSC A/52 (AC-3) audio decoder") )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACODEC )
-    add_bool( "a52-dynrng", true, NULL, DYNRNG_TEXT, DYNRNG_LONGTEXT, false )
-    add_bool( "a52-upmix", false, NULL, UPMIX_TEXT, UPMIX_LONGTEXT, true )
-    set_capability( "audio filter2", 100 )
+    add_bool( "a52-dynrng", true, DYNRNG_TEXT, DYNRNG_LONGTEXT, false )
+    add_bool( "a52-upmix", false, UPMIX_TEXT, UPMIX_LONGTEXT, true )
+    set_capability( "audio converter", 100 )
     set_callbacks( OpenFilter, CloseFilter )
 vlc_module_end ()
 
@@ -105,34 +105,34 @@ vlc_module_end ()
  * Open:
  *****************************************************************************/
 static int Open( vlc_object_t *p_this, filter_sys_t *p_sys,
-                 audio_format_t input, audio_format_t output )
+                 const audio_format_t *restrict input,
+                 const audio_format_t *restrict output )
 {
-    p_sys->b_dynrng = config_GetInt( p_this, "a52-dynrng" );
+    p_sys->b_dynrng = var_InheritBool( p_this, "a52-dynrng" );
     p_sys->b_dontwarn = 0;
 
     /* No upmixing: it's not necessary and some other filters may want to do
      * it themselves. */
-    if ( aout_FormatNbChannels( &output ) > aout_FormatNbChannels( &input ) )
+    if ( aout_FormatNbChannels( output ) > aout_FormatNbChannels( input ) )
     {
-        if ( ! config_GetInt( p_this, "a52-upmix" ) )
+        if ( ! var_InheritBool( p_this, "a52-upmix" ) )
         {
             return VLC_EGENERIC;
         }
     }
 
     /* We'll do our own downmixing, thanks. */
-    p_sys->i_nb_channels = aout_FormatNbChannels( &output );
-    switch ( (output.i_physical_channels & AOUT_CHAN_PHYSMASK)
-              & ~AOUT_CHAN_LFE )
+    p_sys->i_nb_channels = aout_FormatNbChannels( output );
+    switch ( output->i_physical_channels & ~AOUT_CHAN_LFE )
     {
     case AOUT_CHAN_CENTER:
-        if ( (output.i_original_channels & AOUT_CHAN_CENTER)
-              || (output.i_original_channels
+        if ( (output->i_original_channels & AOUT_CHAN_CENTER)
+              || (output->i_original_channels
                    & (AOUT_CHAN_LEFT | AOUT_CHAN_RIGHT)) )
         {
             p_sys->i_flags = A52_MONO;
         }
-        else if ( output.i_original_channels & AOUT_CHAN_LEFT )
+        else if ( output->i_original_channels & AOUT_CHAN_LEFT )
         {
             p_sys->i_flags = A52_CHANNEL1;
         }
@@ -143,23 +143,23 @@ static int Open( vlc_object_t *p_this, filter_sys_t *p_sys,
         break;
 
     case AOUT_CHAN_LEFT | AOUT_CHAN_RIGHT:
-        if ( output.i_original_channels & AOUT_CHAN_DOLBYSTEREO )
+        if ( output->i_original_channels & AOUT_CHAN_DOLBYSTEREO )
         {
             p_sys->i_flags = A52_DOLBY;
         }
-        else if ( input.i_original_channels == AOUT_CHAN_CENTER )
+        else if ( input->i_original_channels == AOUT_CHAN_CENTER )
         {
             p_sys->i_flags = A52_MONO;
         }
-        else if ( input.i_original_channels & AOUT_CHAN_DUALMONO )
+        else if ( input->i_original_channels & AOUT_CHAN_DUALMONO )
         {
             p_sys->i_flags = A52_CHANNEL;
         }
-        else if ( !(output.i_original_channels & AOUT_CHAN_RIGHT) )
+        else if ( !(output->i_original_channels & AOUT_CHAN_RIGHT) )
         {
             p_sys->i_flags = A52_CHANNEL1;
         }
-        else if ( !(output.i_original_channels & AOUT_CHAN_LEFT) )
+        else if ( !(output->i_original_channels & AOUT_CHAN_LEFT) )
         {
             p_sys->i_flags = A52_CHANNEL2;
         }
@@ -197,7 +197,7 @@ static int Open( vlc_object_t *p_this, filter_sys_t *p_sys,
         free( p_sys );
         return VLC_EGENERIC;
     }
-    if ( output.i_physical_channels & AOUT_CHAN_LFE )
+    if ( output->i_physical_channels & AOUT_CHAN_LFE )
     {
         p_sys->i_flags |= A52_LFE;
     }
@@ -213,7 +213,7 @@ static int Open( vlc_object_t *p_this, filter_sys_t *p_sys,
     }
 
     aout_CheckChannelReorder( pi_channels_in, NULL,
-                              output.i_physical_channels & AOUT_CHAN_PHYSMASK,
+                              output->i_physical_channels,
                               p_sys->i_nb_channels,
                               p_sys->pi_chan_table );
 
@@ -270,21 +270,23 @@ static void Exchange( sample_t * p_out, const sample_t * p_in )
 }
 
 /*****************************************************************************
- * DoWork: decode an ATSC A/52 frame.
+ * Convert: decode an ATSC A/52 frame.
  *****************************************************************************/
-static void DoWork( filter_t * p_filter,
-                    aout_buffer_t * p_in_buf, aout_buffer_t * p_out_buf )
+
+static block_t *Convert( filter_t *p_filter, block_t *p_in_buf )
 {
-    filter_sys_t    *p_sys = p_filter->p_sys;
+    filter_sys_t *p_sys = p_filter->p_sys;
 #ifdef LIBA52_FIXED
-    sample_t        i_sample_level = (1 << 24);
+    sample_t i_sample_level = (1 << 24);
 #else
-    sample_t        i_sample_level = 1;
+    sample_t i_sample_level = 1;
 #endif
-    int             i_flags = p_sys->i_flags;
-    int             i_bytes_per_block = 256 * p_sys->i_nb_channels
-                      * sizeof(sample_t);
-    int             i;
+    int i_flags = p_sys->i_flags;
+    size_t i_bytes_per_block = 256 * p_sys->i_nb_channels * sizeof(sample_t);
+
+    block_t *p_out_buf = filter_NewAudioBuffer( p_filter, 6 * i_bytes_per_block );
+    if( unlikely(p_out_buf == NULL) )
+        goto out;
 
     /* Do the actual decoding now. */
     a52_frame( p_sys->p_liba52, p_in_buf->p_buffer,
@@ -306,7 +308,7 @@ static void DoWork( filter_t * p_filter,
         a52_dynrng( p_sys->p_liba52, NULL, NULL );
     }
 
-    for ( i = 0; i < 6; i++ )
+    for( unsigned i = 0; i < 6; i++ )
     {
         sample_t * p_samples;
 
@@ -341,7 +343,12 @@ static void DoWork( filter_t * p_filter,
     }
 
     p_out_buf->i_nb_samples = p_in_buf->i_nb_samples;
-    p_out_buf->i_buffer = i_bytes_per_block * 6;
+    p_out_buf->i_dts = p_in_buf->i_dts;
+    p_out_buf->i_pts = p_in_buf->i_pts;
+    p_out_buf->i_length = p_in_buf->i_length;
+out:
+    block_Release( p_in_buf );
+    return p_out_buf;
 }
 
 /*****************************************************************************
@@ -353,19 +360,14 @@ static int OpenFilter( vlc_object_t *p_this )
     filter_sys_t *p_sys;
     int i_ret;
 
-    if( p_filter->fmt_in.i_codec != VLC_CODEC_A52  )
-    {
+    if( p_filter->fmt_in.i_codec != VLC_CODEC_A52 )
         return VLC_EGENERIC;
-    }
-
-    p_filter->fmt_out.audio.i_format =
 #ifdef LIBA52_FIXED
-        p_filter->fmt_out.i_codec = VLC_CODEC_FI32;
+    if( p_filter->fmt_out.audio.i_format != VLC_CODEC_FI32 )
 #else
-        p_filter->fmt_out.i_codec = VLC_CODEC_FL32;
+    if( p_filter->fmt_out.audio.i_format != VLC_CODEC_FL32 )
 #endif
-    p_filter->fmt_out.audio.i_bitspersample =
-        aout_BitsPerSample( p_filter->fmt_out.i_codec );
+        return VLC_EGENERIC;
 
     /* Allocate the memory needed to store the module's structure */
     p_filter->p_sys = p_sys = malloc( sizeof(filter_sys_t) );
@@ -373,7 +375,7 @@ static int OpenFilter( vlc_object_t *p_this )
         return VLC_ENOMEM;
 
     i_ret = Open( VLC_OBJECT(p_filter), p_sys,
-                  p_filter->fmt_in.audio, p_filter->fmt_out.audio );
+                  &p_filter->fmt_in.audio, &p_filter->fmt_out.audio );
 
     p_filter->pf_audio_filter = Convert;
     p_filter->fmt_out.audio.i_rate = p_filter->fmt_in.audio.i_rate;
@@ -391,37 +393,4 @@ static void CloseFilter( vlc_object_t *p_this )
 
     a52_free( p_sys->p_liba52 );
     free( p_sys );
-}
-
-static block_t *Convert( filter_t *p_filter, block_t *p_block )
-{
-    if( !p_block || !p_block->i_nb_samples )
-    {
-        if( p_block )
-            block_Release( p_block );
-        return NULL;
-    }
-
-    size_t i_out_size = p_block->i_nb_samples *
-      p_filter->fmt_out.audio.i_bitspersample *
-        p_filter->fmt_out.audio.i_channels / 8;
-
-    block_t *p_out = filter_NewAudioBuffer( p_filter, i_out_size );
-    if( !p_out )
-    {
-        msg_Warn( p_filter, "can't get output buffer" );
-        block_Release( p_block );
-        return NULL;
-    }
-
-    p_out->i_nb_samples = p_block->i_nb_samples;
-    p_out->i_dts = p_block->i_dts;
-    p_out->i_pts = p_block->i_pts;
-    p_out->i_length = p_block->i_length;
-
-    DoWork( p_filter, p_block, p_out );
-
-    block_Release( p_block );
-
-    return p_out;
 }

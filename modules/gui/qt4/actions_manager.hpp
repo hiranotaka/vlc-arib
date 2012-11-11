@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Controller.hpp : Controller for the main interface
+ * actions_manager.hpp : Controller for the main interface
  ****************************************************************************
  * Copyright (C) 2006-2008 the VideoLAN team
  * $Id$
@@ -41,6 +41,7 @@ typedef enum actionType_e
     SLOWER_ACTION,
     FASTER_ACTION,
     FULLSCREEN_ACTION,
+    FULLWIDTH_ACTION,
     EXTENDED_ACTION,
     PLAYLIST_ACTION,
     SNAPSHOT_ACTION,
@@ -51,6 +52,10 @@ typedef enum actionType_e
     SKIP_BACK_ACTION,
     SKIP_FW_ACTION,
     QUIT_ACTION,
+    RANDOM_ACTION,
+    LOOP_ACTION,
+    INFO_ACTION,
+    OPEN_SUB_ACTION,
 } actionType_e;
 
 class ActionsManager : public QObject
@@ -82,11 +87,13 @@ public slots:
     void AudioUp();
     void AudioDown();
     void play();
+    void record();
+    void skipForward();
+    void skipBackward();
 protected slots:
     void fullscreen();
     void snapshot();
     void playlist();
-    void record();
     void frame();
 
     virtual void doAction( int );

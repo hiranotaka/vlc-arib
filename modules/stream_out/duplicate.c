@@ -43,8 +43,7 @@ static void     Close   ( vlc_object_t * );
 vlc_module_begin ()
     set_description( N_("Duplicate stream output") )
     set_capability( "sout stream", 50 )
-    add_shortcut( "duplicate" )
-    add_shortcut( "dup" )
+    add_shortcut( "duplicate", "dup" )
     set_category( CAT_SOUT )
     set_subcategory( SUBCAT_SOUT_STREAM )
     set_callbacks( Open, Close )
@@ -63,6 +62,9 @@ struct sout_stream_sys_t
 {
     int             i_nb_streams;
     sout_stream_t   **pp_streams;
+
+    int             i_nb_last_streams;
+    sout_stream_t   **pp_last_streams;
 
     int             i_nb_select;
     char            **ppsz_select;
@@ -92,20 +94,24 @@ static int Open( vlc_object_t *p_this )
         return VLC_ENOMEM;
 
     TAB_INIT( p_sys->i_nb_streams, p_sys->pp_streams );
+    TAB_INIT( p_sys->i_nb_last_streams, p_sys->pp_last_streams );
     TAB_INIT( p_sys->i_nb_select, p_sys->ppsz_select );
 
     for( p_cfg = p_stream->p_cfg; p_cfg != NULL; p_cfg = p_cfg->p_next )
     {
         if( !strncmp( p_cfg->psz_name, "dst", strlen( "dst" ) ) )
         {
-            sout_stream_t *s;
+            sout_stream_t *s, *p_last;
 
             msg_Dbg( p_stream, " * adding `%s'", p_cfg->psz_value );
-            s = sout_StreamNew( p_stream->p_sout, p_cfg->psz_value );
+            s = sout_StreamChainNew( p_stream->p_sout, p_cfg->psz_value,
+                p_stream->p_next, &p_last );
 
             if( s )
             {
                 TAB_APPEND( p_sys->i_nb_streams, p_sys->pp_streams, s );
+                TAB_APPEND( p_sys->i_nb_last_streams, p_sys->pp_last_streams,
+                    p_last );
                 TAB_APPEND( p_sys->i_nb_select,  p_sys->ppsz_select, NULL );
             }
         }
@@ -164,10 +170,11 @@ static void Close( vlc_object_t * p_this )
     msg_Dbg( p_stream, "closing a duplication" );
     for( i = 0; i < p_sys->i_nb_streams; i++ )
     {
-        sout_StreamDelete( p_sys->pp_streams[i] );
+        sout_StreamChainDelete(p_sys->pp_streams[i], p_sys->pp_last_streams[i]);
         free( p_sys->ppsz_select[i] );
     }
     free( p_sys->pp_streams );
+    free( p_sys->pp_last_streams );
     free( p_sys->ppsz_select );
 
     free( p_sys );

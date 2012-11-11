@@ -27,11 +27,14 @@
 #include "qt4.hpp"
 
 #include <QWidget>
+#include <QSet>
+#include <QHash>
 
 #include "util/qvlcframe.hpp"
 #include "ui/profiles.h"
 
 class QComboBox;
+
 class VLCProfileSelector : public QWidget
 {
     Q_OBJECT
@@ -52,6 +55,7 @@ private slots:
     void editProfile();
     void deleteProfile();
     void updateOptions( int i );
+    void updateOptionsOldFormat( int i );
 signals:
     void optionsChanged();
 };
@@ -67,15 +71,23 @@ public:
     QString name;
     QString muxValue;
     QString transcodeValue();
+    QStringList qpcodecsList;
 private:
     void registerCodecs();
     void fillProfile( const QString& qs );
+    void fillProfileOldFormat( const QString& qs );
+    typedef QSet<QString> resultset;
+    QHash<QString, resultset> caps;
+    void loadCapabilities();
+    void reset();
 protected slots:
     virtual void close();
 private slots:
-    void setVTranscodeOptions( bool );
-    void setATranscodeOptions( bool );
-    void setSTranscodeOptions( bool );
+    void muxSelected();
+    void codecSelected();
+    void activatePanels();
+    void fixBirateState();
+    void fixQPState();
 };
 
 #endif

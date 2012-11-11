@@ -40,13 +40,12 @@ CtrlRadialSlider::CtrlRadialSlider( intf_thread_t *pIntf,
                                     VarBool *pVisible ):
     CtrlGeneric( pIntf, rHelp, pVisible ), m_fsm( pIntf ), m_numImg( numImg ),
     m_rVariable( rVariable ), m_minAngle( minAngle ), m_maxAngle( maxAngle ),
-    m_cmdUpDown( this ), m_cmdDownUp( this ),
+    m_position( 0 ), m_cmdUpDown( this ), m_cmdDownUp( this ),
     m_cmdMove( this )
 {
     // Build the images of the sequence
-    OSFactory *pOsFactory = OSFactory::instance( getIntf() );
-    m_pImgSeq = pOsFactory->createOSGraphics( rBmpSeq.getWidth(),
-                                              rBmpSeq.getHeight() );
+    m_pImgSeq = OSFactory::instance( getIntf() )->createOSGraphics(
+                                     rBmpSeq.getWidth(), rBmpSeq.getHeight() );
     m_pImgSeq->drawBitmap( rBmpSeq, 0, 0 );
 
     m_width = rBmpSeq.getWidth();
@@ -72,7 +71,7 @@ CtrlRadialSlider::CtrlRadialSlider( intf_thread_t *pIntf,
 CtrlRadialSlider::~CtrlRadialSlider()
 {
     m_rVariable.delObserver( this );
-    SKINS_DELETE( m_pImgSeq );
+    delete m_pImgSeq;
 }
 
 
@@ -91,18 +90,33 @@ bool CtrlRadialSlider::mouseOver( int x, int y ) const
 }
 
 
-void CtrlRadialSlider::draw( OSGraphics &rImage, int xDest, int yDest )
+void CtrlRadialSlider::draw( OSGraphics &rImage, int xDest, int yDest, int w, int h )
 {
-    rImage.drawGraphics( *m_pImgSeq, 0, m_position * m_height, xDest, yDest,
-                         m_width, m_height );
+    const Position *pPos = getPosition();
+    rect region( pPos->getLeft(), pPos->getTop(), m_width, m_height );
+    rect clip( xDest, yDest, w ,h );
+    rect inter;
+    if( rect::intersect( region, clip, &inter ) )
+        rImage.drawGraphics( *m_pImgSeq,
+                              inter.x - region.x,
+                              inter.y - region.y + m_position * m_height,
+                              inter.x, inter.y,
+                              inter.width, inter.height );
 }
 
 
-void CtrlRadialSlider::onUpdate( Subject<VarPercent> &rVariable,
-                                 void *arg  )
+void CtrlRadialSlider::onUpdate( Subject<VarPercent> &rVariable, void *arg )
 {
-    m_position = (int)( m_rVariable.get() * m_numImg );
-    notifyLayout( m_width, m_height );
+    (void)arg;
+    if( &rVariable == &m_rVariable )
+    {
+        int position = (int)( m_rVariable.get() * ( m_numImg - 1 ) );
+        if( position == m_position )
+            return;
+
+        m_position = position;
+        notifyLayout( m_width, m_height );
+    }
 }
 
 
@@ -125,7 +139,7 @@ void CtrlRadialSlider::CmdDownUp::execute()
 
 void CtrlRadialSlider::CmdMove::execute()
 {
-    EvtMouse *pEvtMouse = (EvtMouse*)m_pParent->m_pEvt;
+    EvtMouse *pEvtMouse = static_cast<EvtMouse*>(m_pParent->m_pEvt);
 
     // Change the position of the cursor, in blocking mode
     m_pParent->setCursor( pEvtMouse->getXPos(), pEvtMouse->getYPos(), true );
@@ -143,7 +157,7 @@ void CtrlRadialSlider::setCursor( int posX, int posY, bool blocking )
 
     // Compute the position relative to the center
     int x = posX - pPos->getLeft() - m_width / 2;
-    int y = posY - pPos->getTop() - m_width / 2;
+    int y = posY - pPos->getTop() - m_height / 2;
 
     // Compute the polar coordinates. angle is -(-j,OM)
     float r = sqrt((float)(x*x + y*y));

@@ -33,6 +33,8 @@
 #include "ui/sout.h"
 #include "util/qvlcframe.hpp"
 
+#include <QWizard>
+
 class QPushButton;
 class QToolButton;
 class QCheckBox;
@@ -109,9 +111,9 @@ private:
 };
 
 
-class SoutDialog : public QVLCDialog
+class SoutDialog : public QWizard
 {
-    Q_OBJECT;
+    Q_OBJECT
 public:
     SoutDialog( QWidget* parent, intf_thread_t *, const QString& mrl = "");
     virtual ~SoutDialog(){}
@@ -123,7 +125,8 @@ private:
 
     QString mrl;
     QPushButton *okButton;
-    QToolButton *closeTabButton;
+
+    intf_thread_t* p_intf;
 
 public slots:
     void updateMRL();
@@ -131,10 +134,7 @@ public slots:
 private slots:
     void ok();
     void cancel();
-    void next();
-    void prev();
-    void closeTab();
-    void tabChanged( int );
+    void closeTab( int );
     void addDest();
 };
 

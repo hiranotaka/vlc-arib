@@ -1,7 +1,7 @@
 /*****************************************************************************
- * mkv.cpp : matroska demuxer
+ * mkv.hpp : matroska demuxer
  *****************************************************************************
- * Copyright (C) 2003-2004 the VideoLAN team
+ * Copyright (C) 2003-2005, 2008 the VideoLAN team
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
@@ -34,6 +34,7 @@
  * early enough. */
 #define __STDC_FORMAT_MACROS 1
 #define __STDC_CONSTANT_MACROS 1
+#define __STDC_LIMIT_MACROS 1
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -48,9 +49,6 @@
 #   include <time.h>                                               /* time() */
 #endif
 
-
-#include <vlc_codecs.h>               /* BITMAPINFOHEADER, WAVEFORMATEX */
-#include <vlc_iso_lang.h>
 #include <vlc_meta.h>
 #include <vlc_charset.h>
 #include <vlc_input.h>
@@ -62,10 +60,6 @@
 #include <string>
 #include <vector>
 #include <algorithm>
-
-#ifdef HAVE_DIRENT_H
-#   include <dirent.h>
-#endif
 
 /* libebml and matroska */
 #include "ebml/EbmlHead.h"
@@ -92,7 +86,7 @@
 #include "matroska/KaxSegment.h"
 #include "matroska/KaxTag.h"
 #include "matroska/KaxTags.h"
-#include "matroska/KaxTagMulti.h"
+//#include "matroska/KaxTagMulti.h"
 #include "matroska/KaxTracks.h"
 #include "matroska/KaxTrackAudio.h"
 #include "matroska/KaxTrackVideo.h"
@@ -111,6 +105,8 @@ extern "C" {
 #   include <zlib.h>
 #endif
 
+#define MKV_DEBUG 0
+
 #define MATROSKA_COMPRESSION_NONE  -1
 #define MATROSKA_COMPRESSION_ZLIB   0
 #define MATROSKA_COMPRESSION_BLIB   1
@@ -119,72 +115,87 @@ extern "C" {
 
 #define MKVD_TIMECODESCALE 1000000
 
-#define MKV_IS_ID( el, C ) ( EbmlId( (*el) ) == C::ClassInfos.GlobalId )
+#define MKV_IS_ID( el, C ) ( el != NULL && typeid( *el ) == typeid( C ) )
 
 
 using namespace LIBMATROSKA_NAMESPACE;
 using namespace std;
 
+void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock,
+                         mtime_t i_pts, mtime_t i_duration, bool f_mandatory );
+
 class attachment_c
 {
 public:
-    attachment_c()
-        :p_data(NULL)
-        ,i_size(0)
-    {}
-    virtual ~attachment_c()
+    attachment_c( const std::string& _psz_file_name, const std::string& _psz_mime_type, int _i_size )
+        :i_size(_i_size)
+        ,psz_file_name( _psz_file_name)
+        ,psz_mime_type( _psz_mime_type)
     {
-        free( p_data );
+        p_data = NULL;
+    }
+    ~attachment_c() { free( p_data ); }
+
+    /* Allocs the data space. Returns true if allocation went ok */
+    bool init()
+    {
+        p_data = malloc( i_size );
+        return (p_data != NULL);
     }
 
+    const char* fileName() const { return psz_file_name.c_str(); }
+    const char* mimeType() const { return psz_mime_type.c_str(); }
+    int         size() const    { return i_size; }
+
+    void          *p_data;
+private:
+    int            i_size;
     std::string    psz_file_name;
     std::string    psz_mime_type;
-    void          *p_data;
-    int            i_size;
 };
 
 class matroska_segment_c;
-
-class matroska_stream_c
+struct matroska_stream_c
 {
-public:
-    matroska_stream_c( demux_sys_t & demuxer )
-        :p_in(NULL)
-        ,p_es(NULL)
-        ,sys(demuxer)
-    {}
-
-    virtual ~matroska_stream_c()
+    matroska_stream_c() :p_io_callback(NULL) ,p_estream(NULL) {}
+    ~matroska_stream_c()
     {
-        delete p_in;
-        delete p_es;
+        delete p_io_callback;
+        delete p_estream;
     }
 
-    IOCallback         *p_in;
-    EbmlStream         *p_es;
+    IOCallback         *p_io_callback;
+    EbmlStream         *p_estream;
 
     std::vector<matroska_segment_c*> segments;
-
-    demux_sys_t                      & sys;
 };
 
 
 /*****************************************************************************
  * definitions of structures and functions used by this plugins
  *****************************************************************************/
-typedef struct
+class PrivateTrackData
+{
+public:
+    virtual ~PrivateTrackData() {}
+    virtual int32_t Init() { return 0; }
+};
+
+struct mkv_track_t
 {
 //    ~mkv_track_t();
 
     bool         b_default;
     bool         b_enabled;
+    bool         b_forced;
     unsigned int i_number;
 
-    int          i_extra_data;
+    unsigned int i_extra_data;
     uint8_t      *p_extra_data;
 
     char         *psz_codec;
     bool         b_dts_only;
+    bool         b_pts_only;
 
     uint64_t     i_default_duration;
     float        f_timecodescale;
@@ -197,6 +208,9 @@ typedef struct
 
     /* audio */
     unsigned int i_original_rate;
+
+    /* Private track paramters */
+    PrivateTrackData *p_sys;
 
     bool            b_inited;
     /* data to be send first */
@@ -217,9 +231,9 @@ typedef struct
     int                    i_compression_type;
     KaxContentCompSettings *p_compression_data;
 
-} mkv_track_t;
+};
 
-typedef struct
+struct mkv_index_t
 {
     int     i_track;
     int     i_block_number;
@@ -228,7 +242,7 @@ typedef struct
     int64_t i_time;
 
     bool       b_key;
-} mkv_index_t;
+};
 
 
 #endif /* _MKV_HPP_ */

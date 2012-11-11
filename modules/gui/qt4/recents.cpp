@@ -26,30 +26,42 @@
 #include "dialogs_provider.hpp"
 #include "menus.hpp"
 
-#include <QList>
-#include <QString>
+#include <QStringList>
 #include <QAction>
 #include <QSettings>
 #include <QRegExp>
 #include <QSignalMapper>
 
 #ifdef WIN32
-#include <shlobj.h>
+    #include <shlobj.h>
+    /* typedef enum  {
+        SHARD_PIDL              = 0x00000001,
+        SHARD_PATHA             = 0x00000002,
+        SHARD_PATHW             = 0x00000003,
+        SHARD_APPIDINFO         = 0x00000004,
+        SHARD_APPIDINFOIDLIST   = 0x00000005,
+        SHARD_LINK              = 0x00000006,
+        SHARD_APPIDINFOLINK     = 0x00000007,
+        SHARD_SHELLITEM         = 0x00000008 
+    } SHARD; */
+    #define SHARD_PATHW 0x00000003
 #endif
+
 
 RecentsMRL* RecentsMRL::instance = NULL;
 
 RecentsMRL::RecentsMRL( intf_thread_t *_p_intf ) : p_intf( _p_intf )
 {
-    stack = new QList<QString>;
-    signalMapper = new QSignalMapper(this);
+    stack = new QStringList;
+
+    signalMapper = new QSignalMapper( this );
     CONNECT( signalMapper,
             mapped(const QString & ),
             DialogsProvider::getInstance( p_intf ),
             playMRL( const QString & ) );
 
-    isActive = config_GetInt( p_intf, "qt-recentplay" );
-    char* psz_tmp = config_GetPsz( p_intf, "qt-recentplay-filter" );
+    /* Load the filter psz */
+    char* psz_tmp = var_InheritString( p_intf, "qt-recentplay-filter" );
     if( psz_tmp && *psz_tmp )
         filter = new QRegExp( psz_tmp, Qt::CaseInsensitive );
     else
@@ -57,6 +69,7 @@ RecentsMRL::RecentsMRL( intf_thread_t *_p_intf ) : p_intf( _p_intf )
     free( psz_tmp );
 
     load();
+    isActive = var_InheritBool( p_intf, "qt-recentplay" );
     if( !isActive ) clear();
 }
 
@@ -75,7 +88,12 @@ void RecentsMRL::addRecent( const QString &mrl )
 
 #ifdef WIN32
     /* Add to the Windows 7 default list in taskbar */
-    SHAddToRecentDocs( 0x00000002 , qtu( mrl ) );
+    char* path = make_path( qtu( mrl ) );
+    if( path )
+    {
+        SHAddToRecentDocs( SHARD_PATHW, mrl.utf16() );
+        free( path );
+    }
 #endif
 
     int i_index = stack->indexOf( mrl );
@@ -87,10 +105,10 @@ void RecentsMRL::addRecent( const QString &mrl )
     else
     {
         stack->prepend( mrl );
-        if( stack->size() > RECENTS_LIST_SIZE )
+        if( stack->count() > RECENTS_LIST_SIZE )
             stack->takeLast();
     }
-    QVLCMenu::updateRecents( p_intf );
+    VLCMenuBar::updateRecents( p_intf );
     save();
 }
 
@@ -98,21 +116,24 @@ void RecentsMRL::clear()
 {
     if ( stack->isEmpty() )
         return;
+
     stack->clear();
-    if( isActive ) QVLCMenu::updateRecents( p_intf );
+    if( isActive ) VLCMenuBar::updateRecents( p_intf );
     save();
 }
 
-QList<QString> RecentsMRL::recents()
+QStringList RecentsMRL::recents()
 {
-    return QList<QString>(*stack);
+    return *stack;
 }
 
 void RecentsMRL::load()
 {
+    /* Load from the settings */
     QStringList list = getSettings()->value( "RecentsMRL/list" ).toStringList();
 
-    for( int i = 0; i < list.size(); ++i )
+    /* And filter the regexp on the list */
+    for( int i = 0; i < list.count(); ++i )
     {
         if ( !filter || filter->indexIn( list.at(i) ) == -1 )
             stack->append( list.at(i) );
@@ -121,11 +142,6 @@ void RecentsMRL::load()
 
 void RecentsMRL::save()
 {
-    QStringList list;
-
-    for( int i = 0; i < stack->size(); ++i )
-        list << stack->at(i);
-
-    getSettings()->setValue( "RecentsMRL/list", list );
+    getSettings()->setValue( "RecentsMRL/list", *stack );
 }
 

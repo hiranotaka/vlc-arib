@@ -38,6 +38,7 @@
 #include "filter_picture.h"
 #include <vlc_image.h>
 #include <vlc_strings.h>
+#include <vlc_fs.h>
 
 /*****************************************************************************
  * Local prototypes
@@ -76,7 +77,7 @@ static void SavePicture( filter_t *, picture_t * );
                             "form if replace is not true." )
 
 #define PATH_TEXT N_( "Directory path prefix" )
-#define PATH_LONGTEXT N_( "Directory path where images files should be saved." \
+#define PATH_LONGTEXT N_( "Directory path where images files should be saved. " \
                           "If not set, then images will be automatically saved in " \
                           "users homedir." )
 
@@ -85,31 +86,33 @@ static void SavePicture( filter_t *, picture_t * );
                             "creating one file per image. In this case, " \
                              "the number is not appended to the filename." )
 
+#define SCENE_HELP N_("Send your video to picture files")
 #define CFG_PREFIX "scene-"
 
 vlc_module_begin ()
     set_shortname( N_( "Scene filter" ) )
     set_description( N_( "Scene video filter" ) )
+    set_help(SCENE_HELP)
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VOUT )
     set_capability( "video filter2", 0 )
 
     /* General options */
-    add_string(  CFG_PREFIX "format", "png", NULL,
+    add_string(  CFG_PREFIX "format", "png",
                  FORMAT_TEXT, FORMAT_LONGTEXT, false )
-    add_integer( CFG_PREFIX "width", -1, NULL,
+    add_integer( CFG_PREFIX "width", -1,
                  WIDTH_TEXT, WIDTH_LONGTEXT, true )
-    add_integer( CFG_PREFIX "height", -1, NULL,
+    add_integer( CFG_PREFIX "height", -1,
                  HEIGHT_TEXT, HEIGHT_LONGTEXT, true )
-    add_string(  CFG_PREFIX "prefix", "scene", NULL,
+    add_string(  CFG_PREFIX "prefix", "scene",
                  PREFIX_TEXT, PREFIX_LONGTEXT, false )
-    add_string(  CFG_PREFIX "path", NULL, NULL,
+    add_string(  CFG_PREFIX "path", NULL,
                  PATH_TEXT, PATH_LONGTEXT, false )
-    add_bool(    CFG_PREFIX "replace", false, NULL,
+    add_bool(    CFG_PREFIX "replace", false,
                  REPLACE_TEXT, REPLACE_LONGTEXT, false )
 
     /* Snapshot method */
-    add_integer( CFG_PREFIX "ratio", 50, NULL,
+    add_integer( CFG_PREFIX "ratio", 50,
                  RATIO_TEXT, RATIO_LONGTEXT, false )
 
     set_callbacks( Create, Destroy )
@@ -130,7 +133,7 @@ typedef struct scene_t {
 struct filter_sys_t
 {
     image_handler_t *p_image;
-    scene_t *p_scene;
+    scene_t scene;
 
     char *psz_path;
     char *psz_prefix;
@@ -158,18 +161,10 @@ static int Create( vlc_object_t *p_this )
     if( p_filter->p_sys == NULL )
         return VLC_ENOMEM;
 
-    p_sys->p_scene = calloc( 1, sizeof( scene_t ) );
-    if( !p_sys->p_scene )
-    {
-        free( p_sys );
-        return VLC_ENOMEM;
-    }
-
     p_sys->p_image = image_HandlerCreate( p_this );
     if( !p_sys->p_image )
     {
         msg_Err( p_this, "Couldn't get handle to image conversion routines." );
-        free( p_sys->p_scene );
         free( p_sys );
         return VLC_EGENERIC;
     }
@@ -181,7 +176,6 @@ static int Create( vlc_object_t *p_this )
         msg_Err( p_filter, "Could not find FOURCC for image type '%s'",
                  p_sys->psz_format );
         image_HandlerDelete( p_sys->p_image );
-        free( p_sys->p_scene );
         free( p_sys->psz_format );
         free( p_sys );
         return VLC_EGENERIC;
@@ -210,9 +204,8 @@ static void Destroy( vlc_object_t *p_this )
 
     image_HandlerDelete( p_sys->p_image );
 
-    if( p_sys->p_scene && p_sys->p_scene->p_pic )
-    picture_Release( p_sys->p_scene->p_pic );
-    free( p_sys->p_scene );
+    if( p_sys->scene.p_pic )
+        picture_Release( p_sys->scene.p_pic );
     free( p_sys->psz_format );
     free( p_sys->psz_prefix );
     free( p_sys->psz_path );
@@ -242,8 +235,8 @@ static void SnapshotRatio( filter_t *p_filter, picture_t *p_pic )
     }
     p_sys->i_frames++;
 
-    if( p_sys->p_scene->p_pic )
-        picture_Release( p_sys->p_scene->p_pic );
+    if( p_sys->scene.p_pic )
+        picture_Release( p_sys->scene.p_pic );
 
     if( (p_sys->i_width <= 0) && (p_sys->i_height > 0) )
     {
@@ -259,13 +252,11 @@ static void SnapshotRatio( filter_t *p_filter, picture_t *p_pic )
         p_sys->i_height = p_pic->format.i_height;
     }
 
-    p_sys->p_scene->p_pic = picture_New( p_pic->format.i_chroma,
-                p_pic->format.i_width, p_pic->format.i_height,
-                p_pic->format.i_sar_num );
-    if( p_sys->p_scene->p_pic )
+    p_sys->scene.p_pic = picture_NewFromFormat( &p_pic->format );
+    if( p_sys->scene.p_pic )
     {
-        picture_Copy( p_sys->p_scene->p_pic, p_pic );
-        SavePicture( p_filter, p_sys->p_scene->p_pic );
+        picture_Copy( p_sys->scene.p_pic, p_pic );
+        SavePicture( p_filter, p_sys->scene.p_pic );
     }
 }
 
@@ -328,7 +319,10 @@ static void SavePicture( filter_t *p_filter, picture_t *p_pic )
     else
     {
         /* switch to the final destination */
-        i_ret = rename( psz_temp, psz_filename );
+#if defined (WIN32) || defined(__OS2__)
+        vlc_unlink( psz_filename );
+#endif
+        i_ret = vlc_rename( psz_temp, psz_filename );
         if( i_ret == -1 )
         {
             msg_Err( p_filter, "could not rename snapshot %s %m", psz_filename );

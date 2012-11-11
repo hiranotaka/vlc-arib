@@ -79,8 +79,8 @@ vlc_module_begin ()
     add_shortcut( "extract" )
 
     add_integer_with_range( FILTER_PREFIX "component", 0xFF0000, 1, 0xFFFFFF,
-                 NULL, COMPONENT_TEXT, COMPONENT_LONGTEXT, false )
-        change_integer_list( pi_component_values, ppsz_component_descriptions, NULL )
+                            COMPONENT_TEXT, COMPONENT_LONGTEXT, false )
+        change_integer_list( pi_component_values, ppsz_component_descriptions )
 
     set_callbacks( Create, Destroy )
 vlc_module_end ()
@@ -118,7 +118,7 @@ static int Create( vlc_object_t *p_this )
 
         default:
             /* We only want planar YUV 4:2:0 or 4:2:2 */
-            msg_Err( p_filter, "Unsupported input chroma (%4s)",
+            msg_Err( p_filter, "Unsupported input chroma (%4.4s)",
                      (char*)&(p_filter->fmt_in.video.i_chroma) );
             return VLC_EGENERIC;
     }
@@ -242,7 +242,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
 
         default:
             vlc_mutex_unlock( &p_sys->lock );
-            msg_Warn( p_filter, "Unsupported input chroma (%4s)",
+            msg_Warn( p_filter, "Unsupported input chroma (%4.4s)",
                       (char*)&(p_pic->format.i_chroma) );
             picture_Release( p_pic );
             return NULL;
@@ -250,13 +250,6 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     vlc_mutex_unlock( &p_sys->lock );
 
     return CopyInfoAndRelease( p_outpic, p_pic );
-}
-
-static inline uint8_t crop( int a )
-{
-    if( a < 0 ) return 0;
-    if( a > 255 ) return 255;
-    else return (uint8_t)a;
 }
 
 #define U 128
@@ -291,9 +284,12 @@ static void make_projection_matrix( filter_t *p_filter, int color, int *matrix )
     double green = ((double)(( 0x00FF00 & color )>>8))/255.;
     double blue = ((double)( 0x0000FF & color ))/255.;
     double norm = sqrt( red*red + green*green + blue*blue );
-    red /= norm;
-    green /= norm;
-    blue /= norm;
+    if( norm > 0 )
+    {
+        red /= norm;
+        green /= norm;
+        blue /= norm;
+    }
     /* XXX: We might still need to norm the rgb_matrix */
     double rgb_matrix[9] =
         { red*red,    red*green,   red*blue,
@@ -330,40 +326,40 @@ static void get_custom_from_yuv420( picture_t *p_inpic, picture_t *p_outpic,
     uint8_t *uout  = p_outpic->p[up].p_pixels;
     uint8_t *vout  = p_outpic->p[vp].p_pixels;
 
-    const int i_pitch = p_inpic->p[yp].i_pitch;
+    const int i_in_pitch  = p_inpic->p[yp].i_pitch;
+    const int i_out_pitch = p_outpic->p[yp].i_pitch;
+
     const int i_visible_pitch = p_inpic->p[yp].i_visible_pitch;
     const int i_visible_lines = p_inpic->p[yp].i_visible_lines;
-
-    const int i_uv_pitch = p_inpic->p[up].i_pitch;
     const int i_uv_visible_pitch = p_inpic->p[up].i_visible_pitch;
 
-    const uint8_t *yend = y1in + i_visible_lines * i_pitch;
+    const uint8_t *yend = y1in + i_visible_lines * i_in_pitch;
     while( y1in < yend )
     {
         const uint8_t *y1end = y1in + i_visible_pitch;
-        y2in  = y1in + i_pitch;
-        y2out = y1out + i_pitch;
+        y2in  = y1in + i_in_pitch;
+        y2out = y1out + i_out_pitch;
         while( y1in < y1end )
         {
-            *uout++ = crop( (*y1in * m[3] + (*uin-U) * m[4] + (*vin-V) * m[5])
+            *uout++ = vlc_uint8( (*y1in * m[3] + (*uin-U) * m[4] + (*vin-V) * m[5])
                       / 65536 + U );
-            *vout++ = crop( (*y1in * m[6] + (*uin-U) * m[7] + (*vin-V) * m[8])
+            *vout++ = vlc_uint8( (*y1in * m[6] + (*uin-U) * m[7] + (*vin-V) * m[8])
                       / 65536 + V );
-            *y1out++ = crop( (*y1in++ * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
+            *y1out++ = vlc_uint8( (*y1in++ * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
                        / 65536 );
-            *y1out++ = crop( (*y1in++ * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
+            *y1out++ = vlc_uint8( (*y1in++ * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
                        / 65536 );
-            *y2out++ = crop( (*y2in++ * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
+            *y2out++ = vlc_uint8( (*y2in++ * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
                        / 65536 );
-            *y2out++ = crop( (*y2in++ * m[0] + (*uin++ - U) * m[1] + (*vin++ -V) * m[2])
+            *y2out++ = vlc_uint8( (*y2in++ * m[0] + (*uin++ - U) * m[1] + (*vin++ -V) * m[2])
                        / 65536 );
         }
-        y1in  += 2*i_pitch - i_visible_pitch;
-        y1out += 2*i_pitch - i_visible_pitch;
-        uin   += i_uv_pitch - i_uv_visible_pitch;
-        uout  += i_uv_pitch - i_uv_visible_pitch;
-        vin   += i_uv_pitch - i_uv_visible_pitch;
-        vout  += i_uv_pitch - i_uv_visible_pitch;
+        y1in  += 2*i_in_pitch  - i_visible_pitch;
+        y1out += 2*i_out_pitch - i_visible_pitch;
+        uin   += p_inpic->p[up].i_pitch  - i_uv_visible_pitch;
+        uout  += p_outpic->p[up].i_pitch - i_uv_visible_pitch;
+        vin   += p_inpic->p[vp].i_pitch  - i_uv_visible_pitch;
+        vout  += p_outpic->p[vp].i_pitch - i_uv_visible_pitch;
     }
 }
 static void get_custom_from_yuv422( picture_t *p_inpic, picture_t *p_outpic,
@@ -377,34 +373,34 @@ static void get_custom_from_yuv422( picture_t *p_inpic, picture_t *p_outpic,
     uint8_t *uout  = p_outpic->p[up].p_pixels;
     uint8_t *vout  = p_outpic->p[vp].p_pixels;
 
-    const int i_pitch = p_inpic->p[yp].i_pitch;
+    const int i_in_pitch  = p_inpic->p[yp].i_pitch;
+    const int i_out_pitch = p_outpic->p[yp].i_pitch;
+
     const int i_visible_pitch = p_inpic->p[yp].i_visible_pitch;
     const int i_visible_lines = p_inpic->p[yp].i_visible_lines;
-
-    const int i_uv_pitch = p_inpic->p[up].i_pitch;
     const int i_uv_visible_pitch = p_inpic->p[up].i_visible_pitch;
 
-    const uint8_t *yend = y1in + i_visible_lines * i_pitch;
+    const uint8_t *yend = y1in + i_visible_lines * i_in_pitch;
     while( y1in < yend )
     {
         const uint8_t *y1end = y1in + i_visible_pitch;
         while( y1in < y1end )
         {
-            *uout++ = crop( (*y1in * m[3] + (*uin-U) * m[4] + (*vin-V) * m[5])
+            *uout++ = vlc_uint8( (*y1in * m[3] + (*uin-U) * m[4] + (*vin-V) * m[5])
                       / 65536 + U );
-            *vout++ = crop( (*y1in * m[6] + (*uin-U) * m[7] + (*vin-V) * m[8])
+            *vout++ = vlc_uint8( (*y1in * m[6] + (*uin-U) * m[7] + (*vin-V) * m[8])
                       / 65536 + V );
-            *y1out++ = crop( (*y1in++ * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
+            *y1out++ = vlc_uint8( (*y1in++ * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
                        / 65536 );
-            *y1out++ = crop( (*y1in++ * m[0] + (*uin++ -U) * m[1] + (*vin++ -V) * m[2])
+            *y1out++ = vlc_uint8( (*y1in++ * m[0] + (*uin++ -U) * m[1] + (*vin++ -V) * m[2])
                        / 65536 );
         }
-        y1in  += i_pitch - i_visible_pitch;
-        y1out += i_pitch - i_visible_pitch;
-        uin   += i_uv_pitch - i_uv_visible_pitch;
-        uout  += i_uv_pitch - i_uv_visible_pitch;
-        vin   += i_uv_pitch - i_uv_visible_pitch;
-        vout  += i_uv_pitch - i_uv_visible_pitch;
+        y1in  += i_in_pitch  - i_visible_pitch;
+        y1out += i_out_pitch - i_visible_pitch;
+        uin   += p_inpic->p[up].i_pitch  - i_uv_visible_pitch;
+        uout  += p_outpic->p[up].i_pitch - i_uv_visible_pitch;
+        vin   += p_inpic->p[vp].i_pitch  - i_uv_visible_pitch;
+        vout  += p_outpic->p[vp].i_pitch - i_uv_visible_pitch;
     }
 }
 
@@ -425,39 +421,40 @@ static void get_custom_from_packedyuv422( picture_t *p_inpic,
     uint8_t *uout = p_outpic->p->p_pixels + i_u_offset;
     uint8_t *vout = p_outpic->p->p_pixels + i_v_offset;
 
-    const int i_pitch = p_inpic->p->i_pitch;
+    const int i_in_pitch  = p_inpic->p->i_pitch;
+    const int i_out_pitch = p_outpic->p->i_pitch;
     const int i_visible_pitch = p_inpic->p->i_visible_pitch;
     const int i_visible_lines = p_inpic->p->i_visible_lines;
 
-    const uint8_t *yend = yin + i_visible_lines * i_pitch;
+    const uint8_t *yend = yin + i_visible_lines * i_in_pitch;
     while( yin < yend )
     {
         const uint8_t *ylend = yin + i_visible_pitch;
         while( yin < ylend )
         {
-            *uout = crop( (*yin * m[3] + (*uin-U) * m[4] + (*vin-V) * m[5])
+            *uout = vlc_uint8( (*yin * m[3] + (*uin-U) * m[4] + (*vin-V) * m[5])
                       / 65536 + U );
             uout += 4;
-            *vout = crop( (*yin * m[6] + (*uin-U) * m[7] + (*vin-V) * m[8])
+            *vout = vlc_uint8( (*yin * m[6] + (*uin-U) * m[7] + (*vin-V) * m[8])
                      / 65536 + V );
             vout += 4;
-            *yout = crop( (*yin * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
+            *yout = vlc_uint8( (*yin * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
                        / 65536 );
             yin  += 2;
             yout += 2;
-            *yout = crop( (*yin * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
+            *yout = vlc_uint8( (*yin * m[0] + (*uin-U) * m[1] + (*vin-V) * m[2])
                        / 65536 );
             yin  += 2;
             yout += 2;
             uin  += 4;
             vin  += 4;
         }
-        yin  += i_pitch - i_visible_pitch;
-        yout += i_pitch - i_visible_pitch;
-        uin  += i_pitch - i_visible_pitch;
-        uout += i_pitch - i_visible_pitch;
-        vin  += i_pitch - i_visible_pitch;
-        vout += i_pitch - i_visible_pitch;
+        yin  += i_in_pitch  - i_visible_pitch;
+        yout += i_out_pitch - i_visible_pitch;
+        uin  += i_in_pitch  - i_visible_pitch;
+        uout += i_out_pitch - i_visible_pitch;
+        vin  += i_in_pitch  - i_visible_pitch;
+        vout += i_out_pitch - i_visible_pitch;
     }
 }
 
@@ -473,19 +470,19 @@ static void get_red_from_yuv420( picture_t *p_inpic, picture_t *p_outpic,
     uint8_t *uout  = p_outpic->p[up].p_pixels;
     uint8_t *vout  = p_outpic->p[vp].p_pixels;
 
-    const int i_pitch = p_inpic->p[yp].i_pitch;
+    const int i_in_pitch  = p_inpic->p[yp].i_pitch;
+    const int i_out_pitch = p_outpic->p[yp].i_pitch;
+
     const int i_visible_pitch = p_inpic->p[yp].i_visible_pitch;
     const int i_visible_lines = p_inpic->p[yp].i_visible_lines;
-
-    const int i_uv_pitch = p_inpic->p[up].i_pitch;
     const int i_uv_visible_pitch = p_inpic->p[up].i_visible_pitch;
 
-    const uint8_t *yend = y1in + i_visible_lines * i_pitch;
+    const uint8_t *yend = y1in + i_visible_lines * i_in_pitch;
     while( y1in < yend )
     {
         const uint8_t *y1end = y1in + i_visible_pitch;
-        y2in  = y1in + i_pitch;
-        y2out = y1out + i_pitch;
+        y2in  = y1in + i_in_pitch;
+        y2out = y1out + i_out_pitch;
         while( y1in < y1end )
         {
 /*
@@ -493,24 +490,24 @@ static void get_red_from_yuv420( picture_t *p_inpic, picture_t *p_outpic,
 -11058  0   -15504
 32768   0   45941
 */
-            *uout++ = crop( (*y1in * -11058 + (*vin - V) * -15504)
+            *uout++ = vlc_uint8( (*y1in * -11058 + (*vin - V) * -15504)
                       / 65536 + U );
-            *vout++ = crop( (*y1in * 32768 + (*vin - V) * 45941)
+            *vout++ = vlc_uint8( (*y1in * 32768 + (*vin - V) * 45941)
                       / 65536 + V );
-            *y1out++ = crop( (*y1in++ * 19595 + (*vin - V) * 27473)
+            *y1out++ = vlc_uint8( (*y1in++ * 19595 + (*vin - V) * 27473)
                        / 65536 );
-            *y1out++ = crop( (*y1in++ * 19595 + (*vin - V) * 27473)
+            *y1out++ = vlc_uint8( (*y1in++ * 19595 + (*vin - V) * 27473)
                        / 65536 );
-            *y2out++ = crop( (*y2in++ * 19594 + (*vin - V) * 27473)
+            *y2out++ = vlc_uint8( (*y2in++ * 19594 + (*vin - V) * 27473)
                        / 65536 );
-            *y2out++ = crop( (*y2in++ * 19594 + (*vin++ - V) * 27473)
+            *y2out++ = vlc_uint8( (*y2in++ * 19594 + (*vin++ - V) * 27473)
                        / 65536 );
         }
-        y1in  += 2*i_pitch - i_visible_pitch;
-        y1out += 2*i_pitch - i_visible_pitch;
-        uout  += i_uv_pitch - i_uv_visible_pitch;
-        vin   += i_uv_pitch - i_uv_visible_pitch;
-        vout  += i_uv_pitch - i_uv_visible_pitch;
+        y1in  += 2*i_in_pitch  - i_visible_pitch;
+        y1out += 2*i_out_pitch - i_visible_pitch;
+        uout  += p_outpic->p[up].i_pitch - i_uv_visible_pitch;
+        vin   += p_inpic->p[vp].i_pitch  - i_uv_visible_pitch;
+        vout  += p_outpic->p[vp].i_pitch - i_uv_visible_pitch;
     }
 }
 
@@ -527,19 +524,20 @@ static void get_green_from_yuv420( picture_t *p_inpic, picture_t *p_outpic,
     uint8_t *uout  = p_outpic->p[up].p_pixels;
     uint8_t *vout  = p_outpic->p[vp].p_pixels;
 
-    const int i_pitch = p_inpic->p[yp].i_pitch;
+    const int i_in_pitch  = p_inpic->p[yp].i_pitch;
+    const int i_out_pitch = p_outpic->p[yp].i_pitch;
+
     const int i_visible_pitch = p_inpic->p[yp].i_visible_pitch;
     const int i_visible_lines = p_inpic->p[yp].i_visible_lines;
 
-    const int i_uv_pitch = p_inpic->p[up].i_pitch;
     const int i_uv_visible_pitch = p_inpic->p[up].i_visible_pitch;
 
-    const uint8_t *yend = y1in + i_visible_lines * i_pitch;
+    const uint8_t *yend = y1in + i_visible_lines * i_in_pitch;
     while( y1in < yend )
     {
         const uint8_t *y1end = y1in + i_visible_pitch;
-        y2in  = y1in + i_pitch;
-        y2out = y1out + i_pitch;
+        y2in  = y1in + i_in_pitch;
+        y2out = y1out + i_out_pitch;
         while( y1in < y1end )
         {
 /*
@@ -547,25 +545,25 @@ static void get_green_from_yuv420( picture_t *p_inpic, picture_t *p_outpic,
 -21710  7471    15504
 -27439  9443    19595
 */
-            *uout++ = crop( (*y1in * -21710 + (*uin-U) * 7471 + (*vin-V) * 15504)
+            *uout++ = vlc_uint8( (*y1in * -21710 + (*uin-U) * 7471 + (*vin-V) * 15504)
                       / 65536 + U );
-            *vout++ = crop( (*y1in * -27439 + (*uin-U) * 9443 + (*vin-V) * 19595)
+            *vout++ = vlc_uint8( (*y1in * -27439 + (*uin-U) * 9443 + (*vin-V) * 19595)
                       / 65536 + V );
-            *y1out++ = crop( (*y1in++ * 38470 + (*uin-U) * -13239 + (*vin-V) * -27473)
+            *y1out++ = vlc_uint8( (*y1in++ * 38470 + (*uin-U) * -13239 + (*vin-V) * -27473)
                        / 65536 );
-            *y1out++ = crop( (*y1in++ * 38470 + (*uin-U) * -13239 + (*vin-V) * -27473)
+            *y1out++ = vlc_uint8( (*y1in++ * 38470 + (*uin-U) * -13239 + (*vin-V) * -27473)
                        / 65536 );
-            *y2out++ = crop( (*y2in++ * 38470 + (*uin-U) * -13239 + (*vin-V) * -27473)
+            *y2out++ = vlc_uint8( (*y2in++ * 38470 + (*uin-U) * -13239 + (*vin-V) * -27473)
                        / 65536 );
-            *y2out++ = crop( (*y2in++ * 38470 + (*uin++ - U) * -13239 + (*vin++ -V) * -27473)
+            *y2out++ = vlc_uint8( (*y2in++ * 38470 + (*uin++ - U) * -13239 + (*vin++ -V) * -27473)
                        / 65536 );
         }
-        y1in  += 2*i_pitch - i_visible_pitch;
-        y1out += 2*i_pitch - i_visible_pitch;
-        uin   += i_uv_pitch - i_uv_visible_pitch;
-        uout  += i_uv_pitch - i_uv_visible_pitch;
-        vin   += i_uv_pitch - i_uv_visible_pitch;
-        vout  += i_uv_pitch - i_uv_visible_pitch;
+        y1in  += 2*i_in_pitch  - i_visible_pitch;
+        y1out += 2*i_out_pitch - i_visible_pitch;
+        uin   += p_inpic->p[up].i_pitch  - i_uv_visible_pitch;
+        uout  += p_outpic->p[up].i_pitch - i_uv_visible_pitch;
+        vin   += p_inpic->p[vp].i_pitch  - i_uv_visible_pitch;
+        vout  += p_outpic->p[vp].i_pitch - i_uv_visible_pitch;
     }
 }
 
@@ -581,19 +579,19 @@ static void get_blue_from_yuv420( picture_t *p_inpic, picture_t *p_outpic,
     uint8_t *uout  = p_outpic->p[up].p_pixels;
     uint8_t *vout  = p_outpic->p[vp].p_pixels;
 
-    const int i_pitch = p_inpic->p[yp].i_pitch;
+    const int i_in_pitch  = p_inpic->p[yp].i_pitch;
+    const int i_out_pitch = p_outpic->p[yp].i_pitch;
+
     const int i_visible_pitch = p_inpic->p[yp].i_visible_pitch;
     const int i_visible_lines = p_inpic->p[yp].i_visible_lines;
-
-    const int i_uv_pitch = p_inpic->p[up].i_pitch;
     const int i_uv_visible_pitch = p_inpic->p[up].i_visible_pitch;
 
-    const uint8_t *yend = y1in + i_visible_lines * i_pitch;
+    const uint8_t *yend = y1in + i_visible_lines * i_in_pitch;
     while( y1in < yend )
     {
         const uint8_t *y1end = y1in + i_visible_pitch;
-        y2in  = y1in + i_pitch;
-        y2out = y1out + i_pitch;
+        y2in  = y1in + i_in_pitch;
+        y2out = y1out + i_out_pitch;
         while( y1in < y1end )
         {
 /*
@@ -601,24 +599,24 @@ static void get_blue_from_yuv420( picture_t *p_inpic, picture_t *p_outpic,
 32768   58065   0
 -5329   -9443   0
 */
-            *uout++ = crop( (*y1in* 32768 + (*uin - U) * 58065 )
+            *uout++ = vlc_uint8( (*y1in* 32768 + (*uin - U) * 58065 )
                       / 65536 + U );
-            *vout++ = crop( (*y1in * -5329 + (*uin - U) * -9443 )
+            *vout++ = vlc_uint8( (*y1in * -5329 + (*uin - U) * -9443 )
                       / 65536 + V );
-            *y1out++ = crop( (*y1in++ * 7471 + (*uin - U) * 13239 )
+            *y1out++ = vlc_uint8( (*y1in++ * 7471 + (*uin - U) * 13239 )
                        / 65536 );
-            *y1out++ = crop( (*y1in++ * 7471 + (*uin - U) * 13239 )
+            *y1out++ = vlc_uint8( (*y1in++ * 7471 + (*uin - U) * 13239 )
                        / 65536 );
-            *y2out++ = crop( (*y2in++ * 7471 + (*uin - U) * 13239 )
+            *y2out++ = vlc_uint8( (*y2in++ * 7471 + (*uin - U) * 13239 )
                        / 65536 );
-            *y2out++ = crop( (*y2in++ * 7471 + (*uin++ - U) * 13239 )
+            *y2out++ = vlc_uint8( (*y2in++ * 7471 + (*uin++ - U) * 13239 )
                        / 65536 );
         }
-        y1in  += 2*i_pitch - i_visible_pitch;
-        y1out += 2*i_pitch - i_visible_pitch;
-        uin   += i_uv_pitch - i_uv_visible_pitch;
-        uout  += i_uv_pitch - i_uv_visible_pitch;
-        vout  += i_uv_pitch - i_uv_visible_pitch;
+        y1in  += 2*i_in_pitch  - i_visible_pitch;
+        y1out += 2*i_out_pitch - i_visible_pitch;
+        uin   += p_inpic->p[up].i_pitch  - i_uv_visible_pitch;
+        uout  += p_outpic->p[up].i_pitch - i_uv_visible_pitch;
+        vout  += p_inpic->p[vp].i_pitch  - i_uv_visible_pitch;
     }
 }
 
@@ -632,14 +630,14 @@ static void get_red_from_yuv422( picture_t *p_inpic, picture_t *p_outpic,
     uint8_t *uout  = p_outpic->p[up].p_pixels;
     uint8_t *vout  = p_outpic->p[vp].p_pixels;
 
-    const int i_pitch = p_inpic->p[yp].i_pitch;
+    const int i_in_pitch = p_inpic->p[yp].i_pitch;
+    const int i_out_pitch = p_inpic->p[yp].i_pitch;
+
     const int i_visible_pitch = p_inpic->p[yp].i_visible_pitch;
     const int i_visible_lines = p_inpic->p[yp].i_visible_lines;
-
-    const int i_uv_pitch = p_inpic->p[up].i_pitch;
     const int i_uv_visible_pitch = p_inpic->p[up].i_visible_pitch;
 
-    const uint8_t *yend = y1in + i_visible_lines * i_pitch;
+    const uint8_t *yend = y1in + i_visible_lines * i_in_pitch;
     while( y1in < yend )
     {
         const uint8_t *y1end = y1in + i_visible_pitch;
@@ -650,20 +648,20 @@ static void get_red_from_yuv422( picture_t *p_inpic, picture_t *p_outpic,
 -11058  0   -15504
 32768   0   45941
 */
-            *uout++ = crop( (*y1in * -11058 + (*vin - V) * -15504)
+            *uout++ = vlc_uint8( (*y1in * -11058 + (*vin - V) * -15504)
                       / 65536 + U );
-            *vout++ = crop( (*y1in * 32768 + (*vin - V) * 45941)
+            *vout++ = vlc_uint8( (*y1in * 32768 + (*vin - V) * 45941)
                       / 65536 + V );
-            *y1out++ = crop( (*y1in++ * 19595 + (*vin - V) * 27473)
+            *y1out++ = vlc_uint8( (*y1in++ * 19595 + (*vin - V) * 27473)
                        / 65536 );
-            *y1out++ = crop( (*y1in++ * 19595 + (*vin++ - V) * 27473)
+            *y1out++ = vlc_uint8( (*y1in++ * 19595 + (*vin++ - V) * 27473)
                        / 65536 );
         }
-        y1in  += i_pitch - i_visible_pitch;
-        y1out += i_pitch - i_visible_pitch;
-        uout  += i_uv_pitch - i_uv_visible_pitch;
-        vin   += i_uv_pitch - i_uv_visible_pitch;
-        vout  += i_uv_pitch - i_uv_visible_pitch;
+        y1in  += i_in_pitch  - i_visible_pitch;
+        y1out += i_out_pitch - i_visible_pitch;
+        uout  += p_outpic->p[up].i_pitch - i_uv_visible_pitch;
+        vin   += p_inpic->p[vp].i_pitch  - i_uv_visible_pitch;
+        vout  += p_outpic->p[vp].i_pitch - i_uv_visible_pitch;
     }
 }
 
@@ -678,14 +676,14 @@ static void get_green_from_yuv422( picture_t *p_inpic, picture_t *p_outpic,
     uint8_t *uout  = p_outpic->p[up].p_pixels;
     uint8_t *vout  = p_outpic->p[vp].p_pixels;
 
-    const int i_pitch = p_inpic->p[yp].i_pitch;
+    const int i_in_pitch  = p_inpic->p[yp].i_pitch;
+    const int i_out_pitch = p_outpic->p[yp].i_pitch;
+
     const int i_visible_pitch = p_inpic->p[yp].i_visible_pitch;
     const int i_visible_lines = p_inpic->p[yp].i_visible_lines;
-
-    const int i_uv_pitch = p_inpic->p[up].i_pitch;
     const int i_uv_visible_pitch = p_inpic->p[up].i_visible_pitch;
 
-    const uint8_t *yend = y1in + i_visible_lines * i_pitch;
+    const uint8_t *yend = y1in + i_visible_lines * i_in_pitch;
     while( y1in < yend )
     {
         const uint8_t *y1end = y1in + i_visible_pitch;
@@ -696,21 +694,21 @@ static void get_green_from_yuv422( picture_t *p_inpic, picture_t *p_outpic,
 -21710  7471    15504
 -27439  9443    19595
 */
-            *uout++ = crop( (*y1in * -21710 + (*uin-U) * 7471 + (*vin-V) * 15504)
+            *uout++ = vlc_uint8( (*y1in * -21710 + (*uin-U) * 7471 + (*vin-V) * 15504)
                       / 65536 + U );
-            *vout++ = crop( (*y1in * -27439 + (*uin-U) * 9443 + (*vin-V) * 19595)
+            *vout++ = vlc_uint8( (*y1in * -27439 + (*uin-U) * 9443 + (*vin-V) * 19595)
                       / 65536 + V );
-            *y1out++ = crop( (*y1in++ * 38470 + (*uin-U) * -13239 + (*vin-V) * -27473)
+            *y1out++ = vlc_uint8( (*y1in++ * 38470 + (*uin-U) * -13239 + (*vin-V) * -27473)
                        / 65536 );
-            *y1out++ = crop( (*y1in++ * 38470 + (*uin++-U) * -13239 + (*vin++-V) * -27473)
+            *y1out++ = vlc_uint8( (*y1in++ * 38470 + (*uin++-U) * -13239 + (*vin++-V) * -27473)
                        / 65536 );
         }
-        y1in  += i_pitch - i_visible_pitch;
-        y1out += i_pitch - i_visible_pitch;
-        uin   += i_uv_pitch - i_uv_visible_pitch;
-        uout  += i_uv_pitch - i_uv_visible_pitch;
-        vin   += i_uv_pitch - i_uv_visible_pitch;
-        vout  += i_uv_pitch - i_uv_visible_pitch;
+        y1in  += i_in_pitch  - i_visible_pitch;
+        y1out += i_out_pitch - i_visible_pitch;
+        uin   += p_inpic->p[up].i_pitch  - i_uv_visible_pitch;
+        uout  += p_outpic->p[up].i_pitch - i_uv_visible_pitch;
+        vin   += p_inpic->p[vp].i_pitch  - i_uv_visible_pitch;
+        vout  += p_outpic->p[vp].i_pitch - i_uv_visible_pitch;
     }
 }
 
@@ -724,14 +722,14 @@ static void get_blue_from_yuv422( picture_t *p_inpic, picture_t *p_outpic,
     uint8_t *uout  = p_outpic->p[up].p_pixels;
     uint8_t *vout  = p_outpic->p[vp].p_pixels;
 
-    const int i_pitch = p_inpic->p[yp].i_pitch;
+    const int i_in_pitch  = p_inpic->p[yp].i_pitch;
+    const int i_out_pitch = p_outpic->p[yp].i_pitch;
+
     const int i_visible_pitch = p_inpic->p[yp].i_visible_pitch;
     const int i_visible_lines = p_inpic->p[yp].i_visible_lines;
-
-    const int i_uv_pitch = p_inpic->p[up].i_pitch;
     const int i_uv_visible_pitch = p_inpic->p[up].i_visible_pitch;
 
-    const uint8_t *yend = y1in + i_visible_lines * i_pitch;
+    const uint8_t *yend = y1in + i_visible_lines * i_in_pitch;
     while( y1in < yend )
     {
         const uint8_t *y1end = y1in + i_visible_pitch;
@@ -742,20 +740,20 @@ static void get_blue_from_yuv422( picture_t *p_inpic, picture_t *p_outpic,
 32768   58065   0
 -5329   -9443   0
 */
-            *uout++ = crop( (*y1in* 32768 + (*uin - U) * 58065 )
+            *uout++ = vlc_uint8( (*y1in* 32768 + (*uin - U) * 58065 )
                       / 65536 + U );
-            *vout++ = crop( (*y1in * -5329 + (*uin - U) * -9443 )
+            *vout++ = vlc_uint8( (*y1in * -5329 + (*uin - U) * -9443 )
                       / 65536 + V );
-            *y1out++ = crop( (*y1in++ * 7471 + (*uin - U) * 13239 )
+            *y1out++ = vlc_uint8( (*y1in++ * 7471 + (*uin - U) * 13239 )
                        / 65536 );
-            *y1out++ = crop( (*y1in++ * 7471 + (*uin++ - U) * 13239 )
+            *y1out++ = vlc_uint8( (*y1in++ * 7471 + (*uin++ - U) * 13239 )
                        / 65536 );
         }
-        y1in  += i_pitch - i_visible_pitch;
-        y1out += i_pitch - i_visible_pitch;
-        uin   += i_uv_pitch - i_uv_visible_pitch;
-        uout  += i_uv_pitch - i_uv_visible_pitch;
-        vout  += i_uv_pitch - i_uv_visible_pitch;
+        y1in  += i_in_pitch  - i_visible_pitch;
+        y1out += i_out_pitch - i_visible_pitch;
+        uin   += p_inpic->p[up].i_pitch - i_uv_visible_pitch;
+        uout  += p_outpic->p[up].i_pitch - i_uv_visible_pitch;
+        vout  += p_outpic->p[vp].i_pitch - i_uv_visible_pitch;
     }
 }
 

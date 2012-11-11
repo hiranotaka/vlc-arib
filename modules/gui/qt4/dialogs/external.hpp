@@ -21,6 +21,10 @@
 #ifndef QVLC_DIALOGS_EXTERNAL_H_
 #define QVLC_DIALOGS_EXTERNAL_H_ 1
 
+#ifdef HAVE_CONFIG_H
+# include <config.h>
+#endif
+
 #include <QObject>
 #include <vlc_common.h>
 #include "variables.hpp"
@@ -47,15 +51,14 @@ private:
     QVLCPointer question;
     QVLCPointer progressBar;
 signals:
-    void progressBarDestroyed (QWidget *);
     void error (const QString&, const QString&);
 
 private slots:
     void displayError (const QString&, const QString&);
-    void displayCritical (vlc_object_t *, void *);
-    void requestLogin (vlc_object_t *, void *);
-    void requestAnswer (vlc_object_t *, void *);
-    void startProgressBar (vlc_object_t *, void *);
+    void displayCritical (void *);
+    void requestLogin (void *);
+    void requestAnswer (void *);
+    void startProgressBar (void *);
     void stopProgressBar (QWidget *);
 };
 
@@ -68,8 +71,6 @@ class QVLCProgressDialog : public QProgressDialog
 public:
     QVLCProgressDialog (DialogHandler *parent,
                         struct dialog_progress_bar_t *);
-    virtual ~QVLCProgressDialog (void);
-
 private:
     DialogHandler *handler;
     bool cancelled;
@@ -83,7 +84,7 @@ private slots:
 signals:
     void progressed (int);
     void described (const QString&);
-    void destroyed (void);
+    void released (void);
 };
 
 #endif

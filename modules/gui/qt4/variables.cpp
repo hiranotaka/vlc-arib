@@ -48,9 +48,11 @@ QVLCVariable::~QVLCVariable (void)
 int QVLCVariable::callback (vlc_object_t *object, const char *,
                             vlc_value_t old, vlc_value_t cur, void *data)
 {
+    VLC_UNUSED(object);
+
     QVLCVariable *self = static_cast<QVLCVariable *>(data);
 
-    self->trigger (self->object, old, cur);
+    self->trigger (old, cur);
     return VLC_SUCCESS;
 }
 
@@ -60,20 +62,79 @@ QVLCPointer::QVLCPointer (vlc_object_t *obj, const char *varname, bool inherit)
 {
 }
 
-void QVLCPointer::trigger (vlc_object_t *obj, vlc_value_t old, vlc_value_t cur)
+void QVLCPointer::trigger (vlc_value_t, vlc_value_t cur)
 {
-    emit pointerChanged (obj, old.p_address, cur.p_address);
-    emit pointerChanged (obj, cur.p_address);
+    emit pointerChanged (cur.p_address);
 }
 
+bool QVLCPointer::addCallback (QObject *tgt, const char *method,
+                               Qt::ConnectionType type)
+{
+    return tgt->connect (this, SIGNAL(pointerChanged(void *)), method, type);
+}
 
 QVLCInteger::QVLCInteger (vlc_object_t *obj, const char *varname, bool inherit)
     : QVLCVariable (obj, varname, VLC_VAR_INTEGER, inherit)
 {
 }
 
-void QVLCInteger::trigger (vlc_object_t *obj, vlc_value_t old, vlc_value_t cur)
+void QVLCInteger::trigger (vlc_value_t, vlc_value_t cur)
 {
-    emit integerChanged (obj, old.i_int, cur.i_int);
-    emit integerChanged (obj, cur.i_int);
+    emit integerChanged (cur.i_int);
+}
+
+bool QVLCInteger::addCallback (QObject *tgt, const char *method,
+                               Qt::ConnectionType type)
+{
+    return tgt->connect (this, SIGNAL(integerChanged(qlonglong)), method,
+                         type);
+}
+
+QVLCBool::QVLCBool (vlc_object_t *obj, const char *varname, bool inherit)
+    : QVLCVariable (obj, varname, VLC_VAR_BOOL, inherit)
+{
+}
+
+void QVLCBool::trigger (vlc_value_t, vlc_value_t cur)
+{
+    emit boolChanged (cur.b_bool);
+}
+
+bool QVLCBool::addCallback (QObject *tgt, const char *method,
+                            Qt::ConnectionType type)
+{
+    return tgt->connect (this, SIGNAL(boolChanged(bool)), method, type);
+}
+
+QVLCFloat::QVLCFloat (vlc_object_t *obj, const char *varname, bool inherit)
+    : QVLCVariable (obj, varname, VLC_VAR_FLOAT, inherit)
+{
+}
+
+void QVLCFloat::trigger (vlc_value_t, vlc_value_t cur)
+{
+    emit floatChanged (cur.f_float);
+}
+
+bool QVLCFloat::addCallback (QObject *tgt, const char *method,
+                            Qt::ConnectionType type)
+{
+    return tgt->connect (this, SIGNAL(floatChanged(float)), method, type);
+}
+
+QVLCString::QVLCString (vlc_object_t *obj, const char *varname, bool inherit)
+    : QVLCVariable (obj, varname, VLC_VAR_STRING, inherit)
+{
+}
+
+void QVLCString::trigger (vlc_value_t, vlc_value_t cur)
+{
+    QString str = qfu(cur.psz_string);
+    emit stringChanged (str);
+}
+
+bool QVLCString::addCallback (QObject *tgt, const char *method,
+                              Qt::ConnectionType type)
+{
+    return tgt->connect (this, SIGNAL(stringChanged(QString)), method, type);
 }

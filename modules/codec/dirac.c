@@ -103,13 +103,13 @@ static const char *const enc_chromafmt_list_text[] =
 #define ENC_CODINGMODE "coding-mode"
 #define ENC_CODINGMODE_TEXT N_("Picture coding mode")
 #define ENC_CODINGMODE_LONGTEXT N_("Field coding is where interlaced fields are coded" \
-                                   " seperately as opposed to a pseudo-progressive frame")
+                                   " separately as opposed to a pseudo-progressive frame")
 static const char *const enc_codingmode_list[] =
   { "auto", "progressive", "field" };
 static const char *const enc_codingmode_list_text[] =
   { N_("auto - let encoder decide based upon input (Best)"),
     N_("force coding frame as single picture"),
-    N_("force coding frame as seperate interlaced fields"),
+    N_("force coding frame as separate interlaced fields"),
   };
 
 #define ENC_MCBLK_WIDTH "mc-blk-width"
@@ -204,108 +204,107 @@ vlc_module_begin()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_VCODEC )
     set_description( N_("Dirac video encoder using dirac-research library") )
+    set_shortname( "Dirac" )
     set_capability( "encoder", 100 )
     set_callbacks( OpenEncoder, CloseEncoder )
 
-    add_float( ENC_CFG_PREFIX ENC_QUALITY_FACTOR, 5.5, NULL,
+    add_float( ENC_CFG_PREFIX ENC_QUALITY_FACTOR, 5.5,
                ENC_QUALITY_FACTOR_TEXT, ENC_QUALITY_FACTOR_LONGTEXT, false )
     change_float_range(0., 10.);
 
-    add_integer( ENC_CFG_PREFIX ENC_TARGETRATE, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_TARGETRATE, -1,
                  ENC_TARGETRATE_TEXT, ENC_TARGETRATE_LONGTEXT, false )
     change_integer_range(-1, INT_MAX);
 
-    add_bool( ENC_CFG_PREFIX ENC_LOSSLESS, false, NULL,
+    add_bool( ENC_CFG_PREFIX ENC_LOSSLESS, false,
               ENC_LOSSLESS_TEXT, ENC_LOSSLESS_LONGTEXT, false )
 
-    add_string( ENC_CFG_PREFIX ENC_PREFILTER, "diaglp", NULL,
+    add_string( ENC_CFG_PREFIX ENC_PREFILTER, "diaglp",
                 ENC_PREFILTER_TEXT, ENC_PREFILTER_LONGTEXT, false )
-    change_string_list( enc_prefilter_list, enc_prefilter_list_text, 0 );
+    change_string_list( enc_prefilter_list, enc_prefilter_list_text );
 
-    add_integer( ENC_CFG_PREFIX ENC_PREFILTER_STRENGTH, 1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_PREFILTER_STRENGTH, 1,
                  ENC_PREFILTER_STRENGTH_TEXT, ENC_PREFILTER_STRENGTH_LONGTEXT, false )
     change_integer_range(0, 10);
 
-    add_string( ENC_CFG_PREFIX ENC_CHROMAFMT, "420", NULL,
+    add_string( ENC_CFG_PREFIX ENC_CHROMAFMT, "420",
                 ENC_CHROMAFMT_TEXT, ENC_CHROMAFMT_LONGTEXT, false )
-    change_string_list( enc_chromafmt_list, enc_chromafmt_list_text, 0 );
+    change_string_list( enc_chromafmt_list, enc_chromafmt_list_text );
 
-    add_integer( ENC_CFG_PREFIX ENC_L1SEP, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_L1SEP, -1,
                  ENC_L1SEP_TEXT, ENC_L1SEP_LONGTEXT, false )
     change_integer_range(-1, INT_MAX);
 
-    add_integer( ENC_CFG_PREFIX ENC_L1NUM, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_L1NUM, -1,
                  ENC_L1NUM_TEXT, ENC_L1NUM_LONGTEXT, false )
     change_integer_range(-1, INT_MAX);
 
-    add_string( ENC_CFG_PREFIX ENC_CODINGMODE, "auto", NULL,
+    add_string( ENC_CFG_PREFIX ENC_CODINGMODE, "auto",
                 ENC_CODINGMODE_TEXT, ENC_CODINGMODE_LONGTEXT, false )
-    change_string_list( enc_codingmode_list, enc_codingmode_list_text, 0 );
+    change_string_list( enc_codingmode_list, enc_codingmode_list_text );
 
-    add_string( ENC_CFG_PREFIX ENC_MVPREC, "1/2", NULL,
+    add_string( ENC_CFG_PREFIX ENC_MVPREC, "1/2",
                 ENC_MVPREC_TEXT, ENC_MVPREC_LONGTEXT, false )
-    change_string_list( enc_mvprec_list, enc_mvprec_list, 0 );
+    change_string_list( enc_mvprec_list, enc_mvprec_list );
 
-    add_integer( ENC_CFG_PREFIX ENC_MCBLK_WIDTH, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_MCBLK_WIDTH, -1,
                  ENC_MCBLK_WIDTH_TEXT, ENC_MCBLK_WIDTH_LONGTEXT, false )
-    add_deprecated_alias( ENC_CFG_PREFIX ENC_MCBLK_XBLEN );
     change_integer_range(-1, INT_MAX);
 
-    add_integer( ENC_CFG_PREFIX ENC_MCBLK_HEIGHT, -1, NULL,
-                 ENC_MCBLK_HEIGHT, ENC_MCBLK_HEIGHT_LONGTEXT, false )
-    add_deprecated_alias( ENC_CFG_PREFIX ENC_MCBLK_YBLEN );
+    add_integer( ENC_CFG_PREFIX ENC_MCBLK_HEIGHT, -1,
+                 ENC_MCBLK_HEIGHT_TEXT, ENC_MCBLK_HEIGHT_LONGTEXT, false )
     change_integer_range(-1, INT_MAX);
 
-    add_integer( ENC_CFG_PREFIX ENC_MCBLK_OVERLAP, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_MCBLK_OVERLAP, -1,
                  ENC_MCBLK_OVERLAP_TEXT, ENC_MCBLK_OVERLAP_LONGTEXT, false )
     change_integer_range(-1, 100);
 
     /* advanced option only */
-    add_integer( ENC_CFG_PREFIX ENC_MCBLK_XBLEN, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_MCBLK_XBLEN, -1,
                  ENC_MCBLK_XBLEN_TEXT, ENC_MCBLK_XBLEN_LONGTEXT, true )
     change_integer_range(-1, INT_MAX);
     /* advanced option only */
-    add_integer( ENC_CFG_PREFIX ENC_MCBLK_YBLEN, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_MCBLK_YBLEN, -1,
                  ENC_MCBLK_YBLEN_TEXT, ENC_MCBLK_YBLEN_LONGTEXT, true )
     change_integer_range(-1, INT_MAX);
 
-    add_string( ENC_CFG_PREFIX ENC_ME_SIMPLESEARCH, "", NULL,
+    add_string( ENC_CFG_PREFIX ENC_ME_SIMPLESEARCH, "",
               ENC_ME_SIMPLESEARCH_TEXT, ENC_ME_SIMPLESEARCH_LONGTEXT, false )
 
 #if DIRAC_RESEARCH_VERSION_ATLEAST(1,0,1)
-    add_bool( ENC_CFG_PREFIX ENC_ME_COMBINED, true, NULL,
+    add_bool( ENC_CFG_PREFIX ENC_ME_COMBINED, true,
               ENC_ME_COMBINED_TEXT, ENC_ME_COMBINED_LONGTEXT, false )
 #endif
 
-    add_integer( ENC_CFG_PREFIX ENC_DWTINTRA, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_DWTINTRA, -1,
                  ENC_DWTINTRA_TEXT, ENC_DWTINTRA_LONGTEXT, false )
     change_integer_range(-1, 6);
 
-    add_integer( ENC_CFG_PREFIX ENC_DWTINTER, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_DWTINTER, -1,
                  ENC_DWTINTER_TEXT, ENC_DWTINTER_LONGTEXT, false )
     change_integer_range(-1, 6);
 
-    add_integer( ENC_CFG_PREFIX ENC_DWTDEPTH, -1, NULL,
+    add_integer( ENC_CFG_PREFIX ENC_DWTDEPTH, -1,
                  ENC_DWTDEPTH_TEXT, ENC_DWTDEPTH_LONGTEXT, false )
     change_integer_range(-1, 4);
 
     /* advanced option only */
-    /* NB, unforunately vlc doesn't have a concept of 'dont care' */
-    add_integer( ENC_CFG_PREFIX ENC_MULTIQUANT, -1, NULL,
+    /* NB, unforunately vlc doesn't have a concept of 'don't care' */
+    add_integer( ENC_CFG_PREFIX ENC_MULTIQUANT, -1,
                  ENC_MULTIQUANT_TEXT, ENC_MULTIQUANT_LONGTEXT, true )
     change_integer_range(-1, 1);
 
     /* advanced option only */
-    /* NB, unforunately vlc doesn't have a concept of 'dont care' */
-    add_integer( ENC_CFG_PREFIX ENC_SPARTITION, -1, NULL,
+    /* NB, unforunately vlc doesn't have a concept of 'don't care' */
+    add_integer( ENC_CFG_PREFIX ENC_SPARTITION, -1,
                  ENC_SPARTITION_TEXT, ENC_SPARTITION_LONGTEXT, true )
     change_integer_range(-1, 1);
 
-    add_bool( ENC_CFG_PREFIX ENC_NOAC, false, NULL,
+    add_bool( ENC_CFG_PREFIX ENC_NOAC, false,
               ENC_NOAC_TEXT, ENC_NOAC_LONGTEXT, false )
 
     /* advanced option only */
-    add_float( ENC_CFG_PREFIX ENC_CPD, -1, NULL,
+    add_float( ENC_CFG_PREFIX ENC_CPD, -1,
                ENC_CPD_TEXT, ENC_CPD_LONGTEXT, true )
     change_integer_range(-1, INT_MAX);
 vlc_module_end()
@@ -506,9 +505,8 @@ static int OpenEncoder( vlc_object_t *p_this )
     p_sys->ctx.src_params.frame_rate.denominator = p_enc->fmt_in.video.i_frame_rate_base;
     unsigned u_asr_num, u_asr_den;
     vlc_ureduce( &u_asr_num, &u_asr_den,
-                 p_enc->fmt_in.video.i_height * p_enc->fmt_in.video.i_aspect,
-                 p_enc->fmt_in.video.i_width * VOUT_ASPECT_FACTOR,
-                 0 );
+                 p_enc->fmt_in.video.i_sar_num,
+                 p_enc->fmt_in.video.i_sar_den, 0 );
     p_sys->ctx.src_params.pix_asr.numerator = u_asr_num;
     p_sys->ctx.src_params.pix_asr.denominator = u_asr_den;
 
@@ -783,6 +781,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
     int i_plane, i_line, i_width, i_src_stride;
     uint8_t *p_dst;
 
+    if( !p_pic ) return NULL;
     /* we only know if the sequence is interlaced when the first
      * picture arrives, so final setup is done here */
     /* XXX todo, detect change of interlace */
@@ -800,7 +799,6 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
         if( !p_sys->p_dirac )
         {
             msg_Err( p_enc, "Failed to initialize dirac encoder" );
-            p_enc->b_error = 1;
             return NULL;
         }
         date_Init( &date, p_enc->fmt_in.video.i_frame_rate, p_enc->fmt_in.video.i_frame_rate_base );
@@ -836,7 +834,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
 
         for( i_line = 0; i_line < p_pic->p[i_plane].i_visible_lines; i_line++ )
         {
-            vlc_memcpy( p_dst, p_src, i_width );
+            memcpy( p_dst, p_src, i_width );
             p_dst += i_width;
             p_src += i_src_stride;
         }
@@ -859,10 +857,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
      * coded order */
     p_block = block_New( p_enc, 1 );
     if( !p_block )
-    {
-        p_enc->b_error = 1;
         return NULL;
-    }
     p_block->i_dts = p_pic->date - p_sys->i_pts_offset;
     block_FifoPut( p_sys->p_dts_fifo, p_block );
     p_block = NULL;
@@ -877,10 +872,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
 
         p_block = block_New( p_enc, 1 );
         if( !p_block )
-        {
-            p_enc->b_error = 1;
             return NULL;
-        }
         p_block->i_dts = p_pic->date - p_sys->i_pts_offset + p_sys->i_field_time;
         block_FifoPut( p_sys->p_dts_fifo, p_block );
         p_block = NULL;
@@ -901,10 +893,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
             /* extract data from encoder temporary buffer. */
             p_block = block_New( p_enc, p_sys->p_dirac->enc_buf.size );
             if( !p_block )
-            {
-                p_enc->b_error = 1;
                 return NULL;
-            }
             memcpy( p_block->p_buffer, p_sys->p_dirac->enc_buf.buffer,
                     p_sys->p_dirac->enc_buf.size );
 
@@ -933,10 +922,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
                     /* XXX, should this be done using the packetizer ? */
                     p_enc->fmt_out.p_extra = malloc( len + sizeof(eos) );
                     if( !p_enc->fmt_out.p_extra )
-                    {
-                        p_enc->b_error = 1;
                         return NULL;
-                    }
                     memcpy( p_enc->fmt_out.p_extra, p_block->p_buffer, len);
                     memcpy( (uint8_t*)p_enc->fmt_out.p_extra + len, eos, sizeof(eos) );
                     SetDWBE( (uint8_t*)p_enc->fmt_out.p_extra + len + 10, len );

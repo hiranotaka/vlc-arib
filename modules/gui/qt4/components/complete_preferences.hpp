@@ -1,5 +1,5 @@
 /*****************************************************************************
- * preferences_tree.hpp : Tree of modules for preferences
+ * complete_preferences.hpp : Tree of modules for preferences
  ****************************************************************************
  * Copyright (C) 2006-2007 the VideoLAN team
  * $Id$
@@ -47,10 +47,12 @@ class QVBoxLayout;
 
 class PrefsItemData : public QObject
 {
+    Q_OBJECT
 public:
     PrefsItemData()
     { panel = NULL; i_object_id = 0; i_subcat_id = -1; psz_name = NULL; };
     virtual ~PrefsItemData() { free( psz_name ); };
+    bool contains( const QString &text, Qt::CaseSensitivity cs );
     AdvPrefsPanel *panel;
     int i_object_id;
     int i_subcat_id;
@@ -64,17 +66,22 @@ Q_DECLARE_METATYPE( PrefsItemData* );
 
 class PrefsTree : public QTreeWidget
 {
-    Q_OBJECT;
+    Q_OBJECT
 public:
     PrefsTree( intf_thread_t *, QWidget * );
-    virtual ~PrefsTree();
 
     void applyAll();
     void cleanAll();
+    void filter( const QString &text );
 
 private:
     void doAll( bool );
+    bool filterItems( QTreeWidgetItem *item, const QString &text, Qt::CaseSensitivity cs );
+    bool collapseUnselectedItems( QTreeWidgetItem *item );
     intf_thread_t *p_intf;
+
+private slots:
+    void resizeColumns();
 };
 
 class ConfigControl;

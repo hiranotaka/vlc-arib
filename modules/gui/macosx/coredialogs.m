@@ -1,7 +1,7 @@
 /*****************************************************************************
  * coredialogs.m: Mac OS X Core Dialogs
  *****************************************************************************
- * Copyright (C) 2005-2009 the VideoLAN team
+ * Copyright (C) 2005-2012 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Derk-Jan Hartman <hartman at videolan dot org>
@@ -43,19 +43,14 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
 
 -(id)init
 {
-    if( _o_sharedInstance )
+    if (_o_sharedInstance)
         [self dealloc];
-    else
-    {
+    else {
         _o_sharedInstance = [super init];
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(performDialogEvent:)
-                                                     name: @"VLCNewCoreDialogEventNotification"
-                                                   object:self];
         o_error_panel = [[VLCErrorPanel alloc] init];
         b_progress_cancelled = NO;
     }
-    
+
     return _o_sharedInstance;
 }
 
@@ -68,25 +63,24 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     [o_prog_cancel_btn setTitle: _NS("Cancel")];
     [o_prog_bar setUsesThreadedAnimation: YES];
 
-}    
+}
 
--(void)performDialogEvent: (NSNotification *)o_notification
+-(void)performEventWithObject: (NSValue *)o_value ofType: (const char*)type
 {
-    NSValue *o_value = [[o_notification userInfo] objectForKey:@"VLCDialogPointer"];
-    NSString *o_type = [[o_notification userInfo] objectForKey:@"VLCDialogType"];
+    NSString *o_type = [NSString stringWithUTF8String:type];
 
-    if( [o_type isEqualToString: @"dialog-error"] )
-        [self showFatalDialog: o_value];
-    else if( [o_type isEqualToString: @"dialog-critical"] )
-        [self showFatalWaitDialog: o_value];
-    else if( [o_type isEqualToString: @"dialog-question"] )
-        [self showQuestionDialog: o_value];
-    else if( [o_type isEqualToString: @"dialog-login"] )
-        [self showLoginDialog: o_value];
-    else if( [o_type isEqualToString: @"dialog-progress-bar"] )
-        [self showProgressDialog: o_value];
+    if ([o_type isEqualToString: @"dialog-error"])
+        [self performSelectorOnMainThread:@selector(showFatalDialog:) withObject:o_value waitUntilDone:YES];
+    else if ([o_type isEqualToString: @"dialog-critical"])
+        [self performSelectorOnMainThread:@selector(showFatalWaitDialog:) withObject:o_value waitUntilDone:YES];
+    else if ([o_type isEqualToString: @"dialog-question"])
+        [self performSelectorOnMainThread:@selector(showQuestionDialog:) withObject:o_value waitUntilDone:YES];
+    else if ([o_type isEqualToString: @"dialog-login"])
+        [self performSelectorOnMainThread:@selector(showLoginDialog:) withObject:o_value waitUntilDone:YES];
+    else if ([o_type isEqualToString: @"dialog-progress-bar"])
+        [self performSelectorOnMainThread:@selector(showProgressDialogOnMainThread:) withObject: o_value waitUntilDone:YES];
     else
-        msg_Err( VLCIntf, "unhandled dialog type: '%s'", [o_type UTF8String] );
+        msg_Err(VLCIntf, "unhandled dialog type: '%s'", type);
 }
 
 -(void)showFatalDialog: (NSValue *)o_value
@@ -102,7 +96,7 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     dialog_fatal_t *p_dialog = [o_value pointerValue];
     NSAlert *o_alert;
 
-    o_alert = [NSAlert alertWithMessageText: [NSString stringWithUTF8String: p_dialog->title] defaultButton: _NS("OK") alternateButton: nil otherButton: nil informativeTextWithFormat: [NSString stringWithUTF8String: p_dialog->message]];
+    o_alert = [NSAlert alertWithMessageText: [NSString stringWithUTF8String: p_dialog->title] defaultButton: _NS("OK") alternateButton: nil otherButton: nil informativeTextWithFormat: @"%s", p_dialog->message];
     [o_alert setAlertStyle: NSCriticalAlertStyle];
     [o_alert runModal];
 }
@@ -113,23 +107,23 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     NSAlert *o_alert;
     NSString *o_yes, *o_no, *o_cancel;
     NSInteger i_returnValue = 0;
-    
-    if( p_dialog->yes != NULL )
+
+    if (p_dialog->yes != NULL)
         o_yes = [NSString stringWithUTF8String: p_dialog->yes];
-    if( p_dialog->no != NULL )
+    if (p_dialog->no != NULL)
         o_no = [NSString stringWithUTF8String: p_dialog->no];
-    if( p_dialog->cancel != NULL )
+    if (p_dialog->cancel != NULL)
         o_cancel = [NSString stringWithUTF8String: p_dialog->cancel];
 
-    o_alert = [NSAlert alertWithMessageText: [NSString stringWithUTF8String: p_dialog->title] defaultButton: o_yes alternateButton:o_no otherButton: o_cancel informativeTextWithFormat: [NSString stringWithUTF8String: p_dialog->message]];
+    o_alert = [NSAlert alertWithMessageText: [NSString stringWithUTF8String: p_dialog->title] defaultButton: o_yes alternateButton:o_no otherButton: o_cancel informativeTextWithFormat: @"%s", p_dialog->message];
     [o_alert setAlertStyle: NSInformationalAlertStyle];
     i_returnValue = [o_alert runModal];
 
-    if( i_returnValue == NSAlertDefaultReturn )
+    if (i_returnValue == NSAlertDefaultReturn)
         p_dialog->answer = 1;
-    if( i_returnValue == NSAlertAlternateReturn )
+    if (i_returnValue == NSAlertAlternateReturn)
         p_dialog->answer = 2;
-    if( i_returnValue == NSAlertOtherReturn )
+    if (i_returnValue == NSAlertOtherReturn)
         p_dialog->answer = 3;
 }
 
@@ -147,48 +141,63 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     [o_auth_win center];
     i_returnValue = [NSApp runModalForWindow: o_auth_win];
     [o_auth_win close];
-    if( i_returnValue )
+    if (i_returnValue)
     {
-        *p_dialog->username = strdup( [[o_auth_login_fld stringValue] UTF8String] );
-        *p_dialog->password = strdup( [[o_auth_pw_fld stringValue] UTF8String] );
-    }
-    else
-    {
-         *p_dialog->username = *p_dialog->password = NULL;
-    }
+        *p_dialog->username = strdup([[o_auth_login_fld stringValue] UTF8String]);
+        *p_dialog->password = strdup([[o_auth_pw_fld stringValue] UTF8String]);
+    } else
+        *p_dialog->username = *p_dialog->password = NULL;
 }
 
 -(IBAction)loginDialogAction:(id)sender
 {
-    if( [[sender title] isEqualToString: _NS("OK")] )
+    if ([[sender title] isEqualToString: _NS("OK")])
         [NSApp stopModalWithCode: 1];
     else
         [NSApp stopModalWithCode: 0];
+}
+
+-(void)showProgressDialogOnMainThread: (NSValue *)o_value
+{
+    /* we work-around a Cocoa limitation here, since you cannot delay an execution
+     * on the main thread within a single call */
+    b_progress_cancelled = NO;
+
+    dialog_progress_bar_t *p_dialog = [o_value pointerValue];
+
+    if (!p_dialog || b_progress_cancelled)
+        return;
+
+    if (p_dialog->title != NULL)
+    {
+        [o_prog_win setTitle: [NSString stringWithUTF8String: p_dialog->title]];
+        [o_prog_title_txt setStringValue: [NSString stringWithUTF8String: p_dialog->title]];
+    } else {
+        [o_prog_win setTitle: @""];
+        [o_prog_title_txt setStringValue: @""];
+    }
+    if (p_dialog->cancel != NULL)
+        [o_prog_cancel_btn setTitle: [NSString stringWithUTF8String: p_dialog->cancel]];
+    else
+        [o_prog_cancel_btn setTitle: _NS("Cancel")];
+    if (p_dialog->message != NULL)
+        [o_prog_description_txt setStringValue: [NSString stringWithUTF8String: p_dialog->message]];
+    else
+        [o_prog_description_txt setStringValue: @""];
+
+    if (VLCIntf)
+        [self performSelector:@selector(showProgressDialog:) withObject: o_value afterDelay:3.00];
 }
 
 -(void)showProgressDialog: (NSValue *)o_value
 {
     dialog_progress_bar_t *p_dialog = [o_value pointerValue];
 
-    if( p_dialog->title != NULL )
-    {
-        [o_prog_win setTitle: [NSString stringWithUTF8String: p_dialog->title]];
-        [o_prog_title_txt setStringValue: [NSString stringWithUTF8String: p_dialog->title]];
-    }
-    else
-    {
-        [o_prog_win setTitle: @""];
-        [o_prog_title_txt setStringValue: @""];
-    }
-    if( p_dialog->cancel != NULL )
-        [o_prog_cancel_btn setTitle: [NSString stringWithUTF8String: p_dialog->cancel]];
-    else
-        [o_prog_cancel_btn setTitle: _NS("Cancel")];
-    if( p_dialog->message != NULL )
-        [o_prog_description_txt setStringValue: [NSString stringWithUTF8String: p_dialog->message]];
-    else
-        [o_prog_description_txt setStringValue: @""];
+    if (!p_dialog || b_progress_cancelled)
+        return;
+
     [o_prog_bar setDoubleValue: 0];
+    [o_prog_bar setIndeterminate: YES];
     [o_prog_bar startAnimation: self];
 
     [o_prog_win makeKeyAndOrderFront: self];
@@ -197,13 +206,16 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
 -(void)updateProgressPanelWithText: (NSString *)string andNumber: (double)d_number
 {
     [o_prog_description_txt setStringValue: string];
+    if (d_number > 0)
+        [o_prog_bar setIndeterminate: NO];
     [o_prog_bar setDoubleValue: d_number];
 }
 
 -(void)destroyProgressPanel
 {
-    [o_prog_bar stopAnimation: self];
-    [o_prog_win close];
+    b_progress_cancelled = YES;
+    [o_prog_bar performSelectorOnMainThread:@selector(stopAnimation:) withObject:self waitUntilDone:YES];
+    [o_prog_win performSelectorOnMainThread:@selector(close) withObject:nil waitUntilDone:YES];
 }
 
 -(IBAction)progDialogAction:(id)sender
@@ -221,11 +233,6 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     return o_error_panel;
 }
 
--(void)dealloc
-{
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [super dealloc];
-}
 @end
 
 /*****************************************************************************
@@ -236,21 +243,22 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
 {
     [super init];
 
-    if( !b_nib_loaded )
-    {
+    if (!b_nib_loaded)
         b_nib_loaded = [NSBundle loadNibNamed:@"ErrorPanel" owner:self];
-    
-        /* init strings */
-        [o_window setTitle: _NS("Errors and Warnings")];
-        [o_cleanup_button setTitle: _NS("Clean up")];
-        [o_messages_btn setTitle: _NS("Show Details")];
-    }
 
     /* init data sources */
     o_errors = [[NSMutableArray alloc] init];
     o_icons = [[NSMutableArray alloc] init];
 
     return self;
+}
+
+- (void)awakeFromNib
+{
+    /* init strings */
+    [o_window setTitle: _NS("Errors and Warnings")];
+    [o_cleanup_button setTitle: _NS("Clean up")];
+    [o_messages_btn setTitle: _NS("Show Details")];
 }
 
 -(void)dealloc
@@ -276,11 +284,11 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     [ourError
         addAttribute: NSFontAttributeName
         value: [NSFont boldSystemFontOfSize:11]
-        range: NSMakeRange( 0, [o_error length])];
+        range: NSMakeRange(0, [o_error length])];
     [o_errors addObject: ourError];
     [ourError release];
 
-    [o_icons addObject: [NSImage imageWithErrorIcon]];
+    [o_icons addObject: [[NSWorkspace sharedWorkspace] iconForFileType:NSFileTypeForHFSTypeCode(kAlertStopIcon)]];
 
     [o_error_table reloadData];
 }
@@ -308,10 +316,10 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
 - (id)tableView:(NSTableView *)theDataTable objectValueForTableColumn:
     (NSTableColumn *)theTableColumn row: (NSInteger)row
 {
-    if( [[theTableColumn identifier] isEqualToString: @"error_msg"] )
+    if ([[theTableColumn identifier] isEqualToString: @"error_msg"])
         return [o_errors objectAtIndex: row];
 
-    if( [[theTableColumn identifier] isEqualToString: @"icon"] )
+    if ([[theTableColumn identifier] isEqualToString: @"icon"])
         return [o_icons objectAtIndex: row];
 
     return @"unknown identifier";

@@ -42,32 +42,37 @@
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
-static int  Open ( vlc_object_t * );
-static void Close( vlc_object_t * );
+static int  OpenAudio( vlc_object_t * );
+static int  OpenVideo( vlc_object_t * );
+static void Close    ( vlc_object_t * );
+
+#define FPS_TEXT N_("Frames per Second")
+#define FPS_LONGTEXT N_("This is the frame rate used as a fallback when " \
+    "playing MPEG video elementary streams.")
 
 vlc_module_begin ()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_DEMUX )
     set_description( N_("MPEG-I/II/4 / A52 / DTS / MLP audio" ) )
+    set_shortname( N_("Audio ES") )
     set_capability( "demux", 155 )
-    set_callbacks( Open, Close )
+    set_callbacks( OpenAudio, Close )
 
-    add_shortcut( "mpga" )
-    add_shortcut( "mp3" )
+    add_shortcut( "mpga", "mp3",
+                  "m4a", "mp4a", "aac",
+                  "ac3", "a52",
+                  "eac3",
+                  "dts",
+                  "mlp", "thd" )
 
-    add_shortcut( "m4a" )
-    add_shortcut( "mp4a" )
-    add_shortcut( "aac" )
+    add_submodule()
+    set_description( N_("MPEG-4 video" ) )
+    set_capability( "demux", 0 )
+    set_callbacks( OpenVideo, Close )
+    add_float( "es-fps", 25, FPS_TEXT, FPS_LONGTEXT, false )
 
-    add_shortcut( "ac3" )
-    add_shortcut( "a52" )
-
-    add_shortcut( "eac3" )
-
-    add_shortcut( "dts" )
-
-    add_shortcut( "mlp" )
-    add_shortcut( "thd" )
+    add_shortcut( "m4v" )
+    add_shortcut( "mp4v" )
 vlc_module_end ()
 
 /*****************************************************************************
@@ -93,6 +98,7 @@ struct demux_sys_t
 
     bool  b_start;
     decoder_t   *p_packetizer;
+    block_t     *p_packetized_data;
 
     mtime_t     i_pts;
     mtime_t     i_time_offset;
@@ -107,6 +113,8 @@ struct demux_sys_t
     int i_packet_size;
 
     int64_t i_stream_offset;
+
+    float   f_fps;
 
     /* Mpga specific */
     struct
@@ -134,7 +142,9 @@ static int DtsInit( demux_t *p_demux );
 static int MlpProbe( demux_t *p_demux, int64_t *pi_offset );
 static int MlpInit( demux_t *p_demux );
 
-static const codec_t p_codec[] = {
+static bool Parse( demux_t *p_demux, block_t **pp_output );
+
+static const codec_t p_codecs[] = {
     { VLC_CODEC_MP4A, false, "mp4 audio",  AacProbe,  AacInit },
     { VLC_CODEC_MPGA, false, "mpeg audio", MpgaProbe, MpgaInit },
     { VLC_CODEC_A52, true,  "a52 audio",  A52Probe,  A52Init },
@@ -145,36 +155,33 @@ static const codec_t p_codec[] = {
     { 0, false, NULL, NULL, NULL }
 };
 
+static int VideoInit( demux_t *p_demux );
+
+static const codec_t codec_m4v = {
+    VLC_CODEC_MP4V, false, "mp4 video", NULL,  VideoInit
+};
+
 /*****************************************************************************
- * Open: initializes demux structures
+ * OpenCommon: initializes demux structures
  *****************************************************************************/
-static int Open( vlc_object_t * p_this )
+static int OpenCommon( demux_t *p_demux,
+                       int i_cat, const codec_t *p_codec, int64_t i_bs_offset )
 {
-    demux_t     *p_demux = (demux_t*)p_this;
     demux_sys_t *p_sys;
 
     es_format_t fmt;
-    int64_t i_offset;
-    int i_index;
-
-    for( i_index = 0; p_codec[i_index].i_codec != 0; i_index++ )
-    {
-        if( !p_codec[i_index].pf_probe( p_demux, &i_offset ) )
-            break;
-    }
-
-    if( p_codec[i_index].i_codec == 0 )
-        return VLC_EGENERIC;
 
     DEMUX_INIT_COMMON(); p_sys = p_demux->p_sys;
     memset( p_sys, 0, sizeof( demux_sys_t ) );
-    p_sys->codec = p_codec[i_index];
+    p_sys->codec = *p_codec;
     p_sys->p_es = NULL;
     p_sys->b_start = true;
-    p_sys->i_stream_offset = i_offset;
+    p_sys->i_stream_offset = i_bs_offset;
     p_sys->b_estimate_bitrate = true;
     p_sys->i_bitrate_avg = 0;
     p_sys->b_big_endian = false;
+    p_sys->f_fps = var_InheritFloat( p_demux, "es-fps" );
+    p_sys->p_packetized_data = NULL;
 
     if( stream_Seek( p_demux->s, p_sys->i_stream_offset ) )
     {
@@ -191,16 +198,57 @@ static int Open( vlc_object_t * p_this )
     msg_Dbg( p_demux, "detected format %4.4s", (const char*)&p_sys->codec.i_codec );
 
     /* Load the audio packetizer */
-    es_format_Init( &fmt, AUDIO_ES, p_sys->codec.i_codec );
+    es_format_Init( &fmt, i_cat, p_sys->codec.i_codec );
     p_sys->p_packetizer = demux_PacketizerNew( p_demux, &fmt, p_sys->codec.psz_name );
     if( !p_sys->p_packetizer )
     {
         free( p_sys );
         return VLC_EGENERIC;
     }
+
+    while( vlc_object_alive( p_demux ) )
+    {
+        if( Parse( p_demux, &p_sys->p_packetized_data ) )
+            break;
+        if( p_sys->p_packetized_data )
+            break;
+    }
     return VLC_SUCCESS;
 }
+static int OpenAudio( vlc_object_t *p_this )
+{
+    demux_t *p_demux = (demux_t*)p_this;
+    for( int i = 0; p_codecs[i].i_codec != 0; i++ )
+    {
+        int64_t i_offset;
+        if( !p_codecs[i].pf_probe( p_demux, &i_offset ) )
+            return OpenCommon( p_demux, AUDIO_ES, &p_codecs[i], i_offset );
+    }
+    return VLC_EGENERIC;
+}
+static int OpenVideo( vlc_object_t *p_this )
+{
+    demux_t *p_demux = (demux_t*)p_this;
 
+    /* Only m4v is supported for the moment */
+    bool b_m4v_ext    = demux_IsPathExtension( p_demux, ".m4v" );
+    bool b_m4v_forced = demux_IsForced( p_demux, "m4v" ) ||
+                        demux_IsForced( p_demux, "mp4v" );
+    if( !b_m4v_ext && !b_m4v_forced )
+        return VLC_EGENERIC;
+
+    const uint8_t *p_peek;
+    if( stream_Peek( p_demux->s, &p_peek, 4 ) < 4 )
+        return VLC_EGENERIC;
+    if( p_peek[0] != 0x00 || p_peek[1] != 0x00 || p_peek[2] != 0x01 )
+    {
+        if( !b_m4v_forced)
+            return VLC_EGENERIC;
+        msg_Warn( p_demux,
+                  "this doesn't look like an MPEG ES stream, continuing anyway" );
+    }
+    return OpenCommon( p_demux, VIDEO_ES, &codec_m4v, 0 );
+}
 /*****************************************************************************
  * Demux: reads and demuxes data packets
  *****************************************************************************
@@ -208,82 +256,54 @@ static int Open( vlc_object_t * p_this )
  *****************************************************************************/
 static int Demux( demux_t *p_demux )
 {
+    int ret = 1;
     demux_sys_t *p_sys = p_demux->p_sys;
-    block_t *p_block_in, *p_block_out;
 
-    if( p_sys->codec.b_use_word )
+    block_t *p_block_out = p_sys->p_packetized_data;
+    if( p_block_out )
+        p_sys->p_packetized_data = NULL;
+    else
+        ret = Parse( p_demux, &p_block_out ) ? 0 : 1;
+
+    while( p_block_out )
     {
-        /* Make sure we are word aligned */
-        int64_t i_pos = stream_Tell( p_demux->s );
-        if( i_pos % 2 )
-            stream_Read( p_demux->s, NULL, 1 );
-    }
+        block_t *p_next = p_block_out->p_next;
 
-    if( ( p_block_in = stream_Block( p_demux->s, p_sys->i_packet_size ) ) == NULL )
-        return 0;
-
-    if( p_sys->codec.b_use_word && !p_sys->b_big_endian && p_block_in->i_buffer > 0 )
-    {
-        /* Convert to big endian */
-        swab( p_block_in->p_buffer, p_block_in->p_buffer, p_block_in->i_buffer );
-    }
-
-    p_block_in->i_pts = p_block_in->i_dts = p_sys->b_start || p_sys->b_initial_sync_failed ? 1 : 0;
-    p_sys->b_initial_sync_failed = p_sys->b_start; /* Only try to resync once */
-
-    while( ( p_block_out = p_sys->p_packetizer->pf_packetize( p_sys->p_packetizer, &p_block_in ) ) )
-    {
-        p_sys->b_initial_sync_failed = false;
-        while( p_block_out )
+        /* Correct timestamp */
+        if( p_sys->p_packetizer->fmt_out.i_cat == VIDEO_ES )
         {
-            block_t *p_next = p_block_out->p_next;
-
-            if( !p_sys->p_es )
-            {
-                p_sys->p_packetizer->fmt_out.b_packetized = true;
-                p_sys->p_es = es_out_Add( p_demux->out,
-                                          &p_sys->p_packetizer->fmt_out);
-
-
-                /* Try the xing header */
-                if( p_sys->xing.i_bytes && p_sys->xing.i_frames &&
-                    p_sys->xing.i_frame_samples )
-                {
-                    p_sys->i_bitrate_avg = p_sys->xing.i_bytes * INT64_C(8) *
-                        p_sys->p_packetizer->fmt_out.audio.i_rate /
-                        p_sys->xing.i_frames / p_sys->xing.i_frame_samples;
-
-                    if( p_sys->i_bitrate_avg > 0 )
-                        p_sys->b_estimate_bitrate = false;
-                }
-                /* Use the bitrate as initual value */
-                if( p_sys->b_estimate_bitrate )
-                    p_sys->i_bitrate_avg = p_sys->p_packetizer->fmt_out.i_bitrate;
-            }
-
-            p_sys->i_pts = p_block_out->i_pts;
-
-            /* Re-estimate bitrate */
-            if( p_sys->b_estimate_bitrate && p_sys->i_pts > 1 + INT64_C(500000) )
-                p_sys->i_bitrate_avg = 8*INT64_C(1000000)*p_sys->i_bytes/(p_sys->i_pts-1);
-            p_sys->i_bytes += p_block_out->i_buffer;
-
-            /* Correct timestamp */
-            p_block_out->i_pts += p_sys->i_time_offset;
-            p_block_out->i_dts += p_sys->i_time_offset;
-
-            es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_block_out->i_dts );
-
-            es_out_Send( p_demux->out, p_sys->p_es, p_block_out );
-
-            p_block_out = p_next;
+            if( p_block_out->i_pts <= VLC_TS_INVALID &&
+                p_block_out->i_dts <= VLC_TS_INVALID )
+                p_block_out->i_dts = VLC_TS_0 + p_sys->i_pts + 1000000 / p_sys->f_fps;
+            if( p_block_out->i_dts > VLC_TS_INVALID )
+                p_sys->i_pts = p_block_out->i_dts - VLC_TS_0;
         }
-    }
+        else
+        {
+            p_sys->i_pts = p_block_out->i_pts - VLC_TS_0;
+        }
 
-    if( p_sys->b_initial_sync_failed )
-        msg_Dbg( p_demux, "did not sync on first block" );
-    p_sys->b_start = false;
-    return 1;
+        if( p_block_out->i_pts > VLC_TS_INVALID )
+        {
+            p_block_out->i_pts += p_sys->i_time_offset;
+        }
+        if( p_block_out->i_dts > VLC_TS_INVALID )
+        {
+            p_block_out->i_dts += p_sys->i_time_offset;
+            es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_block_out->i_dts );
+        }
+        /* Re-estimate bitrate */
+        if( p_sys->b_estimate_bitrate && p_sys->i_pts > INT64_C(500000) )
+            p_sys->i_bitrate_avg = 8*INT64_C(1000000)*p_sys->i_bytes/(p_sys->i_pts-1);
+        p_sys->i_bytes += p_block_out->i_buffer;
+
+
+        p_block_out->p_next = NULL;
+        es_out_Send( p_demux->out, p_sys->p_es, p_block_out );
+
+        p_block_out = p_next;
+    }
+    return ret;
 }
 
 /*****************************************************************************
@@ -294,6 +314,8 @@ static void Close( vlc_object_t * p_this )
     demux_t     *p_demux = (demux_t*)p_this;
     demux_sys_t *p_sys = p_demux->p_sys;
 
+    if( p_sys->p_packetized_data )
+        block_ChainRelease( p_sys->p_packetized_data );
     demux_PacketizerDestroy( p_sys->p_packetizer );
     free( p_sys );
 }
@@ -362,9 +384,91 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 /* Fix time_offset */
                 if( i_time >= 0 )
                     p_sys->i_time_offset = i_time - p_sys->i_pts;
+                /* And reset buffered data */
+                if( p_sys->p_packetized_data )
+                    block_ChainRelease( p_sys->p_packetized_data );
+                p_sys->p_packetized_data = NULL;
             }
             return i_ret;
     }
+}
+
+/*****************************************************************************
+ * Makes a link list of buffer of parsed data
+ * Returns true if EOF
+ *****************************************************************************/
+static bool Parse( demux_t *p_demux, block_t **pp_output )
+{
+    demux_sys_t *p_sys = p_demux->p_sys;
+    block_t *p_block_in, *p_block_out;
+
+    *pp_output = NULL;
+
+    if( p_sys->codec.b_use_word )
+    {
+        /* Make sure we are word aligned */
+        int64_t i_pos = stream_Tell( p_demux->s );
+        if( i_pos % 2 )
+            stream_Read( p_demux->s, NULL, 1 );
+    }
+
+    p_block_in = stream_Block( p_demux->s, p_sys->i_packet_size );
+    bool b_eof = p_block_in == NULL;
+
+    if( p_block_in )
+    {
+        if( p_sys->codec.b_use_word && !p_sys->b_big_endian && p_block_in->i_buffer > 0 )
+        {
+            /* Convert to big endian */
+            swab( p_block_in->p_buffer, p_block_in->p_buffer, p_block_in->i_buffer );
+        }
+
+        p_block_in->i_pts = p_block_in->i_dts = p_sys->b_start || p_sys->b_initial_sync_failed ? VLC_TS_0 : VLC_TS_INVALID;
+    }
+    p_sys->b_initial_sync_failed = p_sys->b_start; /* Only try to resync once */
+
+    while( ( p_block_out = p_sys->p_packetizer->pf_packetize( p_sys->p_packetizer, p_block_in ? &p_block_in : NULL ) ) )
+    {
+        p_sys->b_initial_sync_failed = false;
+        while( p_block_out )
+        {
+            if( !p_sys->p_es )
+            {
+                p_sys->p_packetizer->fmt_out.b_packetized = true;
+                p_sys->p_es = es_out_Add( p_demux->out,
+                                          &p_sys->p_packetizer->fmt_out);
+
+
+                /* Try the xing header */
+                if( p_sys->xing.i_bytes && p_sys->xing.i_frames &&
+                    p_sys->xing.i_frame_samples )
+                {
+                    p_sys->i_bitrate_avg = p_sys->xing.i_bytes * INT64_C(8) *
+                        p_sys->p_packetizer->fmt_out.audio.i_rate /
+                        p_sys->xing.i_frames / p_sys->xing.i_frame_samples;
+
+                    if( p_sys->i_bitrate_avg > 0 )
+                        p_sys->b_estimate_bitrate = false;
+                }
+                /* Use the bitrate as initual value */
+                if( p_sys->b_estimate_bitrate )
+                    p_sys->i_bitrate_avg = p_sys->p_packetizer->fmt_out.i_bitrate;
+            }
+
+            block_t *p_next = p_block_out->p_next;
+            p_block_out->p_next = NULL;
+
+            block_ChainLastAppend( &pp_output, p_block_out );
+
+            p_block_out = p_next;
+        }
+    }
+
+    if( p_sys->b_initial_sync_failed )
+        msg_Dbg( p_demux, "did not sync on first block" );
+    p_sys->b_start = false;
+
+    return b_eof;
 }
 
 /*****************************************************************************
@@ -469,10 +573,9 @@ static int GenericProbe( demux_t *p_demux, int64_t *pi_offset,
 
     /* peek the begining
      * It is common that wav files have some sort of garbage at the begining
-     * We suppose that 8000 will be larger than any frame (for which pf_check
-     * return a size).
+     * We will accept probing 0.5s of data in this case.
      */
-    const int i_probe = i_skip + i_check_size + 8000 + ( b_wav ? 8000 : 0);
+    const int i_probe = i_skip + i_check_size + 8000 + ( b_wav ? (44000/2*2*2) : 0);
     const int i_peek = stream_Peek( p_demux->s, &p_peek, i_probe );
     if( i_peek < i_skip + i_check_size )
     {
@@ -530,9 +633,9 @@ static int MpgaCheckSync( const uint8_t *p_peek )
     uint32_t h = GetDWBE( p_peek );
 
     if( ((( h >> 21 )&0x07FF) != 0x07FF )   /* header sync */
+        || (((h >> 19)&0x03) == 1 )         /* valid version ID ? */
         || (((h >> 17)&0x03) == 0 )         /* valid layer ?*/
-        || (((h >> 12)&0x0F) == 0x0F )
-        || (((h >> 12)&0x0F) == 0x00 )      /* valid bitrate ? */
+        || (((h >> 12)&0x0F) == 0x0F )      /* valid bitrate ?*/
         || (((h >> 10) & 0x03) == 0x03 )    /* valide sampling freq ? */
         || ((h & 0x03) == 0x02 ))           /* valid emphasis ? */
     {
@@ -897,3 +1000,14 @@ static int MlpInit( demux_t *p_demux )
     return VLC_SUCCESS;
 }
 
+/*****************************************************************************
+ * Video
+ *****************************************************************************/
+static int VideoInit( demux_t *p_demux )
+{
+    demux_sys_t *p_sys = p_demux->p_sys;
+
+    p_sys->i_packet_size = 4096;
+
+    return VLC_SUCCESS;
+}

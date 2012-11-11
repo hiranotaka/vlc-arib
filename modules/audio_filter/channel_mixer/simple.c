@@ -1,7 +1,7 @@
 /*****************************************************************************
  * simple.c : simple channel mixer plug-in
  *****************************************************************************
- * Copyright (C) 2002, 2006 the VideoLAN team
+ * Copyright (C) 2002, 2004, 2006-2009 the VideoLAN team
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
@@ -44,27 +44,13 @@ vlc_module_begin ()
     set_description( N_("Audio filter for simple channel mixing") )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_MISC )
-    set_capability( "audio filter2", 10 )
+    set_capability( "audio converter", 10 )
     set_callbacks( OpenFilter, NULL )
 vlc_module_end ()
 
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
-#define AOUT_CHANS_STEREO_FRONT  ( AOUT_CHAN_LEFT | AOUT_CHAN_RIGHT )
-#define AOUT_CHANS_STEREO_REAR   ( AOUT_CHAN_REARLEFT | AOUT_CHAN_REARRIGHT )
-#define AOUT_CHANS_STEREO_MIDDLE (AOUT_CHAN_MIDDLELEFT | AOUT_CHAN_MIDDLERIGHT )
-
-#define AOUT_CHANS_2_0          AOUT_CHANS_STEREO_FRONT
-#define AOUT_CHANS_3_0          ( AOUT_CHANS_STEREO_FRONT | AOUT_CHAN_CENTER )
-#define AOUT_CHANS_4_0          ( AOUT_CHANS_STEREO_FRONT | AOUT_CHANS_STEREO_REAR )
-#define AOUT_CHANS_4_0_MIDDLE   ( AOUT_CHANS_STEREO_FRONT | AOUT_CHANS_STEREO_MIDDLE )
-#define AOUT_CHANS_4_CENTER_REAR (AOUT_CHANS_STEREO_FRONT | AOUT_CHAN_CENTER | AOUT_CHAN_REARCENTER)
-#define AOUT_CHANS_5_0          ( AOUT_CHANS_4_0 | AOUT_CHAN_CENTER )
-#define AOUT_CHANS_5_0_MIDDLE   ( AOUT_CHANS_4_0_MIDDLE | AOUT_CHAN_CENTER )
-#define AOUT_CHANS_6_0          ( AOUT_CHANS_STEREO_FRONT | AOUT_CHANS_STEREO_REAR | AOUT_CHANS_STEREO_MIDDLE )
-#define AOUT_CHANS_7_0          ( AOUT_CHANS_6_0 | AOUT_CHAN_CENTER )
-
 static bool IsSupported( const audio_format_t *p_input, const audio_format_t *p_output );
 
 static block_t *Filter( filter_t *, block_t * );
@@ -73,7 +59,7 @@ static block_t *Filter( filter_t *, block_t * );
  * DoWork: convert a buffer
  *****************************************************************************/
 static void DoWork( filter_t * p_filter,
-                    aout_buffer_t * p_in_buf, aout_buffer_t * p_out_buf )
+                    block_t * p_in_buf, block_t * p_out_buf )
 {
     const unsigned i_input_physical = p_filter->fmt_in.audio.i_physical_channels;
 

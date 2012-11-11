@@ -142,7 +142,7 @@ static int Open( vlc_object_t *p_this )
     /* Misc init */
     packetizer_Init( &p_sys->packetizer,
                      p_mp4v_startcode, sizeof(p_mp4v_startcode),
-                     NULL, 0,
+                     NULL, 0, 4,
                      PacketizeReset, PacketizeParse, PacketizeValidate, p_dec );
 
     p_sys->p_frame = NULL;
@@ -152,11 +152,13 @@ static int Open( vlc_object_t *p_this )
     es_format_Copy( &p_dec->fmt_out, &p_dec->fmt_in );
     p_dec->fmt_out.i_codec = VLC_CODEC_MP4V;
 
+    free(p_dec->fmt_out.p_extra);
+
     if( p_dec->fmt_in.i_extra )
     {
         /* We have a vol */
         p_dec->fmt_out.i_extra = p_dec->fmt_in.i_extra;
-        p_dec->fmt_out.p_extra = malloc( p_dec->fmt_in.i_extra );
+        p_dec->fmt_out.p_extra = xmalloc( p_dec->fmt_in.i_extra );
         memcpy( p_dec->fmt_out.p_extra, p_dec->fmt_in.p_extra,
                 p_dec->fmt_in.i_extra );
 
@@ -219,7 +221,8 @@ static void PacketizeReset( void *p_private, bool b_broken )
 
     p_sys->i_interpolated_pts =
     p_sys->i_interpolated_dts =
-    p_sys->i_last_ref_pts =
+    p_sys->i_last_ref_pts = VLC_TS_INVALID;
+
     p_sys->i_last_time_ref =
     p_sys->i_time_ref =
     p_sys->i_last_time =
@@ -247,8 +250,8 @@ static int PacketizeValidate( void *p_private, block_t *p_au )
 
     /* We've just started the stream, wait for the first PTS.
      * We discard here so we can still get the sequence header. */
-    if( p_sys->i_interpolated_pts <= 0 &&
-        p_sys->i_interpolated_dts <= 0 )
+    if( p_sys->i_interpolated_pts <= VLC_TS_INVALID &&
+        p_sys->i_interpolated_dts <= VLC_TS_INVALID )
     {
         msg_Dbg( p_dec, "need a starting pts/dts" );
         return VLC_EGENERIC;
@@ -287,7 +290,7 @@ static block_t *ParseMPEGBlock( decoder_t *p_dec, block_t *p_frag )
         if( (size_t)p_dec->fmt_out.i_extra != p_frag->i_buffer )
         {
             p_dec->fmt_out.p_extra =
-                realloc( p_dec->fmt_out.p_extra, p_frag->i_buffer );
+                xrealloc( p_dec->fmt_out.p_extra, p_frag->i_buffer );
             p_dec->fmt_out.i_extra = p_frag->i_buffer;
         }
         memcpy( p_dec->fmt_out.p_extra, p_frag->p_buffer, p_frag->i_buffer );
@@ -501,9 +504,9 @@ static int ParseVOP( decoder_t *p_dec, block_t *p_vop )
     p_sys->i_last_timeincr = i_time_increment;
 
     /* Correct interpolated dts when we receive a new pts/dts */
-    if( p_vop->i_pts > 0 )
+    if( p_vop->i_pts > VLC_TS_INVALID )
         p_sys->i_interpolated_pts = p_vop->i_pts;
-    if( p_vop->i_dts > 0 )
+    if( p_vop->i_dts > VLC_TS_INVALID )
         p_sys->i_interpolated_dts = p_vop->i_dts;
 
     if( (p_sys->i_flags & BLOCK_FLAG_TYPE_B) || !p_sys->b_frame )
@@ -512,16 +515,16 @@ static int ParseVOP( decoder_t *p_dec, block_t *p_vop )
 
         p_sys->i_interpolated_dts = p_sys->i_interpolated_pts;
 
-        if( p_vop->i_pts > 0 )
+        if( p_vop->i_pts > VLC_TS_INVALID )
             p_sys->i_interpolated_dts = p_vop->i_pts;
-        if( p_vop->i_dts > 0 )
+        if( p_vop->i_dts > VLC_TS_INVALID )
             p_sys->i_interpolated_dts = p_vop->i_dts;
 
         p_sys->i_interpolated_pts = p_sys->i_interpolated_dts;
     }
     else
     {
-        if( p_sys->i_last_ref_pts > 0 )
+        if( p_sys->i_last_ref_pts > VLC_TS_INVALID )
             p_sys->i_interpolated_dts = p_sys->i_last_ref_pts;
 
         p_sys->i_last_ref_pts = p_sys->i_interpolated_pts;

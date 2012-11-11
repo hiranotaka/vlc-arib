@@ -32,13 +32,13 @@
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
+#include <assert.h>
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_aout.h>
 #include <vlc_block.h>
 #include <vlc_filter.h>
-#include <vlc_cpu.h>
 
 /*****************************************************************************
  * Local prototypes
@@ -66,7 +66,7 @@ vlc_module_begin ()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACODEC )
     set_description( N_("MPEG audio decoder") )
-    set_capability( "audio filter2", 100 )
+    set_capability( "audio converter", 100 )
     set_callbacks( OpenFilter, CloseFilter )
 vlc_module_end ()
 
@@ -74,7 +74,7 @@ vlc_module_end ()
  * DoWork: decode an MPEG audio frame.
  *****************************************************************************/
 static void DoWork( filter_t * p_filter,
-                    aout_buffer_t * p_in_buf, aout_buffer_t * p_out_buf )
+                    block_t * p_in_buf, block_t * p_out_buf )
 {
     filter_sys_t *p_sys = p_filter->p_sys;
 
@@ -98,19 +98,7 @@ static void DoWork( filter_t * p_filter,
 
     if( p_sys->i_reject_count > 0 )
     {
-        if( p_filter->fmt_out.audio.i_format == VLC_CODEC_FL32 )
-        {
-            int i;
-            int i_size = p_out_buf->i_buffer / sizeof(float);
-
-            float * a = (float *)p_out_buf->p_buffer;
-            for ( i = 0 ; i < i_size ; i++ )
-                *a++ = 0.0;
-        }
-        else
-        {
-            memset( p_out_buf->p_buffer, 0, p_out_buf->i_buffer );
-        }
+        memset( p_out_buf->p_buffer, 0, p_out_buf->i_buffer );
         p_sys->i_reject_count--;
         return;
     }
@@ -118,118 +106,26 @@ static void DoWork( filter_t * p_filter,
 
     mad_synth_frame( &p_sys->mad_synth, &p_sys->mad_frame );
 
-    if ( p_filter->fmt_out.audio.i_format == VLC_CODEC_FI32 )
+    struct mad_pcm * p_pcm = &p_sys->mad_synth.pcm;
+    unsigned int i_samples = p_pcm->length;
+    mad_fixed_t const * p_left = p_pcm->samples[0];
+    mad_fixed_t const * p_right = p_pcm->samples[1];
+    mad_fixed_t * p_samples = (mad_fixed_t *)p_out_buf->p_buffer;
+
+    assert( i_samples == p_out_buf->i_nb_samples );
+    /* Interleave and keep buffers in mad_fixed_t format */
+    if ( p_pcm->channels == 2 )
     {
-        /* Interleave and keep buffers in mad_fixed_t format */
-        mad_fixed_t * p_samples = (mad_fixed_t *)p_out_buf->p_buffer;
-        struct mad_pcm * p_pcm = &p_sys->mad_synth.pcm;
-        unsigned int i_samples = p_pcm->length;
-        mad_fixed_t const * p_left = p_pcm->samples[0];
-        mad_fixed_t const * p_right = p_pcm->samples[1];
-
-        switch ( p_pcm->channels )
+        while ( i_samples-- )
         {
-        case 2:
-            if ( p_filter->fmt_out.audio.i_physical_channels == AOUT_CHAN_CENTER )
-            {
-                while ( i_samples-- )
-                {
-                    *p_samples++ = (*p_left++ >> 1) + (*p_right++ >> 1);
-                }
-            }
-            else if ( p_filter->fmt_out.audio.i_original_channels == AOUT_CHAN_LEFT )
-            {
-                while ( i_samples-- )
-                {
-                    *p_samples++ = *p_left;
-                    *p_samples++ = *p_left++;
-                }
-            }
-            else if ( p_filter->fmt_out.audio.i_original_channels == AOUT_CHAN_RIGHT )
-            {
-                while ( i_samples-- )
-                {
-                    *p_samples++ = *p_right;
-                    *p_samples++ = *p_right++;
-                }
-            }
-            else
-            {
-                while ( i_samples-- )
-                {
-                    *p_samples++ = *p_left++;
-                    *p_samples++ = *p_right++;
-                }
-            }
-            break;
-
-        case 1:
-            vlc_memcpy( p_samples, p_left, i_samples * sizeof(mad_fixed_t) );
-            break;
-
-        default:
-            msg_Err( p_filter, "cannot interleave %i channels",
-                     p_pcm->channels );
+            *p_samples++ = *p_left++;
+            *p_samples++ = *p_right++;
         }
     }
     else
     {
-        /* float32 */
-        float * p_samples = (float *)p_out_buf->p_buffer;
-        struct mad_pcm * p_pcm = &p_sys->mad_synth.pcm;
-        unsigned int i_samples = p_pcm->length;
-        mad_fixed_t const * p_left = p_pcm->samples[0];
-        mad_fixed_t const * p_right = p_pcm->samples[1];
-        float f_temp = (float)FIXED32_ONE;
-
-        switch ( p_pcm->channels )
-        {
-        case 2:
-            if ( p_filter->fmt_out.audio.i_physical_channels == AOUT_CHAN_CENTER )
-            {
-                while ( i_samples-- )
-                {
-                    *p_samples++ = (float)*p_left++ / f_temp / 2 +
-                                   (float)*p_right++ / f_temp / 2;
-                }
-            }
-            else if ( p_filter->fmt_out.audio.i_original_channels == AOUT_CHAN_LEFT )
-            {
-                while ( i_samples-- )
-                {
-                    *p_samples++ = (float)*p_left / f_temp;
-                    *p_samples++ = (float)*p_left++ / f_temp;
-                }
-            }
-            else if ( p_filter->fmt_out.audio.i_original_channels == AOUT_CHAN_RIGHT )
-            {
-                while ( i_samples-- )
-                {
-                    *p_samples++ = (float)*p_right / f_temp;
-                    *p_samples++ = (float)*p_right++ / f_temp;
-                }
-            }
-            else
-            {
-                while ( i_samples-- )
-                {
-                    *p_samples++ = (float)*p_left++ / f_temp;
-                    *p_samples++ = (float)*p_right++ / f_temp;
-                }
-            }
-            break;
-
-        case 1:
-            while ( i_samples-- )
-            {
-                *p_samples++ = (float)*p_left++ / f_temp;
-            }
-            break;
-
-        default:
-            msg_Err( p_filter, "cannot interleave %i channels",
-                     p_pcm->channels );
-        }
+        assert( p_pcm->channels == 1 );
+        memcpy( p_samples, p_left, i_samples * sizeof(mad_fixed_t) );
     }
 }
 
@@ -241,11 +137,15 @@ static int OpenFilter( vlc_object_t *p_this )
     filter_t *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys;
 
-    if( p_filter->fmt_in.i_codec != VLC_CODEC_MPGA &&
-        p_filter->fmt_in.i_codec != VLC_FOURCC('m','p','g','3') )
-    {
+    if( p_filter->fmt_in.audio.i_format != VLC_CODEC_MPGA &&
+        p_filter->fmt_in.audio.i_format != VLC_FOURCC('m','p','g','3') )
         return VLC_EGENERIC;
-    }
+
+    if( p_filter->fmt_out.audio.i_format != VLC_CODEC_FI32 )
+        return VLC_EGENERIC;
+
+    if( !AOUT_FMTS_SIMILAR( &p_filter->fmt_in.audio, &p_filter->fmt_out.audio ) )
+        return VLC_EGENERIC;
 
     /* Allocate the memory needed to store the module's structure */
     p_sys = p_filter->p_sys = malloc( sizeof(filter_sys_t) );
@@ -261,17 +161,10 @@ static int OpenFilter( vlc_object_t *p_this )
     mad_synth_init( &p_sys->mad_synth );
     mad_stream_options( &p_sys->mad_stream, MAD_OPTION_IGNORECRC );
 
-    p_filter->fmt_out.i_codec = HAVE_FPU ? VLC_CODEC_FL32 : VLC_CODEC_FI32;
-    p_filter->fmt_out.audio.i_format = p_filter->fmt_out.i_codec;
-    p_filter->fmt_out.audio.i_bitspersample =
-        aout_BitsPerSample( p_filter->fmt_out.i_codec );
-
-    p_filter->fmt_out.audio.i_rate = p_filter->fmt_in.audio.i_rate;
-
     msg_Dbg( p_this, "%4.4s->%4.4s, bits per sample: %i",
-             (char *)&p_filter->fmt_in.i_codec,
-             (char *)&p_filter->fmt_out.i_codec,
-             p_filter->fmt_in.audio.i_bitspersample );
+             (char *)&p_filter->fmt_in.audio.i_format,
+             (char *)&p_filter->fmt_out.audio.i_format,
+             p_filter->fmt_out.audio.i_bitspersample );
 
     return 0;
 }
@@ -303,7 +196,7 @@ static block_t *Convert( filter_t *p_filter, block_t *p_block )
       p_filter->fmt_out.audio.i_bitspersample *
         p_filter->fmt_out.audio.i_channels / 8;
 
-    block_t *p_out = p_filter->pf_audio_buffer_new( p_filter, i_out_size );
+    block_t *p_out = block_Alloc( i_out_size );
     if( !p_out )
     {
         msg_Warn( p_filter, "can't get output buffer" );

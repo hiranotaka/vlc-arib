@@ -1,5 +1,5 @@
 /*****************************************************************************
- * GotoTime.cpp : GotoTime and About dialogs
+ * gototime.cpp : GotoTime and About dialogs
  ****************************************************************************
  * Copyright (C) 2007 the VideoLAN team
  * $Id$
@@ -33,11 +33,10 @@
 #include <QTimeEdit>
 #include <QGroupBox>
 #include <QDialogButtonBox>
+#include <QPushButton>
 
-GotoTimeDialog *GotoTimeDialog::instance = NULL;
-
-GotoTimeDialog::GotoTimeDialog( QWidget *parent, intf_thread_t *_p_intf)
-               : QVLCDialog( parent, _p_intf )
+GotoTimeDialog::GotoTimeDialog( intf_thread_t *_p_intf)
+               : QVLCDialog( (QWidget*)_p_intf->p_sys->p_mi, _p_intf )
 {
     setWindowFlags( Qt::Tool );
     setWindowTitle( qtr( "Go to Time" ) );
@@ -54,47 +53,51 @@ GotoTimeDialog::GotoTimeDialog( QWidget *parent, intf_thread_t *_p_intf)
     buttonBox->addButton( gotoButton, QDialogButtonBox::AcceptRole );
     buttonBox->addButton( cancelButton, QDialogButtonBox::RejectRole );
 
-    QGroupBox *timeGroupBox = new QGroupBox;
-    QGridLayout *boxLayout = new QGridLayout( timeGroupBox );
-
     QLabel *timeIntro = new QLabel( qtr( "Go to time" ) + ":" );
     timeIntro->setWordWrap( true );
     timeIntro->setAlignment( Qt::AlignCenter );
 
     timeEdit = new QTimeEdit();
-    timeEdit->setDisplayFormat( "hh : mm : ss" );
+    timeEdit->setDisplayFormat( "HH'H':mm'm':ss's'" );
     timeEdit->setAlignment( Qt::AlignRight );
     timeEdit->setSizePolicy( QSizePolicy::Expanding, QSizePolicy::Minimum );
 
-    QLabel *helpFormat = new QLabel( timeEdit->displayFormat() );
-    helpFormat->setSizePolicy( QSizePolicy::Minimum, QSizePolicy::Preferred );
+    QPushButton *resetButton = new QPushButton( QIcon(":/update"), "" );
+    resetButton->setToolTip( qtr("Reset") );
 
-    QSpacerItem *spacerBox = new QSpacerItem( 20, 10, QSizePolicy::Minimum,
-                                        QSizePolicy::Fixed );
+    mainLayout->addWidget( timeIntro, 0, 0, 1, 1 );
+    mainLayout->addWidget( timeEdit, 0, 1, 1, 1 );
+    mainLayout->addWidget( resetButton, 0, 2, 1, 1 );
 
-    QSpacerItem *spacerItem = new QSpacerItem( 20, 3, QSizePolicy::Minimum,
-                                        QSizePolicy::Expanding );
-
-    boxLayout->addWidget( timeIntro, 0, 0, 1, 2 );
-    boxLayout->addItem( spacerBox, 1, 0, 1, 2 );
-    boxLayout->addWidget( timeEdit, 2, 0, 1, 1 );
-    boxLayout->addWidget( helpFormat, 2, 1, 1, 1 );
-
-    mainLayout->addWidget( timeGroupBox, 0, 0, 1, 4 );
-    mainLayout->addItem( spacerItem, 1, 0 );
-    mainLayout->addWidget( buttonBox, 2, 3 );
+    mainLayout->addWidget( buttonBox, 1, 0, 1, 3 );
 
     BUTTONACT( gotoButton, close() );
     BUTTONACT( cancelButton, cancel() );
+    BUTTONACT( resetButton, reset() );
+
+    QVLCTools::restoreWidgetPosition( p_intf, "gototimedialog", this );
 }
 
 GotoTimeDialog::~GotoTimeDialog()
 {
+    QVLCTools::saveWidgetPosition( p_intf, "gototimedialog", this );
+}
+
+void GotoTimeDialog::toggleVisible()
+{
+    reset();
+    if ( !isVisible() && THEMIM->getIM()->hasInput() )
+    {
+        int64_t i_time = var_GetTime( THEMIM->getInput(), "time" );
+        timeEdit->setTime( timeEdit->time().addSecs( i_time / 1000000 ) );
+    }
+    QVLCDialog::toggleVisible();
+    activateWindow ();
 }
 
 void GotoTimeDialog::cancel()
 {
-    timeEdit->setTime( QTime( 0, 0, 0) );
+    reset();
     toggleVisible();
 }
 
@@ -107,5 +110,9 @@ void GotoTimeDialog::close()
         var_SetTime( THEMIM->getInput(), "time", i_time );
     }
     toggleVisible();
+}
+
+void GotoTimeDialog::reset()
+{
     timeEdit->setTime( QTime( 0, 0, 0) );
 }

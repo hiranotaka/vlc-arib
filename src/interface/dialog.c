@@ -3,19 +3,19 @@
  *****************************************************************************
  * Copyright © 2009 Rémi Denis-Courmont
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /**
@@ -31,6 +31,7 @@
 
 #include <vlc_common.h>
 #include <vlc_dialog.h>
+#include <vlc_extensions.h>
 #include <assert.h>
 #include "libvlc.h"
 
@@ -130,7 +131,7 @@ void dialog_VFatal (vlc_object_t *obj, bool modal, const char *title,
 #undef dialog_Login
 /**
  * Requests a username and password through the user interface.
- * @param obj the VLC object requesting credential informations
+ * @param obj the VLC object requesting credential information
  * @param username a pointer to the specified username [OUT]
  * @param password a pointer to the specified password [OUT]
  * @param title title for the dialog
@@ -173,15 +174,15 @@ void dialog_Login (vlc_object_t *obj, char **username, char **password,
  * Asks a total (Yes/No/Cancel) question through the user interface.
  * @param obj VLC object emitting the question
  * @param title dialog box title
- * @param text dialog box text
+ * @param fmt format string for the dialog box text
  * @param yes first choice/button text
  * @param no second choice/button text
  * @param cancel third answer/button text, or NULL if no third option
  * @return 0 if the user could not answer the question (e.g. there is no UI),
  * 1, 2 resp. 3 if the user pressed the first, second resp. third button.
  */
-int dialog_Question (vlc_object_t *obj, const char *title, const char *text,
-                     const char *yes, const char *no, const char *cancel)
+int dialog_Question (vlc_object_t *obj, const char *title, const char *fmt,
+                     const char *yes, const char *no, const char *cancel, ...)
 {
     if (obj->i_flags & OBJECT_FLAGS_NOINTERACT)
         return 0;
@@ -190,10 +191,20 @@ int dialog_Question (vlc_object_t *obj, const char *title, const char *text,
     if (provider == NULL)
         return 0;
 
-    dialog_question_t dialog = { title, text, yes, no, cancel, 0, };
-    var_SetAddress (provider, "dialog-question", &dialog);
+    char *text;
+    va_list ap;
+    int answer = 0;
+
+    va_start (ap, cancel);
+    if (vasprintf (&text, fmt, ap) != -1)
+    {
+        dialog_question_t dialog = { title, text, yes, no, cancel, 0, };
+        var_SetAddress (provider, "dialog-question", &dialog);
+        answer = dialog.answer;
+    }
+    va_end (ap);
     vlc_object_release (provider);
-    return dialog.answer;
+    return answer;
 }
 
 #undef dialog_ProgressCreate
@@ -259,3 +270,23 @@ bool dialog_ProgressCancelled (dialog_progress_bar_t *dialog)
     return dialog->pf_check (dialog->p_sys);
 }
 
+#undef dialog_ExtensionUpdate
+int dialog_ExtensionUpdate (vlc_object_t *obj, extension_dialog_t *dialog)
+{
+    assert (obj);
+    assert (dialog);
+
+    vlc_object_t *dp = dialog_GetProvider(obj);
+    if (!dp)
+    {
+        msg_Warn (obj, "Dialog provider is not set, can't update dialog '%s'",
+                  dialog->psz_title);
+        return VLC_EGENERIC;
+    }
+
+    // Signaling the dialog provider
+    int ret = var_SetAddress (dp, "dialog-extension", dialog);
+
+    vlc_object_release (dp);
+    return ret;
+}

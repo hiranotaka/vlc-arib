@@ -1,35 +1,31 @@
 /*****************************************************************************
  * vlm_internal.h: Internal vlm structures
  *****************************************************************************
- * Copyright (C) 1998-2006 the VideoLAN team
+ * Copyright (C) 1998-2006 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#if defined(__PLUGIN__) || defined(__BUILTIN__) || !defined(__LIBVLC__)
-# error This header file can only be included from LibVLC.
-#endif
-
-#ifndef _VLM_INTERNAL_H
-#define _VLM_INTERNAL_H 1
+#ifndef LIBVLC_VLM_INTERNAL_H
+#define LIBVLC_VLM_INTERNAL_H 1
 
 #include <vlc_vlm.h>
-#include "input_internal.h"
+#include "input_interface.h"
 
 /* Private */
 typedef struct
@@ -42,6 +38,7 @@ typedef struct
 
     bool      b_sout_keep;
 
+    vlc_object_t *p_parent;
     input_item_t      *p_item;
     input_thread_t    *p_input;
     input_resource_t *p_input_resource;
@@ -90,12 +87,16 @@ struct vlm_t
 
     vlc_mutex_t  lock;
     vlc_thread_t thread;
+    vlc_mutex_t  lock_manage;
+    vlc_cond_t   wait_manage;
+    unsigned     users;
 
+    /* tell vlm thread there is work to do */
+    bool         input_state_changed;
     /* */
     int64_t        i_id;
 
     /* Vod server (used by media) */
-    int            i_vod;
     vod_t          *p_vod;
 
     /* Media list */

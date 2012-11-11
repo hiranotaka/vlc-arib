@@ -45,12 +45,16 @@
 
 #if defined (MODULE_NAME_IS_i420_yuy2)
 #    define DEST_FOURCC "YUY2,YUNV,YVYU,UYVY,UYNV,Y422,IUYV,cyuv,Y211"
+#    define VLC_TARGET
 #elif defined (MODULE_NAME_IS_i420_yuy2_mmx)
 #    define DEST_FOURCC "YUY2,YUNV,YVYU,UYVY,UYNV,Y422,IUYV,cyuv"
+#    define VLC_TARGET VLC_MMX
 #elif defined (MODULE_NAME_IS_i420_yuy2_sse2)
 #    define DEST_FOURCC "YUY2,YUNV,YVYU,UYVY,UYNV,Y422,IUYV,cyuv"
+#    define VLC_TARGET VLC_SSE
 #elif defined (MODULE_NAME_IS_i420_yuy2_altivec)
 #    define DEST_FOURCC "YUY2,YUNV,YVYU,UYVY,UYNV,Y422"
+#    define VLC_TARGET
 #endif
 
 /*****************************************************************************
@@ -88,19 +92,20 @@ vlc_module_begin ()
 #if defined (MODULE_NAME_IS_i420_yuy2)
     set_description( N_("Conversions from " SRC_FOURCC " to " DEST_FOURCC) )
     set_capability( "video filter2", 80 )
+# define vlc_CPU_capable() (true)
 #elif defined (MODULE_NAME_IS_i420_yuy2_mmx)
     set_description( N_("MMX conversions from " SRC_FOURCC " to " DEST_FOURCC) )
     set_capability( "video filter2", 160 )
-    add_requirement( MMX )
+# define vlc_CPU_capable() vlc_CPU_MMX()
 #elif defined (MODULE_NAME_IS_i420_yuy2_sse2)
     set_description( N_("SSE2 conversions from " SRC_FOURCC " to " DEST_FOURCC) )
     set_capability( "video filter2", 250 )
-    add_requirement( SSE2 )
+# define vlc_CPU_capable() vlc_CPU_SSE2()
 #elif defined (MODULE_NAME_IS_i420_yuy2_altivec)
     set_description(
             _("AltiVec conversions from " SRC_FOURCC " to " DEST_FOURCC) );
     set_capability( "video filter2", 250 )
-    add_requirement( ALTIVEC )
+# define vlc_CPU_capable() vlc_CPU_ALTIVEC()
 #endif
     set_callbacks( Activate, NULL )
 vlc_module_end ()
@@ -114,6 +119,8 @@ static int Activate( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
 
+    if( !vlc_CPU_capable() )
+        return VLC_EGENERIC;
     if( p_filter->fmt_in.video.i_width & 1
      || p_filter->fmt_in.video.i_height & 1 )
     {
@@ -195,6 +202,7 @@ VIDEO_FILTER_WRAPPER( I420_Y211 )
 /*****************************************************************************
  * I420_YUY2: planar YUV 4:2:0 to packed YUYV 4:2:2
  *****************************************************************************/
+VLC_TARGET
 static void I420_YUY2( filter_t *p_filter, picture_t *p_source,
                                            picture_t *p_dest )
 {
@@ -245,6 +253,8 @@ static void I420_YUY2( filter_t *p_filter, picture_t *p_source,
             }
         }
     }
+#warning FIXME: converting widths % 16 but !widths % 32 is broken on altivec
+#if 0
     else if( !( ( p_filter->fmt_in.video.i_width % 16 ) |
                 ( p_filter->fmt_in.video.i_height % 4 ) ) )
     {
@@ -277,6 +287,7 @@ static void I420_YUY2( filter_t *p_filter, picture_t *p_source,
             }
         }
     }
+#endif
     else
     {
         /* Crap, use the C version */
@@ -409,6 +420,7 @@ static void I420_YUY2( filter_t *p_filter, picture_t *p_source,
 /*****************************************************************************
  * I420_YVYU: planar YUV 4:2:0 to packed YVYU 4:2:2
  *****************************************************************************/
+VLC_TARGET
 static void I420_YVYU( filter_t *p_filter, picture_t *p_source,
                                            picture_t *p_dest )
 {
@@ -618,6 +630,7 @@ static void I420_YVYU( filter_t *p_filter, picture_t *p_source,
 /*****************************************************************************
  * I420_UYVY: planar YUV 4:2:0 to packed UYVY 4:2:2
  *****************************************************************************/
+VLC_TARGET
 static void I420_UYVY( filter_t *p_filter, picture_t *p_source,
                                            picture_t *p_dest )
 {
@@ -839,6 +852,7 @@ static void I420_IUYV( filter_t *p_filter, picture_t *p_source,
 /*****************************************************************************
  * I420_cyuv: planar YUV 4:2:0 to upside-down packed UYVY 4:2:2
  *****************************************************************************/
+VLC_TARGET
 static void I420_cyuv( filter_t *p_filter, picture_t *p_source,
                                            picture_t *p_dest )
 {

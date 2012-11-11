@@ -70,6 +70,8 @@ static void FilterHough   ( filter_t *, picture_t *, picture_t * );
 #define CARTOON_LONGTEXT N_("Apply cartoon effect. It is only used by " \
     "\"gradient\" and \"edge\".")
 
+#define GRADIENT_HELP N_("Apply color gradient or edge detection effects")
+
 static const char *const mode_list[] = { "gradient", "edge", "hough" };
 static const char *const mode_list_text[] = { N_("Gradient"), N_("Edge"), N_("Hough") };
 
@@ -78,17 +80,18 @@ static const char *const mode_list_text[] = { N_("Gradient"), N_("Edge"), N_("Ho
 vlc_module_begin ()
     set_description( N_("Gradient video filter") )
     set_shortname( N_( "Gradient" ))
+    set_help(GRADIENT_HELP)
     set_capability( "video filter2", 0 )
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
-    add_string( FILTER_PREFIX "mode", "gradient", NULL,
+    add_string( FILTER_PREFIX "mode", "gradient",
                 MODE_TEXT, MODE_LONGTEXT, false )
-        change_string_list( mode_list, mode_list_text, 0 )
+        change_string_list( mode_list, mode_list_text )
 
-    add_integer_with_range( FILTER_PREFIX "type", 0, 0, 1, NULL,
+    add_integer_with_range( FILTER_PREFIX "type", 0, 0, 1,
                 GRADIENT_TEXT, GRADIENT_LONGTEXT, false )
-    add_bool( FILTER_PREFIX "cartoon", true, NULL,
+    add_bool( FILTER_PREFIX "cartoon", true,
                 CARTOON_TEXT, CARTOON_LONGTEXT, false )
 
     add_shortcut( "gradient" )
@@ -138,7 +141,7 @@ static int Create( vlc_object_t *p_this )
             break;
 
         default:
-             msg_Err( p_filter, "Unsupported input chroma (%4s)",
+             msg_Err( p_filter, "Unsupported input chroma (%4.4s)",
                       (char*)&(p_filter->fmt_in.video.i_chroma) );
             return VLC_EGENERIC;
     }
@@ -357,18 +360,14 @@ static void FilterGradient( filter_t *p_filter, picture_t *p_inpic,
 
     if( p_filter->p_sys->b_cartoon )
     {
-        vlc_memcpy( p_outpic->p[U_PLANE].p_pixels,
-            p_inpic->p[U_PLANE].p_pixels,
-            p_outpic->p[U_PLANE].i_lines * p_outpic->p[U_PLANE].i_pitch );
-        vlc_memcpy( p_outpic->p[V_PLANE].p_pixels,
-            p_inpic->p[V_PLANE].p_pixels,
-            p_outpic->p[V_PLANE].i_lines * p_outpic->p[V_PLANE].i_pitch );
+        plane_CopyPixels( &p_outpic->p[U_PLANE], &p_inpic->p[U_PLANE] );
+        plane_CopyPixels( &p_outpic->p[V_PLANE], &p_inpic->p[V_PLANE] );
     }
     else
     {
-        vlc_memset( p_outpic->p[U_PLANE].p_pixels, 0x80,
+        memset( p_outpic->p[U_PLANE].p_pixels, 0x80,
             p_outpic->p[U_PLANE].i_lines * p_outpic->p[U_PLANE].i_pitch );
-        vlc_memset( p_outpic->p[V_PLANE].p_pixels, 0x80,
+        memset( p_outpic->p[V_PLANE].p_pixels, 0x80,
             p_outpic->p[V_PLANE].i_lines * p_outpic->p[V_PLANE].i_pitch );
     }
 
@@ -501,20 +500,16 @@ static void FilterEdge( filter_t *p_filter, picture_t *p_inpic,
 
     if( p_filter->p_sys->b_cartoon )
     {
-        vlc_memcpy( p_outpic->p[U_PLANE].p_pixels,
-            p_inpic->p[U_PLANE].p_pixels,
-            p_outpic->p[U_PLANE].i_lines * p_outpic->p[U_PLANE].i_pitch );
-        vlc_memcpy( p_outpic->p[V_PLANE].p_pixels,
-            p_inpic->p[V_PLANE].p_pixels,
-            p_outpic->p[V_PLANE].i_lines * p_outpic->p[V_PLANE].i_pitch );
+        plane_CopyPixels( &p_outpic->p[U_PLANE], &p_inpic->p[U_PLANE] );
+        plane_CopyPixels( &p_outpic->p[V_PLANE], &p_inpic->p[V_PLANE] );
     }
     else
     {
-        vlc_memset( p_outpic->p[Y_PLANE].p_pixels, 0xff,
+        memset( p_outpic->p[Y_PLANE].p_pixels, 0xff,
               p_outpic->p[Y_PLANE].i_lines * p_outpic->p[Y_PLANE].i_pitch );
-        vlc_memset( p_outpic->p[U_PLANE].p_pixels, 0x80,
+        memset( p_outpic->p[U_PLANE].p_pixels, 0x80,
             p_outpic->p[U_PLANE].i_lines * p_outpic->p[U_PLANE].i_pitch );
-        vlc_memset( p_outpic->p[V_PLANE].p_pixels, 0x80,
+        memset( p_outpic->p[V_PLANE].p_pixels, 0x80,
             p_outpic->p[V_PLANE].i_lines * p_outpic->p[V_PLANE].i_pitch );
     }
 
@@ -682,17 +677,11 @@ static void FilterHough( filter_t *p_filter, picture_t *p_inpic,
         msg_Dbg(p_filter, "Precalculation done");
     }
 
-    vlc_memset( p_hough, 0, i_diag * i_nb_steps * sizeof(int) );
+    memset( p_hough, 0, i_diag * i_nb_steps * sizeof(int) );
 
-    vlc_memcpy(
-        p_outpic->p[Y_PLANE].p_pixels, p_inpic->p[Y_PLANE].p_pixels,
-        p_outpic->p[Y_PLANE].i_lines * p_outpic->p[Y_PLANE].i_pitch );
-    vlc_memcpy(
-        p_outpic->p[U_PLANE].p_pixels, p_inpic->p[U_PLANE].p_pixels,
-        p_outpic->p[U_PLANE].i_lines * p_outpic->p[U_PLANE].i_pitch );
-    vlc_memcpy(
-        p_outpic->p[V_PLANE].p_pixels, p_inpic->p[V_PLANE].p_pixels,
-        p_outpic->p[V_PLANE].i_lines * p_outpic->p[V_PLANE].i_pitch );
+    plane_CopyPixels( &p_outpic->p[Y_PLANE], &p_inpic->p[Y_PLANE] );
+    plane_CopyPixels( &p_outpic->p[U_PLANE], &p_inpic->p[U_PLANE] );
+    plane_CopyPixels( &p_outpic->p[V_PLANE], &p_inpic->p[V_PLANE] );
 
     GaussianConvolution( p_inpic, p_smooth );
 

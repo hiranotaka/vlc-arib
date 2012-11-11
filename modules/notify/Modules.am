@@ -1,0 +1,4 @@
+AM_LIBTOOLFLAGS=--tag=CC
+
+SOURCES_growl = growl.m
+SOURCES_notify = notify.c

@@ -1,32 +1,29 @@
 /*****************************************************************************
  * vlc_es.h: Elementary stream formats descriptions
  *****************************************************************************
- * Copyright (C) 1999-2001 the VideoLAN team
+ * Copyright (C) 1999-2012 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef VLC_ES_H
 #define VLC_ES_H 1
 
-/* FIXME: i'm not too sure about this include but it fixes compilation of
- * video chromas -- dionoea */
-#include "vlc_common.h"
 #include <vlc_fourcc.h>
 
 /**
@@ -74,7 +71,7 @@ struct audio_format_t
 
     /* Describes the channels configuration of the samples (ie. number of
      * channels which are available in the buffer, and positions). */
-    uint32_t     i_physical_channels;
+    uint16_t     i_physical_channels;
 
     /* Describes from which original channels, before downmixing, the
      * buffer is derived. */
@@ -96,8 +93,85 @@ struct audio_format_t
     unsigned     i_bitspersample;
     unsigned     i_blockalign;
     uint8_t      i_channels; /* must be <=32 */
-    uint8_t      i_flavor;
 };
+
+/* Values available for audio channels */
+#define AOUT_CHAN_CENTER            0x1
+#define AOUT_CHAN_LEFT              0x2
+#define AOUT_CHAN_RIGHT             0x4
+#define AOUT_CHAN_REARCENTER        0x10
+#define AOUT_CHAN_REARLEFT          0x20
+#define AOUT_CHAN_REARRIGHT         0x40
+#define AOUT_CHAN_MIDDLELEFT        0x100
+#define AOUT_CHAN_MIDDLERIGHT       0x200
+#define AOUT_CHAN_LFE               0x1000
+
+#define AOUT_CHANS_FRONT  (AOUT_CHAN_LEFT       | AOUT_CHAN_RIGHT)
+#define AOUT_CHANS_MIDDLE (AOUT_CHAN_MIDDLELEFT | AOUT_CHAN_MIDDLERIGHT)
+#define AOUT_CHANS_REAR   (AOUT_CHAN_REARLEFT   | AOUT_CHAN_REARRIGHT)
+#define AOUT_CHANS_CENTER (AOUT_CHAN_CENTER     | AOUT_CHAN_REARCENTER)
+
+#define AOUT_CHANS_STEREO AOUT_CHANS_2_0
+#define AOUT_CHANS_2_0    (AOUT_CHANS_FRONT)
+#define AOUT_CHANS_2_1    (AOUT_CHANS_FRONT | AOUT_CHAN_LFE)
+#define AOUT_CHANS_3_0    (AOUT_CHANS_FRONT | AOUT_CHAN_CENTER)
+#define AOUT_CHANS_3_1    (AOUT_CHANS_3_0   | AOUT_CHAN_LFE)
+#define AOUT_CHANS_4_0    (AOUT_CHANS_FRONT | AOUT_CHANS_REAR)
+#define AOUT_CHANS_4_1    (AOUT_CHANS_4_0   | AOUT_CHAN_LFE)
+#define AOUT_CHANS_5_0    (AOUT_CHANS_4_0   | AOUT_CHAN_CENTER)
+#define AOUT_CHANS_5_1    (AOUT_CHANS_5_0   | AOUT_CHAN_LFE)
+#define AOUT_CHANS_6_0    (AOUT_CHANS_4_0   | AOUT_CHANS_MIDDLE)
+#define AOUT_CHANS_7_0    (AOUT_CHANS_6_0   | AOUT_CHAN_CENTER)
+#define AOUT_CHANS_7_1    (AOUT_CHANS_5_1   | AOUT_CHANS_MIDDLE)
+#define AOUT_CHANS_8_1    (AOUT_CHANS_7_1   | AOUT_CHAN_REARCENTER)
+
+#define AOUT_CHANS_4_0_MIDDLE (AOUT_CHANS_FRONT | AOUT_CHANS_MIDDLE)
+#define AOUT_CHANS_4_CENTER_REAR (AOUT_CHANS_FRONT | AOUT_CHANS_CENTER)
+#define AOUT_CHANS_5_0_MIDDLE (AOUT_CHANS_4_0_MIDDLE | AOUT_CHAN_CENTER)
+
+/* Values available for original channels only */
+#define AOUT_CHAN_DOLBYSTEREO       0x10000
+#define AOUT_CHAN_DUALMONO          0x20000
+#define AOUT_CHAN_REVERSESTEREO     0x40000
+
+#define AOUT_CHAN_PHYSMASK          0xFFFF
+#define AOUT_CHAN_MAX               9
+
+/**
+ * Picture orientation.
+ */
+typedef enum video_orientation_t
+{
+    ORIENT_TOP_LEFT = 0, /**< Top line represents top, left column left. */
+    ORIENT_TOP_RIGHT, /**< Flipped horizontally */
+    ORIENT_BOTTOM_LEFT, /**< Flipped vertically */
+    ORIENT_BOTTOM_RIGHT, /**< Rotated 180 degrees */
+    ORIENT_LEFT_TOP, /**< Transposed */
+    ORIENT_LEFT_BOTTOM, /**< Rotated 90 degrees clockwise */
+    ORIENT_RIGHT_TOP, /**< Rotated 90 degrees anti-clockwise */
+    ORIENT_RIGHT_BOTTOM, /**< Anti-transposed */
+
+    ORIENT_NORMAL      = ORIENT_TOP_LEFT,
+    ORIENT_HFLIPPED    = ORIENT_TOP_RIGHT,
+    ORIENT_VFLIPPED    = ORIENT_BOTTOM_LEFT,
+    ORIENT_ROTATED_180 = ORIENT_BOTTOM_RIGHT,
+    ORIENT_ROTATED_270 = ORIENT_LEFT_BOTTOM,
+    ORIENT_ROTATED_90  = ORIENT_RIGHT_TOP,
+} video_orientation_t;
+/** Convert EXIF orientation to enum video_orientation_t */
+#define ORIENT_FROM_EXIF(exif) ((0x01324675U >> (4 * ((exif) - 1))) & 7)
+/** Convert enum video_orientation_t to EXIF */
+#define ORIENT_TO_EXIF(orient) ((0x12435867U >> (4 * (orient))) & 15)
+/** If the orientation is natural or mirrored */
+#define ORIENT_IS_MIRROR(orient) parity(orient)
+/** If the orientation swaps dimensions */
+#define ORIENT_IS_SWAP(orient) (((orient) & 4) != 0)
+/** Applies horizontal flip to an orientation */
+#define ORIENT_HFLIP(orient) ((orient) ^ 1)
+/** Applies vertical flip to an orientation */
+#define ORIENT_VFLIP(orient) ((orient) ^ 2)
+/** Applies horizontal flip to an orientation */
+#define ORIENT_ROTATE_180(orient) ((orient) ^ 3)
 
 /**
  * video format description
@@ -105,7 +179,6 @@ struct audio_format_t
 struct video_format_t
 {
     vlc_fourcc_t i_chroma;                               /**< picture chroma */
-    unsigned int i_aspect;                                 /**< aspect ratio */
 
     unsigned int i_width;                                 /**< picture width */
     unsigned int i_height;                               /**< picture height */
@@ -127,6 +200,7 @@ struct video_format_t
     int i_rgshift, i_lgshift;
     int i_rbshift, i_lbshift;
     video_palette_t *p_palette;              /**< video palette from demuxer */
+    video_orientation_t orientation;                /**< picture orientation */
 };
 
 /**
@@ -158,7 +232,7 @@ static inline int video_format_Copy( video_format_t *p_dst, const video_format_t
         memcpy( p_dst->p_palette, p_src->p_palette, sizeof( *p_dst->p_palette ) );
     }
     return VLC_SUCCESS;
-};
+}
 
 /**
  * Cleanup and free palette of this video_format_t
@@ -172,16 +246,31 @@ static inline void video_format_Clean( video_format_t *p_src )
 }
 
 /**
- * It will fill up a video_format_tvideo_format_t using the given arguments.
- * Becarefull that the video_format_t must already be initialized.
+ * It will fill up a video_format_t using the given arguments.
+ * Note that the video_format_t must already be initialized.
  */
-VLC_EXPORT( void, video_format_Setup, ( video_format_t *, vlc_fourcc_t i_chroma, int i_width, int i_height, int i_aspect ) );
+VLC_API void video_format_Setup( video_format_t *, vlc_fourcc_t i_chroma, int i_width, int i_height, int i_sar_num, int i_sar_den );
+
+/**
+ * It will copy the crop properties from a video_format_t to another.
+ */
+VLC_API void video_format_CopyCrop( video_format_t *, const video_format_t * );
+
+/**
+ * It will compute the crop/ar properties when scaling.
+ */
+VLC_API void video_format_ScaleCropAr( video_format_t *, const video_format_t * );
 
 /**
  * This function will check if the first video format is similar
  * to the second one.
  */
-VLC_EXPORT( bool, video_format_IsSimilar, ( const video_format_t *, const video_format_t * ) );
+VLC_API bool video_format_IsSimilar( const video_format_t *, const video_format_t * );
+
+/**
+ * It prints details about the given video_format_t
+ */
+VLC_API void video_format_Print( vlc_object_t *, const char *, const video_format_t * );
 
 /**
  * subtitles format description
@@ -260,8 +349,10 @@ struct es_format_t
     subs_format_t  subs;      /**< description of subtitle format */
 
     unsigned int   i_bitrate; /**< bitrate of this ES */
+    int      i_profile;       /**< codec specific information (like real audio flavor, mpeg audio layer, h264 profile ...) */
+    int      i_level;         /**< codec specific information: indicates maximum restrictions on the stream (resolution, bitrate, codec features ...) */
 
-    bool     b_packetized;  /**< wether the data is packetized (ie. not truncated) */
+    bool     b_packetized;  /**< whether the data is packetized (ie. not truncated) */
     int     i_extra;        /**< length in bytes of extra data pointer */
     void    *p_extra;       /**< extra data needed by some decoders or muxers */
 
@@ -280,29 +371,29 @@ enum es_format_category_e
 /**
  * This function will fill all RGB shift from RGB masks.
  */
-VLC_EXPORT( void, video_format_FixRgb, ( video_format_t * ) );
+VLC_API void video_format_FixRgb( video_format_t * );
 
 /**
  * This function will initialize a es_format_t structure.
  */
-VLC_EXPORT( void, es_format_Init, ( es_format_t *, int i_cat, vlc_fourcc_t i_codec ) );
+VLC_API void es_format_Init( es_format_t *, int i_cat, vlc_fourcc_t i_codec );
 
 /**
  * This function will initialize a es_format_t structure from a video_format_t.
  */
-VLC_EXPORT( void, es_format_InitFromVideo, ( es_format_t *, const video_format_t * ) );
+VLC_API void es_format_InitFromVideo( es_format_t *, const video_format_t * );
 
 /**
  * This functions will copy a es_format_t.
  */
-VLC_EXPORT( int, es_format_Copy, ( es_format_t *p_dst, const es_format_t *p_src ) );
+VLC_API int es_format_Copy( es_format_t *p_dst, const es_format_t *p_src );
 
 /**
- * This function will clean up a es_format_t and relasing all associated
+ * This function will clean up a es_format_t and release all associated
  * resources.
  * You can call it multiple times on the same structure.
  */
-VLC_EXPORT( void, es_format_Clean, ( es_format_t *fmt ) );
+VLC_API void es_format_Clean( es_format_t *fmt );
 
 /**
  * This function will check if the first ES format is similar
@@ -310,6 +401,6 @@ VLC_EXPORT( void, es_format_Clean, ( es_format_t *fmt ) );
  *
  * All descriptive fields are ignored.
  */
-VLC_EXPORT( bool, es_format_IsSimilar, ( const es_format_t *, const es_format_t * ) );
+VLC_API bool es_format_IsSimilar( const es_format_t *, const es_format_t * );
 
 #endif

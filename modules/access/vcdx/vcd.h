@@ -34,7 +34,6 @@ typedef struct {
 #ifdef FINISHED
     vcdplay_ptr             vmg;
 #endif
-    intf_thread_t *         p_intf;
 
 #ifdef DEMUX_FINISHED
     int                     i_audio_nb;
@@ -53,4 +52,4 @@ typedef struct {
 } vcd_data_t;
 
 int  VCDSetArea      ( access_t * );
-int  VCDSeek         ( access_t *, off_t );
+int  VCDSeek         ( access_t *, uint64_t );

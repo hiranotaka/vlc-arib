@@ -1,9 +1,10 @@
 /*****************************************************************************
  * directfb.c: DirectFB video output display method
  *****************************************************************************
- * Copyright (C) 2005-2009 the VideoLAN team
+ * Copyright © 2005-2009 VLC authors and VideoLAN
  *
- * Authors: Iuri Diniz <iuri@digizap.com.br>
+ * Authors: Iuri Diniz <iuridiniz@gmail.com>
+ *          Laurent Aimar <fenrir@videolan.org>
  *
  * This code is based in sdl.c and fb.c, thanks for VideoLAN team.
  *
@@ -18,8 +19,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -47,7 +48,7 @@ vlc_module_begin()
     set_category(CAT_VIDEO)
     set_subcategory(SUBCAT_VIDEO_VOUT)
     set_description(N_("DirectFB video output http://www.directfb.org/"))
-    set_capability("vout display", 60)
+    set_capability("vout display", 35)
     add_shortcut("directfb")
     set_callbacks(Open, Close)
 vlc_module_end()
@@ -55,10 +56,10 @@ vlc_module_end()
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
-static picture_t *Get    (vout_display_t *);
-static void       Display(vout_display_t *, picture_t *);
-static int        Control(vout_display_t *, int, va_list);
-static void       Manage (vout_display_t *);
+static picture_pool_t *Pool  (vout_display_t *, unsigned);
+static void           Display(vout_display_t *, picture_t *, subpicture_t *);
+static int            Control(vout_display_t *, int, va_list);
+static void           Manage (vout_display_t *);
 
 /* */
 static int  OpenDisplay (vout_display_t *);
@@ -108,6 +109,7 @@ static int Open(vlc_object_t *object)
         Close(VLC_OBJECT(vd));
         return VLC_EGENERIC;
     }
+    vout_display_DeleteWindow(vd, NULL);
 
     /* */
     video_format_t fmt = vd->fmt;
@@ -157,7 +159,7 @@ static int Open(vlc_object_t *object)
     /* */
     vd->fmt     = fmt;
     vd->info    = info;
-    vd->get     = Get;
+    vd->pool    = Pool;
     vd->prepare = NULL;
     vd->display = Display;
     vd->control = Control;
@@ -182,19 +184,16 @@ static void Close(vlc_object_t *object)
 }
 
 /* */
-static picture_t *Get(vout_display_t *vd)
+static picture_pool_t *Pool(vout_display_t *vd, unsigned count)
 {
     vout_display_sys_t *sys = vd->sys;
 
-    if (!sys->pool) {
-        sys->pool = picture_pool_NewFromFormat(&vd->fmt, 1);
-        if (!sys->pool)
-            return NULL;
-    }
-    return picture_pool_Get(sys->pool);
+    if (!sys->pool)
+        sys->pool = picture_pool_NewFromFormat(&vd->fmt, count);
+    return sys->pool;
 }
 
-static void Display(vout_display_t *vd, picture_t *picture)
+static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpicture)
 {
     vout_display_sys_t *sys = vd->sys;
 
@@ -220,6 +219,7 @@ static void Display(vout_display_t *vd, picture_t *picture)
             primary->Flip(primary, NULL, 0);
     }
     picture_Release(picture);
+    VLC_UNUSED(subpicture);
 }
 
 static int Control(vout_display_t *vd, int query, va_list args)

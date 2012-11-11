@@ -26,7 +26,7 @@
 #endif
 
 #include "dialogs/openurl.hpp"
-#include "util/customwidgets.hpp"
+#include "util/searchlineedit.hpp"
 
 #include <QPushButton>
 #include <QDialogButtonBox>
@@ -40,24 +40,9 @@
 
 #include <assert.h>
 
-OpenUrlDialog *OpenUrlDialog::instance = NULL;
-
-OpenUrlDialog* OpenUrlDialog::getInstance( QWidget *parent,
-                                           intf_thread_t *p_intf,
-                                           bool bClipboard )
-{
-    /* Creation */
-    if( !instance )
-        instance = new OpenUrlDialog( parent, p_intf, bClipboard );
-    else
-        instance->bClipboard = bClipboard;
-    return instance;
-}
-
-OpenUrlDialog::OpenUrlDialog( QWidget *parent,
-                              intf_thread_t *_p_intf,
+OpenUrlDialog::OpenUrlDialog( intf_thread_t *_p_intf,
                               bool _bClipboard ) :
-        QVLCDialog( parent, _p_intf ), bClipboard( _bClipboard )
+        QVLCDialog( (QWidget*)_p_intf->p_sys->p_mi, _p_intf ), bClipboard( _bClipboard )
 {
     setWindowTitle( qtr( "Open URL" ) );
     setWindowRole( "vlc-open-url" );
@@ -66,19 +51,20 @@ OpenUrlDialog::OpenUrlDialog( QWidget *parent,
     QPushButton *but;
 
     QDialogButtonBox *box = new QDialogButtonBox( this );
-    but = box->addButton( QDialogButtonBox::Ok );
+    but = box->addButton( qtr( "&Play" ), QDialogButtonBox::AcceptRole );
     CONNECT( but, clicked(), this, play() );
-    but = box->addButton( QDialogButtonBox::Cancel );
+
     but = box->addButton( qtr( "&Enqueue" ), QDialogButtonBox::AcceptRole );
     CONNECT( but, clicked(), this, enqueue() );
 
+    but = box->addButton( qtr( "&Cancel" ) , QDialogButtonBox::RejectRole );
     CONNECT( box, rejected(), this, reject() );
 
     /* Info label and line edit */
     edit = new ClickLineEdit( qtr( "Enter URL here..." ), this );
 
     QLabel *info = new QLabel( qtr( "Please enter the URL or path "
-                                    "to the media you want to play"),
+                                    "to the media you want to play."),
                                this );
 
     setToolTip( qtr( "If your clipboard contains a valid URL\n"
@@ -117,7 +103,7 @@ bool OpenUrlDialog::shouldEnqueue() const
 }
 
 /** Show Event:
- * When the dialog is shown, try to extract an URL from the clipboard
+ * When the dialog is shown, try to extract a URL from the clipboard
  * and paste it in the Edit box.
  * showEvent can happen not only on exec() but I think it's cool to
  * actualize the URL on showEvent (eg. change virtual desktop...)

@@ -29,17 +29,15 @@
 # include "config.h"
 #endif
 
-#ifdef HAVE_SYS_STAT_H
-#   include <sys/stat.h>
-#endif
 #include <limits.h>
+#include <sys/stat.h>
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_input.h>
 #include <vlc_access.h>
 #include <vlc_demux.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 #include <vlc_bits.h>
 #include <assert.h>
 
@@ -49,11 +47,6 @@
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
-#define CACHING_TEXT N_("Caching value in ms")
-#define CACHING_LONGTEXT N_( \
-    "Caching value for BDs. This "\
-    "value should be set in milliseconds." )
-
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
@@ -62,10 +55,8 @@ vlc_module_begin ()
     set_description( N_("Blu-Ray Disc Input") )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
-    add_integer( "bd-caching", DEFAULT_PTS_DELAY / 1000, NULL,
-        CACHING_TEXT, CACHING_LONGTEXT, true )
     set_capability( "access_demux", 60 )
-    add_shortcut( "bd" )
+    add_shortcut( "bd", "file" )
     set_callbacks( Open, Close )
 vlc_module_end ()
 
@@ -152,12 +143,16 @@ static int Open( vlc_object_t *p_this )
     demux_t     *p_demux = (demux_t*)p_this;
     demux_sys_t *p_sys;
 
-    if( *p_demux->psz_access && strcmp( p_demux->psz_access, "bd" ) )
+    if( p_demux->psz_file == NULL )
+        return VLC_EGENERIC;
+    if( *p_demux->psz_access &&
+        strcmp( p_demux->psz_access, "bd" ) &&
+        strcmp( p_demux->psz_access, "file" ) )
         return VLC_EGENERIC;
 
     /* */
     bool b_shortname;
-    char *psz_base = FindPathBase( p_demux->psz_path, &b_shortname );
+    char *psz_base = FindPathBase( p_demux->psz_file, &b_shortname );
     if( !psz_base )
         return VLC_EGENERIC;
 
@@ -350,7 +345,9 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
     case DEMUX_GET_PTS_DELAY:
     {
         int64_t *pi_delay = (int64_t*)va_arg( args, int64_t * );
-        *pi_delay = var_GetInteger( p_demux, "bd-caching" ) * INT64_C(1000);
+
+        *pi_delay =
+            INT64_C(1000) * var_InheritInteger( p_demux, "disc-caching" );
         return VLC_SUCCESS;
     }
 
@@ -941,7 +938,7 @@ static int CheckFileList( const char *psz_base, const char *ppsz_name[] )
         if( asprintf( &psz_tmp, "%s/%s", psz_base, ppsz_name[i] ) < 0 )
             return VLC_EGENERIC;
 
-        bool b_ok = utf8_stat( psz_tmp, &s ) == 0 && S_ISREG( s.st_mode );
+        bool b_ok = vlc_stat( psz_tmp, &s ) == 0 && S_ISREG( s.st_mode );
 
         free( psz_tmp );
         if( !b_ok )
@@ -965,13 +962,13 @@ static char *FindPathBase( const char *psz_path, bool *pb_shortname )
         psz_base[strlen(psz_base)-1] = '\0';
 
     /* */
-    if( utf8_stat( psz_base, &s ) || !S_ISDIR( s.st_mode ) )
+    if( vlc_stat( psz_base, &s ) || !S_ISDIR( s.st_mode ) )
         goto error;
 
     /* Check BDMV */
     if( asprintf( &psz_tmp, "%s/BDMV", psz_base ) < 0 )
         goto error;
-    if( !utf8_stat( psz_tmp, &s ) && S_ISDIR( s.st_mode ) )
+    if( !vlc_stat( psz_tmp, &s ) && S_ISDIR( s.st_mode ) )
     {
         free( psz_base );
         psz_base = psz_tmp;
@@ -1209,7 +1206,7 @@ static int Load( demux_t *p_demux,
 
     char **ppsz_list;
 
-    int i_list = utf8_scandir( psz_playlist, &ppsz_list, pf_filter, ScanSort );
+    int i_list = vlc_scandir( psz_playlist, &ppsz_list, pf_filter, ScanSort );
 
     for( int i = 0; i < i_list; i++ )
     {
@@ -1301,7 +1298,7 @@ static es_out_id_t *EsOutAdd( es_out_t *p_out, const es_format_t *p_fmt )
         break;
     }
     if( fmt.i_priority < 0 )
-        msg_Dbg( p_demux, "Hidding one stream (pid=%d)", fmt.i_id );
+        msg_Dbg( p_demux, "Hiding one stream (pid=%d)", fmt.i_id );
 
     /* */
     es_out_id_t *p_es = es_out_Add( p_demux->out, &fmt );
@@ -1340,7 +1337,6 @@ static es_out_t *EsOutNew( demux_t *p_demux )
     p_out->pf_del     = EsOutDel;
     p_out->pf_control = EsOutControl;
     p_out->pf_destroy = EsOutDestroy;
-    p_out->b_sout = false;
 
     p_out->p_sys = p_sys = malloc( sizeof(*p_sys) );
     if( !p_sys )

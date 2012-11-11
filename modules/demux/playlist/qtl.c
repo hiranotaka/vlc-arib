@@ -73,7 +73,6 @@ const char* ppsz_loop[] = { "true", "false", "palindrome" };
  * Local prototypes
  *****************************************************************************/
 static int Demux( demux_t *p_demux);
-static int Control( demux_t *p_demux, int i_query, va_list args );
 
 /*****************************************************************************
  * Import_QTL: main import function
@@ -92,19 +91,10 @@ int Import_QTL( vlc_object_t *p_this )
     return VLC_SUCCESS;
 }
 
-/*****************************************************************************
- * Deactivate: frees unused data
- *****************************************************************************/
-void Close_QTL( vlc_object_t *p_this )
-{
-    (void)p_this;
-}
-
 static int Demux( demux_t *p_demux )
 {
-    xml_t *p_xml;
-    xml_reader_t *p_xml_reader = NULL;
-    char *psz_eltname = NULL;
+    xml_reader_t *p_xml_reader;
+    const char *node;
     input_item_t *p_input;
     int i_ret = -1;
 
@@ -126,154 +116,93 @@ static int Demux( demux_t *p_demux )
 
     input_item_t *p_current_input = GetCurrentItem(p_demux);
 
-    p_xml = xml_Create( p_demux );
-    if( !p_xml )
-        goto error;
-
-    p_xml_reader = xml_ReaderCreate( p_xml, p_demux->s );
+    p_xml_reader = xml_ReaderCreate( p_demux, p_demux->s );
     if( !p_xml_reader )
         goto error;
 
     /* check root node */
-    if( xml_ReaderRead( p_xml_reader ) != 1 )
+    if( xml_ReaderNextNode( p_xml_reader, &node ) != XML_READER_STARTELEM
+     || strcmp( node, "embed" ) )
     {
-        msg_Err( p_demux, "invalid file (no root node)" );
-        goto error;
-    }
-
-    if( xml_ReaderNodeType( p_xml_reader ) != XML_READER_STARTELEM ||
-        ( psz_eltname = xml_ReaderName( p_xml_reader ) ) == NULL ||
-        strcmp( psz_eltname, "embed" ) )
-    {
-        msg_Err( p_demux, "invalid root node %i, %s",
-                 xml_ReaderNodeType( p_xml_reader ), psz_eltname );
-        free( psz_eltname );
+        msg_Err( p_demux, "invalid root node <%s>", node );
 
         /* second line has <?quicktime tag ... so we try to skip it */
         msg_Dbg( p_demux, "trying to read one more node" );
-        xml_ReaderRead( p_xml_reader );
-        if( xml_ReaderNodeType( p_xml_reader ) != XML_READER_STARTELEM ||
-            ( psz_eltname = xml_ReaderName( p_xml_reader ) ) == NULL ||
-            strcmp( psz_eltname, "embed" ) )
+        if( xml_ReaderNextNode( p_xml_reader, &node ) != XML_READER_STARTELEM
+         || strcmp( node, "embed" ) )
         {
-            msg_Err( p_demux, "invalid root node %i, %s",
-                     xml_ReaderNodeType( p_xml_reader ), psz_eltname );
-            free( psz_eltname );
+            msg_Err( p_demux, "invalid root node <%s>", node );
             goto error;
         }
     }
-    free( psz_eltname );
 
-    while( xml_ReaderNextAttr( p_xml_reader ) == VLC_SUCCESS )
+    const char *attrname, *value;
+    while( (attrname = xml_ReaderNextAttr( p_xml_reader, &value )) != NULL )
     {
-        char *psz_attrname = xml_ReaderName( p_xml_reader );
-        char *psz_attrvalue = xml_ReaderValue( p_xml_reader );
-
-        if( !psz_attrname || !psz_attrvalue )
+        if( !strcmp( attrname, "autoplay" ) )
+            b_autoplay = !strcmp( value, "true" );
+        else if( !strcmp( attrname, "controler" ) )
+            b_controler = !strcmp( attrname, "false" );
+        else if( !strcmp( attrname, "fullscreen" ) )
         {
-            free( psz_attrname );
-            free( psz_attrvalue );
-            goto error;
-        }
-
-        if( !strcmp( psz_attrname, "autoplay" ) )
-        {
-            b_autoplay = !strcmp( psz_attrvalue, "true" );
-        }
-        else if( !strcmp( psz_attrname, "controler" ) )
-        {
-            b_controler = !strcmp( psz_attrvalue, "false" );
-        }
-        else if( !strcmp( psz_attrname, "fullscreen" ) )
-        {
-            if( !strcmp( psz_attrvalue, "double" ) )
-            {
+            if( !strcmp( value, "double" ) )
                 fullscreen = FULLSCREEN_DOUBLE;
-            }
-            else if( !strcmp( psz_attrvalue, "half" ) )
-            {
+            else if( !strcmp( value, "half" ) )
                 fullscreen = FULLSCREEN_HALF;
-            }
-            else if( !strcmp( psz_attrvalue, "current" ) )
-            {
+            else if( !strcmp( value, "current" ) )
                 fullscreen = FULLSCREEN_CURRENT;
-            }
-            else if( !strcmp( psz_attrvalue, "full" ) )
-            {
+            else if( !strcmp( value, "full" ) )
                 fullscreen = FULLSCREEN_FULL;
-            }
             else
-            {
                 fullscreen = FULLSCREEN_NORMAL;
-            }
         }
-        else if( !strcmp( psz_attrname, "href" ) )
+        else if( !strcmp( attrname, "href" ) )
         {
-            psz_href = psz_attrvalue;
-            psz_attrvalue = NULL;
+            free( psz_href );
+            psz_href = strdup( value );
         }
-        else if( !strcmp( psz_attrname, "kioskmode" ) )
+        else if( !strcmp( attrname, "kioskmode" ) )
+            b_kioskmode = !strcmp( value, "true" );
+        else if( !strcmp( attrname, "loop" ) )
         {
-            b_kioskmode = !strcmp( psz_attrvalue, "true" );
-        }
-        else if( !strcmp( psz_attrname, "loop" ) )
-        {
-            if( !strcmp( psz_attrvalue, "true" ) )
-            {
+            if( !strcmp( value, "true" ) )
                 loop = LOOP_TRUE;
-            }
-            else if( !strcmp( psz_attrvalue, "palindrome" ) )
-            {
+            else if( !strcmp( value, "palindrome" ) )
                 loop = LOOP_PALINDROME;
-            }
             else
-            {
                 loop = LOOP_FALSE;
-            }
         }
-        else if( !strcmp( psz_attrname, "movieid" ) )
+        else if( !strcmp( attrname, "movieid" ) )
+            i_movieid = atoi( value );
+        else if( !strcmp( attrname, "moviename" ) )
         {
-            i_movieid = atoi( psz_attrvalue );
+            free( psz_moviename );
+            psz_moviename = strdup( value );
         }
-        else if( !strcmp( psz_attrname, "moviename" ) )
+        else if( !strcmp( attrname, "playeveryframe" ) )
+            b_playeveryframe = !strcmp( value, "true" );
+        else if( !strcmp( attrname, "qtnext" ) )
         {
-            psz_moviename = psz_attrvalue;
-            psz_attrvalue = NULL;
+            free( psz_qtnext );
+            psz_qtnext = strdup( value );
         }
-        else if( !strcmp( psz_attrname, "playeveryframe" ) )
+        else if( !strcmp( attrname, "quitwhendone" ) )
+            b_quitwhendone = !strcmp( value, "true" );
+        else if( !strcmp( attrname, "src" ) )
         {
-            b_playeveryframe = !strcmp( psz_attrvalue, "true" );
+            free( psz_src );
+            psz_src = strdup( value );
         }
-        else if( !strcmp( psz_attrname, "qtnext" ) )
+        else if( !strcmp( attrname, "mimetype" ) )
         {
-            psz_qtnext = psz_attrvalue;
-            psz_attrvalue = NULL;
+            free( psz_mimetype );
+            psz_mimetype = strdup( value );
         }
-        else if( !strcmp( psz_attrname, "quitwhendone" ) )
-        {
-            b_quitwhendone = !strcmp( psz_attrvalue, "true" );
-        }
-        else if( !strcmp( psz_attrname, "src" ) )
-        {
-            psz_src = psz_attrvalue;
-            psz_attrvalue = NULL;
-        }
-        else if( !strcmp( psz_attrname, "mimetype" ) )
-        {
-            psz_mimetype = psz_attrvalue;
-            psz_attrvalue = NULL;
-        }
-        else if( !strcmp( psz_attrname, "volume" ) )
-        {
-            i_volume = atoi( psz_attrvalue );
-        }
+        else if( !strcmp( attrname, "volume" ) )
+            i_volume = atoi( value );
         else
-        {
             msg_Dbg( p_demux, "Attribute %s with value %s isn't valid",
-                     psz_attrname, psz_attrvalue );
-        }
-        free( psz_attrname );
-        free( psz_attrvalue );
+                     attrname, value );
     }
 
     msg_Dbg( p_demux, "autoplay: %s (unused by VLC)",
@@ -304,28 +233,28 @@ static int Demux( demux_t *p_demux )
     }
     else
     {
-        p_input = input_item_New( p_demux, psz_src, psz_moviename );
+        input_item_node_t *p_subitems = input_item_node_Create( p_current_input );
+        p_input = input_item_New( psz_src, psz_moviename );
 #define SADD_INFO( type, field ) if( field ) { input_item_AddInfo( \
                     p_input, "QuickTime Media Link", type, "%s", field ) ; }
         SADD_INFO( "href", psz_href );
         SADD_INFO( _("Mime"), psz_mimetype );
-        input_item_AddSubItem( p_current_input, p_input );
+        input_item_node_AppendItem( p_subitems, p_input );
         vlc_gc_decref( p_input );
         if( psz_qtnext )
         {
-            p_input = input_item_New( p_demux, psz_qtnext, NULL );
-            input_item_AddSubItem( p_current_input, p_input );
+            p_input = input_item_New( psz_qtnext, NULL );
+            input_item_node_AppendItem( p_subitems, p_input );
             vlc_gc_decref( p_input );
         }
+        input_item_node_PostAndDelete( p_subitems );
     }
 
     i_ret = 0; /* Needed for correct operation of go back */
 
 error:
     if( p_xml_reader )
-        xml_ReaderDelete( p_xml, p_xml_reader );
-    if( p_xml )
-        xml_Delete( p_xml );
+        xml_ReaderDelete( p_xml_reader );
 
     vlc_gc_decref(p_current_input);
 
@@ -335,10 +264,4 @@ error:
     free( psz_src );
     free( psz_mimetype );
     return i_ret;
-}
-
-static int Control( demux_t *p_demux, int i_query, va_list args )
-{
-    VLC_UNUSED(p_demux); VLC_UNUSED(i_query); VLC_UNUSED(args);
-    return VLC_EGENERIC;
 }

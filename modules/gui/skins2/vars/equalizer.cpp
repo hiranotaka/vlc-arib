@@ -83,12 +83,9 @@ VariablePtr EqualizerBands::getBand( int band )
 
 void EqualizerBands::onUpdate( Subject<VarPercent> &rBand, void *arg )
 {
-    aout_instance_t *pAout = NULL;
-
+    (void)rBand; (void)arg;
     playlist_t *pPlaylist = getIntf()->p_sys->p_playlist;
-    input_thread_t *pInput = playlist_CurrentInput( pPlaylist );
-    if( pInput )
-        pAout = input_GetAout( pInput );
+    audio_output_t *pAout = playlist_GetAout( pPlaylist );
 
     // Make sure we are not called from set()
     if (!m_isUpdating)
@@ -119,8 +116,6 @@ void EqualizerBands::onUpdate( Subject<VarPercent> &rBand, void *arg )
 
     if( pAout )
         vlc_object_release( pAout );
-    if( pInput )
-        vlc_object_release( pInput );
 }
 
 
@@ -133,12 +128,8 @@ EqualizerPreamp::EqualizerPreamp( intf_thread_t *pIntf ): VarPercent( pIntf )
 
 void EqualizerPreamp::set( float percentage, bool updateVLC )
 {
-    aout_instance_t *pAout = NULL;
-
     playlist_t *pPlaylist = getIntf()->p_sys->p_playlist;
-    input_thread_t *pInput = playlist_CurrentInput( pPlaylist );
-    if( pInput )
-        pAout = input_GetAout( pInput );
+    audio_output_t *pAout = playlist_GetAout( pPlaylist );
 
     VarPercent::set( percentage );
 
@@ -157,6 +148,4 @@ void EqualizerPreamp::set( float percentage, bool updateVLC )
 
     if( pAout )
         vlc_object_release( pAout );
-    if( pInput )
-        vlc_object_release( pInput );
 }

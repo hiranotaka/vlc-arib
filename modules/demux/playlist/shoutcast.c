@@ -45,12 +45,11 @@
  * Local prototypes
  *****************************************************************************/
 static int Demux( demux_t *p_demux);
-static int Control( demux_t *p_demux, int i_query, va_list args );
 
 static int DemuxGenre( demux_t *p_demux, xml_reader_t *p_xml_reader,
-                       input_item_t *p_current_input );
+                       input_item_node_t *p_input_node );
 static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
-                         input_item_t *p_current_input, bool b_adult );
+                         input_item_node_t *p_input_node, bool b_adult );
 
 /*****************************************************************************
  * Import_Shoutcast: main import function
@@ -69,172 +68,121 @@ int Import_Shoutcast( vlc_object_t *p_this )
     return VLC_SUCCESS;
 }
 
-/*****************************************************************************
- * Deactivate: frees unused data
- *****************************************************************************/
-void Close_Shoutcast( vlc_object_t *p_this )
-{
-    (void)p_this;
-}
-
 static int Demux( demux_t *p_demux )
 {
-    xml_t *p_xml;
     xml_reader_t *p_xml_reader = NULL;
-    char *psz_eltname = NULL;
+    const char *node;
     int i_ret = -1;
     input_item_t *p_current_input = GetCurrentItem(p_demux);
+    input_item_node_t *p_input_node = NULL;
 
-    p_xml = xml_Create( p_demux );
-    if( !p_xml )
-        goto error;
-
-    p_xml_reader = xml_ReaderCreate( p_xml, p_demux->s );
+    p_xml_reader = xml_ReaderCreate( p_demux, p_demux->s );
     if( !p_xml_reader )
         goto error;
 
     /* check root node */
-    if( xml_ReaderRead( p_xml_reader ) != 1 )
+    if( xml_ReaderNextNode( p_xml_reader, &node ) != XML_READER_STARTELEM )
     {
         msg_Err( p_demux, "invalid file (no root node)" );
         goto error;
     }
 
-    if( xml_ReaderNodeType( p_xml_reader ) != XML_READER_STARTELEM ||
-        ( psz_eltname = xml_ReaderName( p_xml_reader ) ) == NULL ||
-        ( strcmp( psz_eltname, "genrelist" )
-          && strcmp( psz_eltname, "stationlist" ) ) )
+    if( strcmp( node, "genrelist" ) && strcmp( node, "stationlist" ) )
     {
-        msg_Err( p_demux, "invalid root node %i, %s",
-                 xml_ReaderNodeType( p_xml_reader ), psz_eltname );
+        msg_Err( p_demux, "invalid root node <%s>", node );
         goto error;
     }
 
-    if( !strcmp( psz_eltname, "genrelist" ) )
+    p_input_node = input_item_node_Create( p_current_input );
+
+    if( !strcmp( node, "genrelist" ) )
     {
         /* we're reading a genre list */
-        if( DemuxGenre( p_demux, p_xml_reader, p_current_input ) )
+        if( DemuxGenre( p_demux, p_xml_reader, p_input_node ) )
             goto error;
     }
     else
     {
         /* we're reading a station list */
-        if( DemuxStation( p_demux, p_xml_reader, p_current_input,
-                var_CreateGetBool( p_demux, "shoutcast-show-adult" ) ) )
+        if( DemuxStation( p_demux, p_xml_reader, p_input_node,
+                var_InheritBool( p_demux, "shoutcast-show-adult" ) ) )
             goto error;
     }
+
+    input_item_node_PostAndDelete( p_input_node );
+    p_input_node = NULL;
 
     i_ret = 0; /* Needed for correct operation of go back */
 
 error:
     if( p_xml_reader )
-        xml_ReaderDelete( p_xml, p_xml_reader );
-    if( p_xml )
-        xml_Delete( p_xml );
-    free( psz_eltname );
+        xml_ReaderDelete( p_xml_reader );
+    if( p_input_node ) input_item_node_Delete( p_input_node );
     vlc_gc_decref(p_current_input);
     return i_ret;
 }
 
-#define GET_VALUE( a ) \
-                        if( !strcmp( psz_attrname, #a ) ) \
-                        { \
-                            psz_ ## a = psz_attrvalue; \
-                        }
 /* <genrelist>
  *   <genre name="the name"></genre>
  *   ...
  * </genrelist>
  **/
 static int DemuxGenre( demux_t *p_demux, xml_reader_t *p_xml_reader,
-                       input_item_t *p_current_input )
+                       input_item_node_t *p_input_node )
 {
+    const char *node;
     char *psz_name = NULL; /* genre name */
-    int i_ret = -1;
+    int type;
 
-    while( xml_ReaderRead( p_xml_reader ) == 1 )
+    while( (type = xml_ReaderNextNode( p_xml_reader, &node )) > 0 )
     {
-        // Get the node type
-        switch( xml_ReaderNodeType( p_xml_reader ) )
+        switch( type )
         {
-            // Error
-            case -1:
-                goto error;
-
             case XML_READER_STARTELEM:
             {
-                // Read the element name
-                char *psz_eltname = xml_ReaderName( p_xml_reader );
-                if( !psz_eltname )
-                    goto error;
-
-                if( !strcmp( psz_eltname, "genre" ) )
+                if( !strcmp( node, "genre" ) )
                 {
                     // Read the attributes
-                    while( xml_ReaderNextAttr( p_xml_reader ) == VLC_SUCCESS )
+                    const char *name, *value;
+                    while( (name = xml_ReaderNextAttr( p_xml_reader, &value )) )
                     {
-                        char *psz_attrname = xml_ReaderName( p_xml_reader );
-                        char *psz_attrvalue =
-                            xml_ReaderValue( p_xml_reader );
-                        if( !psz_attrname || !psz_attrvalue )
+                        if( !strcmp( name, "name" ) )
                         {
-                            free( psz_attrname );
-                            free( psz_attrvalue );
-                            free( psz_eltname );
-                            break;
+                            free(psz_name);
+                            psz_name = strdup( value );
                         }
-
-                        GET_VALUE( name )
                         else
-                        {
                             msg_Warn( p_demux,
-                                      "unexpected attribure %s in element %s",
-                                      psz_attrname, psz_eltname );
-                            free( psz_attrvalue );
-                        }
-                        free( psz_attrname );
+                                      "unexpected attribute %s in <%s>",
+                                      name, node );
                     }
                 }
-                free( psz_eltname );
                 break;
             }
 
-            case XML_READER_TEXT:
-                break;
-
-            // End element
             case XML_READER_ENDELEM:
-            {
-                // Read the element name
-                char *psz_eltname = xml_ReaderName( p_xml_reader );
-                if( !psz_eltname )
-                    goto error;
-
-                if( !strcmp( psz_eltname, "genre" ) )
+                if( !strcmp( node, "genre" ) && psz_name != NULL )
                 {
                     char* psz_mrl;
+
                     if( asprintf( &psz_mrl, SHOUTCAST_BASE_URL "?genre=%s",
-                             psz_name ) != -1 )
+                                  psz_name ) != -1 )
                     {
                         input_item_t *p_input;
-                        p_input = input_item_New( p_demux, psz_mrl, psz_name );
-                        input_item_CopyOptions( p_current_input, p_input );
+                        p_input = input_item_New( psz_mrl, psz_name );
+                        input_item_CopyOptions( p_input_node->p_item, p_input );
                         free( psz_mrl );
-                        input_item_AddSubItem( p_current_input, p_input );
+                        input_item_node_AppendItem( p_input_node, p_input );
                         vlc_gc_decref( p_input );
                     }
                     FREENULL( psz_name );
                 }
-                free( psz_eltname );
                 break;
-            }
         }
     }
-    i_ret = 0;
 
-error:
     free( psz_name );
-    return i_ret;
+    return 0;
 }
 
 /* radio stations:
@@ -263,7 +211,7 @@ error:
  * </stationlist>
  **/
 static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
-                         input_item_t *p_current_input, bool b_adult )
+                         input_item_node_t *p_input_node, bool b_adult )
 {
     char *psz_base = NULL; /* */
 
@@ -279,99 +227,71 @@ static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
     char *psz_rt = NULL; /* rating for shoutcast TV */
     char *psz_load = NULL; /* load for shoutcast TV */
 
-    char *psz_eltname = NULL; /* tag name */
+    const char *node; /* tag name */
+    int i_type;
 
-    while( xml_ReaderRead( p_xml_reader ) == 1 )
+    while( (i_type = xml_ReaderNextNode( p_xml_reader, &node )) > 0 )
     {
-        int i_type;
-
-        // Get the node type
-        i_type = xml_ReaderNodeType( p_xml_reader );
         switch( i_type )
         {
-            // Error
-            case -1:
-                return -1;
-                break;
-
             case XML_READER_STARTELEM:
-                // Read the element name
-                psz_eltname = xml_ReaderName( p_xml_reader );
-                if( !psz_eltname ) return -1;
-
                 // Read the attributes
-                if( !strcmp( psz_eltname, "tunein" ) )
+                if( !strcmp( node, "tunein" ) )
                 {
-                    while( xml_ReaderNextAttr( p_xml_reader ) == VLC_SUCCESS )
+                    const char *name, *value;
+                    while( (name = xml_ReaderNextAttr( p_xml_reader, &value )) )
                     {
-                        char *psz_attrname = xml_ReaderName( p_xml_reader );
-                        char *psz_attrvalue =
-                            xml_ReaderValue( p_xml_reader );
-                        if( !psz_attrname || !psz_attrvalue )
+                        if( !strcmp( name, "base" ) )
                         {
-                            free( psz_eltname );
-                            free( psz_attrname );
-                            free( psz_attrvalue );
-                            return -1;
+                            free( psz_base );
+                            psz_base = strdup( value );
                         }
-
-                        GET_VALUE( base )
                         else
-                        {
                             msg_Warn( p_demux,
-                                      "unexpected attribure %s in element %s",
-                                      psz_attrname, psz_eltname );
-                            free( psz_attrvalue );
-                        }
-                        free( psz_attrname );
+                                      "unexpected attribute %s in <%s>",
+                                      name, node );
                     }
                 }
-                else if( !strcmp( psz_eltname, "station" ) )
+                else if( !strcmp( node, "station" ) )
                 {
-                    while( xml_ReaderNextAttr( p_xml_reader ) == VLC_SUCCESS )
+                    const char *name, *value;
+                    while( (name = xml_ReaderNextAttr( p_xml_reader, &value )) )
                     {
-                        char *psz_attrname = xml_ReaderName( p_xml_reader );
-                        char *psz_attrvalue =
-                            xml_ReaderValue( p_xml_reader );
-                        if( !psz_attrname || !psz_attrvalue )
+                        char **p = NULL;
+                        if( !strcmp( name, "name" ) )
+                            p = &psz_name;
+                        else if ( !strcmp( name, "mt" ) )
+                            p = &psz_mt;
+                        else if ( !strcmp( name, "id" ) )
+                            p = &psz_id;
+                        else if ( !strcmp( name, "br" ) )
+                            p = &psz_br;
+                        else if ( !strcmp( name, "genre" ) )
+                            p = &psz_genre;
+                        else if ( !strcmp( name, "ct" ) )
+                            p = &psz_ct;
+                        else if ( !strcmp( name, "lc" ) )
+                            p = &psz_lc;
+                        else if ( !strcmp( name, "rt" ) )
+                            p = &psz_rt;
+                        else if ( !strcmp( name, "load" ) )
+                            p = &psz_load;
+                        if( p != NULL )
                         {
-                            free( psz_eltname );
-                            free( psz_attrname );
-                            free( psz_attrvalue );
-                            return -1;
+                            free( *p );
+                            *p = strdup( value );
                         }
-
-                        GET_VALUE( name )
-                        else GET_VALUE( mt )
-                        else GET_VALUE( id )
-                        else GET_VALUE( br )
-                        else GET_VALUE( genre )
-                        else GET_VALUE( ct )
-                        else GET_VALUE( lc )
-                        else GET_VALUE( rt )
-                        else GET_VALUE( load )
                         else
-                        {
                             msg_Warn( p_demux,
-                                      "unexpected attribute %s in element %s",
-                                      psz_attrname, psz_eltname );
-                            free( psz_attrvalue );
-                        }
-                        free( psz_attrname );
+                                      "unexpected attribute %s in <%s>",
+                                      name, node );
                     }
                 }
-                free( psz_eltname );
-                break;
-
-            case XML_READER_TEXT:
                 break;
 
             // End element
             case XML_READER_ENDELEM:
-                // Read the element name
-                psz_eltname = xml_ReaderName( p_xml_reader );
-                if( !psz_eltname ) return -1;
-                if( !strcmp( psz_eltname, "station" ) &&
+                if( !strcmp( node, "station" ) &&
                     ( psz_base || ( psz_rt && psz_load &&
                     ( b_adult || strcmp( psz_rt, "NC17" ) ) ) ) )
                 {
@@ -393,8 +313,8 @@ static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
 
                     /* Create the item */
                     input_item_t *p_input;
-                    p_input = input_item_New( p_demux, psz_mrl, psz_name );
-                    input_item_CopyOptions( p_current_input, p_input );
+                    p_input = input_item_New( psz_mrl, psz_name );
+                    input_item_CopyOptions( p_input_node->p_item, p_input );
                     free( psz_mrl );
 
 #define SADD_INFO( type, field ) \
@@ -411,8 +331,9 @@ static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
                         input_item_SetNowPlaying( p_input, psz_ct );
                     if( psz_rt )
                         input_item_SetRating( p_input, psz_rt );
-                    input_item_AddSubItem( p_current_input, p_input );
+                    input_item_node_AppendItem( p_input_node, p_input );
                     vlc_gc_decref( p_input );
+                    FREENULL( psz_base );
                     FREENULL( psz_name );
                     FREENULL( psz_mt );
                     FREENULL( psz_id );
@@ -421,16 +342,11 @@ static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
                     FREENULL( psz_ct );
                     FREENULL( psz_lc );
                     FREENULL( psz_rt );
+                    FREENULL( psz_load );
                 }
-                free( psz_eltname );
                 break;
         }
     }
+    /* FIXME: leaks on missing ENDELEMENT? */
     return 0;
-}
-
-static int Control( demux_t *p_demux, int i_query, va_list args )
-{
-    VLC_UNUSED(p_demux); VLC_UNUSED(i_query); VLC_UNUSED(args);
-    return VLC_EGENERIC;
 }

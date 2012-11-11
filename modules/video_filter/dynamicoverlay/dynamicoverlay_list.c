@@ -1,5 +1,5 @@
 /*****************************************************************************
- * dynamicoverlay_list.h : dynamic overlay list
+ * dynamicoverlay_list.c : dynamic overlay list
  *****************************************************************************
  * Copyright (C) 2008-2009 the VideoLAN team
  * $Id$
@@ -28,15 +28,15 @@
 
 #include <vlc_common.h>
 #include <vlc_osd.h>
+#include <vlc_memory.h>
 
-#include <fcntl.h>
 #include "dynamicoverlay.h"
 
 /*****************************************************************************
  * list_t: Command queue
  *****************************************************************************/
 
-int ListInit( list_t *p_list )
+int do_ListInit( list_t *p_list )
 {
     p_list->pp_head = calloc( 16, sizeof( overlay_t * ) );
     if( p_list->pp_head == NULL )
@@ -46,7 +46,7 @@ int ListInit( list_t *p_list )
     return VLC_SUCCESS;
 }
 
-int ListDestroy( list_t *p_list )
+int do_ListDestroy( list_t *p_list )
 {
     for( overlay_t **pp_cur = p_list->pp_head;
          pp_cur < p_list->pp_tail;
@@ -80,8 +80,8 @@ ssize_t ListAdd( list_t *p_list, overlay_t *p_new )
     /* Have to expand */
     size_t i_size = p_list->pp_tail - p_list->pp_head;
     size_t i_newsize = i_size * 2;
-    p_list->pp_head = realloc( p_list->pp_head,
-                               i_newsize * sizeof( overlay_t * ) );
+    p_list->pp_head = realloc_or_free( p_list->pp_head,
+                                       i_newsize * sizeof( overlay_t * ) );
     if( p_list->pp_head == NULL )
         return VLC_ENOMEM;
 
@@ -130,7 +130,7 @@ overlay_t *ListWalk( list_t *p_list )
     for( ; pp_cur < p_list->pp_tail; ++pp_cur )
     {
         if( ( *pp_cur != NULL ) &&
-            ( (*pp_cur)->b_active == true )&&
+            ( (*pp_cur)->b_active )&&
             ( (*pp_cur)->format.i_chroma != VLC_FOURCC( '\0','\0','\0','\0') ) )
         {
             return *pp_cur;

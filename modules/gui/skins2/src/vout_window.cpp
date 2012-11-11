@@ -33,30 +33,33 @@
 #include <vlc_keys.h>
 
 
-
-int VoutWindow::count = 0;
-
 VoutWindow::VoutWindow( intf_thread_t *pIntf, vout_window_t* pWnd,
                         int width, int height, GenericWindow* pParent ) :
-      GenericWindow( pIntf, 0, 0, false, false, pParent ),
+      GenericWindow( pIntf, 0, 0, false, false, pParent,
+                     GenericWindow::VoutWindow ),
       m_pWnd( pWnd ), original_width( width ), original_height( height ),
-      m_pParentWindow( pParent ), m_pCtrlVideo( NULL ), m_bFullscreen( false )
+      m_pCtrlVideo( NULL ), m_pParentWindow( pParent )
 {
-    // counter for debug
-    count++;
-
     if( m_pWnd )
+    {
         vlc_object_hold( m_pWnd );
+
+#ifdef X11_SKINS
+        m_pWnd->handle.xid = getOSHandle();
+        m_pWnd->display.x11 = NULL;
+#else
+        m_pWnd->handle.hwnd = getOSHandle();
+#endif
+    }
 }
 
 
 VoutWindow::~VoutWindow()
 {
     if( m_pWnd )
+    {
         vlc_object_release( m_pWnd );
-
-    count--;
-    msg_Dbg( getIntf(), "VoutWindow count = %d", count );
+    }
 }
 
 
@@ -64,6 +67,7 @@ void VoutWindow::setCtrlVideo( CtrlVideo* pCtrlVideo )
 {
     if( pCtrlVideo )
     {
+        hide();
         const Position *pPos = pCtrlVideo->getPosition();
         int x = pPos->getLeft();
         int y = pPos->getTop();
@@ -78,45 +82,25 @@ void VoutWindow::setCtrlVideo( CtrlVideo* pCtrlVideo )
     else
     {
         hide();
+        int w = VoutManager::instance( getIntf() )->getVoutMainWindow()->getWidth();
+        int h = VoutManager::instance( getIntf() )->getVoutMainWindow()->getHeight();
+
         setParent( VoutManager::instance( getIntf() )->getVoutMainWindow(),
-                   0, 0, 0, 0 );
+                   0, 0, w, h );
         m_pParentWindow =
                   VoutManager::instance( getIntf() )->getVoutMainWindow();
+        show();
     }
 
     m_pCtrlVideo = pCtrlVideo;
 }
 
 
-void VoutWindow::setFullscreen( bool b_fullscreen )
-{
-    /*TODO: fullscreen implementation */
-}
-
-
 void VoutWindow::processEvent( EvtKey &rEvtKey )
 {
     // Only do the action when the key is down
-    if( rEvtKey.getAsString().find( "key:down") != string::npos )
-    {
-        vlc_value_t val;
-        // Set the key
-        val.i_int = rEvtKey.getKey();
-        // Set the modifiers
-        if( rEvtKey.getMod() & EvtInput::kModAlt )
-        {
-            val.i_int |= KEY_MODIFIER_ALT;
-        }
-        if( rEvtKey.getMod() & EvtInput::kModCtrl )
-        {
-            val.i_int |= KEY_MODIFIER_CTRL;
-        }
-        if( rEvtKey.getMod() & EvtInput::kModShift )
-        {
-            val.i_int |= KEY_MODIFIER_SHIFT;
-        }
-
-        var_Set( getIntf()->p_libvlc, "key-pressed", val );
-    }
+    if( rEvtKey.getKeyState() == EvtKey::kDown )
+        var_SetInteger( getIntf()->p_libvlc, "key-pressed",
+                         rEvtKey.getModKey() );
 }
 

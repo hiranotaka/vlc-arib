@@ -17,21 +17,22 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
+
+#ifndef SKIN_COMMON_HPP
+#define SKIN_COMMON_HPP
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
 
-#ifndef SKIN_COMMON_HPP
-#define SKIN_COMMON_HPP
-
 #include <vlc_common.h>
 #include <vlc_interface.h>
 #include <vlc_charset.h>
+#include <vlc_fs.h>
 
 #include <string>
 using namespace std;
@@ -45,6 +46,7 @@ class OSLoop;
 class VarManager;
 class VlcProc;
 class VoutManager;
+class ArtManager;
 class Theme;
 class ThemeRepository;
 
@@ -59,23 +61,16 @@ class ThemeRepository;
 #pragma warning ( disable:4786 )
 #endif
 
-// Useful macros
-#define SKINS_DELETE( p ) \
-   if( p ) \
-   { \
-       delete p; \
-   } \
-   else \
-   { \
-       msg_Err( getIntf(), "delete NULL pointer in %s at line %d", \
-                __FILE__, __LINE__ ); \
-   }
-
+#ifdef X11_SKINS
+typedef uint32_t vlc_wnd_type;
+#else
+typedef void* vlc_wnd_type;
+#endif
 
 /// Wrapper around FromLocale, to avoid the need to call LocaleFree()
 static inline string sFromLocale( const string &rLocale )
 {
-    char *s = FromLocale( rLocale.c_str() );
+    const char *s = FromLocale( rLocale.c_str() );
     string res = s;
     LocaleFree( s );
     return res;
@@ -95,7 +90,7 @@ static inline string sFromWide( const wstring &rWide )
 /// Wrapper around ToLocale, to avoid the need to call LocaleFree()
 static inline string sToLocale( const string &rUTF8 )
 {
-    char *s = ToLocale( rUTF8.c_str() );
+    const char *s = ToLocale( rUTF8.c_str() );
     string res = s;
     LocaleFree( s );
     return res;
@@ -135,6 +130,8 @@ struct intf_sys_t
     VlcProc *p_vlcProc;
     /// Vout manager
     VoutManager *p_voutManager;
+    /// Art manager
+    ArtManager *p_artManager;
     /// Theme repository
     ThemeRepository *p_repository;
 
@@ -145,29 +142,24 @@ struct intf_sys_t
     vlc_thread_t thread;
     vlc_mutex_t  init_lock;
     vlc_cond_t   init_wait;
+    bool         b_error;
     bool         b_ready;
-
-    /// handle (vout windows)
-    void*        handle;
-    vlc_mutex_t  vout_lock;
-    vlc_cond_t   vout_wait;
-    bool         b_vout_ready;
 };
 
 
 /// Base class for all skin classes
 class SkinObject
 {
-    public:
-        SkinObject( intf_thread_t *pIntf ): m_pIntf( pIntf ) {}
-        virtual ~SkinObject() {}
+public:
+    SkinObject( intf_thread_t *pIntf ): m_pIntf( pIntf ) { }
+    virtual ~SkinObject() { }
 
-        /// Getter (public because it is used in C callbacks in the win32
-        /// interface)
-        intf_thread_t *getIntf() const { return m_pIntf; }
+    /// Getter (public because it is used in C callbacks in the win32
+    /// interface)
+    intf_thread_t *getIntf() const { return m_pIntf; }
 
-    private:
-        intf_thread_t *m_pIntf;
+private:
+    intf_thread_t *m_pIntf;
 };
 
 

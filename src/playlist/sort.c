@@ -1,32 +1,33 @@
 /*****************************************************************************
  * sort.c : Playlist sorting functions
  *****************************************************************************
- * Copyright (C) 1999-2009 the VideoLAN team
+ * Copyright (C) 1999-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Clément Stenac <zorglub@videolan.org>
  *          Ilkka Ollakka <ileoo@videolan.org>
  *          Rémi Duraffort <ivoire@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
 
 #include <vlc_common.h>
+#include <vlc_rand.h>
 #define  VLC_INTERNAL_PLAYLIST_SORT_FUNCTIONS
 #include "vlc_playlist.h"
 #include "playlist_internal.h"
@@ -118,9 +119,9 @@ typedef int (*sortfn_t)(const void *,const void *);
 static const sortfn_t sorting_fns[NUM_SORT_FNS][2];
 static inline sortfn_t find_sorting_fn( unsigned i_mode, unsigned i_type )
 {
-  if( i_mode>=NUM_SORT_FNS || i_type>1 )
-      return 0;
-  return sorting_fns[i_mode][i_type];
+    if( i_mode>=NUM_SORT_FNS || i_type>1 )
+        return 0;
+    return sorting_fns[i_mode][i_type];
 }
 
 /**
@@ -146,7 +147,7 @@ void playlist_ItemArraySort( unsigned i_items, playlist_item_t **pp_items,
 
         for( i_position = i_items - 1; i_position > 0; i_position-- )
         {
-            i_new = rand() % i_position;
+            i_new = ((unsigned)vlc_mrand48()) % (i_position+1);
             p_temp = pp_items[i_position];
             pp_items[i_position] = pp_items[i_new];
             pp_items[i_new] = p_temp;
@@ -240,8 +241,11 @@ SORTFN( SORT_DESCRIPTION, first, second )
 
 SORTFN( SORT_DURATION, first, second )
 {
-    return input_item_GetDuration( first->p_input ) -
-           input_item_GetDuration( second->p_input );
+    mtime_t time1 = input_item_GetDuration( first->p_input );
+    mtime_t time2 = input_item_GetDuration( second->p_input );
+    int i_ret = time1 > time2 ? 1 :
+                    ( time1 == time2 ? 0 : -1 );
+    return i_ret;
 }
 
 SORTFN( SORT_GENRE, first, second )

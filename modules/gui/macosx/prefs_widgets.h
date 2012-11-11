@@ -1,10 +1,11 @@
 /*****************************************************************************
  * prefs_widgets.h: Preferences controls
  *****************************************************************************
- * Copyright (C) 2002-2007 the VideoLAN team
+ * Copyright (C) 2002-2012 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Derk-Jan Hartman <hartman at videolan.org>
+ *          Felix Paul Kühne <fkuehne at videolan.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,9 +22,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#define CONFIG_ITEM_STRING_LIST (CONFIG_ITEM_STRING + 1)
-#define CONFIG_ITEM_RANGED_INTEGER (CONFIG_ITEM_INTEGER + 1)
-#define CONFIG_ITEM_KEY_AFTER_10_3 (CONFIG_ITEM_KEY + 2)
+#define CONFIG_ITEM_STRING_LIST (CONFIG_ITEM_STRING + 10)
+#define CONFIG_ITEM_RANGED_INTEGER (CONFIG_ITEM_INTEGER + 10)
 #define LEFTMARGIN  18
 #define RIGHTMARGIN 18
 
@@ -39,23 +39,26 @@ static NSMenu   *o_keys_menu = nil;
     bool      b_advanced;
 }
 
+@property (readonly) NSString * name;
+@property (readonly) int type;
+@property (readonly) int viewType;
+@property (readonly) bool advanced;
+@property (readonly) int intValue;
+@property (readonly) float floatValue;
+@property (readonly) char * stringValue;
+@property (readonly) int labelSize;
+
 + (VLCConfigControl *)newControl: (module_config_t *)_p_item
         withView: (NSView *)o_parent_view;
++ (int)calcVerticalMargin: (int)i_curItem lastItem:(int)i_lastItem;
+
 - (id)initWithFrame: (NSRect)frame item: (module_config_t *)p_item;
-- (NSString *)name;
-- (int)type;
-- (int)viewType;
-- (BOOL)isAdvanced;
+
 - (void)setYPos:(int)i_yPos;
-- (int)intValue;
-- (float)floatValue;
-- (char *)stringValue;
+- (void)alignWithXPosition:(int)i_xPos;
+
 - (void)applyChanges;
 - (void)resetValues;
-- (int)labelSize;
-- (void) alignWithXPosition:(int)i_xPos;
-
-+ (int)calcVerticalMargin: (int)i_curItem lastItem:(int)i_lastItem;
 
 @end
 
@@ -69,7 +72,7 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface StringListConfigControl : VLCConfigControl
+@interface StringListConfigControl : VLCConfigControl <NSComboBoxDataSource>
 {
     NSComboBox      *o_combo;
 }
@@ -90,7 +93,6 @@ static NSMenu   *o_keys_menu = nil;
            withView: (NSView *)o_parent_view;
 
 - (IBAction)openFileDialog: (id)sender;
-- (void)pathChosenInPanel:(NSOpenPanel *)o_sheet withReturn:(int)i_return_code contextInfo:(void  *)o_context_info;
 
 @end
 
@@ -104,7 +106,7 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface IntegerConfigControl : VLCConfigControl
+@interface IntegerConfigControl : VLCConfigControl <NSTextFieldDelegate>
 {
     NSTextField     *o_textfield;
     NSStepper       *o_stepper;
@@ -118,7 +120,7 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface IntegerListConfigControl : VLCConfigControl
+@interface IntegerListConfigControl : VLCConfigControl <NSComboBoxDataSource>
 {
     NSComboBox      *o_combo;
 }
@@ -128,7 +130,7 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface RangedIntegerConfigControl : VLCConfigControl
+@interface RangedIntegerConfigControl : VLCConfigControl <NSTextFieldDelegate>
 {
     NSSlider        *o_slider;
     NSTextField     *o_textfield;
@@ -154,7 +156,7 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface FloatConfigControl : VLCConfigControl
+@interface FloatConfigControl : VLCConfigControl <NSTextFieldDelegate>
 {
     NSTextField     *o_textfield;
     NSStepper       *o_stepper;
@@ -168,7 +170,7 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface RangedFloatConfigControl : VLCConfigControl
+@interface RangedFloatConfigControl : VLCConfigControl <NSTextFieldDelegate>
 {
     NSSlider        *o_slider;
     NSTextField     *o_textfield;
@@ -194,7 +196,7 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface ModuleListConfigControl : VLCConfigControl
+@interface ModuleListConfigControl : VLCConfigControl <NSTableViewDataSource>
 {
     NSTextField     *o_textfield;
     NSScrollView    *o_scrollview;
@@ -208,5 +210,4 @@ static NSMenu   *o_keys_menu = nil;
 
 //#undef CONFIG_ITEM_LIST_STRING
 //#undef CONFIG_ITEM_RANGED_INTEGER
-//#undef CONFIG_ITEM_KEY_AFTER_10_3
 

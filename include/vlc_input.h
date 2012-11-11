@@ -1,30 +1,30 @@
 /*****************************************************************************
  * vlc_input.h: Core input structures
  *****************************************************************************
- * Copyright (C) 1999-2006 the VideoLAN team
+ * Copyright (C) 1999-2006 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
  *          Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /* __ is need because conflict with <vlc/input.h> */
-#ifndef VLC__INPUT_H
-#define VLC__INPUT_H 1
+#ifndef VLC_INPUT_H
+#define VLC_INPUT_H 1
 
 /**
  * \file
@@ -45,30 +45,30 @@
 static inline void vlc_audio_replay_gain_MergeFromMeta( audio_replay_gain_t *p_dst,
                                                         const vlc_meta_t *p_meta )
 {
-    char * psz_value;
+    const char * psz_value;
 
     if( !p_meta )
         return;
 
-    if( (psz_value = (char *)vlc_dictionary_value_for_key( &p_meta->extra_tags, "REPLAYGAIN_TRACK_GAIN" )) ||
-        (psz_value = (char *)vlc_dictionary_value_for_key( &p_meta->extra_tags, "RG_RADIO" )) )
+    if( (psz_value = vlc_meta_GetExtra(p_meta, "REPLAYGAIN_TRACK_GAIN")) ||
+        (psz_value = vlc_meta_GetExtra(p_meta, "RG_RADIO")) )
     {
         p_dst->pb_gain[AUDIO_REPLAY_GAIN_TRACK] = true;
         p_dst->pf_gain[AUDIO_REPLAY_GAIN_TRACK] = atof( psz_value );
     }
-    else if( (psz_value = (char *)vlc_dictionary_value_for_key( &p_meta->extra_tags, "REPLAYGAIN_TRACK_PEAK" )) ||
-             (psz_value = (char *)vlc_dictionary_value_for_key( &p_meta->extra_tags, "RG_PEAK" )) )
+    else if( (psz_value = vlc_meta_GetExtra(p_meta, "REPLAYGAIN_TRACK_PEAK" )) ||
+             (psz_value = vlc_meta_GetExtra(p_meta, "RG_PEAK" )) )
     {
         p_dst->pb_peak[AUDIO_REPLAY_GAIN_TRACK] = true;
         p_dst->pf_peak[AUDIO_REPLAY_GAIN_TRACK] = atof( psz_value );
     }
-    else if( (psz_value = (char *)vlc_dictionary_value_for_key( &p_meta->extra_tags, "REPLAYGAIN_ALBUM_GAIN" )) ||
-             (psz_value = (char *)vlc_dictionary_value_for_key( &p_meta->extra_tags, "RG_AUDIOPHILE" )) )
+    else if( (psz_value = vlc_meta_GetExtra(p_meta, "REPLAYGAIN_ALBUM_GAIN" )) ||
+             (psz_value = vlc_meta_GetExtra(p_meta, "RG_AUDIOPHILE" )) )
     {
         p_dst->pb_gain[AUDIO_REPLAY_GAIN_ALBUM] = true;
         p_dst->pf_gain[AUDIO_REPLAY_GAIN_ALBUM] = atof( psz_value );
     }
-    else if( (psz_value = (char *)vlc_dictionary_value_for_key( &p_meta->extra_tags, "REPLAYGAIN_ALBUM_PEAK" )) )
+    else if( (psz_value = vlc_meta_GetExtra(p_meta, "REPLAYGAIN_ALBUM_PEAK" )) )
     {
         p_dst->pb_peak[AUDIO_REPLAY_GAIN_ALBUM] = true;
         p_dst->pf_peak[AUDIO_REPLAY_GAIN_ALBUM] = atof( psz_value );
@@ -83,7 +83,6 @@ struct seekpoint_t
     int64_t i_byte_offset;
     int64_t i_time_offset;
     char    *psz_name;
-    int     i_level;
 };
 
 static inline seekpoint_t *vlc_seekpoint_New( void )
@@ -91,7 +90,6 @@ static inline seekpoint_t *vlc_seekpoint_New( void )
     seekpoint_t *point = (seekpoint_t*)malloc( sizeof( seekpoint_t ) );
     point->i_byte_offset =
     point->i_time_offset = -1;
-    point->i_level = 0;
     point->psz_name = NULL;
     return point;
 }
@@ -103,7 +101,7 @@ static inline void vlc_seekpoint_Delete( seekpoint_t *point )
     free( point );
 }
 
-static inline seekpoint_t *vlc_seekpoint_Duplicate( seekpoint_t *src )
+static inline seekpoint_t *vlc_seekpoint_Duplicate( const seekpoint_t *src )
 {
     seekpoint_t *point = vlc_seekpoint_New();
     if( src->psz_name ) point->psz_name = strdup( src->psz_name );
@@ -160,7 +158,7 @@ static inline void vlc_input_title_Delete( input_title_t *t )
     free( t );
 }
 
-static inline input_title_t *vlc_input_title_Duplicate( input_title_t *t )
+static inline input_title_t *vlc_input_title_Duplicate( const input_title_t *t )
 {
     input_title_t *dup = vlc_input_title_New( );
     int i;
@@ -265,8 +263,9 @@ typedef struct input_resource_t input_resource_t;
  */
 struct input_thread_t
 {
-    VLC_COMMON_MEMBERS;
+    VLC_COMMON_MEMBERS
 
+    bool b_error;
     bool b_eof;
     bool b_preparsing;
     bool b_dead;
@@ -309,7 +308,7 @@ struct input_thread_t
  *
  * The read-write variables are:
  *  - state (\see input_state_e)
- *  - rate, rate-slower, rate-faster
+ *  - rate
  *  - position, position-offset
  *  - time, time-offset
  *  - title, next-title, prev-title
@@ -344,12 +343,14 @@ typedef enum input_state_e
 /**
  * Input rate.
  *
- * It is an integer used by the variable "rate" in the
- * range [INPUT_RATE_MIN, INPUT_RATE_MAX] the default value
- * being INPUT_RATE_DEFAULT.
+ * It is an float used by the variable "rate" in the
+ * range [INPUT_RATE_DEFAULT/INPUT_RATE_MAX, INPUT_RATE_DEFAULT/INPUT_RATE_MIN]
+ * the default value being 1. It represents the ratio of playback speed to
+ * nominal speed (bigger is faster).
  *
- * A value lower than INPUT_RATE_DEFAULT plays faster.
- * A value higher than INPUT_RATE_DEFAULT plays slower.
+ * Internally, the rate is stored as a value in the range
+ * [INPUT_RATE_MIN, INPUT_RATE_MAX].
+ * internal rate = INPUT_RATE_DEFAULT / rate variable
  */
 
 /**
@@ -412,6 +413,8 @@ typedef enum input_event_type_e
     INPUT_EVENT_ITEM_INFO,
     /* input_item_t name has changed */
     INPUT_EVENT_ITEM_NAME,
+    /* input_item_t epg has changed */
+    INPUT_EVENT_ITEM_EPG,
 
     /* Input statistics have been updated */
     INPUT_EVENT_STATISTICS,
@@ -429,7 +432,7 @@ typedef enum input_event_type_e
     /* cache" has changed */
     INPUT_EVENT_CACHE,
 
-    /* A aout_instance_t object has been created/deleted by *the input* */
+    /* A audio_output_t object has been created/deleted by *the input* */
     INPUT_EVENT_AOUT,
     /* A vout_thread_t object has been created/deleted by *the input* */
     INPUT_EVENT_VOUT,
@@ -452,7 +455,7 @@ enum input_query_e
     INPUT_GET_TIME,             /* arg1= int64_t *      res=    */
     INPUT_SET_TIME,             /* arg1= int64_t        res=can fail    */
 
-    /* input variable "rate" (1 is DEFAULT_RATE) */
+    /* input variable "rate" (nominal is INPUT_RATE_DEFAULT) */
     INPUT_GET_RATE,             /* arg1= int *          res=    */
     INPUT_SET_RATE,             /* arg1= int            res=can fail    */
 
@@ -468,12 +471,11 @@ enum input_query_e
 
     /* Meta datas */
     INPUT_ADD_INFO,   /* arg1= char* arg2= char* arg3=...     res=can fail */
+    INPUT_REPLACE_INFOS,/* arg1= info_category_t *            res=cannot fail */
+    INPUT_MERGE_INFOS,/* arg1= info_category_t *              res=cannot fail */
     INPUT_GET_INFO,   /* arg1= char* arg2= char* arg3= char** res=can fail */
     INPUT_DEL_INFO,   /* arg1= char* arg2= char*              res=can fail */
     INPUT_SET_NAME,   /* arg1= char* res=can fail    */
-
-    /* Input config options */
-    INPUT_ADD_OPTION,      /* arg1= char * arg2= char *  res=can fail*/
 
     /* Input properties */
     INPUT_GET_VIDEO_FPS,         /* arg1= double *        res=can fail */
@@ -486,6 +488,9 @@ enum input_query_e
     INPUT_CHANGE_BOOKMARK, /* arg1= seekpoint_t * arg2= int * res=can fail   */
     INPUT_DEL_BOOKMARK,    /* arg1= seekpoint_t *  res=can fail   */
     INPUT_SET_BOOKMARK,    /* arg1= int  res=can fail    */
+
+    /* titles */
+    INPUT_GET_TITLE_INFO,     /* arg1=input_title_t** arg2= int * res=can fail */
 
     /* Attachments */
     INPUT_GET_ATTACHMENTS, /* arg1=input_attachment_t***, arg2=int*  res=can fail */
@@ -504,8 +509,13 @@ enum input_query_e
 
     /* Input ressources
      * XXX You must call vlc_object_release as soon as possible */
-    INPUT_GET_AOUT,         /* arg1=aout_instance_t **              res=can fail */
-    INPUT_GET_VOUTS,        /* arg1=vout_thread_t ***, int *        res=can fail */
+    INPUT_GET_AOUT,         /* arg1=audio_output_t **              res=can fail */
+    INPUT_GET_VOUTS,        /* arg1=vout_thread_t ***, size_t *        res=can fail */
+    INPUT_GET_ES_OBJECTS,   /* arg1=int id, vlc_object_t **dec, vout_thread_t **, audio_output_t ** */
+
+    /* External clock managments */
+    INPUT_GET_PCR_SYSTEM,   /* arg1=mtime_t *, arg2=mtime_t *       res=can fail */
+    INPUT_MODIFY_PCR_SYSTEM,/* arg1=int absolute, arg2=mtime_t      res=can fail */
 };
 
 /** @}*/
@@ -514,22 +524,26 @@ enum input_query_e
  * Prototypes
  *****************************************************************************/
 
-#define input_Create(a,b,c,d) __input_Create(VLC_OBJECT(a),b,c,d)
-VLC_EXPORT( input_thread_t *, __input_Create, ( vlc_object_t *p_parent, input_item_t *, const char *psz_log, input_resource_t * ) );
+VLC_API input_thread_t * input_Create( vlc_object_t *p_parent, input_item_t *, const char *psz_log, input_resource_t * ) VLC_USED;
+#define input_Create(a,b,c,d) input_Create(VLC_OBJECT(a),b,c,d)
 
-#define input_CreateAndStart(a,b,c) __input_CreateAndStart(VLC_OBJECT(a),b,c)
-VLC_EXPORT( input_thread_t *, __input_CreateAndStart, ( vlc_object_t *p_parent, input_item_t *, const char *psz_log ) );
+VLC_API input_thread_t * input_CreateAndStart( vlc_object_t *p_parent, input_item_t *, const char *psz_log ) VLC_USED;
+#define input_CreateAndStart(a,b,c) input_CreateAndStart(VLC_OBJECT(a),b,c)
 
-VLC_EXPORT( int,  input_Start, ( input_thread_t * ) );
+VLC_API int input_Start( input_thread_t * );
 
-VLC_EXPORT( void, input_Stop, ( input_thread_t *, bool b_abort ) );
+VLC_API void input_Stop( input_thread_t *, bool b_abort );
 
-#define input_Read(a,b) __input_Read(VLC_OBJECT(a),b)
-VLC_EXPORT( int, __input_Read, ( vlc_object_t *, input_item_t * ) );
+VLC_API int input_Read( vlc_object_t *, input_item_t * );
+#define input_Read(a,b) input_Read(VLC_OBJECT(a),b)
 
-VLC_EXPORT( int, input_vaControl,( input_thread_t *, int i_query, va_list  ) );
+VLC_API int input_vaControl( input_thread_t *, int i_query, va_list  );
 
-VLC_EXPORT( int, input_Control,  ( input_thread_t *, int i_query, ...  ) );
+VLC_API int input_Control( input_thread_t *, int i_query, ...  );
+
+VLC_API void input_Close( input_thread_t * );
+void input_Join( input_thread_t * );
+void input_Release( input_thread_t * );
 
 /**
  * Get the input item for an input thread
@@ -537,7 +551,7 @@ VLC_EXPORT( int, input_Control,  ( input_thread_t *, int i_query, ...  ) );
  * You have to keep a reference to the input or to the input_item_t until
  * you do not need it anymore.
  */
-VLC_EXPORT( input_item_t*, input_GetItem, ( input_thread_t * ) );
+VLC_API input_item_t* input_GetItem( input_thread_t * ) VLC_USED;
 
 /**
  * It will return the current state of the input.
@@ -587,44 +601,78 @@ static inline vout_thread_t *input_GetVout( input_thread_t *p_input )
  * @return NULL on error, or the audio output (which needs to be
  * released with vlc_object_release()).
  */
-static inline aout_instance_t *input_GetAout( input_thread_t *p_input )
+static inline audio_output_t *input_GetAout( input_thread_t *p_input )
 {
-     aout_instance_t *p_aout;
+     audio_output_t *p_aout;
      return input_Control( p_input, INPUT_GET_AOUT, &p_aout ) ? NULL : p_aout;
 }
 
-/* */
-typedef struct input_clock_t input_clock_t;
-VLC_EXPORT( decoder_t *, input_DecoderNew, ( input_thread_t *, es_format_t *, input_clock_t *, sout_instance_t * ) );
-VLC_EXPORT( void, input_DecoderDelete, ( decoder_t * ) );
-VLC_EXPORT( void, input_DecoderDecode,( decoder_t *, block_t *, bool b_do_pace ) );
+/**
+ * Returns the objects associated to an ES.
+ *
+ * You must release all non NULL object using vlc_object_release.
+ * You may set pointer of pointer to NULL to avoid retreiving it.
+ */
+static inline int input_GetEsObjects( input_thread_t *p_input, int i_id,
+                                      vlc_object_t **pp_decoder,
+                                      vout_thread_t **pp_vout, audio_output_t **pp_aout )
+{
+    return input_Control( p_input, INPUT_GET_ES_OBJECTS, i_id,
+                          pp_decoder, pp_vout, pp_aout );
+}
 
 /**
- * This function allows to split a MRL into access, demux and path part.
- *
- *  You should not write into access and demux string as they may not point into
- * the provided buffer.
- *  The buffer provided by psz_dup will be modified.
+ * \see input_clock_GetSystemOrigin
  */
-VLC_EXPORT( void, input_SplitMRL, ( const char **ppsz_access, const char **ppsz_demux, char **ppsz_path, char *psz_dup ) );
+static inline int input_GetPcrSystem( input_thread_t *p_input, mtime_t *pi_system, mtime_t *pi_delay )
+{
+    return input_Control( p_input, INPUT_GET_PCR_SYSTEM, pi_system, pi_delay );
+}
+/**
+ * \see input_clock_ChangeSystemOrigin
+ */
+static inline int input_ModifyPcrSystem( input_thread_t *p_input, bool b_absolute, mtime_t i_system )
+{
+    return input_Control( p_input, INPUT_MODIFY_PCR_SYSTEM, b_absolute, i_system );
+}
+
+/* */
+VLC_API decoder_t * input_DecoderCreate( vlc_object_t *, es_format_t *, input_resource_t * ) VLC_USED;
+VLC_API void input_DecoderDelete( decoder_t * );
+VLC_API void input_DecoderDecode( decoder_t *, block_t *, bool b_do_pace );
 
 /**
  * This function creates a sane filename path.
  */
-VLC_EXPORT( char *, input_CreateFilename, ( vlc_object_t *, const char *psz_path, const char *psz_prefix, const char *psz_extension ) );
+VLC_API char * input_CreateFilename( vlc_object_t *, const char *psz_path, const char *psz_prefix, const char *psz_extension ) VLC_USED;
 
 /**
- * This function detaches resources from a dead input.
+ * It creates an empty input resource handler.
  *
- * It MUST be called on a dead input (p_input->b_dead true) otherwise
- * it will assert.
- * It does not support concurrent calls.
+ * The given object MUST stay alive as long as the input_resource_t is
+ * not deleted.
  */
-VLC_EXPORT(input_resource_t *, input_DetachResource, ( input_thread_t * ) );
+VLC_API input_resource_t * input_resource_New( vlc_object_t * ) VLC_USED;
 
 /**
- * This function releases the input resource.
+ * It releases an input resource.
  */
-VLC_EXPORT(void, input_resource_Delete, ( input_resource_t * ) );
+VLC_API void input_resource_Release( input_resource_t * );
+
+/**
+ * Forcefully destroys the video output (e.g. when the playlist is stopped).
+ */
+VLC_API void input_resource_TerminateVout( input_resource_t * );
+
+/**
+ * This function releases all resources (object).
+ */
+VLC_API void input_resource_Terminate( input_resource_t * );
+
+/**
+ * \return the current audio output if any.
+ * Use vlc_object_release() to drop the reference.
+ */
+VLC_API audio_output_t *input_resource_HoldAout( input_resource_t * );
 
 #endif

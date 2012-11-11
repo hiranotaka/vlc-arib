@@ -50,7 +50,7 @@ static void Close( vlc_object_t * );
 #define FOURCC_LONGTEXT N_( \
     "FOURCC code of the raw input format. This is a four character string." )
 
-#define LANG_TEXT N_("Forces the audio language.")
+#define LANG_TEXT N_("Forces the audio language")
 #define LANG_LONGTEXT N_("Forces the audio language for the output mux. Three letter ISO639 code. Default is 'eng'. ")
 
 #ifdef WORDS_BIGENDIAN
@@ -67,11 +67,11 @@ vlc_module_begin();
     set_subcategory( SUBCAT_INPUT_DEMUX );
     set_callbacks( Open, Close );
     add_shortcut( "rawaud" );
-    add_integer( "rawaud-channels", 2, 0, CHANNELS_TEXT, CHANNELS_LONGTEXT, false );
-    add_integer( "rawaud-samplerate", 48000, 0, SAMPLERATE_TEXT, SAMPLERATE_LONGTEXT, false );
-    add_string( "rawaud-fourcc", FOURCC_DEFAULT, NULL,
+    add_integer( "rawaud-channels", 2, CHANNELS_TEXT, CHANNELS_LONGTEXT, false );
+    add_integer( "rawaud-samplerate", 48000, SAMPLERATE_TEXT, SAMPLERATE_LONGTEXT, false );
+    add_string( "rawaud-fourcc", FOURCC_DEFAULT,
                 FOURCC_TEXT, FOURCC_LONGTEXT, false );
-    add_string( "rawaud-lang", "eng", NULL, LANG_TEXT, LANG_LONGTEXT, false);
+    add_string( "rawaud-lang", "eng", LANG_TEXT, LANG_LONGTEXT, false);
 vlc_module_end();
 
 /*****************************************************************************
@@ -201,7 +201,7 @@ static int Open( vlc_object_t * p_this )
 
     /* initialize timing */
     date_Init( &p_sys->pts, p_sys->fmt.audio.i_rate, 1 );
-    date_Set( &p_sys->pts, 1 );
+    date_Set( &p_sys->pts, 0 );
 
     /* calculate 50ms frame size/time */
     p_sys->i_frame_samples = __MAX( p_sys->fmt.audio.i_rate / 20, 1 );
@@ -242,10 +242,13 @@ static int Demux( demux_t *p_demux )
     }
 
     p_block->i_dts =
-    p_block->i_pts = date_Increment( &p_sys->pts, p_sys->i_frame_samples );
+    p_block->i_pts = VLC_TS_0 + date_Get( &p_sys->pts );
 
     es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_block->i_pts );
     es_out_Send( p_demux->out, p_sys->p_es, p_block );
+
+    date_Increment( &p_sys->pts, p_sys->i_frame_samples );
+
     return 1;
 }
 

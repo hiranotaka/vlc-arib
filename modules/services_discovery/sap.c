@@ -40,14 +40,11 @@
 #include <vlc_network.h>
 #include <vlc_charset.h>
 
-#include <ctype.h>
-#include <errno.h>
-
 #ifdef HAVE_UNISTD_H
 #    include <unistd.h>
 #endif
-#ifdef HAVE_SYS_TIME_H
-#    include <sys/time.h>
+#ifdef HAVE_ARPA_INET_H
+# include <arpa/inet.h>
 #endif
 #ifdef HAVE_POLL
 # include <poll.h>
@@ -86,15 +83,6 @@
 #define SAP_ADDR_LONGTEXT N_( "The SAP module normally chooses itself the " \
                               "right addresses to listen to. However, you " \
                               "can specify a specific address." )
-#define SAP_IPV4_TEXT N_( "IPv4 SAP" )
-#define SAP_IPV4_LONGTEXT N_( \
-      "Listen to IPv4 announcements on the standard addresses." )
-#define SAP_IPV6_TEXT N_( "IPv6 SAP" )
-#define SAP_IPV6_LONGTEXT N_( \
-      "Listen to IPv6 announcements on the standard addresses." )
-#define SAP_SCOPE_TEXT N_( "IPv6 SAP scope" )
-#define SAP_SCOPE_LONGTEXT N_( \
-       "Scope for IPv6 announcements (default is 8)." )
 #define SAP_TIMEOUT_TEXT N_( "SAP timeout (seconds)" )
 #define SAP_TIMEOUT_LONGTEXT N_( \
        "Delay after which SAP items get deleted if no new announcement " \
@@ -108,11 +96,6 @@
 #define SAP_STRICT_LONGTEXT N_( \
        "When this is set, the SAP parser will discard some non-compliant " \
        "announcements." )
-#define SAP_CACHE_TEXT N_("Use SAP cache")
-#define SAP_CACHE_LONGTEXT N_( \
-       "This enables a SAP caching mechanism. " \
-       "This will result in lower SAP startup time, but you could end up " \
-       "with items corresponding to legacy streams." )
 
 /* Callbacks */
     static int  Open ( vlc_object_t * );
@@ -120,32 +103,30 @@
     static int  OpenDemux ( vlc_object_t * );
     static void CloseDemux ( vlc_object_t * );
 
+VLC_SD_PROBE_HELPER("sap", "Network streams (SAP)", SD_CAT_LAN)
+
 vlc_module_begin ()
     set_shortname( N_("SAP"))
-    set_description( N_("SAP Announcements") )
+    set_description( N_("Network streams (SAP)") )
     set_category( CAT_PLAYLIST )
     set_subcategory( SUBCAT_PLAYLIST_SD )
 
-    add_string( "sap-addr", NULL, NULL,
+    add_string( "sap-addr", NULL,
                 SAP_ADDR_TEXT, SAP_ADDR_LONGTEXT, true )
-    add_bool( "sap-ipv4", true, NULL,
-               SAP_IPV4_TEXT,SAP_IPV4_LONGTEXT, true )
-    add_bool( "sap-ipv6", true, NULL,
-              SAP_IPV6_TEXT, SAP_IPV6_LONGTEXT, true )
-    add_integer( "sap-timeout", 1800, NULL,
+    add_obsolete_bool( "sap-ipv4" ) /* since 2.0.0 */
+    add_obsolete_bool( "sap-ipv6" ) /* since 2.0.0 */
+    add_integer( "sap-timeout", 1800,
                  SAP_TIMEOUT_TEXT, SAP_TIMEOUT_LONGTEXT, true )
-    add_bool( "sap-parse", true, NULL,
+    add_bool( "sap-parse", true,
                SAP_PARSE_TEXT,SAP_PARSE_LONGTEXT, true )
-    add_bool( "sap-strict", false, NULL,
+    add_bool( "sap-strict", false,
                SAP_STRICT_TEXT,SAP_STRICT_LONGTEXT, true )
-#if 0
-    add_bool( "sap-cache", false, NULL,
-               SAP_CACHE_TEXT,SAP_CACHE_LONGTEXT, true )
-#endif
     add_obsolete_bool( "sap-timeshift" ) /* Redumdant since 1.0.0 */
 
     set_capability( "services_discovery", 0 )
     set_callbacks( Open, Close )
+
+    VLC_SD_PROBE_SUBMODULE
 
     add_submodule ()
         set_description( N_("SDP Descriptions parser") )
@@ -265,7 +246,7 @@ struct demux_sys_t
     static int ParseConnection( vlc_object_t *p_obj, sdp_t *p_sdp );
     static int ParseSAP( services_discovery_t *p_sd, const uint8_t *p_buffer, size_t i_read );
     static sdp_t *ParseSDP (vlc_object_t *p_sd, const char *psz_sdp);
-    static sap_announce_t *CreateAnnounce( services_discovery_t *, uint16_t, sdp_t * );
+    static sap_announce_t *CreateAnnounce( services_discovery_t *, uint32_t *, uint16_t, sdp_t * );
     static int RemoveAnnounce( services_discovery_t *p_sd, sap_announce_t *p_announce );
 
 /* Helper functions */
@@ -321,15 +302,8 @@ static int Open( vlc_object_t *p_this )
     p_sys->pi_fd = NULL;
     p_sys->i_fd = 0;
 
-    p_sys->b_strict = var_CreateGetInteger( p_sd, "sap-strict");
-    p_sys->b_parse = var_CreateGetInteger( p_sd, "sap-parse" );
-
-#if 0
-    if( var_CreateGetInteger( p_sd, "sap-cache" ) )
-    {
-        CacheLoad( p_sd );
-    }
-#endif
+    p_sys->b_strict = var_CreateGetBool( p_sd, "sap-strict");
+    p_sys->b_parse = var_CreateGetBool( p_sd, "sap-parse" );
 
     p_sys->i_announces = 0;
     p_sys->pp_announces = NULL;
@@ -355,7 +329,7 @@ static int OpenDemux( vlc_object_t *p_this )
     int errval = VLC_EGENERIC;
     size_t i_len;
 
-    if( !var_CreateGetInteger( p_demux, "sap-parse" ) )
+    if( !var_CreateGetBool( p_demux, "sap-parse" ) )
     {
         /* We want livedotcom module to parse this SDP file */
         return VLC_EGENERIC;
@@ -414,6 +388,8 @@ static int OpenDemux( vlc_object_t *p_this )
     if( p_sdp->psz_uri == NULL ) goto error;
 
     p_demux->p_sys = (demux_sys_t *)malloc( sizeof(demux_sys_t) );
+    if( unlikely( !p_demux->p_sys ) )
+        goto error;
     p_demux->p_sys->p_sdp = p_sdp;
     p_demux->pf_control = Control;
     p_demux->pf_demux = Demux;
@@ -445,13 +421,6 @@ static void Close( vlc_object_t *p_this )
         net_Close( p_sys->pi_fd[i] );
     }
     FREENULL( p_sys->pi_fd );
-
-#if 0
-    if( config_GetInt( p_sd, "sap-cache" ) )
-    {
-        CacheSave( p_sd );
-    }
-#endif
 
     for( i = p_sys->i_announces  - 1;  i>= 0; i-- )
     {
@@ -495,29 +464,24 @@ static void *Run( void *data )
      * Winsock 1.1 from Windows 95, if not Windows 3.1.
      * Anyway, to avoid a 30 seconds delay for failed IPv6 socket creation,
      * we have to open sockets in Run() rather than Open(). */
-    if( var_CreateGetInteger( p_sd, "sap-ipv4" ) )
-    {
-        InitSocket( p_sd, SAP_V4_GLOBAL_ADDRESS, SAP_PORT );
-        InitSocket( p_sd, SAP_V4_ORG_ADDRESS, SAP_PORT );
-        InitSocket( p_sd, SAP_V4_LOCAL_ADDRESS, SAP_PORT );
-        InitSocket( p_sd, SAP_V4_LINK_ADDRESS, SAP_PORT );
-    }
-    if( var_CreateGetInteger( p_sd, "sap-ipv6" ) )
-    {
-        char psz_address[NI_MAXNUMERICHOST] = "ff02::2:7ffe%";
+    InitSocket( p_sd, SAP_V4_GLOBAL_ADDRESS, SAP_PORT );
+    InitSocket( p_sd, SAP_V4_ORG_ADDRESS, SAP_PORT );
+    InitSocket( p_sd, SAP_V4_LOCAL_ADDRESS, SAP_PORT );
+    InitSocket( p_sd, SAP_V4_LINK_ADDRESS, SAP_PORT );
 
+    char psz_address[NI_MAXNUMERICHOST] = "ff02::2:7ffe%";
 #ifndef WIN32
-        struct if_nameindex *l = if_nameindex ();
-        if (l != NULL)
+    struct if_nameindex *l = if_nameindex ();
+    if (l != NULL)
+    {
+        char *ptr = strchr (psz_address, '%') + 1;
+        for (unsigned i = 0; l[i].if_index; i++)
         {
-            char *ptr = strchr (psz_address, '%') + 1;
-            for (unsigned i = 0; l[i].if_index; i++)
-            {
-                strcpy (ptr, l[i].if_name);
-                InitSocket (p_sd, psz_address, SAP_PORT);
-            }
-            if_freenameindex (l);
+            strcpy (ptr, l[i].if_name);
+            InitSocket (p_sd, psz_address, SAP_PORT);
         }
+        if_freenameindex (l);
+    }
 #else
         /* this is the Winsock2 equivalant of SIOCGIFCONF on BSD stacks,
            which if_nameindex uses internally anyway */
@@ -527,7 +491,7 @@ static void *Run( void *data )
         if( s != INVALID_SOCKET )
         {
             INTERFACE_INFO ifaces[10]; // Assume there will be no more than 10 IP interfaces
-            size_t len = sizeof(ifaces);
+            DWORD len = sizeof(ifaces);
 
             if( SOCKET_ERROR != WSAIoctl(s, SIO_GET_INTERFACE_LIST, NULL, 0, &ifaces, len, &len, NULL, NULL) )
             {
@@ -542,14 +506,13 @@ static void *Run( void *data )
             closesocket(s);
         }
 #endif
-        *strchr (psz_address, '%') = '\0';
+    *strchr (psz_address, '%') = '\0';
 
-        static const char ipv6_scopes[] = "1456789ABCDE";
-        for (const char *c_scope = ipv6_scopes; *c_scope; c_scope++)
-        {
-            psz_address[3] = *c_scope;
-            InitSocket( p_sd, psz_address, SAP_PORT );
-        }
+    static const char ipv6_scopes[] = "1456789ABCDE";
+    for (const char *c_scope = ipv6_scopes; *c_scope; c_scope++)
+    {
+        psz_address[3] = *c_scope;
+        InitSocket( p_sd, psz_address, SAP_PORT );
     }
 
     psz_addr = var_CreateGetString( p_sd, "sap-addr" );
@@ -604,7 +567,7 @@ static void *Run( void *data )
 
         mtime_t now = mdate();
 
-        /* A 1 hour timeout correspong to the RFC Implicit timeout.
+        /* A 1 hour timeout correspond to the RFC Implicit timeout.
          * This timeout is tuned in the following loop. */
         timeout = 1000 * 60 * 60;
 
@@ -615,7 +578,7 @@ static void *Run( void *data )
             sap_announce_t * p_announce = p_sd->p_sys->pp_announces[i];
             mtime_t i_last_period = now - p_announce->i_last;
 
-            /* Remove the annoucement, if the last announcement was 1 hour ago
+            /* Remove the announcement, if the last announcement was 1 hour ago
              * or if the last packet emitted was 3 times the average time
              * between two packets */
             if( ( p_announce->i_period_trust > 5 && i_last_period > 3 * p_announce->i_period ) ||
@@ -633,7 +596,7 @@ static void *Run( void *data )
         }
 
         if( !p_sd->p_sys->i_announces )
-            timeout = -1; /* We can safely poll indefinitly. */
+            timeout = -1; /* We can safely poll indefinitely. */
         else if( timeout < 200 )
             timeout = 200; /* Don't wakeup too fast. */
     }
@@ -701,6 +664,7 @@ static int ParseSAP( services_discovery_t *p_sd, const uint8_t *buf,
     const char          *psz_sdp;
     const uint8_t *end = buf + len;
     sdp_t               *p_sdp;
+    uint32_t            i_source[4];
 
     assert (buf[len] == '\0');
 
@@ -708,6 +672,7 @@ static int ParseSAP( services_discovery_t *p_sd, const uint8_t *buf,
         return VLC_EGENERIC;
 
     uint8_t flags = buf[0];
+    uint8_t auth_len = buf[1];
 
     /* First, check the sap announce is correct */
     if ((flags >> 5) != 1)
@@ -732,8 +697,20 @@ static int ParseSAP( services_discovery_t *p_sd, const uint8_t *buf,
         return VLC_EGENERIC;
     }
 
-    // Skips source address and auth data
-    buf += 4 + (b_ipv6 ? 16 : 4) + buf[1];
+    buf += 4;
+    if( b_ipv6 )
+    {
+        for( int i = 0; i < 4; i++,buf+=4)
+            i_source[i] = U32_AT(buf);
+    }
+    else
+    {
+        memset(i_source, 0, sizeof(i_source));
+        i_source[3] = U32_AT(buf);
+        buf+=4;
+    }
+    // Skips auth data
+    buf += auth_len;
     if (buf > end)
         return VLC_EGENERIC;
 
@@ -812,12 +789,13 @@ static int ParseSAP( services_discovery_t *p_sd, const uint8_t *buf,
     {
         sap_announce_t * p_announce = p_sd->p_sys->pp_announces[i];
         /* FIXME: slow */
-        /* FIXME: we create a new announce each time the sdp changes */
-        if( IsSameSession( p_announce->p_sdp, p_sdp ) )
+        if( ( !i_hash && IsSameSession( p_announce->p_sdp, p_sdp ) )
+            || ( i_hash && p_announce->i_hash == i_hash
+                 && !memcmp(p_announce->i_source, i_source, sizeof(i_source)) ) )
         {
             /* We don't support delete announcement as they can easily
              * Be used to highjack an announcement by a third party.
-             * Intead we cleverly implement Implicit Announcement removal.
+             * Instead we cleverly implement Implicit Announcement removal.
              *
              * if( b_need_delete )
              *    RemoveAnnounce( p_sd, p_sd->p_sys->pp_announces[i]);
@@ -833,7 +811,7 @@ static int ParseSAP( services_discovery_t *p_sd, const uint8_t *buf,
 
                 /* Compute the average period */
                 mtime_t now = mdate();
-                p_announce->i_period = (p_announce->i_period + (now - p_announce->i_last)) / 2;
+                p_announce->i_period = ( p_announce->i_period * (p_announce->i_period_trust-1) + (now - p_announce->i_last) ) / p_announce->i_period_trust;
                 p_announce->i_last = now;
             }
             FreeSDP( p_sdp ); p_sdp = NULL;
@@ -841,13 +819,13 @@ static int ParseSAP( services_discovery_t *p_sd, const uint8_t *buf,
         }
     }
 
-    CreateAnnounce( p_sd, i_hash, p_sdp );
+    CreateAnnounce( p_sd, i_source, i_hash, p_sdp );
 
     FREENULL (decomp);
     return VLC_SUCCESS;
 }
 
-sap_announce_t *CreateAnnounce( services_discovery_t *p_sd, uint16_t i_hash,
+sap_announce_t *CreateAnnounce( services_discovery_t *p_sd, uint32_t *i_source, uint16_t i_hash,
                                 sdp_t *p_sdp )
 {
     input_item_t *p_input;
@@ -864,13 +842,13 @@ sap_announce_t *CreateAnnounce( services_discovery_t *p_sd, uint16_t i_hash,
     p_sap->i_period = 0;
     p_sap->i_period_trust = 0;
     p_sap->i_hash = i_hash;
+    memcpy (p_sap->i_source, i_source, sizeof(p_sap->i_source));
     p_sap->p_sdp = p_sdp;
 
     /* Released in RemoveAnnounce */
-    p_input = input_item_NewWithType( VLC_OBJECT(p_sd),
-                                     p_sap->p_sdp->psz_uri,
-                                     p_sdp->psz_sessionname,
-                                     0, NULL, 0, -1, ITEM_TYPE_NET );
+    p_input = input_item_NewWithType( p_sap->p_sdp->psz_uri,
+                                      p_sdp->psz_sessionname,
+                                      0, NULL, 0, -1, ITEM_TYPE_NET );
     p_sap->p_item = p_input;
     if( !p_input )
     {
@@ -899,13 +877,27 @@ sap_announce_t *CreateAnnounce( services_discovery_t *p_sd, uint16_t i_hash,
                            p_sdp->username );
     }
 
-    /* Handle group */
-    if (p_sap->p_sdp->mediac >= 1)
-        psz_value = FindAttribute (p_sap->p_sdp, 0, "x-plgroup");
+    /* Handle category */
+    psz_value = GetAttribute(p_sap->p_sdp->pp_attributes,
+                             p_sap->p_sdp->i_attributes, "cat");
+    if (psz_value != NULL)
+    {
+        /* a=cat provides a dot-separated hierarchy.
+         * For the time being only replace dots with pipe. TODO: FIXME */
+        char *str = strdup(psz_value);
+        if (likely(str != NULL))
+            for (char *p = strchr(str, '.'); p != NULL; p = strchr(p, '.'))
+                *(p++) = '|';
+        services_discovery_AddItem(p_sd, p_input, str ? str : psz_value);
+        free(str);
+    }
     else
-        psz_value = GetAttribute( p_sap->p_sdp->pp_attributes, p_sap->p_sdp->i_attributes, "x-plgroup" );
-
-    services_discovery_AddItem( p_sd, p_input, psz_value /* category name */ );
+    {
+        /* backward compatibility with VLC 0.7.3-2.0.0 senders */
+        psz_value = GetAttribute(p_sap->p_sdp->pp_attributes,
+                                 p_sap->p_sdp->i_attributes, "x-plgroup");
+        services_discovery_AddItem(p_sd, p_input, psz_value);
+    }
 
     TAB_APPEND( p_sys->i_announces, p_sys->pp_announces, p_sap );
 
@@ -1244,7 +1236,7 @@ static sdp_t *ParseSDP (vlc_object_t *p_obj, const char *psz_sdp)
                     goto error;
                 }
 
-                if ((sscanf (data, "%63s %"PRIu64" %"PRIu64" IN IP%u %1023s",
+                if ((sscanf (data, "%63s %"SCNu64" %"SCNu64" IN IP%u %1023s",
                              p_sdp->username, &p_sdp->session_id,
                              &p_sdp->session_version, &p_sdp->orig_ip_version,
                              p_sdp->orig_host) != 5)
@@ -1568,6 +1560,9 @@ static int RemoveAnnounce( services_discovery_t *p_sd,
     return VLC_SUCCESS;
 }
 
+/*
+ * Compare two sessions, when hash is not set (SAP v0)
+ */
 static bool IsSameSession( sdp_t *p_sdp1, sdp_t *p_sdp2 )
 {
     /* A session is identified by
@@ -1585,7 +1580,6 @@ static bool IsSameSession( sdp_t *p_sdp1, sdp_t *p_sdp2 )
 
     return true;
 }
-
 
 static inline attribute_t *MakeAttribute (const char *str)
 {

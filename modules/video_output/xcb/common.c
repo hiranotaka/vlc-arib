@@ -28,7 +28,10 @@
 #include <assert.h>
 
 #include <sys/types.h>
-#include <sys/shm.h>
+#ifdef HAVE_SYS_SHM_H
+# include <sys/shm.h>
+# include <sys/stat.h>
+#endif
 
 #include <xcb/xcb.h>
 #include <xcb/shm.h>
@@ -39,35 +42,15 @@
 #include "xcb_vlc.h"
 
 /**
- * Check for an error
- */
-int CheckError (vout_display_t *vd, xcb_connection_t *conn,
-                const char *str, xcb_void_cookie_t ck)
-{
-    xcb_generic_error_t *err;
-
-    err = xcb_request_check (conn, ck);
-    if (err)
-    {
-        msg_Err (vd, "%s: X11 error %d", str, err->error_code);
-        free (err);
-        return VLC_EGENERIC;
-    }
-    return VLC_SUCCESS;
-}
-
-/**
  * Connect to the X server.
  */
-xcb_connection_t *Connect (vlc_object_t *obj)
+static xcb_connection_t *Connect (vlc_object_t *obj, const char *display)
 {
-    char *display = var_CreateGetNonEmptyString (obj, "x11-display");
     xcb_connection_t *conn = xcb_connect (display, NULL);
-
-    free (display);
     if (xcb_connection_has_error (conn) /*== NULL*/)
     {
-        msg_Err (obj, "cannot connect to X server");
+        msg_Err (obj, "cannot connect to X server (%s)",
+                 display ? display : "default");
         xcb_disconnect (conn);
         return NULL;
     }
@@ -85,62 +68,13 @@ xcb_connection_t *Connect (vlc_object_t *obj)
     return conn;
 }
 
-
 /**
- * Create a VLC video X window object, find the corresponding X server screen,
- * and probe the MIT-SHM extension.
+ * Find screen matching a given root window.
  */
-vout_window_t *GetWindow (vout_display_t *vd,
-                          xcb_connection_t *conn,
-                          const xcb_screen_t **restrict pscreen,
-                          bool *restrict pshm)
+static const xcb_screen_t *FindScreen (vlc_object_t *obj,
+                                       xcb_connection_t *conn,
+                                       xcb_window_t root)
 {
-    /* Get window */
-    xcb_window_t root;
-    vout_window_cfg_t wnd_cfg;
-
-    memset( &wnd_cfg, 0, sizeof(wnd_cfg) );
-    wnd_cfg.type = VOUT_WINDOW_TYPE_XID;
-    wnd_cfg.width  = vd->cfg->display.width;
-    wnd_cfg.height = vd->cfg->display.height;
-
-    vout_window_t *wnd = vout_display_NewWindow (vd, &wnd_cfg);
-    if (wnd == NULL)
-    {
-        msg_Err (vd, "parent window not available");
-        return NULL;
-    }
-    else
-    {
-        xcb_get_geometry_reply_t *geo;
-        xcb_get_geometry_cookie_t ck;
-
-        ck = xcb_get_geometry (conn, wnd->handle.xid);
-        geo = xcb_get_geometry_reply (conn, ck, NULL);
-        if (geo == NULL)
-        {
-            msg_Err (vd, "parent window not valid");
-            goto error;
-        }
-        root = geo->root;
-        free (geo);
-
-        /* Subscribe to parent window resize events */
-        uint32_t value = XCB_EVENT_MASK_POINTER_MOTION
-                       | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
-        xcb_change_window_attributes (conn, wnd->handle.xid,
-                                      XCB_CW_EVENT_MASK, &value);
-        /* Try to subscribe to click events */
-        /* (only one X11 client can get them, so might not work) */
-        if (var_CreateGetBool (vd, "mouse-events"))
-        {
-            value |= XCB_EVENT_MASK_BUTTON_PRESS
-                   | XCB_EVENT_MASK_BUTTON_RELEASE;
-            xcb_change_window_attributes (conn, wnd->handle.xid,
-                                          XCB_CW_EVENT_MASK, &value);
-        }
-    }
-
     /* Find the selected screen */
     const xcb_setup_t *setup = xcb_get_setup (conn);
     const xcb_screen_t *screen = NULL;
@@ -153,31 +87,72 @@ vout_window_t *GetWindow (vout_display_t *vd,
 
     if (screen == NULL)
     {
-        msg_Err (vd, "parent window screen not found");
+        msg_Err (obj, "parent window screen not found");
+        return NULL;
+    }
+    msg_Dbg (obj, "using screen 0x%"PRIx32, root);
+    return screen;
+}
+
+static const xcb_screen_t *FindWindow (vlc_object_t *obj,
+                                       xcb_connection_t *conn,
+                                       xcb_window_t xid,
+                                       uint8_t *restrict pdepth)
+{
+    xcb_get_geometry_reply_t *geo =
+        xcb_get_geometry_reply (conn, xcb_get_geometry (conn, xid), NULL);
+    if (geo == NULL)
+    {
+        msg_Err (obj, "parent window not valid");
+        return NULL;
+    }
+
+    const xcb_screen_t *screen = FindScreen (obj, conn, geo->root);
+    *pdepth = geo->depth;
+    free (geo);
+    return screen;
+}
+
+
+/**
+ * Create a VLC video X window object, connect to the corresponding X server,
+ * find the corresponding X server screen.
+ */
+vout_window_t *GetWindow (vout_display_t *vd,
+                          xcb_connection_t **restrict pconn,
+                          const xcb_screen_t **restrict pscreen,
+                          uint8_t *restrict pdepth)
+{
+    /* Get window */
+    vout_window_cfg_t wnd_cfg;
+
+    memset( &wnd_cfg, 0, sizeof(wnd_cfg) );
+    wnd_cfg.type = VOUT_WINDOW_TYPE_XID;
+    wnd_cfg.x = var_InheritInteger (vd, "video-x");
+    wnd_cfg.y = var_InheritInteger (vd, "video-y");
+    wnd_cfg.width  = vd->cfg->display.width;
+    wnd_cfg.height = vd->cfg->display.height;
+
+    vout_window_t *wnd = vout_display_NewWindow (vd, &wnd_cfg);
+    if (wnd == NULL)
+    {
+        msg_Err (vd, "parent window not available");
+        return NULL;
+    }
+
+    xcb_connection_t *conn = Connect (VLC_OBJECT(vd), wnd->display.x11);
+    if (conn == NULL)
+        goto error;
+    *pconn = conn;
+
+    *pscreen = FindWindow (VLC_OBJECT(vd), conn, wnd->handle.xid, pdepth);
+    if (*pscreen == NULL)
+    {
+        xcb_disconnect (conn);
         goto error;
     }
-    msg_Dbg (vd, "using screen 0x%"PRIx32, root);
 
-    /* Check MIT-SHM shared memory support */
-    bool shm = var_CreateGetBool (vd, "x11-shm") > 0;
-    if (shm)
-    {
-        xcb_shm_query_version_cookie_t ck;
-        xcb_shm_query_version_reply_t *r;
-
-        ck = xcb_shm_query_version (conn);
-        r = xcb_shm_query_version_reply (conn, ck, NULL);
-        if (!r)
-        {
-            msg_Err (vd, "shared memory (MIT-SHM) not available");
-            msg_Warn (vd, "display will be slow");
-            shm = false;
-        }
-        free (r);
-    }
-
-    *pscreen = screen;
-    *pshm = shm;
+    RegisterMouseEvents (VLC_OBJECT(vd), conn, wnd->handle.xid);
     return wnd;
 
 error:
@@ -185,40 +160,27 @@ error:
     return NULL;
 }
 
-/**
- * Gets the size of an X window.
- */
-int GetWindowSize (struct vout_window_t *wnd, xcb_connection_t *conn,
-                   unsigned *restrict width, unsigned *restrict height)
+/** Check MIT-SHM shared memory support */
+bool CheckSHM (vlc_object_t *obj, xcb_connection_t *conn)
 {
-    xcb_get_geometry_cookie_t ck = xcb_get_geometry (conn, wnd->handle.xid);
-    xcb_get_geometry_reply_t *geo = xcb_get_geometry_reply (conn, ck, NULL);
+#ifdef HAVE_SYS_SHM_H
+    xcb_shm_query_version_cookie_t ck;
+    xcb_shm_query_version_reply_t *r;
 
-    if (!geo)
-        return -1;
-
-    *width = geo->width;
-    *height = geo->height;
-    free (geo);
-    return 0;
-}
-
-/**
- * Create a blank cursor.
- * Note that the pixmaps are leaked (until the X disconnection). Hence, this
- * function should be called no more than once per X connection.
- * @param conn XCB connection
- * @param scr target XCB screen
- */
-xcb_cursor_t CreateBlankCursor (xcb_connection_t *conn,
-                                const xcb_screen_t *scr)
-{
-    xcb_cursor_t cur = xcb_generate_id (conn);
-    xcb_pixmap_t pix = xcb_generate_id (conn);
-
-    xcb_create_pixmap (conn, 1, pix, scr->root, 1, 1);
-    xcb_create_cursor (conn, cur, pix, pix, 0, 0, 0, 1, 1, 1, 0, 0);
-    return cur;
+    ck = xcb_shm_query_version (conn);
+    r = xcb_shm_query_version_reply (conn, ck, NULL);
+    if (r != NULL)
+    {
+        free (r);
+        return true;
+    }
+    msg_Err (obj, "shared memory (MIT-SHM) not available");
+    msg_Warn (obj, "display will be slow");
+#else
+    msg_Warn (obj, "shared memory (MIT-SHM) not implemented");
+    (void) conn;
+#endif
+    return false;
 }
 
 /**
@@ -233,8 +195,9 @@ int PictureResourceAlloc (vout_display_t *vd, picture_resource_t *res, size_t si
     if (!res->p_sys)
         return VLC_EGENERIC;
 
+#ifdef HAVE_SYS_SHM_H
     /* Allocate shared memory segment */
-    int id = shmget (IPC_PRIVATE, size, IPC_CREAT | 0700);
+    int id = shmget (IPC_PRIVATE, size, IPC_CREAT | S_IRWXU);
     if (id == -1)
     {
         msg_Err (vd, "shared memory allocation error: %m");
@@ -261,18 +224,47 @@ int PictureResourceAlloc (vout_display_t *vd, picture_resource_t *res, size_t si
         segment = xcb_generate_id (conn);
         ck = xcb_shm_attach_checked (conn, segment, id, 1);
 
-        if (CheckError (vd, conn, "shared memory server-side error", ck))
+        switch (CheckError (vd, conn, "shared memory server-side error", ck))
         {
-            msg_Info (vd, "using buggy X11 server - SSH proxying?");
-            segment = 0;
+            case 0:
+                break;
+
+            case XCB_ACCESS:
+            {
+                struct shmid_ds buf;
+                /* Retry with promiscuous permissions */
+                shmctl (id, IPC_STAT, &buf);
+                buf.shm_perm.mode |= S_IRGRP|S_IROTH;
+                shmctl (id, IPC_SET, &buf);
+                ck = xcb_shm_attach_checked (conn, segment, id, 1);
+                if (CheckError (vd, conn, "same error on retry", ck) == 0)
+                    break;
+                /* fall through */
+            }
+
+            default:
+                msg_Info (vd, "using buggy X11 server - SSH proxying?");
+                segment = 0;
         }
     }
     else
         segment = 0;
 
-    shmctl (id, IPC_RMID, 0);
+    shmctl (id, IPC_RMID, NULL);
     res->p_sys->segment = segment;
     res->p->p_pixels = shm;
+#else
+    assert (!attach);
+    res->p_sys->segment = 0;
+
+    /* XXX: align on 32 bytes for VLC chroma filters */
+    res->p->p_pixels = malloc (size);
+    if (unlikely(res->p->p_pixels == NULL))
+    {
+        free (res->p_sys);
+        return VLC_EGENERIC;
+    }
+#endif
     return VLC_SUCCESS;
 }
 
@@ -281,10 +273,14 @@ int PictureResourceAlloc (vout_display_t *vd, picture_resource_t *res, size_t si
  */
 void PictureResourceFree (picture_resource_t *res, xcb_connection_t *conn)
 {
+#ifdef HAVE_SYS_SHM_H
     xcb_shm_seg_t segment = res->p_sys->segment;
 
     if (conn != NULL && segment != 0)
         xcb_shm_detach (conn, segment);
     shmdt (res->p->p_pixels);
+#else
+    free (res->p->p_pixels);
+#endif
 }
 

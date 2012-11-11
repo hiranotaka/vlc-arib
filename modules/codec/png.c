@@ -91,12 +91,14 @@ static int OpenDecoder( vlc_object_t *p_this )
 static void user_read( png_structp p_png, png_bytep data, png_size_t i_length )
 {
     block_t *p_block = (block_t *)png_get_io_ptr( p_png );
-    png_size_t i_read = __MIN( p_block->i_buffer, i_length );
+    if( i_length > p_block->i_buffer ) {
+        png_error( p_png, "not enough data" );
+        return;
+    }
+
     memcpy( data, p_block->p_buffer, i_length );
     p_block->p_buffer += i_length;
     p_block->i_buffer -= i_length;
-
-    if( i_length != i_read ) png_error( p_png, "not enough data" );
 }
 
 static void user_error( png_structp p_png, png_const_charp error_msg )
@@ -152,7 +154,7 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     p_info = png_create_info_struct( p_png );
     if( p_info == NULL )
     {
-        png_destroy_read_struct( &p_png, png_infopp_NULL, png_infopp_NULL );
+        png_destroy_read_struct( &p_png, NULL, NULL );
         block_Release( p_block ); *pp_block = NULL;
         return NULL;
     }
@@ -160,7 +162,7 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     p_end_info = png_create_info_struct( p_png );
     if( p_end_info == NULL )
     {
-        png_destroy_read_struct( &p_png, &p_info, png_infopp_NULL );
+        png_destroy_read_struct( &p_png, &p_info, NULL );
         block_Release( p_block ); *pp_block = NULL;
         return NULL;
     }
@@ -184,7 +186,8 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     p_dec->fmt_out.i_codec = VLC_CODEC_RGBA;
     p_dec->fmt_out.video.i_width = i_width;
     p_dec->fmt_out.video.i_height = i_height;
-    p_dec->fmt_out.video.i_aspect = VOUT_ASPECT_FACTOR * i_width / i_height;
+    p_dec->fmt_out.video.i_sar_num = 1;
+    p_dec->fmt_out.video.i_sar_den = 1;
     p_dec->fmt_out.video.i_rmask = 0x000000ff;
     p_dec->fmt_out.video.i_gmask = 0x0000ff00;
     p_dec->fmt_out.video.i_bmask = 0x00ff0000;
@@ -227,7 +230,7 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     png_destroy_read_struct( &p_png, &p_info, &p_end_info );
     free( p_row_pointers );
 
-    p_pic->date = p_block->i_pts > 0 ? p_block->i_pts : p_block->i_dts;
+    p_pic->date = p_block->i_pts > VLC_TS_INVALID ? p_block->i_pts : p_block->i_dts;
 
     block_Release( p_block ); *pp_block = NULL;
     return p_pic;

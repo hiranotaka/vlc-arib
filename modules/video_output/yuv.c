@@ -33,7 +33,7 @@
 #include <vlc_plugin.h>
 #include <vlc_vout_display.h>
 #include <vlc_picture_pool.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -41,13 +41,13 @@
 #define YUV_FILE_TEXT N_("device, fifo or filename")
 #define YUV_FILE_LONGTEXT N_("device, fifo or filename to write yuv frames too.")
 
-#define CHROMA_TEXT N_("Chroma used.")
+#define CHROMA_TEXT N_("Chroma used")
 #define CHROMA_LONGTEXT N_(\
     "Force use of a specific chroma for output. Default is I420.")
 
 #define YUV4MPEG2_TEXT N_("YUV4MPEG2 header (default disabled)")
 #define YUV4MPEG2_LONGTEXT N_("The YUV4MPEG2 header is compatible " \
-    "with mplayer yuv video ouput and requires YV12/I420 fourcc. By default "\
+    "with mplayer yuv video output and requires YV12/I420 fourcc. By default "\
     "vlc writes the fourcc of the picture frame into the output destination.")
 
 #define CFG_PREFIX "yuv-"
@@ -62,11 +62,11 @@ vlc_module_begin()
     set_subcategory(SUBCAT_VIDEO_VOUT)
     set_capability("vout display", 0)
 
-    add_string(CFG_PREFIX "file", "stream.yuv", NULL,
+    add_string(CFG_PREFIX "file", "stream.yuv",
                 YUV_FILE_TEXT, YUV_FILE_LONGTEXT, false)
-    add_string(CFG_PREFIX "chroma", NULL, NULL,
+    add_string(CFG_PREFIX "chroma", NULL,
                 CHROMA_TEXT, CHROMA_LONGTEXT, true)
-    add_bool  (CFG_PREFIX "yuv4mpeg2", false, NULL,
+    add_bool  (CFG_PREFIX "yuv4mpeg2", false,
                 YUV4MPEG2_TEXT, YUV4MPEG2_LONGTEXT, true)
 
     set_callbacks(Open, Close)
@@ -80,10 +80,9 @@ static const char *const ppsz_vout_options[] = {
 };
 
 /* */
-static picture_t *Get    (vout_display_t *);
-static void       Display(vout_display_t *, picture_t *);
-static int        Control(vout_display_t *, int, va_list);
-static void       Manage (vout_display_t *);
+static picture_pool_t *Pool  (vout_display_t *, unsigned);
+static void           Display(vout_display_t *, picture_t *, subpicture_t *subpicture);
+static int            Control(vout_display_t *, int, va_list);
 
 /*****************************************************************************
  * vout_display_sys_t: video output descriptor
@@ -92,7 +91,6 @@ struct vout_display_sys_t {
     FILE *f;
     bool  is_first;
     bool  is_yuv4mpeg2;
-    bool  use_dr;
 
     picture_pool_t *pool;
 };
@@ -109,11 +107,11 @@ static int Open(vlc_object_t *object)
         return VLC_ENOMEM;
 
     sys->is_first = false;
-    sys->is_yuv4mpeg2 = var_CreateGetBool(vd, CFG_PREFIX "yuv4mpeg2");
+    sys->is_yuv4mpeg2 = var_InheritBool(vd, CFG_PREFIX "yuv4mpeg2");
     sys->pool = NULL;
 
     /* */
-    char *psz_fcc = var_CreateGetNonEmptyString(vd, CFG_PREFIX "chroma");
+    char *psz_fcc = var_InheritString(vd, CFG_PREFIX "chroma");
     const vlc_fourcc_t requested_chroma = vlc_fourcc_GetCodecFromString(VIDEO_ES,
                                                                         psz_fcc);
     free(psz_fcc);
@@ -133,17 +131,16 @@ static int Open(vlc_object_t *object)
             return VLC_EGENERIC;
         }
     }
-    sys->use_dr = chroma == vd->fmt.i_chroma;
     msg_Dbg(vd, "Using chroma %4.4s", (char *)&chroma);
 
     /* */
-    char *name = var_CreateGetNonEmptyString(vd, CFG_PREFIX "file");
+    char *name = var_InheritString(vd, CFG_PREFIX "file");
     if (!name) {
         msg_Err(vd, "Empty file name");
         free(sys);
         return VLC_EGENERIC;
     }
-    sys->f = utf8_fopen(name, "wb");
+    sys->f = vlc_fopen(name, "wb");
 
     if (!sys->f) {
         msg_Err(vd, "Failed to open %s", name);
@@ -166,11 +163,11 @@ static int Open(vlc_object_t *object)
     /* */
     vd->fmt     = fmt;
     vd->info    = info;
-    vd->get     = Get;
+    vd->pool    = Pool;
     vd->prepare = NULL;
     vd->display = Display;
     vd->control = Control;
-    vd->manage  = Manage;
+    vd->manage  = NULL;
 
     vout_display_SendEventFullscreen(vd, false);
     return VLC_SUCCESS;
@@ -191,18 +188,15 @@ static void Close(vlc_object_t *object)
 /*****************************************************************************
  *
  *****************************************************************************/
-static picture_t *Get(vout_display_t *vd)
+static picture_pool_t *Pool(vout_display_t *vd, unsigned count)
 {
     vout_display_sys_t *sys = vd->sys;
-    if (!sys->pool) {
-        sys->pool = picture_pool_NewFromFormat(&vd->fmt, sys->use_dr ? VOUT_MAX_PICTURES : 1);
-        if (!sys->pool)
-            return NULL;
-    }
-    return picture_pool_Get(sys->pool);
+    if (!sys->pool)
+        sys->pool = picture_pool_NewFromFormat(&vd->fmt, count);
+    return sys->pool;
 }
 
-static void Display(vout_display_t *vd, picture_t *picture)
+static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpicture)
 {
     vout_display_sys_t *sys = vd->sys;
 
@@ -265,6 +259,7 @@ static void Display(vout_display_t *vd, picture_t *picture)
 
     /* */
     picture_Release(picture);
+    VLC_UNUSED(subpicture);
 }
 
 static int Control(vout_display_t *vd, int query, va_list args)
@@ -280,9 +275,5 @@ static int Control(vout_display_t *vd, int query, va_list args)
     default:
         return VLC_EGENERIC;
     }
-}
-static void Manage (vout_display_t *vd)
-{
-    VLC_UNUSED(vd);
 }
 

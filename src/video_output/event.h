@@ -6,24 +6,20 @@
  *
  * Authors: Laurent Aimar <fenrir _AT_ videolan _DOT_ org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
-
-#if defined(__PLUGIN__) || defined(__BUILTIN__) || !defined(__LIBVLC__)
-# error This header file can only be included from LibVLC.
-#endif
 
 #include <vlc_common.h>
 #include <vlc_playlist.h>
@@ -44,56 +40,59 @@
 
 static inline void vout_SendEventClose(vout_thread_t *vout)
 {
-	/* Ask to stop
-	 * FIXME works only for input handled by the playlist
-	 */
-	playlist_t *playlist = pl_Hold(vout);
-	if (playlist) {
-		playlist_Stop(playlist);
-		pl_Release(vout);
-	}
+    /* Ask to stop
+     * FIXME works only for input handled by the playlist
+     */
+#warning FIXME: remove pl_Get
+    playlist_t *playlist = pl_Get(vout);
+    playlist_Stop(playlist);
 }
 static inline void vout_SendEventKey(vout_thread_t *vout, int key)
 {
-	var_SetInteger(vout->p_libvlc, "key-pressed", key);
+    var_SetInteger(vout->p_libvlc, "key-pressed", key);
 }
 static inline void vout_SendEventMouseMoved(vout_thread_t *vout, int x, int y)
 {
-	var_SetInteger(vout, "mouse-x", x);
-	var_SetInteger(vout, "mouse-y", y);
-	var_SetBool(vout, "mouse-moved", true);
+    var_SetCoords(vout, "mouse-moved", x, y);
 }
 static inline void vout_SendEventMousePressed(vout_thread_t *vout, int button)
 {
-	int current = var_GetInteger(vout, "mouse-button-down");
-	current |= 1 << button;
-	var_SetInteger(vout, "mouse-button-down", current);
+    int key;
+    var_OrInteger(vout, "mouse-button-down", 1 << button);
 
-	switch (button)
-	{
-	case MOUSE_BUTTON_LEFT:
-        var_SetBool(vout, "mouse-clicked", true);
-		var_SetBool(vout->p_libvlc, "intf-popupmenu", false);
-		break;
-	case MOUSE_BUTTON_CENTER:
-		var_SetBool(vout->p_libvlc, "intf-show",
-					 !var_GetBool(vout->p_libvlc, "intf-show"));
-		break;
-	case MOUSE_BUTTON_RIGHT:
-		var_SetBool(vout->p_libvlc, "intf-popupmenu", true);
-		break;
-	}
+    switch (button)
+    {
+    case MOUSE_BUTTON_LEFT:
+    {
+        /* FIXME? */
+        int x, y;
+        var_GetCoords(vout, "mouse-moved", &x, &y);
+        var_SetCoords(vout, "mouse-clicked", x, y);
+        var_SetBool(vout->p_libvlc, "intf-popupmenu", false);
+        return;
+    }
+    case MOUSE_BUTTON_CENTER:
+        var_ToggleBool(vout->p_libvlc, "intf-toggle-fscontrol");
+        return;
+    case MOUSE_BUTTON_RIGHT:
+        var_SetBool(vout->p_libvlc, "intf-popupmenu", true);
+        return;
+    case MOUSE_BUTTON_WHEEL_UP:    key = KEY_MOUSEWHEELUP;    break;
+    case MOUSE_BUTTON_WHEEL_DOWN:  key = KEY_MOUSEWHEELDOWN;  break;
+    case MOUSE_BUTTON_WHEEL_LEFT:  key = KEY_MOUSEWHEELLEFT;  break;
+    case MOUSE_BUTTON_WHEEL_RIGHT: key = KEY_MOUSEWHEELRIGHT; break;
+    }
+    vout_SendEventKey(vout, key);
 }
 static inline void vout_SendEventMouseReleased(vout_thread_t *vout, int button)
 {
-	int current = var_GetInteger(vout, "mouse-button-down");
-	current &= ~(1 << button);
-	var_SetInteger(vout, "mouse-button-down", current);
+    var_NAndInteger(vout, "mouse-button-down", 1 << button);
 }
 static inline void vout_SendEventMouseDoubleClick(vout_thread_t *vout)
 {
     //vout_ControlSetFullscreen(vout, !var_GetBool(vout, "fullscreen"));
-    var_ToggleBool(vout, "fullscreen");
+    //var_ToggleBool(vout, "fullscreen");
+    var_SetInteger(vout->p_libvlc, "key-action", ACTIONID_TOGGLE_FULLSCREEN);
 }
 static inline void vout_SendEventMouseVisible(vout_thread_t *vout)
 {
@@ -108,8 +107,7 @@ static inline void vout_SendEventMouseHidden(vout_thread_t *vout)
 
 static inline void vout_SendEventFullscreen(vout_thread_t *vout, bool is_fullscreen)
 {
-    if (!var_GetBool(vout, "fullscreen") != !is_fullscreen)
-        var_SetBool(vout, "fullscreen", is_fullscreen);
+    var_SetBool(vout, "fullscreen", is_fullscreen);
 }
 
 static inline void vout_SendEventDisplayFilled(vout_thread_t *vout, bool is_display_filled)

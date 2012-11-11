@@ -1,5 +1,5 @@
 /*****************************************************************************
- * customwidgets.h: Custom widgets
+ * customwidgets.hpp: Custom widgets
  ****************************************************************************
  * Copyright (C) 2006 the VideoLAN team
  * Copyright (C) 2004 Daniel Molkentin <molkentin@kde.org>
@@ -28,106 +28,145 @@
 #define _CUSTOMWIDGETS_H_
 
 #include <QLineEdit>
+#include <QPushButton>
+#include <QLabel>
+#include <QStackedWidget>
+#include <QSpinBox>
+#include <QCheckBox>
+#include <QList>
+#include <QTimer>
+#include <QToolButton>
+#include <QAbstractAnimation>
 
-/**
-  This class provides a QLineEdit which contains a greyed-out hinting
-  text as long as the user didn't enter any text
+class QPixmap;
+class QWidget;
 
-  @short LineEdit with customizable "Click here" text
-  @author Daniel Molkentin
-*/
-class ClickLineEdit : public QLineEdit
+class QFramelessButton : public QPushButton
 {
     Q_OBJECT
-    Q_PROPERTY( QString clickMessage READ clickMessage WRITE setClickMessage )
 public:
-    ClickLineEdit( const QString &msg, QWidget *parent );
-    virtual ~ClickLineEdit() {};
-    void setClickMessage( const QString &msg );
-    QString clickMessage() const { return mClickMessage; }
-    virtual void setText( const QString& txt );
+    QFramelessButton( QWidget *parent = NULL );
+    virtual QSize sizeHint() const { return iconSize(); }
 protected:
-    virtual void paintEvent( QPaintEvent *e );
-    virtual void dropEvent( QDropEvent *ev );
-    virtual void focusInEvent( QFocusEvent *ev );
-    virtual void focusOutEvent( QFocusEvent *ev );
-private:
-    QString mClickMessage;
-    bool mDrawClickMsg;
+    virtual void paintEvent( QPaintEvent * event );
 };
 
-class QToolButton;
-class SearchLineEdit : public QFrame
+class QToolButtonExt : public QToolButton
 {
     Q_OBJECT
 public:
-    SearchLineEdit( QWidget *parent );
-
+    QToolButtonExt( QWidget *parent = 0, int ms = 0 );
 private:
-    ClickLineEdit *searchLine;
-    QToolButton   *clearButton;
-
+    bool shortClick;
+    bool longClick;
 private slots:
-    void updateText( const QString& );
-
+    void releasedSlot();
+    void clickedSlot();
 signals:
-    void textChanged( const QString& );
+    void shortClicked();
+    void longClicked();
 };
 
-/*****************************************************************
- * Custom views
- *****************************************************************/
-#include <QMouseEvent>
-#include <QTreeView>
-#include <QCursor>
-#include <QPoint>
-#include <QModelIndex>
-
-/**
-  Special QTreeView that can emit rightClicked()
-  */
-class QVLCTreeView : public QTreeView
+class QElidingLabel : public QLabel
 {
-    Q_OBJECT;
 public:
-    void mouseReleaseEvent( QMouseEvent* e )
-    {
-        if( e->button() & Qt::RightButton )
-            return; /* Do NOT forward to QTreeView!! */
-        QTreeView::mouseReleaseEvent( e );
-    }
+    QElidingLabel( const QString &s = QString(),
+                      Qt::TextElideMode mode = Qt::ElideRight,
+                      QWidget * parent = NULL );
+    void setElideMode( Qt::TextElideMode );
+protected:
+    virtual void paintEvent( QPaintEvent * event );
+private:
+    Qt::TextElideMode elideMode;
+};
 
-    void mousePressEvent( QMouseEvent* e )
-    {
-        if( e->button() & Qt::RightButton )
-        {
-            QModelIndex index = indexAt( QPoint( e->x(), e->y() ) );
-            if( index.isValid() )
-                setSelection( visualRect( index ), QItemSelectionModel::ClearAndSelect );
-            emit rightClicked( index, QCursor::pos() );
-            return;
-        }
-        if( e->button() & Qt::LeftButton )
-        {
-            if( !indexAt( QPoint( e->x(), e->y() ) ).isValid() )
-                clearSelection();
-        }
-        QTreeView::mousePressEvent( e );
-    }
 
+class QVLCStackedWidget : public QStackedWidget
+{
+public:
+    QVLCStackedWidget( QWidget *parent ) : QStackedWidget( parent ) { }
+    QSize minimumSizeHint () const
+    {
+        return currentWidget() ? currentWidget()->minimumSizeHint() : QSize();
+    }
+};
+
+class QVLCDebugLevelSpinBox : public QSpinBox
+{
+    Q_OBJECT
+public:
+    QVLCDebugLevelSpinBox( QWidget *parent ) : QSpinBox( parent ) { };
+protected:
+    virtual QString textFromValue( int ) const;
+    /* QVLCDebugLevelSpinBox is read-only */
+    virtual int valueFromText( const QString& ) const { return -1; }
+};
+
+/** An animated pixmap
+     * Use this widget to display an animated icon based on a series of
+     * pixmaps. The pixmaps will be stored in memory and should be kept small.
+     * First, create the widget, add frames and then start playing. Looping
+     * is supported.
+     **/
+class PixmapAnimator : public QAbstractAnimation
+{
+    Q_OBJECT
+
+public:
+    PixmapAnimator( QWidget *parent, QList<QString> _frames );
+    void setFps( int _fps ) { fps = _fps; interval = 1000.0 / fps; };
+    virtual int duration() const { return interval * pixmaps.count(); };
+    virtual ~PixmapAnimator() { while( pixmaps.count() ) pixmaps.erase( pixmaps.end() ); };
+    QPixmap *getPixmap() { return currentPixmap; }
+protected:
+    virtual void updateCurrentTime ( int msecs );
+    QList<QPixmap *> pixmaps;
+    QPixmap *currentPixmap;
+    int fps;
+    int interval;
+    int lastframe_msecs;
+    int current_frame;
 signals:
-    void rightClicked( QModelIndex, QPoint  );
+    void pixmapReady( const QPixmap & );
+};
+
+/** This spinning icon, to the colors of the VLC cone, will show
+ * that there is some background activity running
+ **/
+class SpinningIcon : public QLabel
+{
+    Q_OBJECT
+
+public:
+    SpinningIcon( QWidget *parent );
+    void play( int loops = -1, int fps = 0 )
+    {
+        animator->setLoopCount( loops );
+        if ( fps ) animator->setFps( fps );
+        animator->start();
+    }
+    void stop() { animator->stop(); }
+    bool isPlaying() { return animator->state() == PixmapAnimator::Running; }
+private:
+    PixmapAnimator *animator;
+};
+
+class YesNoCheckBox : public QCheckBox
+{
+    Q_OBJECT
+public:
+    YesNoCheckBox( QWidget *parent );
 };
 
 /* VLC Key/Wheel hotkeys interactions */
 
 class QKeyEvent;
 class QWheelEvent;
+class QInputEvent;
 
 int qtKeyModifiersToVLC( QInputEvent* e );
 int qtEventToVLCKey( QKeyEvent *e );
 int qtWheelEventToVLCKey( QWheelEvent *e );
-QString VLCKeyToString( int val );
+QString VLCKeyToString( unsigned val );
 
 #endif
-

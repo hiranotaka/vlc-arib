@@ -36,8 +36,6 @@
 #include <vlc_vout.h>
 #include <vlc_dialog.h>
 
-#include "filter_common.h"
-
 #define BEST_AUTOCROP 1
 #ifdef BEST_AUTOCROP
     #define RATIO_MAX 15000  // 10*4/3 for a 360
@@ -76,6 +74,8 @@ static int FilterCallback ( vlc_object_t *, char const *,
 #define AUTOCROP_TEXT N_("Automatic cropping")
 #define AUTOCROP_LONGTEXT N_("Automatically detect black borders and crop them.")
 
+#define CROP_HELP N_("Remove borders of the video and replace them by black borders")
+
 #ifdef BEST_AUTOCROP
 #define RATIOMAX_TEXT N_("Ratio max (x 1000)")
 #define RATIOMAX_LONGTEXT N_("Maximum image ratio. The crop plugin will never automatically crop to a higher ratio (ie, to a more \"flat\" image). The value is x1000: 1333 means 4/3.")
@@ -84,7 +84,7 @@ static int FilterCallback ( vlc_object_t *, char const *,
 #define RATIO_LONGTEXT N_("Force a ratio (0 for automatic). Value is x1000: 1333 means 4/3.")
 
 #define TIME_TEXT N_("Number of images for change")
-#define TIME_LONGTEXT N_("The number of consecutive images with the same detected ratio (different from the previously detected ratio) to consider that ratio chnged and trigger recrop.")
+#define TIME_LONGTEXT N_("The number of consecutive images with the same detected ratio (different from the previously detected ratio) to consider that ratio changed and trigger recrop.")
 
 #define DIFF_TEXT N_("Number of lines for change")
 #define DIFF_LONGTEXT N_("The minimum difference in the number of detected black lines to consider that ratio changed and trigger recrop.")
@@ -94,7 +94,7 @@ static int FilterCallback ( vlc_object_t *, char const *,
                         " that the line is black.")
 
 #define SKIP_TEXT N_("Skip percentage (%)")
-#define SKIP_LONGTEXT N_("Percentage of the line to consider while checking for black lines. This allows to skip logos in black borders and crop them anyway.")
+#define SKIP_LONGTEXT N_("Percentage of the line to consider while checking for black lines. This allows skipping logos in black borders and crop them anyway.")
 
 #define LUM_TEXT N_("Luminance threshold ")
 #define LUM_LONGTEXT N_("Maximum luminance to consider a pixel as black (0-255).")
@@ -103,33 +103,34 @@ static int FilterCallback ( vlc_object_t *, char const *,
 vlc_module_begin ()
     set_description( N_("Crop video filter") )
     set_shortname( N_("Crop" ))
+    set_help(CROP_HELP)
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
     set_capability( "video filter", 0 )
 
-    add_string( "crop-geometry", NULL, NULL, GEOMETRY_TEXT,
+    add_string( "crop-geometry", NULL, GEOMETRY_TEXT,
                                              GEOMETRY_LONGTEXT, false )
-    add_bool( "autocrop", false, NULL, AUTOCROP_TEXT,
+    add_bool( "autocrop", false, AUTOCROP_TEXT,
                                    AUTOCROP_LONGTEXT, false )
 
 #ifdef BEST_AUTOCROP
-    add_integer_with_range( "autocrop-ratio-max", 2405, 0, RATIO_MAX, NULL,
+    add_integer_with_range( "autocrop-ratio-max", 2405, 0, RATIO_MAX,
                             RATIOMAX_TEXT, RATIOMAX_LONGTEXT, true )
 
-    add_integer_with_range( "crop-ratio", 0, 0, RATIO_MAX, NULL, RATIO_TEXT,
+    add_integer_with_range( "crop-ratio", 0, 0, RATIO_MAX, RATIO_TEXT,
                             RATIO_LONGTEXT, false )
-    add_integer( "autocrop-time", 25, NULL, TIME_TEXT,
+    add_integer( "autocrop-time", 25, TIME_TEXT,
                  TIME_LONGTEXT, true )
-    add_integer( "autocrop-diff", 16, NULL, DIFF_TEXT,
+    add_integer( "autocrop-diff", 16, DIFF_TEXT,
                                             DIFF_LONGTEXT, true )
 
-    add_integer( "autocrop-non-black-pixels", 3, NULL,
+    add_integer( "autocrop-non-black-pixels", 3,
                  NBP_TEXT, NBP_LONGTEXT, true )
 
-    add_integer_with_range( "autocrop-skip-percent", 17, 0, 100, NULL,
+    add_integer_with_range( "autocrop-skip-percent", 17, 0, 100,
                             SKIP_TEXT, SKIP_LONGTEXT, true )
 
-    add_integer_with_range( "autocrop-luminance-threshold", 40, 0, 128, NULL,
+    add_integer_with_range( "autocrop-luminance-threshold", 40, 0, 128,
                             LUM_TEXT, LUM_LONGTEXT, true )
 #endif //BEST_AUTOCROP
 
@@ -218,24 +219,27 @@ static int Init( vout_thread_t *p_vout )
     p_vout->fmt_out = p_vout->fmt_in;
 
     /* Shall we use autocrop ? */
-    p_vout->p_sys->b_autocrop = config_GetInt( p_vout, "autocrop" );
+    p_vout->p_sys->b_autocrop = var_InheritBool( p_vout, "autocrop" );
 #ifdef BEST_AUTOCROP
-    p_vout->p_sys->i_ratio_max = config_GetInt( p_vout, "autocrop-ratio-max" );
+    p_vout->p_sys->i_ratio_max =
+        var_InheritInteger( p_vout, "autocrop-ratio-max" );
     p_vout->p_sys->i_threshold =
-                    config_GetInt( p_vout, "autocrop-luminance-threshold" );
+        var_InheritInteger( p_vout, "autocrop-luminance-threshold" );
     p_vout->p_sys->i_skipPercent =
-                    config_GetInt( p_vout, "autocrop-skip-percent" );
+        var_InheritInteger( p_vout, "autocrop-skip-percent" );
     p_vout->p_sys->i_nonBlackPixel =
-                    config_GetInt( p_vout, "autocrop-non-black-pixels" );
-    p_vout->p_sys->i_diff = config_GetInt( p_vout, "autocrop-diff" );
-    p_vout->p_sys->i_time = config_GetInt( p_vout, "autocrop-time" );
+        var_InheritInteger( p_vout, "autocrop-non-black-pixels" );
+    p_vout->p_sys->i_diff =
+        var_InheritInteger( p_vout, "autocrop-diff" );
+    p_vout->p_sys->i_time =
+        var_InheritInteger( p_vout, "autocrop-time" );
     var_SetString( p_vout, "ratio-crop", "0" );
 
     if (p_vout->p_sys->b_autocrop)
         p_vout->p_sys->i_ratio = 0;
     else
     {
-        p_vout->p_sys->i_ratio = config_GetInt( p_vout, "crop-ratio" );
+        p_vout->p_sys->i_ratio = var_InheritInteger( p_vout, "crop-ratio" );
         // ratio < width / height => ratio = 0 (unchange ratio)
         if (p_vout->p_sys->i_ratio < (p_vout->output.i_width * 1000) / p_vout->output.i_height)
             p_vout->p_sys->i_ratio = 0;
@@ -244,7 +248,7 @@ static int Init( vout_thread_t *p_vout )
 
 
     /* Get geometry value from the user */
-    psz_var = config_GetPsz( p_vout, "crop-geometry" );
+    psz_var = var_InheritString( p_vout, "crop-geometry" );
     if( psz_var )
     {
         char *psz_parser, *psz_tmp;
@@ -351,9 +355,9 @@ static int Init( vout_thread_t *p_vout )
                      p_vout->p_sys->i_x, p_vout->p_sys->i_y,
                      p_vout->p_sys->b_autocrop ? "" : "not " );
     /* Set current output image properties */
-    p_vout->p_sys->i_aspect = p_vout->fmt_out.i_aspect
-           * p_vout->fmt_out.i_visible_height / p_vout->p_sys->i_height
-           * p_vout->p_sys->i_width / p_vout->fmt_out.i_visible_width;
+    p_vout->p_sys->i_aspect = (int64_t)VOUT_ASPECT_FACTOR *
+        p_vout->fmt_out.i_sar_num * p_vout->p_sys->i_width /
+        (p_vout->fmt_out.i_sar_den * p_vout->p_sys->i_height);
 
 #ifdef BEST_AUTOCROP
     msg_Info( p_vout, "ratio %d",  p_vout->p_sys->i_aspect / 432);
@@ -362,9 +366,8 @@ static int Init( vout_thread_t *p_vout )
     fmt.i_height = fmt.i_visible_height = p_vout->p_sys->i_height;
     fmt.i_x_offset = fmt.i_y_offset = 0;
     fmt.i_chroma = p_vout->render.i_chroma;
-    fmt.i_aspect = p_vout->p_sys->i_aspect;
-    fmt.i_sar_num = p_vout->p_sys->i_aspect * fmt.i_height / fmt.i_width;
-    fmt.i_sar_den = VOUT_ASPECT_FACTOR;
+    fmt.i_sar_num = p_vout->p_sys->i_aspect * fmt.i_height;
+    fmt.i_sar_den = VOUT_ASPECT_FACTOR * fmt.i_width;
 
     /* Try to open the real video output */
     p_vout->p_sys->p_vout = vout_Create( p_vout, &fmt );
@@ -455,7 +458,6 @@ static int Manage( vout_thread_t *p_vout )
     fmt.i_height = fmt.i_visible_height = p_vout->p_sys->i_height;
     fmt.i_x_offset = fmt.i_y_offset = 0;
     fmt.i_chroma = p_vout->render.i_chroma;
-    fmt.i_aspect = p_vout->p_sys->i_aspect;
     fmt.i_sar_num = p_vout->p_sys->i_aspect * fmt.i_height / fmt.i_width;
     fmt.i_sar_den = VOUT_ASPECT_FACTOR;
 
@@ -529,7 +531,7 @@ static void Render( vout_thread_t *p_vout, picture_t *p_pic )
 
         while( p_out < p_out_end )
         {
-            vlc_memcpy( p_out, p_in, i_copy_pitch );
+            memcpy( p_out, p_in, i_copy_pitch );
             p_in += i_in_pitch;
             p_out += i_out_pitch;
         }
@@ -827,14 +829,14 @@ static int MouseEvent( vlc_object_t *p_this, char const *psz_var,
     vout_thread_t *p_vout = p_data;
     VLC_UNUSED(p_this); VLC_UNUSED(oldval);
 
+    if( !strcmp( psz_var, "mouse-button-down" ) )
+        return var_SetChecked( p_vout, psz_var, VLC_VAR_INTEGER, newval );
+
     /* Translate the mouse coordinates
      * FIXME missing lock */
-    if( !strcmp( psz_var, "mouse-x" ) )
-        newval.i_int += p_vout->p_sys->i_x;
-    else if( !strcmp( psz_var, "mouse-y" ) )
-        newval.i_int += p_vout->p_sys->i_y;
-
-    return var_Set( p_vout, psz_var, newval );
+    newval.coords.x += p_vout->p_sys->i_x;
+    newval.coords.y += p_vout->p_sys->i_y;
+    return var_SetChecked( p_vout, psz_var, VLC_VAR_COORDS, newval );
 }
 
 #ifdef BEST_AUTOCROP

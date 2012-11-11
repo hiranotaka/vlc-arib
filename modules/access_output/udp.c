@@ -33,9 +33,6 @@
 #include <vlc_plugin.h>
 
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <errno.h>
-#include <fcntl.h>
 #include <assert.h>
 
 #include <vlc_sout.h>
@@ -81,11 +78,9 @@ vlc_module_begin ()
     set_shortname( "UDP" )
     set_category( CAT_SOUT )
     set_subcategory( SUBCAT_SOUT_ACO )
-    add_integer( SOUT_CFG_PREFIX "caching", DEFAULT_PTS_DELAY / 1000, NULL, CACHING_TEXT, CACHING_LONGTEXT, true )
-    add_integer( SOUT_CFG_PREFIX "group", 1, NULL, GROUP_TEXT, GROUP_LONGTEXT,
+    add_integer( SOUT_CFG_PREFIX "caching", DEFAULT_PTS_DELAY / 1000, CACHING_TEXT, CACHING_LONGTEXT, true )
+    add_integer( SOUT_CFG_PREFIX "group", 1, GROUP_TEXT, GROUP_LONGTEXT,
                                  true )
-    add_obsolete_integer( SOUT_CFG_PREFIX "late" )
-    add_obsolete_bool( SOUT_CFG_PREFIX "raw" )
 
     set_capability( "sout access", 0 )
     add_shortcut( "udp" )
@@ -107,7 +102,6 @@ static const char *const ppsz_core_options[] = {
     "dscp",
     "ttl",
     "miface",
-    "miface-addr",
     NULL
 };
 

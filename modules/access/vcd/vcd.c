@@ -1,7 +1,7 @@
 /*****************************************************************************
  * vcd.c : VCD input module for vlc
  *****************************************************************************
- * Copyright (C) 2000-2004 the VideoLAN team
+ * Copyright © 2000-2011 the VideoLAN team
  * $Id$
  *
  * Author: Johan Bilien <jobi@via.ecp.fr>
@@ -43,11 +43,6 @@
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
-#define CACHING_TEXT N_("Caching value in ms")
-#define CACHING_LONGTEXT N_( \
-    "Caching value for VCDs. This " \
-    "value should be set in milliseconds." )
-
 vlc_module_begin ()
     set_shortname( N_("VCD"))
     set_description( N_("VCD input") )
@@ -56,11 +51,8 @@ vlc_module_begin ()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
 
-    add_usage_hint( N_("[vcd:][device][@[title][,[chapter]]]") )
-    add_integer( "vcd-caching", DEFAULT_PTS_DELAY / 1000, NULL, CACHING_TEXT,
-                 CACHING_LONGTEXT, true )
-    add_shortcut( "vcd" )
-    add_shortcut( "svcd" )
+    add_usage_hint( N_("[vcd:][device][#[title][,[chapter]]]") )
+    add_shortcut( "vcd", "svcd" )
 vlc_module_end ()
 
 /*****************************************************************************
@@ -79,13 +71,12 @@ struct access_sys_t
     int           i_titles;
     input_title_t *title[99];            /* No more that 99 track in a vcd ? */
 
-
     int         i_sector;                                  /* Current Sector */
     int         *p_sectors;                                 /* Track sectors */
 };
 
 static block_t *Block( access_t * );
-static int      Seek( access_t *, int64_t );
+static int      Seek( access_t *, uint64_t );
 static int      Control( access_t *, int, va_list );
 static int      EntryPoints( access_t * );
 
@@ -96,15 +87,17 @@ static int Open( vlc_object_t *p_this )
 {
     access_t     *p_access = (access_t *)p_this;
     access_sys_t *p_sys;
-    char *psz_dup = ToLocaleDup( p_access->psz_path );
+    if( p_access->psz_filepath == NULL )
+        return VLC_EGENERIC;
+
+    char *psz_dup = ToLocaleDup( p_access->psz_filepath );
     char *psz;
     int i_title = 0;
     int i_chapter = 0;
-    int i;
     vcddev_t *vcddev;
 
-    /* Command line: vcd://[dev_path][@title[,chapter]] */
-    if( ( psz = strchr( psz_dup, '@' ) ) )
+    /* Command line: vcd://[dev_path][#title[,chapter]] */
+    if( ( psz = strchr( psz_dup, '#' ) ) )
     {
         *psz++ = '\0';
 
@@ -130,32 +123,20 @@ static int Open( vlc_object_t *p_this )
         }
     }
 
-#ifdef WIN32
+#if defined( WIN32 ) || defined( __OS2__ )
     if( psz_dup[0] && psz_dup[1] == ':' &&
         psz_dup[2] == '\\' && psz_dup[3] == '\0' ) psz_dup[2] = '\0';
 #endif
 
     /* Open VCD */
-    if( !(vcddev = ioctl_Open( p_this, psz_dup )) )
-    {
-        free( psz_dup );
-        return VLC_EGENERIC;
-    }
+    vcddev = ioctl_Open( p_this, psz_dup );
     free( psz_dup );
+    if( !vcddev )
+        return VLC_EGENERIC;
 
     /* Set up p_access */
-    p_access->pf_read = NULL;
-    p_access->pf_block = Block;
-    p_access->pf_control = Control;
-    p_access->pf_seek = Seek;
-    p_access->info.i_update = 0;
-    p_access->info.i_size = 0;
-    p_access->info.i_pos = 0;
-    p_access->info.b_eof = false;
-    p_access->info.i_title = 0;
-    p_access->info.i_seekpoint = 0;
     p_access->p_sys = p_sys = calloc( 1, sizeof( access_sys_t ) );
-    if( !p_sys )
+    if( unlikely(!p_sys ))
         goto error;
     p_sys->vcddev = vcddev;
 
@@ -172,11 +153,12 @@ static int Open( vlc_object_t *p_this )
         msg_Err( p_access, "no movie tracks found" );
         goto error;
     }
+
     /* The first title isn't usable */
     p_sys->i_titles--;
 
     /* Build title table */
-    for( i = 0; i < p_sys->i_titles; i++ )
+    for( int i = 0; i < p_sys->i_titles; i++ )
     {
         input_title_t *t = p_sys->title[i] = vlc_input_title_New();
 
@@ -202,15 +184,24 @@ static int Open( vlc_object_t *p_this )
     p_sys->i_sector = p_sys->p_sectors[1+i_title];
     if( i_chapter > 0 )
     {
-        p_sys->i_sector +=
-            ( p_sys->title[i_title]->seekpoint[i_chapter]->i_byte_offset /
-              VCD_DATA_SIZE );
+        p_sys->i_sector += ( p_sys->title[i_title]->seekpoint[i_chapter]->i_byte_offset /
+                           VCD_DATA_SIZE );
     }
-    p_access->info.i_title = i_title;
+
+    /* p_access */
+    p_access->pf_read    = NULL;
+    p_access->pf_block   = Block;
+    p_access->pf_control = Control;
+    p_access->pf_seek    = Seek;
+
+    p_access->info.i_update    = 0;
+    p_access->info.b_eof       = false;
+
+    p_access->info.i_title     = i_title;
     p_access->info.i_seekpoint = i_chapter;
-    p_access->info.i_size = p_sys->title[i_title]->i_size;
-    p_access->info.i_pos = ( p_sys->i_sector - p_sys->p_sectors[1+i_title] ) *
-        VCD_DATA_SIZE;
+    p_access->info.i_size      = p_sys->title[i_title]->i_size;
+    p_access->info.i_pos       = (uint64_t)( p_sys->i_sector - p_sys->p_sectors[1+i_title] ) *
+                                 VCD_DATA_SIZE;
 
     free( p_access->psz_demux );
     p_access->psz_demux = strdup( "ps" );
@@ -218,7 +209,7 @@ static int Open( vlc_object_t *p_this )
     return VLC_SUCCESS;
 
 error:
-    ioctl_Close( VLC_OBJECT(p_access), p_sys->vcddev );
+    ioctl_Close( VLC_OBJECT(p_access), vcddev );
     free( p_sys );
     return VLC_EGENERIC;
 }
@@ -256,8 +247,8 @@ static int Control( access_t *p_access, int i_query, va_list args )
 
         /* */
         case ACCESS_GET_PTS_DELAY:
-            *va_arg( args, int64_t * )
-                     = (int64_t)var_GetInteger(p_access,"vcd-caching") * 1000;
+            *va_arg( args, int64_t * ) = INT64_C(1000)
+                * var_InheritInteger(p_access, "disc-caching");
             break;
 
         /* */
@@ -305,7 +296,7 @@ static int Control( access_t *p_access, int i_query, va_list args )
                 p_sys->i_sector = p_sys->p_sectors[1+p_access->info.i_title] +
                     t->seekpoint[i]->i_byte_offset / VCD_DATA_SIZE;
 
-                p_access->info.i_pos = (int64_t)(p_sys->i_sector -
+                p_access->info.i_pos = (uint64_t)(p_sys->i_sector -
                     p_sys->p_sectors[1+p_access->info.i_title]) *VCD_DATA_SIZE;
             }
             return VLC_SUCCESS;
@@ -331,7 +322,6 @@ static block_t *Block( access_t *p_access )
     access_sys_t *p_sys = p_access->p_sys;
     int i_blocks = VCD_BLOCKS_ONCE;
     block_t *p_block;
-    int i_read;
 
     /* Check end of file */
     if( p_access->info.b_eof ) return NULL;
@@ -349,8 +339,7 @@ static block_t *Block( access_t *p_access )
             INPUT_UPDATE_TITLE | INPUT_UPDATE_SEEKPOINT | INPUT_UPDATE_SIZE;
         p_access->info.i_title++;
         p_access->info.i_seekpoint = 0;
-        p_access->info.i_size =
-            p_sys->title[p_access->info.i_title]->i_size;
+        p_access->info.i_size = p_sys->title[p_access->info.i_title]->i_size;
         p_access->info.i_pos = 0;
     }
 
@@ -358,12 +347,11 @@ static block_t *Block( access_t *p_access )
     if( p_sys->i_sector + i_blocks >=
         p_sys->p_sectors[p_access->info.i_title + 2] )
     {
-        i_blocks = p_sys->p_sectors[p_access->info.i_title + 2 ] -
-                   p_sys->i_sector;
+        i_blocks = p_sys->p_sectors[p_access->info.i_title + 2 ] - p_sys->i_sector;
     }
 
     /* Do the actual reading */
-    if( !( p_block = block_New( p_access, i_blocks * VCD_DATA_SIZE ) ) )
+    if( i_blocks < 0 || !( p_block = block_New( p_access, i_blocks * VCD_DATA_SIZE ) ) )
     {
         msg_Err( p_access, "cannot get a new block of size: %i",
                  i_blocks * VCD_DATA_SIZE );
@@ -383,13 +371,14 @@ static block_t *Block( access_t *p_access )
     }
 
     /* Update seekpoints */
-    for( i_read = 0; i_read < i_blocks; i_read++ )
+    for( int i_read = 0; i_read < i_blocks; i_read++ )
     {
         input_title_t *t = p_sys->title[p_access->info.i_title];
 
         if( t->i_seekpoint > 0 &&
             p_access->info.i_seekpoint + 1 < t->i_seekpoint &&
-            p_access->info.i_pos + i_read * VCD_DATA_SIZE >=
+            (int64_t) /* Unlikely to go over 8192 PetaB */
+                (p_access->info.i_pos + i_read * VCD_DATA_SIZE) >=
             t->seekpoint[p_access->info.i_seekpoint+1]->i_byte_offset )
         {
             msg_Dbg( p_access, "seekpoint change" );
@@ -408,7 +397,7 @@ static block_t *Block( access_t *p_access )
 /*****************************************************************************
  * Seek:
  *****************************************************************************/
-static int Seek( access_t *p_access, int64_t i_pos )
+static int Seek( access_t *p_access, uint64_t i_pos )
 {
     access_sys_t *p_sys = p_access->p_sys;
     input_title_t *t = p_sys->title[p_access->info.i_title];
@@ -423,7 +412,8 @@ static int Seek( access_t *p_access, int64_t i_pos )
     for( i_seekpoint = 0; i_seekpoint < t->i_seekpoint; i_seekpoint++ )
     {
         if( i_seekpoint + 1 >= t->i_seekpoint ) break;
-        if( i_pos < t->seekpoint[i_seekpoint + 1]->i_byte_offset ) break;
+        if( 0 < t->seekpoint[i_seekpoint + 1]->i_byte_offset &&
+            i_pos < (uint64_t)t->seekpoint[i_seekpoint + 1]->i_byte_offset ) break;
     }
 
     if( i_seekpoint != p_access->info.i_seekpoint )
@@ -448,7 +438,7 @@ static int EntryPoints( access_t *p_access )
     uint8_t      sector[VCD_DATA_SIZE];
 
     entries_sect_t entries;
-    int i_nb, i;
+    int i_nb;
 
     /* Read the entry point sector */
     if( ioctl_ReadSectors( VLC_OBJECT(p_access), p_sys->vcddev,
@@ -473,7 +463,7 @@ static int EntryPoints( access_t *p_access )
         return VLC_EGENERIC;
     }
 
-    for( i = 0; i < i_nb; i++ )
+    for( int i = 0; i < i_nb; i++ )
     {
         const int i_title = BCD_TO_BIN(entries.entry[i].i_track) - 2;
         const int i_sector =

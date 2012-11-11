@@ -31,10 +31,11 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
-#include <vlc_aout.h>
 #include <vlc_block_helper.h>
 #include <vlc_bits.h>
 #include <assert.h>
+
+#include "packetizer_helper.h"
 
 /*****************************************************************************
  * Module descriptor
@@ -89,16 +90,6 @@ struct decoder_sys_t
     mlp_header_t mlp;
 };
 
-enum {
-
-    STATE_NOSYNC,
-    STATE_SYNC,
-    STATE_HEADER,
-    STATE_NEXT_SYNC,
-    STATE_GET_DATA,
-    STATE_SEND_DATA
-};
-
 #define MLP_MAX_SUBSTREAMS (16)
 #define MLP_HEADER_SYNC (28)
 #define MLP_HEADER_SIZE (4 + MLP_HEADER_SYNC + 4 * MLP_MAX_SUBSTREAMS)
@@ -133,7 +124,7 @@ static int Open( vlc_object_t *p_this )
     p_sys->i_state = STATE_NOSYNC;
     date_Set( &p_sys->end_date, 0 );
 
-    p_sys->bytestream = block_BytestreamInit();
+    block_BytestreamInit( &p_sys->bytestream );
     p_sys->b_mlp = false;
 
     /* Set output properties */
@@ -212,7 +203,7 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
         case STATE_SYNC:
             /* New frame, set the Presentation Time Stamp */
             p_sys->i_pts = p_sys->bytestream.p_block->i_pts;
-            if( p_sys->i_pts != 0 &&
+            if( p_sys->i_pts > VLC_TS_INVALID &&
                 p_sys->i_pts != date_Get( &p_sys->end_date ) )
             {
                 date_Set( &p_sys->end_date, p_sys->i_pts );
@@ -302,14 +293,15 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
                 msg_Info( p_dec, "MLP channels: %d samplerate: %d",
                           p_sys->mlp.i_channels, p_sys->mlp.i_rate );
 
+                const mtime_t i_end_date = date_Get( &p_sys->end_date );
                 date_Init( &p_sys->end_date, p_sys->mlp.i_rate, 1 );
-                date_Set( &p_sys->end_date, p_sys->i_pts );
+                date_Set( &p_sys->end_date, i_end_date );
             }
 
             p_dec->fmt_out.audio.i_rate     = p_sys->mlp.i_rate;
             p_dec->fmt_out.audio.i_channels = p_sys->mlp.i_channels;
             p_dec->fmt_out.audio.i_original_channels = p_sys->mlp.i_channels_conf;
-            p_dec->fmt_out.audio.i_physical_channels = p_sys->mlp.i_channels_conf & AOUT_CHAN_PHYSMASK;
+            p_dec->fmt_out.audio.i_physical_channels = p_sys->mlp.i_channels_conf;
 
             p_out_buffer->i_pts = p_out_buffer->i_dts = date_Get( &p_sys->end_date );
 
@@ -318,7 +310,7 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
 
             /* Make sure we don't reuse the same pts twice */
             if( p_sys->i_pts == p_sys->bytestream.p_block->i_pts )
-                p_sys->i_pts = p_sys->bytestream.p_block->i_pts = 0;
+                p_sys->i_pts = p_sys->bytestream.p_block->i_pts = VLC_TS_INVALID;
 
             /* So p_block doesn't get re-added several times */
             *pp_block = block_BytestreamPop( &p_sys->bytestream );

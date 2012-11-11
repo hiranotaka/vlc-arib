@@ -26,14 +26,13 @@
 
 #include <QWidget>
 #include <QDialog>
-#include <QSpacerItem>
 #include <QHBoxLayout>
 #include <QApplication>
 #include <QMainWindow>
-#include <QPushButton>
 #include <QKeyEvent>
 #include <QDesktopWidget>
 #include <QSettings>
+#include <QStyle>
 
 #include "qt4.hpp"
 
@@ -43,7 +42,7 @@ class QVLCTools
        /*
         use this function to save a widgets screen position
         only for windows / dialogs which are floating, if a
-        window is docked into an other - don't all this function
+        window is docked into another - don't all this function
         or it may write garbage to position info!
        */
        static void saveWidgetPosition( QSettings *settings, QWidget *widget)
@@ -76,7 +75,7 @@ class QVLCTools
             widget->resize(defSize);
 
             if(defPos.x() == 0 && defPos.y()==0)
-               centerWidgetOnScreen(widget);
+               widget->setGeometry(QStyle::alignedRect(Qt::LeftToRight, Qt::AlignCenter, widget->size(), qApp->desktop()->availableGeometry()));
             return true;
           }
           return false;
@@ -97,29 +96,12 @@ class QVLCTools
 
          return defaultUsed;
        }
-
-      /*
-        call this method for a window or dialog to show it centred on
-        current screen
-      */
-      static void centerWidgetOnScreen(QWidget *widget)
-      {
-         QDesktopWidget * const desktop = QApplication::desktop();
-         QRect screenRect = desktop->availableGeometry(widget);
-         QPoint p1 = widget->frameGeometry().center();
-
-         widget->move ( screenRect.center() - p1 );
-      }
 };
 
 class QVLCFrame : public QWidget
 {
 public:
-#ifdef __APPLE__
-    QVLCFrame( intf_thread_t *_p_intf ) : QWidget( NULL, Qt::Window ), p_intf( _p_intf )
-#else
     QVLCFrame( intf_thread_t *_p_intf ) : QWidget( NULL ), p_intf( _p_intf )
-#endif
     {};
     virtual ~QVLCFrame()   {};
 
@@ -131,14 +113,14 @@ public:
 protected:
     intf_thread_t *p_intf;
 
-    void readSettings( const QString& name,
+    void restoreWidgetPosition( const QString& name,
                        QSize defSize = QSize( 1, 1 ),
                        QPoint defPos = QPoint( 0, 0 ) )
     {
         QVLCTools::restoreWidgetPosition(p_intf, name, this, defSize, defPos);
     }
 
-    void writeSettings( const QString& name )
+    void saveWidgetPosition( const QString& name )
     {
         QVLCTools::saveWidgetPosition( p_intf, name, this);
     }
@@ -206,9 +188,7 @@ protected:
 class QVLCMW : public QMainWindow
 {
 public:
-    QVLCMW( intf_thread_t *_p_intf ) : QMainWindow( NULL ), p_intf( _p_intf )
-    {    }
-    virtual ~QVLCMW() {};
+    QVLCMW( intf_thread_t *_p_intf ) : QMainWindow( NULL ), p_intf( _p_intf ){}
     void toggleVisible()
     {
         if( isVisible() ) hide();

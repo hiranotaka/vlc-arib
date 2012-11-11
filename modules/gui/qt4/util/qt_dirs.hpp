@@ -1,5 +1,5 @@
 /*****************************************************************************
- * dirs.hpp : String Directory helpers
+ * qt_dirs.hpp : String Directory helpers
  ****************************************************************************
  * Copyright (C) 2006-2008 the VideoLAN team
  * $Id$
@@ -47,5 +47,6 @@ static inline QString colon_unescape( QString s )
 {
     return s.replace( "\\:", ":" ).trimmed();
 }
-#endif
 
+QString toURI( const QString& s );
+#endif

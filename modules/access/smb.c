@@ -28,20 +28,12 @@
 # include "config.h"
 #endif
 
-#include <vlc_common.h>
-#include <vlc_charset.h>
-#include <vlc_plugin.h>
-#include <vlc_access.h>
-
+#include <errno.h>
 #ifdef WIN32
-#   ifdef HAVE_FCNTL_H
-#       include <fcntl.h>
-#   endif
-#   ifdef HAVE_SYS_STAT_H
-#       include <sys/stat.h>
-#   endif
+#   include <fcntl.h>
+#   include <sys/stat.h>
 #   include <io.h>
-#   define smbc_open(a,b,c) utf8_open(a,b,c)
+#   define smbc_open(a,b,c) vlc_open(a,b,c)
 #   define smbc_fstat(a,b) _fstati64(a,b)
 #   define smbc_read read
 #   define smbc_lseek _lseeki64
@@ -50,7 +42,10 @@
 #   include <libsmbclient.h>
 #endif
 
-#include <errno.h>
+#include <vlc_common.h>
+#include <vlc_fs.h>
+#include <vlc_plugin.h>
+#include <vlc_access.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -58,10 +53,6 @@
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
-#define CACHING_TEXT N_("Caching value in ms")
-#define CACHING_LONGTEXT N_( \
-    "Caching value for SMB streams. This " \
-    "value should be set in milliseconds." )
 #define USER_TEXT N_("SMB user name")
 #define USER_LONGTEXT N_("User name that will " \
     "be used for the connection.")
@@ -72,20 +63,19 @@ static void Close( vlc_object_t * );
 #define DOMAIN_LONGTEXT N_("Domain/Workgroup that " \
     "will be used for the connection.")
 
+#define SMB_HELP N_("Samba (Windows network shares) input")
 vlc_module_begin ()
     set_shortname( "SMB" )
     set_description( N_("SMB input") )
+    set_help(SMB_HELP)
     set_capability( "access", 0 )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
-    add_integer( "smb-caching", 2 * DEFAULT_PTS_DELAY / 1000, NULL,
-                 CACHING_TEXT, CACHING_LONGTEXT, true )
-        change_safe()
-    add_string( "smb-user", NULL, NULL, USER_TEXT, USER_LONGTEXT,
+    add_string( "smb-user", NULL, USER_TEXT, USER_LONGTEXT,
                 false )
-    add_password( "smb-pwd", NULL, NULL, PASS_TEXT,
+    add_password( "smb-pwd", NULL, PASS_TEXT,
                   PASS_LONGTEXT, false )
-    add_string( "smb-domain", NULL, NULL, DOMAIN_TEXT,
+    add_string( "smb-domain", NULL, DOMAIN_TEXT,
                 DOMAIN_LONGTEXT, false )
     add_shortcut( "smb" )
     set_callbacks( Open, Close )
@@ -95,7 +85,7 @@ vlc_module_end ()
  * Local prototypes
  *****************************************************************************/
 static ssize_t Read( access_t *, uint8_t *, size_t );
-static int Seek( access_t *, int64_t );
+static int Seek( access_t *, uint64_t );
 static int Control( access_t *, int, va_list );
 
 struct access_sys_t
@@ -129,32 +119,32 @@ static int Open( vlc_object_t *p_this )
     access_t     *p_access = (access_t*)p_this;
     access_sys_t *p_sys;
     struct stat  filestat;
-    char         *psz_path, *psz_uri;
+    char         *psz_location, *psz_uri;
     char         *psz_user = NULL, *psz_pwd = NULL, *psz_domain = NULL;
     int          i_ret;
     int          i_smb;
 
     /* Parse input URI
      * [[[domain;]user[:password@]]server[/share[/path[/file]]]] */
-    psz_path = strchr( p_access->psz_path, '/' );
-    if( !psz_path )
+    psz_location = strchr( p_access->psz_location, '/' );
+    if( !psz_location )
     {
-        msg_Err( p_access, "invalid SMB URI: smb://%s", psz_path );
+        msg_Err( p_access, "invalid SMB URI: smb://%s", psz_location );
         return VLC_EGENERIC;
     }
     else
     {
-        char *psz_tmp = strdup( p_access->psz_path );
+        char *psz_tmp = strdup( p_access->psz_location );
         char *psz_parser;
 
-        psz_tmp[ psz_path - p_access->psz_path ] = 0;
-        psz_path = p_access->psz_path;
+        psz_tmp[ psz_location - p_access->psz_location ] = 0;
+        psz_location = p_access->psz_location;
         psz_parser = strchr( psz_tmp, '@' );
         if( psz_parser )
         {
             /* User info is there */
             *psz_parser = 0;
-            psz_path = p_access->psz_path + (psz_parser - psz_tmp) + 1;
+            psz_location = p_access->psz_location + (psz_parser - psz_tmp) + 1;
 
             psz_parser = strchr( psz_tmp, ':' );
             if( psz_parser )
@@ -182,25 +172,25 @@ static int Open( vlc_object_t *p_this )
     /* Build an SMB URI
      * smb://[[[domain;]user[:password@]]server[/share[/path[/file]]]] */
 
-    if( !psz_user ) psz_user = var_CreateGetString( p_access, "smb-user" );
+    if( !psz_user ) psz_user = var_InheritString( p_access, "smb-user" );
     if( psz_user && !*psz_user ) { free( psz_user ); psz_user = NULL; }
-    if( !psz_pwd ) psz_pwd = var_CreateGetString( p_access, "smb-pwd" );
+    if( !psz_pwd ) psz_pwd = var_InheritString( p_access, "smb-pwd" );
     if( psz_pwd && !*psz_pwd ) { free( psz_pwd ); psz_pwd = NULL; }
-    if( !psz_domain ) psz_domain = var_CreateGetString( p_access, "smb-domain" );
+    if( !psz_domain ) psz_domain = var_InheritString( p_access, "smb-domain" );
     if( psz_domain && !*psz_domain ) { free( psz_domain ); psz_domain = NULL; }
 
 #ifdef WIN32
     if( psz_user )
-        Win32AddConnection( p_access, psz_path, psz_user, psz_pwd, psz_domain);
-    i_ret = asprintf( &psz_uri, "//%s", psz_path );
+        Win32AddConnection( p_access, psz_location, psz_user, psz_pwd, psz_domain);
+    i_ret = asprintf( &psz_uri, "//%s", psz_location );
 #else
     if( psz_user )
         i_ret = asprintf( &psz_uri, "smb://%s%s%s%s%s@%s",
                           psz_domain ? psz_domain : "", psz_domain ? ";" : "",
                           psz_user, psz_pwd ? ":" : "",
-                          psz_pwd ? psz_pwd : "", psz_path );
+                          psz_pwd ? psz_pwd : "", psz_location );
     else
-        i_ret = asprintf( &psz_uri, "smb://%s", psz_path );
+        i_ret = asprintf( &psz_uri, "smb://%s", psz_location );
 #endif
 
     free( psz_user );
@@ -228,7 +218,8 @@ static int Open( vlc_object_t *p_this )
 #endif
     if( (i_smb = smbc_open( psz_uri, O_RDONLY, 0 )) < 0 )
     {
-        msg_Err( p_access, "open failed for '%s' (%m)", p_access->psz_path );
+        msg_Err( p_access, "open failed for '%s' (%m)",
+                 p_access->psz_location );
         free( psz_uri );
         return VLC_EGENERIC;
     }
@@ -249,9 +240,6 @@ static int Open( vlc_object_t *p_this )
 
     p_sys->i_smb = i_smb;
 
-    /* Update default_pts to a suitable value for smb access */
-    var_Create( p_access, "smb-caching", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
-
     return VLC_SUCCESS;
 }
 
@@ -270,12 +258,13 @@ static void Close( vlc_object_t *p_this )
 /*****************************************************************************
  * Seek: try to go at the right place
  *****************************************************************************/
-static int Seek( access_t *p_access, int64_t i_pos )
+static int Seek( access_t *p_access, uint64_t i_pos )
 {
     access_sys_t *p_sys = p_access->p_sys;
     int64_t      i_ret;
 
-    if( i_pos < 0 ) return VLC_EGENERIC;
+    if( i_pos >= INT64_MAX )
+        return VLC_EGENERIC;
 
     msg_Dbg( p_access, "seeking to %"PRId64, i_pos );
 
@@ -330,8 +319,8 @@ static int Control( access_t *p_access, int i_query, va_list args )
         break;
 
     case ACCESS_GET_PTS_DELAY:
-        *va_arg( args, int64_t * )
-                  = (int64_t)var_GetInteger( p_access, "smb-caching" ) * 1000;
+        *va_arg( args, int64_t * ) = INT64_C(1000)
+            * var_InheritInteger( p_access, "network-caching" );
         break;
 
     case ACCESS_SET_PAUSE_STATE:
@@ -359,27 +348,11 @@ static void Win32AddConnection( access_t *p_access, char *psz_path,
                                 char *psz_user, char *psz_pwd,
                                 char *psz_domain )
 {
-    DWORD (*OurWNetAddConnection2)( LPNETRESOURCE, LPCTSTR, LPCTSTR, DWORD );
     char psz_remote[MAX_PATH], psz_server[MAX_PATH], psz_share[MAX_PATH];
     NETRESOURCE net_resource;
     DWORD i_result;
     char *psz_parser;
     VLC_UNUSED( psz_domain );
-
-    HINSTANCE hdll = LoadLibrary(_T("MPR.DLL"));
-    if( !hdll )
-    {
-        msg_Warn( p_access, "couldn't load mpr.dll" );
-        return;
-    }
-
-    OurWNetAddConnection2 =
-      (void *)GetProcAddress( hdll, _T("WNetAddConnection2A") );
-    if( !OurWNetAddConnection2 )
-    {
-        msg_Warn( p_access, "couldn't find WNetAddConnection2 in mpr.dll" );
-        return;
-    }
 
     memset( &net_resource, 0, sizeof(net_resource) );
     net_resource.dwType = RESOURCETYPE_DISK;
@@ -398,7 +371,7 @@ static void Win32AddConnection( access_t *p_access, char *psz_path,
     snprintf( psz_remote, sizeof( psz_remote ), "\\\\%s\\%s", psz_server, psz_share );
     net_resource.lpRemoteName = psz_remote;
 
-    i_result = OurWNetAddConnection2( &net_resource, psz_pwd, psz_user, 0 );
+    i_result = WNetAddConnection2( &net_resource, psz_pwd, psz_user, 0 );
 
     if( i_result != NO_ERROR )
     {
@@ -413,7 +386,5 @@ static void Win32AddConnection( access_t *p_access, char *psz_path,
     {
         msg_Dbg( p_access, "failed to connect to %s", psz_remote );
     }
-
-    FreeLibrary( hdll );
 }
 #endif // WIN32

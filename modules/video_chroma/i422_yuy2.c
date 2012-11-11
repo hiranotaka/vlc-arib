@@ -71,14 +71,18 @@ vlc_module_begin ()
 #if defined (MODULE_NAME_IS_i422_yuy2)
     set_description( N_("Conversions from " SRC_FOURCC " to " DEST_FOURCC) )
     set_capability( "video filter2", 80 )
+# define vlc_CPU_capable() (true)
+# define VLC_TARGET
 #elif defined (MODULE_NAME_IS_i422_yuy2_mmx)
     set_description( N_("MMX conversions from " SRC_FOURCC " to " DEST_FOURCC) )
     set_capability( "video filter2", 100 )
-    add_requirement( MMX )
+# define vlc_CPU_capable() vlc_CPU_MMX()
+# define VLC_TARGET VLC_MMX
 #elif defined (MODULE_NAME_IS_i422_yuy2_sse2)
     set_description( N_("SSE2 conversions from " SRC_FOURCC " to " DEST_FOURCC) )
     set_capability( "video filter2", 120 )
-    add_requirement( SSE2 )
+# define vlc_CPU_capable() vlc_CPU_SSE2()
+# define VLC_TARGET VLC_SSE
 #endif
     set_callbacks( Activate, NULL )
 vlc_module_end ()
@@ -92,6 +96,8 @@ static int Activate( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
 
+    if( !vlc_CPU_capable() )
+        return VLC_EGENERIC;
     if( p_filter->fmt_in.video.i_width & 1
      || p_filter->fmt_in.video.i_height & 1 )
     {
@@ -115,6 +121,7 @@ static int Activate( vlc_object_t *p_this )
                     p_filter->pf_video_filter = I422_UYVY_Filter;
                     break;
 
+                case VLC_FOURCC('I','U','Y','V'):
                     p_filter->pf_video_filter = I422_IUYV_Filter;
                     break;
 
@@ -153,6 +160,7 @@ VIDEO_FILTER_WRAPPER( I422_Y211 )
 /*****************************************************************************
  * I422_YUY2: planar YUV 4:2:2 to packed YUY2 4:2:2
  *****************************************************************************/
+VLC_TARGET
 static void I422_YUY2( filter_t *p_filter, picture_t *p_source,
                                            picture_t *p_dest )
 {
@@ -246,6 +254,7 @@ static void I422_YUY2( filter_t *p_filter, picture_t *p_source,
 /*****************************************************************************
  * I422_YVYU: planar YUV 4:2:2 to packed YVYU 4:2:2
  *****************************************************************************/
+VLC_TARGET
 static void I422_YVYU( filter_t *p_filter, picture_t *p_source,
                                            picture_t *p_dest )
 {
@@ -339,6 +348,7 @@ static void I422_YVYU( filter_t *p_filter, picture_t *p_source,
 /*****************************************************************************
  * I422_UYVY: planar YUV 4:2:2 to packed UYVY 4:2:2
  *****************************************************************************/
+VLC_TARGET
 static void I422_UYVY( filter_t *p_filter, picture_t *p_source,
                                            picture_t *p_dest )
 {
@@ -443,6 +453,7 @@ static void I422_IUYV( filter_t *p_filter, picture_t *p_source,
 /*****************************************************************************
  * I422_cyuv: planar YUV 4:2:2 to upside-down packed UYVY 4:2:2
  *****************************************************************************/
+VLC_TARGET
 static void I422_cyuv( filter_t *p_filter, picture_t *p_source,
                                            picture_t *p_dest )
 {

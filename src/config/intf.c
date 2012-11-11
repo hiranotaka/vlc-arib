@@ -1,24 +1,24 @@
 /*****************************************************************************
  * intf.c: interface configuration handling
  *****************************************************************************
- * Copyright (C) 2001-2007 the VideoLAN team
+ * Copyright (C) 2001-2007 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -29,8 +29,9 @@
 
 #include <assert.h>
 
+#undef config_AddIntf
 /* Adds an extra interface to the configuration */
-void __config_AddIntf( vlc_object_t *p_this, const char *psz_intf )
+void config_AddIntf( vlc_object_t *p_this, const char *psz_intf )
 {
     assert( psz_intf );
 
@@ -78,8 +79,9 @@ void __config_AddIntf( vlc_object_t *p_this, const char *psz_intf )
     free( psz_config );
 }
 
+#undef config_RemoveIntf
 /* Removes an extra interface from the configuration */
-void __config_RemoveIntf( vlc_object_t *p_this, const char *psz_intf )
+void config_RemoveIntf( vlc_object_t *p_this, const char *psz_intf )
 {
     assert( psz_intf );
 
@@ -129,11 +131,12 @@ void __config_RemoveIntf( vlc_object_t *p_this, const char *psz_intf )
     free( psz_config );
 }
 
+#undef config_ExistIntf
 /*
  * Returns true if the specified extra interface is present in the
  * configuration, false if not
  */
-bool __config_ExistIntf( vlc_object_t *p_this, const char *psz_intf )
+bool config_ExistIntf( vlc_object_t *p_this, const char *psz_intf )
 {
     assert( psz_intf );
 

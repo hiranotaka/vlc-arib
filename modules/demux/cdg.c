@@ -33,8 +33,6 @@
 #include <vlc_plugin.h>
 #include <vlc_demux.h>
 
-#include <vlc_codecs.h>
-
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -47,8 +45,7 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_INPUT_DEMUX )
     set_capability( "demux", 3 )
     set_callbacks( Open, Close )
-    add_shortcut( "cdg" )
-    add_shortcut( "subtitle" )
+    add_shortcut( "cdg", "subtitle" )
 vlc_module_end ()
 
 /*****************************************************************************
@@ -89,9 +86,13 @@ static int Open( vlc_object_t * p_this )
 //        return VLC_EGENERIC;
 //    }
 
+    p_sys = malloc( sizeof( demux_sys_t ) );
+    if( unlikely(p_sys == NULL) )
+        return VLC_ENOMEM;
+
     p_demux->pf_demux   = Demux;
     p_demux->pf_control = Control;
-    p_demux->p_sys      = p_sys = malloc( sizeof( demux_sys_t ) );
+    p_demux->p_sys      = p_sys;
 
     /* */
     es_format_Init( &p_sys->fmt, VIDEO_ES, VLC_CODEC_CDG );
@@ -102,7 +103,7 @@ static int Open( vlc_object_t * p_this )
 
     /* There is CDG_FRAME_RATE frames per second */
     date_Init( &p_sys->pts, CDG_FRAME_RATE, 1 );
-    date_Set( &p_sys->pts, 1 );
+    date_Set( &p_sys->pts, 0 );
 
     return VLC_SUCCESS;
 }
@@ -125,11 +126,14 @@ static int Demux( demux_t *p_demux )
     }
 
     p_block->i_dts =
-    p_block->i_pts = date_Increment( &p_sys->pts, 1 );
+    p_block->i_pts = VLC_TS_0 + date_Get( &p_sys->pts );
 
     es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_block->i_pts );
 
     es_out_Send( p_demux->out, p_sys->p_es, p_block );
+
+    date_Increment( &p_sys->pts, 1 );
+
     return 1;
 }
 

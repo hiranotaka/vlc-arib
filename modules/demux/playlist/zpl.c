@@ -31,7 +31,6 @@
 
 #include <vlc_common.h>
 #include <vlc_demux.h>
-#include <vlc_charset.h>
 
 #include "playlist.h"
 
@@ -44,7 +43,6 @@ struct demux_sys_t
  * Local prototypes
  *****************************************************************************/
 static int Demux( demux_t *p_demux);
-static int Control( demux_t *p_demux, int i_query, va_list args );
 static char* ParseTabValue(char* psz_string);
 
 /*****************************************************************************
@@ -81,7 +79,7 @@ static int Demux( demux_t *p_demux )
     mtime_t i_duration = -1;
     char *psz_title = NULL,       *psz_genre = NULL,      *psz_tracknum = NULL,
          *psz_language = NULL,    *psz_artist = NULL,     *psz_album = NULL,
-         *psz_date = NULL,        *psz_publicher = NULL,  *psz_encodedby = NULL,
+         *psz_date = NULL,        *psz_publisher = NULL,  *psz_encodedby = NULL,
          *psz_description = NULL, *psz_url = NULL,        *psz_copyright = NULL,
          *psz_mrl = NULL;
 
@@ -102,6 +100,8 @@ static int Demux( demux_t *p_demux )
         free( psz_line );
         psz_line = stream_ReadLine( p_demux->s );
     }
+
+    input_item_node_t *p_subitems = input_item_node_Create( p_current_input );
 
     /* Loop on all lines */
     while( psz_line )
@@ -148,7 +148,7 @@ static int Demux( demux_t *p_demux )
         PARSE( "TA", psz_artist )
         PARSE( "TB", psz_album )
         PARSE( "TY", psz_date )
-        PARSE( "TH", psz_publicher )
+        PARSE( "TH", psz_publisher )
         PARSE( "TE", psz_encodedby )
         PARSE( "TC", psz_description )
         PARSE( "TU", psz_url )
@@ -164,9 +164,9 @@ static int Demux( demux_t *p_demux )
         else if( !strncasecmp( psz_parse, "BR!", strlen( "BR!" ) ) )
         {
             /* create the input item */
-            input_item_t *p_input = input_item_NewExt( p_demux, psz_mrl,
+            input_item_t *p_input = input_item_NewExt( psz_mrl,
                                         psz_title, 0, NULL, 0, i_duration );
-            input_item_AddSubItem( p_current_input, p_input );
+            input_item_node_AppendItem( p_subitems, p_input );
             FREENULL( psz_mrl );
             FREENULL( psz_title );
             i_duration = -1;
@@ -187,8 +187,11 @@ static int Demux( demux_t *p_demux )
             SET( psz_encodedby, EncodedBy );
             SET( psz_description, Description );
             SET( psz_copyright, Copyright );
+            SET( psz_url, URL );
+            SET( psz_publisher, Publisher );
 #undef SET
 
+            vlc_gc_decref( p_input );
         }
         else
             msg_Warn( p_demux, "invalid line '%s'", psz_parse );
@@ -198,15 +201,11 @@ static int Demux( demux_t *p_demux )
         psz_line = stream_ReadLine( p_demux->s );
     }
 
+    input_item_node_PostAndDelete( p_subitems );
+
     vlc_gc_decref(p_current_input);
     var_Destroy( p_demux, "zpl-extvlcopt" );
     return 0; /* Needed for correct operation of go back */
-}
-
-static int Control( demux_t *p_demux, int i_query, va_list args )
-{
-    VLC_UNUSED(p_demux); VLC_UNUSED(i_query); VLC_UNUSED(args);
-    return VLC_EGENERIC;
 }
 
 static char* ParseTabValue(char* psz_string)
@@ -222,5 +221,3 @@ static char* ParseTabValue(char* psz_string)
 
     return psz_value;
 }
-
-

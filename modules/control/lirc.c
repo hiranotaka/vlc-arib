@@ -25,6 +25,7 @@
  * Preamble
  *****************************************************************************/
 
+#include <errno.h>
 #include <fcntl.h>
 
 #ifdef HAVE_CONFIG_H
@@ -35,6 +36,7 @@
 #include <vlc_plugin.h>
 #include <vlc_interface.h>
 #include <vlc_osd.h>
+#include <vlc_keys.h>
 
 #ifdef HAVE_POLL
 # include <poll.h>
@@ -42,7 +44,7 @@
 
 #include <lirc/lirc_client.h>
 
-#define LIRC_TEXT N_("Change the lirc configuration file.")
+#define LIRC_TEXT N_("Change the lirc configuration file")
 #define LIRC_LONGTEXT N_( \
     "Tell lirc to read this configuration file. By default it " \
     "searches in the users home directory." )
@@ -61,7 +63,7 @@ vlc_module_begin ()
     set_capability( "interface", 0 )
     set_callbacks( Open, Close )
 
-    add_string( "lirc-file", NULL, NULL,
+    add_string( "lirc-file", NULL,
                 LIRC_TEXT, LIRC_LONGTEXT, true )
 vlc_module_end ()
 
@@ -80,7 +82,7 @@ struct intf_sys_t
  *****************************************************************************/
 static void Run( intf_thread_t * );
 
-static int  Process( intf_thread_t * );
+static void Process( intf_thread_t * );
 
 /*****************************************************************************
  * Open: initialize interface
@@ -153,7 +155,12 @@ static void Run( intf_thread_t *p_intf )
         /* Wait for data */
         struct pollfd ufd = { .fd = p_sys->i_fd, .events = POLLIN, .revents = 0 };
         if( poll( &ufd, 1, -1 ) == -1 )
-            break;
+        {
+            if( errno == EINTR )
+                continue;
+            else
+                break;
+        }
 
         /* Process */
         int canc = vlc_savecancel();
@@ -162,29 +169,28 @@ static void Run( intf_thread_t *p_intf )
     }
 }
 
-static int Process( intf_thread_t *p_intf )
+static void Process( intf_thread_t *p_intf )
 {
     for( ;; )
     {
         char *code, *c;
-        int i_ret = lirc_nextcode( &code );
-
-        if( i_ret )
-            return i_ret;
+        if( lirc_nextcode( &code ) )
+            return;
 
         if( code == NULL )
-            return 0;
+            return;
 
         while( vlc_object_alive( p_intf )
                 && (lirc_code2char( p_intf->p_sys->config, code, &c ) == 0)
                 && (c != NULL) )
         {
-            vlc_value_t keyval;
-
             if( !strncmp( "key-", c, 4 ) )
             {
-                keyval.i_int = config_GetInt( p_intf, c );
-                var_Set( p_intf->p_libvlc, "key-pressed", keyval );
+                vlc_action_t i_key = vlc_GetActionId( c );
+                if( i_key )
+                    var_SetInteger( p_intf->p_libvlc, "key-action", i_key );
+                else
+                    msg_Err( p_intf, "Unknown hotkey '%s'", c );
             }
             else if( !strncmp( "menu ", c, 5)  )
             {
@@ -213,7 +219,9 @@ static int Process( intf_thread_t *p_intf )
             }
             else
             {
-                msg_Err( p_intf, "this doesn't appear to be a valid keycombo lirc sent us. Please look at the doc/lirc/example.lirc file in VLC" );
+                msg_Err( p_intf, "this doesn't appear to be a valid keycombo "
+                                 "lirc sent us. Please look at the "
+                                 "doc/lirc/example.lirc file in VLC" );
                 break;
             }
         }

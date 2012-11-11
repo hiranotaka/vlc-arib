@@ -1,24 +1,24 @@
 /*****************************************************************************
  * fourcc.c: fourcc helpers functions
  *****************************************************************************
- * Copyright (C) 2009 Laurent Aimar
- * $Id$
+ * Copyright © 2009-2011 Laurent Aimar
  *
  * Authors: Laurent Aimar <fenrir@videolan.org>
+ *          Jean-Baptiste Kempf <jb@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -28,8 +28,18 @@
 # include "config.h"
 #endif
 
+#include <vlc_common.h>
 #include <vlc_fourcc.h>
+#include <vlc_es.h>
 #include <assert.h>
+
+
+typedef struct
+{
+    char p_class[4];
+    char p_fourcc[4];
+    char psz_description[56];
+} staticentry_t;
 
 typedef struct
 {
@@ -55,7 +65,7 @@ typedef struct
 
 
 /* */
-static const entry_t p_list_video[] = {
+static const staticentry_t p_list_video[] = {
 
     B(VLC_CODEC_MPGV, "MPEG-1/2 Video"),
         A("mpgv"),
@@ -66,48 +76,57 @@ static const entry_t p_list_video[] = {
         A("MPEG"),
         A("mpg2"),
         A("MPG2"),
+        A("H262"),
 
         E("PIM1", "Pinnacle DC1000 (MPEG-1 Video)"),
 
         E("hdv1", "HDV 720p30 (MPEG-2 Video)"),
-        E("hdv2", "Sony HDV (MPEG-2 Video)"),
-        E("hdv3", "FCP HDV (MPEG-2 Video)"),
+        E("hdv2", "Sony HDV 1080i60 (MPEG-2 Video)"),
+        E("hdv3", "FCP HDV 1080i50 (MPEG-2 Video)"),
+        E("hdv4", "HDV 720p24 (MPEG-2 Video)"),
         E("hdv5", "HDV 720p25 (MPEG-2 Video)"),
         E("hdv6", "HDV 1080p24 (MPEG-2 Video)"),
         E("hdv7", "HDV 1080p25 (MPEG-2 Video)"),
         E("hdv8", "HDV 1080p30 (MPEG-2 Video)"),
+        E("hdv9", "HDV 720p60 JVC (MPEG-2 Video)"),
+        E("hdva", "HDV 720p50 (MPEG-2 Video)"),
 
-        E("mx5n", "MPEG2 IMX NTSC 525/60 50mb/s (FCP)"),
-        E("mx5p", "MPEG2 IMX PAL 625/60 50mb/s (FCP)"),
-        E("mx4n", "MPEG2 IMX NTSC 525/60 40mb/s (FCP)"),
-        E("mx4p", "MPEG2 IMX PAL 625/50 40mb/s (FCP)"),
-        E("mx3n", "MPEG2 IMX NTSC 525/60 30mb/s (FCP)"),
-        E("mx3p", "MPEG2 IMX NTSC 625/50 30mb/s (FCP)"),
+        E("mx5n", "MPEG2 IMX NTSC 525/60 50Mb/s (FCP)"),
+        E("mx5p", "MPEG2 IMX PAL 625/60 50Mb/s (FCP)"),
+        E("mx4n", "MPEG2 IMX NTSC 525/60 40Mb/s (FCP)"),
+        E("mx4p", "MPEG2 IMX PAL 625/50 40Mb/s (FCP)"),
+        E("mx3n", "MPEG2 IMX NTSC 525/60 30Mb/s (FCP)"),
+        E("mx3p", "MPEG2 IMX NTSC 625/50 30Mb/s (FCP)"),
 
-        E("xdv1", "XDCAM HD"),
-        E("xdv2", "XDCAM HD 1080i60 35mb/s"),
-        E("xdv3", "XDCAM HD 1080i50 35mb/s"),
-        E("xdv4", "XDCAM HD"),
-        E("xdv5", "XDCAM HD"),
-        E("xdv6", "XDCAM HD 1080p24 35mb/s"),
-        E("xdv7", "XDCAM HD 1080p25 35mb/s"),
-        E("xdv8", "XDCAM HD 1080p30 35mb/s"),
-        E("xdv9", "XDCAM HD"),
+        E("xdv1", "XDCAM HD 720p30 35Mb/s"),
+        E("xdv2", "XDCAM HD 1080i60 35Mb/s"),
+        E("xdv3", "XDCAM HD 1080i50 35Mb/s"),
+        E("xdv4", "XDCAM HD 720p24 35Mb/s"),
+        E("xdv5", "XDCAM HD 720p25 35Mb/s"),
+        E("xdv6", "XDCAM HD 1080p24 35Mb/s"),
+        E("xdv7", "XDCAM HD 1080p25 35Mb/s"),
+        E("xdv8", "XDCAM HD 1080p30 35Mb/s"),
+        E("xdv9", "XDCAM HD 720p60 35Mb/s"),
+        E("xdva", "XDCAM HD 720p50 35Mb/s"),
 
-        E("xdva", "XDCAM"),
-        E("xdvb", "XDCAM"),
-        E("xdvc", "XDCAM"),
-        E("xdvd", "XDCAM"),
-        E("xdve", "XDCAM"),
-        E("xdvf", "XDCAM"),
+        E("xdvb", "XDCAM EX 1080i60 50Mb/s CBR"),
+        E("xdvc", "XDCAM EX 1080i50 50Mb/s CBR"),
+        E("xdvd", "XDCAM EX 1080p24 50Mb/s CBR"),
+        E("xdve", "XDCAM EX 1080p25 50Mb/s CBR"),
+        E("xdvf", "XDCAM EX 1080p30 50Mb/s CBR"),
 
-        E("xd5a", "XDCAM"),
-        E("xd5b", "XDCAM"),
-        E("xd5c", "XDCAM"),
-        E("xd5d", "XDCAM"),
-        E("xd5e", "XDCAM"),
-        E("xd5f", "XDCAM"),
-        E("xd59", "XDCAM"),
+        E("xd54", "XDCAM HD422 720p24 50Mb/s CBR"),
+        E("xd55", "XDCAM HD422 720p25 50Mb/s CBR"),
+        E("xd59", "XDCAM HD422 720p60 50Mb/s CBR"),
+        E("xd5a", "XDCAM HD422 720p50 50Mb/s CBR"),
+        E("xd5b", "XDCAM HD422 1080i60 50Mb/s CBR"),
+        E("xd5c", "XDCAM HD422 1080i50 50Mb/s CBR"),
+        E("xd5d", "XDCAM HD422 1080p24 50Mb/s CBR"),
+        E("xd5e", "XDCAM HD422 1080p25 50Mb/s CBR"),
+        E("xd5f", "XDCAM HD422 1080p30 50Mb/s CBR"),
+
+        E("xdhd", "XDCAM HD 540p"),
+        E("xdh2", "XDCAM HD422 540p"),
 
         E("AVmp", "AVID IMX PAL"),
         E("MMES", "Matrox MPEG-2"),
@@ -136,12 +155,15 @@ static const entry_t p_list_video[] = {
         A("PM4V"),
         A("M4T3"),
         A("GEOX"),
+        A("GEOV"),
         A("DMK2"),
         A("WV1F"),
         A("DIGI"),
         A("INMC"),
         A("SN40"),
         A("EPHV"),
+        A("DM4V"),
+        A("SM4V"),
         /* XVID flavours */
         E("xvid", "Xvid MPEG-4 Video"),
         E("XVID", "Xvid MPEG-4 Video"),
@@ -153,6 +175,7 @@ static const entry_t p_list_video[] = {
         E("dx50", "DivX MPEG-4 Video"),
         E("BLZ0", "Blizzard MPEG-4 Video"),
         E("DXGM", "Electronic Arts Game MPEG-4 Video"),
+        E("DreX", "DreX Mpeg-4"),
         /* 3ivx delta 4 */
         E("3IV2", "3ivx MPEG-4 Video"),
         E("3iv2", "3ivx MPEG-4 Video"),
@@ -160,6 +183,7 @@ static const entry_t p_list_video[] = {
         E("UMP4", "UB MPEG-4 Video"),
         E("SEDG", "Samsung MPEG-4 Video"),
         E("RMP4", "REALmagic MPEG-4 Video"),
+        E("LMP4", "Lead MPEG-4 Video"),
         E("HDX4", "Jomigo HDX4 (MPEG-4 Video)"),
         E("hdx4", "Jomigo HDX4 (MPEG-4 Video)"),
         E("SMP4", "Samsung SMP4 (MPEG-4 Video)"),
@@ -168,6 +192,9 @@ static const entry_t p_list_video[] = {
         E("FVFW", "FFmpeg MPEG-4"),
         E("FFDS", "FFDShow MPEG-4"),
         E("VIDM", "vidm 4.01 codec"),
+        E("DP02", "DynaPel MPEG-4 codec"),
+        E("PLV1", "Pelco DVR MPEG-4"),
+        E("QMP4", "QNAP Systems MPEG-4"),
         /* 3ivx delta 3.5 Unsupported
          * putting it here gives extreme distorted images */
         //E("3IV1", "3ivx delta 3.5 MPEG-4 Video"),
@@ -218,6 +245,7 @@ static const entry_t p_list_video[] = {
         /* who knows? */
         A("3VID"),
         A("3vid"),
+        A("DVX1"),
         A("DVX3"),
 
     /* Sorenson v1 */
@@ -239,11 +267,24 @@ static const entry_t p_list_video[] = {
         /* avc1: special case h264 */
         A("avc1"),
         A("AVC1"),
+        E("ai5p", "AVC-Intra  50M 720p24/30/60"),
+        E("ai5q", "AVC-Intra  50M 720p25/50"),
+        E("ai52", "AVC-Intra  50M 1080p25/50"),
+        E("ai53", "AVC-Intra  50M 1080p24/30/60"),
+        E("ai55", "AVC-Intra  50M 1080i50"),
+        E("ai56", "AVC-Intra  50M 1080i60"),
+        E("ai1p", "AVC-Intra 100M 720p24/30/60"),
+        E("ai1q", "AVC-Intra 100M 720p25/50"),
+        E("ai12", "AVC-Intra 100M 1080p25/50"),
+        E("ai13", "AVC-Intra 100M 1080p24/30/60"),
+        E("ai15", "AVC-Intra 100M 1080i50"),
+        E("ai16", "AVC-Intra 100M 1080i60"),
         E("VSSH", "Vanguard VSS H264"),
         E("VSSW", "Vanguard VSS H264"),
         E("vssh", "Vanguard VSS H264"),
         E("DAVC", "Dicas MPEGable H.264/MPEG-4 AVC"),
         E("davc", "Dicas MPEGable H.264/MPEG-4 AVC"),
+        E("x3eV", "DreX H.264"),
 
     /* H263 and H263i */
     /* H263(+) is also known as Real Video 1.0 */
@@ -257,7 +298,9 @@ static const entry_t p_list_video[] = {
         A("S263"),
         A("U263"),
         A("u263"),
+        A("lsvm"),
         E("D263", "DEC H263"),
+        E("d263", "DEC H263"),
         E("L263", "LEAD H263"),
         E("M263", "Microsoft H263"),
         E("X263", "Xirlink H263"),
@@ -275,6 +318,7 @@ static const entry_t p_list_video[] = {
         E("viv1", "H263+"),
         E("vivO", "H263+"),
         E("viv2", "H263+"),
+        E("VIVO", "H263+"),
         E("U263", "UB H263+"),
 
     /* Flash (H263) variant */
@@ -293,7 +337,9 @@ static const entry_t p_list_video[] = {
     /* MJPEG */
     B(VLC_CODEC_MJPG, "Motion JPEG Video"),
         A("MJPG"),
+        A("MJPx"),
         A("mjpg"),
+        A("mJPG"),
         A("mjpa"),
         A("jpeg"),
         A("JPEG"),
@@ -301,12 +347,15 @@ static const entry_t p_list_video[] = {
         A("JPGL"),
         A("AVDJ"),
         A("MMJP"),
+        A("FLJP"),
+        A("FMJP"),
+        A("SJPG"),
         A("QIVG"),
-        /* AVID MJPEG */
         E("AVRn", "Avid Motion JPEG"),
         E("AVDJ", "Avid Motion JPEG"),
         E("ADJV", "Avid Motion JPEG"),
         E("dmb1", "Motion JPEG OpenDML Video"),
+        E("DMB1", "Motion JPEG OpenDML Video"),
         E("ijpg", "Intergraph JPEG Video"),
         E("IJPG", "Intergraph JPEG Video"),
         E("ACDV", "ACD Systems Digital"),
@@ -317,6 +366,7 @@ static const entry_t p_list_video[] = {
 
     B(VLC_CODEC_LJPG, "Lead Motion JPEG Video"),
         A("LJPG"),
+        E("Ljpg", "Lead Motion JPEG"),
 
     // ? from avcodec/fourcc.c but makes not sense.
     //{ VLC_FOURCC( 'L','J','P','G' ), CODEC_ID_MJPEG,       VIDEO_ES, "Lead Motion JPEG Video" },
@@ -340,29 +390,40 @@ static const entry_t p_list_video[] = {
         A("DVCS"),
         A("dvcs"),
         A("dvhd"),
-        A("dvhp"),
         A("dvhq"),
-        A("dvh3"),
-        A("dvh5"),
-        A("dvh6"),
-        A("dv1n"),
-        A("dv1p"),
-        A("dvc "),
-        A("dv25"),
         A("dvh1"),
+        E("dvh2", "DV Video 720p24"),
+        E("dvh3", "DV Video 720p25"),
+        E("dvh4", "DV Video 720p30"),
+        A("dv25"),
+        A("dc25"),
         A("dvs1"),
+        A("dvis"),
+        A("CDV2"),
+        A("CDVP"),
+        A("PDVC"),
+        A("IPDV"),
+        A("ipdv"),
         E("dvcp", "DV Video PAL"),
+        E("dvc ", "DV Video NTSC" ),
         E("dvp ", "DV Video Pro"),
         E("dvpp", "DV Video Pro PAL"),
         E("dv50", "DV Video C Pro 50"),
         E("dv5p", "DV Video C Pro 50 PAL"),
         E("dv5n", "DV Video C Pro 50 NTSC"),
+        E("dv1p", "DV Video C Pro 100 PAL" ),
+        E("dv1n", "DV Video C Pro 100 NTSC" ),
+        E("dvhp", "DV Video C Pro HD 720p" ),
+        E("dvh5", "DV Video C Pro HD 1080i50" ),
+        E("dvh6", "DV Video C Pro HD 1080i60" ),
         E("AVdv", "AVID DV"),
         E("AVd1", "AVID DV"),
         E("CDVC", "Canopus DV Video"),
         E("cdvc", "Canopus DV Video"),
         E("CDVH", "Canopus DV Video"),
         E("cdvh", "Canopus DV Video"),
+        E("CDV5", "Canopus DV Video"),
+        E("SLDV", "SoftLab DVCAM codec"),
 
     /* Windows Media Video */
     B(VLC_CODEC_WMV1, "Windows Media Video 7"),
@@ -382,14 +443,20 @@ static const entry_t p_list_video[] = {
     B(VLC_CODEC_WMVA, "Windows Media Video Advanced Profile"),
         A("WMVA"),
         A("wmva"),
-        A("WVP2"),
-        A("wvp2"),
 
     B(VLC_CODEC_VC1, "Windows Media Video VC1"),
         A("WVC1"),
         A("wvc1"),
         A("vc-1"),
         A("VC-1"),
+
+    B(VLC_CODEC_WMVP, "Windows Media Video Presentation"),
+        A("WMVP"),
+        A("wmvp"),
+
+    B(VLC_CODEC_WMVP2, "Windows Media Video Presentation, v2"),
+        A("WVP2"),
+        A("wvp2"),
 
     /* Microsoft Video 1 */
     B(VLC_CODEC_MSVIDEO1, "Microsoft Video 1"),
@@ -442,13 +509,19 @@ static const entry_t p_list_video[] = {
 
     B(VLC_CODEC_VP6F, "On2's VP6.2 Video (Flash)"),
         A("VP6F"),
+        A("FLV4"),
 
     B(VLC_CODEC_VP6A, "On2's VP6 A Video"),
         A("VP6A"),
 
+    B(VLC_CODEC_VP8, "Google/On2's VP8 Video"),
+        A("VP80"),
+
+
     /* Xiph.org theora */
     B(VLC_CODEC_THEORA, "Xiph.org's Theora Video"),
         A("theo"),
+        A("THEO"),
         A("Thra"),
 
     /* Xiph.org tarkin */
@@ -474,23 +547,23 @@ static const entry_t p_list_video[] = {
         A("CLJR"),
 
     /* Real Video */
-    B(VLC_CODEC_RV10, "Real Video 1.0"),
+    B(VLC_CODEC_RV10, "RealVideo 1.0"),
         A("RV10"),
         A("rv10"),
 
-    B(VLC_CODEC_RV13, "Real Video 1.3"),
+    B(VLC_CODEC_RV13, "RealVideo 1.3"),
         A("RV13"),
         A("rv13"),
 
-    B(VLC_CODEC_RV20, "Real Video 2.0"),
+    B(VLC_CODEC_RV20, "RealVideo G2 (2.0)"),
         A("RV20"),
         A("rv20"),
 
-    B(VLC_CODEC_RV30, "Real Video 3.0"),
+    B(VLC_CODEC_RV30, "RealVideo 8 (3.0)"),
         A("RV30"),
         A("rv30"),
 
-    B(VLC_CODEC_RV40, "Real Video 4.0"),
+    B(VLC_CODEC_RV40, "RealVideo 9/10 (4.0)"),
         A("RV40"),
         A("rv40"),
 
@@ -568,11 +641,14 @@ static const entry_t p_list_video[] = {
 
     B(VLC_CODEC_INDEO2, "Indeo Video v2"),
         A("IV20"),
-        A("RT21"),
+        E("RT21", "Indeo Video 2.1" ),
 
-        /* Flash Screen Video */
+    /* Flash Screen Video */
     B(VLC_CODEC_FLASHSV, "Flash Screen Video"),
         A("FSV1"),
+    B(VLC_CODEC_FLASHSV2, "Flash Screen Video 2"),
+        A("FSV2"),
+
     B(VLC_CODEC_KMVC, "Karl Morton's Video Codec (Worms)"),
         A("KMVC"),
 
@@ -591,6 +667,8 @@ static const entry_t p_list_video[] = {
         A("AVs2"),
         A("avs2"),
 
+    B(VLC_CODEC_AMV, "AMV"),
+
     /* */
     B(VLC_CODEC_DNXHD, "DNxHD"),
         A("AVdn"),
@@ -605,36 +683,49 @@ static const entry_t p_list_video[] = {
     B(VLC_CODEC_FRWU, "Forward Uncompressed" ),
         A("FRWU"),
 
+    B(VLC_CODEC_INDEO4, "Indeo Video v4"),
+        A("IV41"),
+        A("iv41"),
+
+    B(VLC_CODEC_INDEO5, "Indeo Video v5"),
+        A("IV50"),
+        A("iv50"),
+
+    B(VLC_CODEC_PRORES, "Apple ProRes"),
+        E("apcn", "Apple ProRes 422 Standard"),
+        E("apch", "Apple ProRes 422 HQ"),
+        E("apcs", "Apple ProRes 422 LT"),
+        E("apco", "Apple ProRes 422 Proxy"),
+        E("ap4c", "Apple ProRes 4444"),
+        E("ap4h", "Apple ProRes 4444"),
+
     /* */
     B(VLC_CODEC_YV12, "Planar 4:2:0 YVU"),
         A("YV12"),
         A("yv12"),
-    B(VLC_CODEC_I420, "Planar 4:1:0 YUV"),
-        A("I410"),
+    B(VLC_CODEC_YV9,  "Planar 4:1:0 YVU"),
         A("YVU9"),
-    B(VLC_CODEC_I420, "Planar 4:1:1 YUV"),
+    B(VLC_CODEC_I410, "Planar 4:1:0 YUV"),
+        A("I410"),
+    B(VLC_CODEC_I411, "Planar 4:1:1 YUV"),
         A("I411"),
     B(VLC_CODEC_I420, "Planar 4:2:0 YUV"),
         A("I420"),
         A("IYUV"),
     B(VLC_CODEC_I422, "Planar 4:2:2 YUV"),
         A("I422"),
-    B(VLC_CODEC_I444, "Planar 4:4:0 YUV"),
+    B(VLC_CODEC_I440, "Planar 4:4:0 YUV"),
         A("I440"),
     B(VLC_CODEC_I444, "Planar 4:4:4 YUV"),
         A("I444"),
 
-    B(VLC_CODEC_I420, "Planar 4:1:0 YUV full scale"),
-        A("J410"),
-    B(VLC_CODEC_I420, "Planar 4:1:1 YUV full scale"),
-        A("J411"),
-    B(VLC_CODEC_I420, "Planar 4:2:0 YUV full scale"),
+    B(VLC_CODEC_J420, "Planar 4:2:0 YUV full scale"),
         A("J420"),
-    B(VLC_CODEC_I422, "Planar 4:2:2 YUV full scale"),
+    B(VLC_CODEC_J422, "Planar 4:2:2 YUV full scale"),
         A("J422"),
-    B(VLC_CODEC_I444, "Planar 4:4:0 YUV full scale"),
+    B(VLC_CODEC_J440, "Planar 4:4:0 YUV full scale"),
         A("J440"),
-    B(VLC_CODEC_I444, "Planar 4:4:4 YUV full scale"),
+    B(VLC_CODEC_J444, "Planar 4:4:4 YUV full scale"),
         A("J444"),
 
     B(VLC_CODEC_YUVP, "Palettized YUV with palette element Y:U:V:A"),
@@ -648,8 +739,14 @@ static const entry_t p_list_video[] = {
 
     B(VLC_CODEC_RGB8, "8 bits RGB"),
         A("RGB2"),
+    B(VLC_CODEC_RGB12, "12 bits RGB"),
+        A("RV12"),
+    B(VLC_CODEC_RGBA16, "16 bits RGBA"),
+        A("AV16"),
     B(VLC_CODEC_RGB15, "15 bits RGB"),
         A("RV15"),
+    B(VLC_CODEC_RGBT, "16 bits RGBT"),
+        A("RGBT"),
     B(VLC_CODEC_RGB16, "16 bits RGB"),
         A("RV16"),
     B(VLC_CODEC_RGB24, "24 bits RGB"),
@@ -658,6 +755,7 @@ static const entry_t p_list_video[] = {
         A("RV32"),
     B(VLC_CODEC_RGBA, "32 bits RGBA"),
         A("RGBA"),
+        A("AV32"),
 
     B(VLC_CODEC_GREY, "8 bits greyscale"),
         A("GREY"),
@@ -687,14 +785,47 @@ static const entry_t p_list_video[] = {
 
     B(VLC_CODEC_Y211, "Packed YUV 2:1:1, Y:U:Y:V "),
         A("Y211"),
-    B(VLC_CODEC_YMGA, "Planar Y, packed UV, from Matrox"),
-        A("YMGA"),
     B(VLC_CODEC_CYUV, "Creative Packed YUV 4:2:2, U:Y:V:Y, reverted"),
         A("cyuv"),
         A("CYUV"),
 
     B(VLC_CODEC_V210, "10-bit 4:2:2 Component YCbCr"),
         A("v210"),
+
+    B(VLC_CODEC_NV12, "Biplanar 4:2:0 Y/UV"),
+        A("NV12"),
+    B(VLC_CODEC_NV21, "Biplanar 4:2:0 Y/VU"),
+        A("NV21"),
+    B(VLC_CODEC_NV16, "Biplanar 4:2:2 Y/UV"),
+        A("NV16"),
+    B(VLC_CODEC_NV61, "Biplanar 4:2:2 Y/VU"),
+        A("NV61"),
+
+    B(VLC_CODEC_I420_9L, "Planar 4:2:0 YUV 9-bit LE"),
+        A("I09L"),
+    B(VLC_CODEC_I420_9B, "Planar 4:2:0 YUV 9-bit BE"),
+        A("I09B"),
+    B(VLC_CODEC_I422_9L, "Planar 4:2:2 YUV 9-bit LE"),
+        A("I29L"),
+    B(VLC_CODEC_I422_9B, "Planar 4:2:2 YUV 9-bit BE"),
+        A("I29B"),
+    B(VLC_CODEC_I444_9L, "Planar 4:4:4 YUV 9-bit LE"),
+        A("I49L"),
+    B(VLC_CODEC_I444_9B, "Planar 4:4:4 YUV 9-bit BE"),
+        A("I49B"),
+
+    B(VLC_CODEC_I420_10L, "Planar 4:2:0 YUV 10-bit LE"),
+        A("I0AL"),
+    B(VLC_CODEC_I420_10B, "Planar 4:2:0 YUV 10-bit BE"),
+        A("I0AB"),
+    B(VLC_CODEC_I422_10L, "Planar 4:2:2 YUV 10-bit LE"),
+        A("I2AL"),
+    B(VLC_CODEC_I422_10B, "Planar 4:2:2 YUV 10-bit BE"),
+        A("I2AB"),
+    B(VLC_CODEC_I444_10L, "Planar 4:4:4 YUV 10-bit LE"),
+        A("I4AL"),
+    B(VLC_CODEC_I444_10B, "Planar 4:4:4 YUV 10-bit BE"),
+        A("I4AB"),
 
     /* Videogames Codecs */
 
@@ -744,7 +875,7 @@ static const entry_t p_list_video[] = {
     B(VLC_CODEC_PAM, "PAM Image"),
         A("pam "),
 
-    B(VLC_CODEC_JPEGLS, "Lossless JPEG"),
+    B(VLC_CODEC_JPEGLS, "JPEG-LS"),
         A("MJLS"),
 
     B(VLC_CODEC_JPEG, "JPEG"),
@@ -775,9 +906,59 @@ static const entry_t p_list_video[] = {
     B(VLC_CODEC_PCX, "Personal Computer Exchange Image"),
         A("pcx "),
 
+    B(VLC_CODEC_JPEG2000, "JPEG 2000 Image"),
+        A("JP2K"),
+        A("mjp2"),
+        A("MJP2"),
+        A("MJ2C"),
+        A("LJ2C"),
+        A("LJ2K"),
+
+    B(VLC_CODEC_LAGARITH, "Lagarith Lossless"),
+        A("LAGS"),
+
+    B(VLC_CODEC_MXPEG, "Mxpeg"),
+        A("MXPG"),
+
+    B(VLC_CODEC_CDXL, "Commodore CDXL video format"),
+        A("CDXL"),
+
+    B(VLC_CODEC_BMVVIDEO, "Discworld II BMV video"),
+        A("BMVV"),
+
+    B(VLC_CODEC_UTVIDEO, "Ut Video"),
+        A("ULRA"),
+        A("ULRG"),
+        A("ULY0"),
+        A("ULY2"),
+
+    B(VLC_CODEC_VBLE, "VBLE Lossless"),
+        A("VBLE"),
+
+    B(VLC_CODEC_DXTORY, "Dxtory capture format"),
+        A("xtor"),
+
+    B(VLC_CODEC_MSS1, "Windows Media Video 7 Screen"),
+        A("MSS1"),
+        A("mss1"),
+
+    B(VLC_CODEC_MSS2, "Windows Media Video 9 Screen"),
+        A("MSS2"),
+        A("mss2"),
+
+    B(VLC_CODEC_MSA1, "Microsoft Application Screen Decoder 1"),
+        A("MSA1"),
+
+    B(VLC_CODEC_TSC2, "TechSmith Screen Codec 2"),
+        A("MSA1"),
+        A("tsc2"),
+
+    B(VLC_CODEC_MTS2, "Microsoft Expression Encoder Screen"),
+        A("MTS2"),
+
     B(0, "")
 };
-static const entry_t p_list_audio[] = {
+static const staticentry_t p_list_audio[] = {
 
     /* Windows Media Audio 1 */
     B(VLC_CODEC_WMA1, "Windows Media Audio 1"),
@@ -801,7 +982,7 @@ static const entry_t p_list_audio[] = {
         A("wmal"),
 
     /* Windows Media Audio Speech */
-    B(VLC_CODEC_WMAS, "Windows Media Audio Speech"),
+    B(VLC_CODEC_WMAS, "Windows Media Audio Voice (Speech)"),
         A("WMAS"),
         A("wmas"),
 
@@ -838,9 +1019,15 @@ static const entry_t p_list_audio[] = {
     B(VLC_CODEC_RA_288, "RealAudio 2.0"),
         A("28_8"),
 
+    B(VLC_CODEC_SIPR, "RealAudio Sipr"),
+        A("sipr"),
+
     /* MPEG Audio layer 1/2/3 */
     B(VLC_CODEC_MPGA, "MPEG Audio layer 1/2/3"),
         A("mpga"),
+        A("mp2a"),
+        A(".mp1"),
+        A(".mp2"),
         A("mp3 "),
         A(".mp3"),
         A("MP3 "),
@@ -853,6 +1040,7 @@ static const entry_t p_list_audio[] = {
         A("a52 "),
         A("a52b"),
         A("ac-3"),
+        A("sac3"),
         A("ms\x20\x00"),
 
     B(VLC_CODEC_EAC3, "A/52 B Audio (aka E-AC3)"),
@@ -861,13 +1049,24 @@ static const entry_t p_list_audio[] = {
     /* DTS Audio */
     B(VLC_CODEC_DTS, "DTS Audio"),
         A("dts "),
+        A("DTS "),
         A("dtsb"),
+        A("dtsc"),
+        E("dtse", "DTS Express"),
+        E("dtsh", "DTS-HD High Resolution Audio"),
+        E("dtsl", "DTS-HD Lossless"),
         A("ms\x20\x01"),
 
     /* AAC audio */
     B(VLC_CODEC_MP4A, "MPEG AAC Audio"),
         A("mp4a"),
         A("aac "),
+        A("AACL"),
+        A("AACH"),
+
+    /* ALS audio */
+    B(VLC_CODEC_ALS, "MPEG-4 Audio Lossless (ALS)"),
+        A("als "),
 
     /* 4X Technologies */
     B(VLC_CODEC_ADPCM_4XM, "4X Technologies Audio"),
@@ -913,12 +1112,25 @@ static const entry_t p_list_audio[] = {
     B(VLC_CODEC_ADPCM_G726, "G.726 ADPCM Audio"),
         A("g726"),
 
+    /* G.722 ADPCM */
+    B(VLC_CODEC_ADPCM_G722, "G.722 ADPCM Audio"),
+        A("g722"),
+
     /* Flash ADPCM */
     B(VLC_CODEC_ADPCM_SWF, "Flash ADPCM Audio"),
         A("SWFa"),
 
     B(VLC_CODEC_ADPCM_IMA_WAV, "IMA WAV ADPCM Audio"),
         A("ms\x00\x11"),
+
+    B(VLC_CODEC_ADPCM_IMA_AMV, "IMA AMV ADPCM Audio"),
+        A("imav"),
+
+    B(VLC_CODEC_ADPCM_IMA_QT, "IMA QT ADPCM Audio"),
+        A("ima4"),
+
+    B(VLC_CODEC_ADPCM_YAMAHA, "Yamaha ADPCM Audio" ),
+        A("ms\x00\x20"),
 
     /* AMR */
     B(VLC_CODEC_AMR_NB, "AMR narrow band"),
@@ -980,6 +1192,7 @@ static const entry_t p_list_audio[] = {
 
     B(VLC_CODEC_NELLYMOSER, "NellyMoser ASAO"),
         A("NELL"),
+        A("nmos"),
 
     B(VLC_CODEC_APE, "Monkey's Audio"),
         A("APE "),
@@ -992,6 +1205,8 @@ static const entry_t p_list_audio[] = {
 
     B(VLC_CODEC_QCELP, "QCELP Audio"),
         A("Qclp"),
+        A("Qclq"),
+        A("sqcp"),
 
     B(VLC_CODEC_SPEEX, "Speex Audio"),
         A("spx "),
@@ -999,6 +1214,10 @@ static const entry_t p_list_audio[] = {
 
     B(VLC_CODEC_VORBIS, "Vorbis Audio"),
         A("vorb"),
+        A("vor1"),
+
+    B(VLC_CODEC_OPUS, "Opus Audio"),
+        A("Opus"),
 
     B(VLC_CODEC_302M, "302M Audio"),
         A("302m"),
@@ -1019,6 +1238,13 @@ static const entry_t p_list_audio[] = {
     B(VLC_CODEC_MIDI, "MIDI Audio"),
         A("MIDI"),
 
+    B(VLC_CODEC_RALF, "RealAudio Lossless"),
+        A("LSD:"),
+
+    /* G.723.1 */
+    B(VLC_CODEC_G723_1, "G.723.1 Audio"),
+        A("g72\x31"),
+
     /* PCM */
     B(VLC_CODEC_S8, "PCM S8"),
         A("s8  "),
@@ -1037,6 +1263,8 @@ static const entry_t p_list_audio[] = {
 
     B(VLC_CODEC_U16B, "PCM U16 BE"),
         A("u16b"),
+
+    B(VLC_CODEC_S20B, "PCM S20 BE"),
 
     B(VLC_CODEC_S24L, "PCM S24 LE"),
         A("s24l"),
@@ -1073,24 +1301,44 @@ static const entry_t p_list_audio[] = {
         A("mlaw"),
         A("ulaw"),
 
+    B(VLC_CODEC_DAT12, "12 bits DAT audio"),
+
     B(VLC_CODEC_S24DAUD, "PCM DAUD"),
         A("daud"),
 
     B(VLC_CODEC_FI32, "32 bits fixed float"),
         A("fi32"),
 
-    B(VLC_CODEC_FL32, "32 bits float"),
+    B(VLC_CODEC_F32L, "32 bits float LE"),
+        A("f32l"),
         A("fl32"),
 
-    B(VLC_CODEC_FL64, "64 bits float"),
-        A("fl64"),
+    B(VLC_CODEC_F32B, "32 bits float BE"),
+        A("f32b"),
+
+    B(VLC_CODEC_F64L, "64 bits float LE"),
+        A("f64l"),
+
+    B(VLC_CODEC_F64L, "64 bits float BE"),
+        A("f64b"),
 
     B(VLC_CODEC_TWINVQ, "TwinVQ"),
         A("TWIN"),
 
+    B(VLC_CODEC_BMVAUDIO, "Discworld II BMV audio"),
+        A("BMVA"),
+
+    B(VLC_CODEC_ULEAD_DV_AUDIO_NTSC, "Ulead DV audio NTSC"),
+        A("ms\x02\x15"),
+    B(VLC_CODEC_ULEAD_DV_AUDIO_PAL, "Ulead DV audio PAL"),
+        A("ms\x02\x16"),
+
+    B(VLC_CODEC_INDEO_AUDIO, "Indeo Audio Coder"),
+        A("ms\x04\x02"),
+
     B(0, "")
 };
-static const entry_t p_list_spu[] = {
+static const staticentry_t p_list_spu[] = {
 
     B(VLC_CODEC_SPU, "DVD Subtitles"),
         A("spu "),
@@ -1137,6 +1385,9 @@ static const entry_t p_list_spu[] = {
     B(VLC_CODEC_BD_PG, "BD subtitles"),
         A("bdpg"),
 
+    B(VLC_CODEC_EBU_STL, "EBU STL subtitles"),
+        A("STL "),
+
     B(0, "")
 };
 
@@ -1149,7 +1400,7 @@ static inline vlc_fourcc_t CreateFourcc( const char *psz_fourcc )
 }
 
 /* */
-static entry_t Lookup( const entry_t p_list[], vlc_fourcc_t i_fourcc )
+static entry_t Lookup( const staticentry_t p_list[], vlc_fourcc_t i_fourcc )
 {
     const char *p_class = NULL;
     const char *psz_description = NULL;
@@ -1158,7 +1409,7 @@ static entry_t Lookup( const entry_t p_list[], vlc_fourcc_t i_fourcc )
 
     for( int i = 0; ; i++ )
     {
-        const entry_t *p = &p_list[i];
+        const staticentry_t *p = &p_list[i];
         const vlc_fourcc_t i_entry_fourcc = CreateFourcc( p->p_fourcc );
         const vlc_fourcc_t i_entry_class = CreateFourcc( p->p_class );
 
@@ -1177,7 +1428,8 @@ static entry_t Lookup( const entry_t p_list[], vlc_fourcc_t i_fourcc )
 
             memcpy( e.p_class, p_class, 4 );
             memcpy( e.p_fourcc, p->p_fourcc, 4 );
-            e.psz_description = p->psz_description ?: psz_description;
+            e.psz_description = p->psz_description ?
+                                p->psz_description : psz_description;
             break;
         }
     }
@@ -1309,17 +1561,29 @@ const char *vlc_fourcc_GetDescription( int i_cat, vlc_fourcc_t i_fourcc )
 
 
 /* */
+#define VLC_CODEC_YUV_PLANAR_410 \
+    VLC_CODEC_I410, VLC_CODEC_YV9
+
 #define VLC_CODEC_YUV_PLANAR_420 \
     VLC_CODEC_I420, VLC_CODEC_YV12, VLC_CODEC_J420
 
+#define VLC_CODEC_YUV_PLANAR_420_16 \
+    VLC_CODEC_I420_10L, VLC_CODEC_I420_10B, VLC_CODEC_I420_9L, VLC_CODEC_I420_9B
+
 #define VLC_CODEC_YUV_PLANAR_422 \
     VLC_CODEC_I422, VLC_CODEC_J422
+
+#define VLC_CODEC_YUV_PLANAR_422_16 \
+    VLC_CODEC_I422_10L, VLC_CODEC_I422_10B, VLC_CODEC_I422_9L, VLC_CODEC_I422_9B
 
 #define VLC_CODEC_YUV_PLANAR_440 \
     VLC_CODEC_I440, VLC_CODEC_J440
 
 #define VLC_CODEC_YUV_PLANAR_444 \
     VLC_CODEC_I444, VLC_CODEC_J444
+
+#define VLC_CODEC_YUV_PLANAR_444_16 \
+    VLC_CODEC_I444_10L, VLC_CODEC_I444_10B, VLC_CODEC_I444_9L, VLC_CODEC_I444_9B
 
 #define VLC_CODEC_YUV_PACKED \
     VLC_CODEC_YUYV, VLC_CODEC_YVYU, \
@@ -1328,7 +1592,7 @@ const char *vlc_fourcc_GetDescription( int i_cat, vlc_fourcc_t i_fourcc )
 #define VLC_CODEC_FALLBACK_420 \
     VLC_CODEC_YUV_PLANAR_422, VLC_CODEC_YUV_PACKED, \
     VLC_CODEC_YUV_PLANAR_444, VLC_CODEC_YUV_PLANAR_440, \
-    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211
+    VLC_CODEC_I411, VLC_CODEC_YUV_PLANAR_410, VLC_CODEC_Y211
 
 static const vlc_fourcc_t p_I420_fallback[] = {
     VLC_CODEC_I420, VLC_CODEC_YV12, VLC_CODEC_J420, VLC_CODEC_FALLBACK_420, 0
@@ -1340,10 +1604,26 @@ static const vlc_fourcc_t p_YV12_fallback[] = {
     VLC_CODEC_YV12, VLC_CODEC_I420, VLC_CODEC_J420, VLC_CODEC_FALLBACK_420, 0
 };
 
+#define VLC_CODEC_FALLBACK_420_16 \
+    VLC_CODEC_I420, VLC_CODEC_YV12, VLC_CODEC_J420, VLC_CODEC_FALLBACK_420
+
+static const vlc_fourcc_t p_I420_9L_fallback[] = {
+    VLC_CODEC_I420_9L, VLC_CODEC_I420_9B, VLC_CODEC_FALLBACK_420_16, 0
+};
+static const vlc_fourcc_t p_I420_9B_fallback[] = {
+    VLC_CODEC_I420_9B, VLC_CODEC_I420_9L, VLC_CODEC_FALLBACK_420_16, 0
+};
+static const vlc_fourcc_t p_I420_10L_fallback[] = {
+    VLC_CODEC_I420_10L, VLC_CODEC_I420_10B, VLC_CODEC_FALLBACK_420_16, 0
+};
+static const vlc_fourcc_t p_I420_10B_fallback[] = {
+    VLC_CODEC_I420_10B, VLC_CODEC_I420_10L, VLC_CODEC_FALLBACK_420_16, 0
+};
+
 #define VLC_CODEC_FALLBACK_422 \
     VLC_CODEC_YUV_PACKED, VLC_CODEC_YUV_PLANAR_420, \
     VLC_CODEC_YUV_PLANAR_444, VLC_CODEC_YUV_PLANAR_440, \
-    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211
+    VLC_CODEC_I411, VLC_CODEC_YUV_PLANAR_410, VLC_CODEC_Y211
 
 static const vlc_fourcc_t p_I422_fallback[] = {
     VLC_CODEC_I422, VLC_CODEC_J422, VLC_CODEC_FALLBACK_422, 0
@@ -1352,10 +1632,26 @@ static const vlc_fourcc_t p_J422_fallback[] = {
     VLC_CODEC_J422, VLC_CODEC_I422, VLC_CODEC_FALLBACK_422, 0
 };
 
+#define VLC_CODEC_FALLBACK_422_16 \
+    VLC_CODEC_I422, VLC_CODEC_J422, VLC_CODEC_FALLBACK_422
+
+static const vlc_fourcc_t p_I422_9L_fallback[] = {
+    VLC_CODEC_I422_9L, VLC_CODEC_I422_9B, VLC_CODEC_FALLBACK_422_16, 0
+};
+static const vlc_fourcc_t p_I422_9B_fallback[] = {
+    VLC_CODEC_I422_9B, VLC_CODEC_I422_9L, VLC_CODEC_FALLBACK_422_16, 0
+};
+static const vlc_fourcc_t p_I422_10L_fallback[] = {
+    VLC_CODEC_I422_10L, VLC_CODEC_I422_10B, VLC_CODEC_FALLBACK_422_16, 0
+};
+static const vlc_fourcc_t p_I422_10B_fallback[] = {
+    VLC_CODEC_I422_10B, VLC_CODEC_I422_10L, VLC_CODEC_FALLBACK_422_16, 0
+};
+
 #define VLC_CODEC_FALLBACK_444 \
     VLC_CODEC_YUV_PLANAR_422, VLC_CODEC_YUV_PACKED, \
     VLC_CODEC_YUV_PLANAR_420, VLC_CODEC_YUV_PLANAR_440, \
-    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211
+    VLC_CODEC_I411, VLC_CODEC_YUV_PLANAR_410, VLC_CODEC_Y211
 
 static const vlc_fourcc_t p_I444_fallback[] = {
     VLC_CODEC_I444, VLC_CODEC_J444, VLC_CODEC_FALLBACK_444, 0
@@ -1364,19 +1660,35 @@ static const vlc_fourcc_t p_J444_fallback[] = {
     VLC_CODEC_J444, VLC_CODEC_I444, VLC_CODEC_FALLBACK_444, 0
 };
 
+#define VLC_CODEC_FALLBACK_444_16 \
+    VLC_CODEC_I444, VLC_CODEC_J444, VLC_CODEC_FALLBACK_444
+
+static const vlc_fourcc_t p_I444_9L_fallback[] = {
+    VLC_CODEC_I444_9L, VLC_CODEC_I444_9B, VLC_CODEC_FALLBACK_444_16, 0
+};
+static const vlc_fourcc_t p_I444_9B_fallback[] = {
+    VLC_CODEC_I444_9B, VLC_CODEC_I444_9L, VLC_CODEC_FALLBACK_444_16, 0
+};
+static const vlc_fourcc_t p_I444_10L_fallback[] = {
+    VLC_CODEC_I444_10L, VLC_CODEC_I444_10B, VLC_CODEC_FALLBACK_444_16, 0
+};
+static const vlc_fourcc_t p_I444_10B_fallback[] = {
+    VLC_CODEC_I444_10B, VLC_CODEC_I444_10L, VLC_CODEC_FALLBACK_444_16, 0
+};
+
 static const vlc_fourcc_t p_I440_fallback[] = {
     VLC_CODEC_I440,
     VLC_CODEC_YUV_PLANAR_420,
     VLC_CODEC_YUV_PLANAR_422,
     VLC_CODEC_YUV_PLANAR_444,
     VLC_CODEC_YUV_PACKED,
-    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211, 0
+    VLC_CODEC_I411, VLC_CODEC_YUV_PLANAR_410, VLC_CODEC_Y211, 0
 };
 
 #define VLC_CODEC_FALLBACK_PACKED \
     VLC_CODEC_YUV_PLANAR_422, VLC_CODEC_YUV_PLANAR_420, \
     VLC_CODEC_YUV_PLANAR_444, VLC_CODEC_YUV_PLANAR_440, \
-    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211
+    VLC_CODEC_I411, VLC_CODEC_YUV_PLANAR_410, VLC_CODEC_Y211
 
 static const vlc_fourcc_t p_YUYV_fallback[] = {
     VLC_CODEC_YUYV,
@@ -1410,16 +1722,30 @@ static const vlc_fourcc_t p_VYUY_fallback[] = {
 static const vlc_fourcc_t *pp_YUV_fallback[] = {
     p_YV12_fallback,
     p_I420_fallback,
+    p_I420_9L_fallback,
+    p_I420_9B_fallback,
+    p_I420_10L_fallback,
+    p_I420_10B_fallback,
     p_J420_fallback,
     p_I422_fallback,
+    p_I422_9L_fallback,
+    p_I422_9B_fallback,
+    p_I422_10L_fallback,
+    p_I422_10B_fallback,
     p_J422_fallback,
     p_I444_fallback,
     p_J444_fallback,
+    p_I444_9L_fallback,
+    p_I444_9B_fallback,
+    p_I444_10L_fallback,
+    p_I444_10B_fallback,
     p_I440_fallback,
     p_YUYV_fallback,
     p_YVYU_fallback,
     p_UYVY_fallback,
     p_VYUY_fallback,
+
+
     NULL,
 };
 
@@ -1429,7 +1755,10 @@ static const vlc_fourcc_t p_list_YUV[] = {
     VLC_CODEC_YUV_PLANAR_440,
     VLC_CODEC_YUV_PLANAR_444,
     VLC_CODEC_YUV_PACKED,
-    VLC_CODEC_I411, VLC_CODEC_I410, VLC_CODEC_Y211,
+    VLC_CODEC_I411, VLC_CODEC_YUV_PLANAR_410, VLC_CODEC_Y211,
+    VLC_CODEC_YUV_PLANAR_420_16,
+    VLC_CODEC_YUV_PLANAR_422_16,
+    VLC_CODEC_YUV_PLANAR_444_16,
     0,
 };
 
@@ -1508,8 +1837,29 @@ const vlc_fourcc_t *vlc_fourcc_GetRGBFallback( vlc_fourcc_t i_fourcc )
 
 bool vlc_fourcc_AreUVPlanesSwapped( vlc_fourcc_t a, vlc_fourcc_t b )
 {
-    return (((a == VLC_CODEC_I420 || a == VLC_CODEC_J420) && b == VLC_CODEC_YV12) ||
-            ((b == VLC_CODEC_I420 || b == VLC_CODEC_J420) && a == VLC_CODEC_YV12));
+    static const vlc_fourcc_t pp_swapped[][4] = {
+        { VLC_CODEC_YV12, VLC_CODEC_I420, VLC_CODEC_J420, 0 },
+        { VLC_CODEC_YV9,  VLC_CODEC_I410, 0 },
+        { 0 }
+    };
+
+    for( int i = 0; pp_swapped[i][0]; i++ )
+    {
+        if( pp_swapped[i][0] == b )
+        {
+            vlc_fourcc_t t = a;
+            a = b;
+            b = t;
+        }
+        if( pp_swapped[i][0] != a )
+            continue;
+        for( int j = 1; pp_swapped[i][j]; j++ )
+        {
+            if( pp_swapped[i][j] == b )
+                return true;
+        }
+    }
+    return false;
 }
 
 bool vlc_fourcc_IsYUV(vlc_fourcc_t fcc)
@@ -1522,3 +1872,83 @@ bool vlc_fourcc_IsYUV(vlc_fourcc_t fcc)
     return false;
 }
 
+#define PLANAR(n, w_den, h_den, size, bits) \
+    { .plane_count = n, \
+      .p = { {.w = {1,    1}, .h = {1,    1}}, \
+             {.w = {1,w_den}, .h = {1,h_den}}, \
+             {.w = {1,w_den}, .h = {1,h_den}}, \
+             {.w = {1,    1}, .h = {1,    1}} }, \
+      .pixel_size = size, \
+      .pixel_bits = bits }
+
+#define PLANAR_8(n, w_den, h_den)        PLANAR(n, w_den, h_den, 1, 8)
+#define PLANAR_16(n, w_den, h_den, bits) PLANAR(n, w_den, h_den, 2, bits)
+
+#define PACKED_FMT(size, bits) \
+    { .plane_count = 1, \
+      .p = { {.w = {1,1}, .h = {1,1}} }, \
+      .pixel_size = size, \
+      .pixel_bits = bits }
+
+static const struct
+{
+    vlc_fourcc_t             p_fourcc[6];
+    vlc_chroma_description_t description;
+} p_list_chroma_description[] = {
+    { { VLC_CODEC_I411, 0 },                   PLANAR_8(3, 4, 1) },
+    { { VLC_CODEC_YUV_PLANAR_410, 0 },         PLANAR_8(3, 4, 4) },
+    { { VLC_CODEC_YUV_PLANAR_420, 0 },         PLANAR_8(3, 2, 2) },
+    { { VLC_CODEC_NV12, VLC_CODEC_NV21, 0 },   PLANAR_8(2, 1, 2) },
+    { { VLC_CODEC_YUV_PLANAR_422, 0 },         PLANAR_8(3, 2, 1) },
+    { { VLC_CODEC_YUV_PLANAR_440, 0 },         PLANAR_8(3, 1, 2) },
+    { { VLC_CODEC_YUV_PLANAR_444, 0 },         PLANAR_8(3, 1, 1) },
+    { { VLC_CODEC_YUVA, 0 },                   PLANAR_8(4, 1, 1) },
+
+    { { VLC_CODEC_I420_10L,
+        VLC_CODEC_I420_10B, 0 },               PLANAR_16(3, 2, 2, 10) },
+    { { VLC_CODEC_I420_9L,
+        VLC_CODEC_I420_9B, 0 },                PLANAR_16(3, 2, 2,  9) },
+    { { VLC_CODEC_I422_10L,
+        VLC_CODEC_I422_10B, 0 },               PLANAR_16(3, 2, 1, 10) },
+    { { VLC_CODEC_I422_9L,
+        VLC_CODEC_I422_9B, 0 },                PLANAR_16(3, 2, 1,  9) },
+    { { VLC_CODEC_I444_10L,
+        VLC_CODEC_I444_10B, 0 },               PLANAR_16(3, 1, 1, 10) },
+    { { VLC_CODEC_I444_9L,
+        VLC_CODEC_I444_9B, 0 },                PLANAR_16(3, 1, 1,  9) },
+
+    { { VLC_CODEC_YUV_PACKED, 0 },             PACKED_FMT(2, 16) },
+    { { VLC_CODEC_RGB8, VLC_CODEC_GREY,
+        VLC_CODEC_YUVP, VLC_CODEC_RGBP, 0 },   PACKED_FMT(1, 8) },
+
+    { { VLC_CODEC_RGB15, 0 },                  PACKED_FMT(2, 15) },
+    { { VLC_CODEC_RGB12, 0 },                  PACKED_FMT(2, 12) },
+    { { VLC_CODEC_RGB16, VLC_CODEC_RGBT,
+        VLC_CODEC_RGBA16, 0 },                 PACKED_FMT(2, 16) },
+    { { VLC_CODEC_RGB24, 0 },                  PACKED_FMT(3, 24) },
+    { { VLC_CODEC_RGB32, 0 },                  PACKED_FMT(4, 24) },
+    { { VLC_CODEC_RGBA,  0 },                  PACKED_FMT(4, 32) },
+
+    { { VLC_CODEC_Y211, 0 },                   { 1, { {{1,4}, {1,1}} }, 4, 32 } },
+
+    { {0}, { 0, {}, 0, 0 } }
+};
+
+#undef PACKED_FMT
+#undef PLANAR_16
+#undef PLANAR_8
+#undef PLANAR
+
+const vlc_chroma_description_t *vlc_fourcc_GetChromaDescription( vlc_fourcc_t i_fourcc )
+{
+    for( unsigned i = 0; p_list_chroma_description[i].p_fourcc[0]; i++ )
+    {
+        const vlc_fourcc_t *p_fourcc = p_list_chroma_description[i].p_fourcc;
+        for( unsigned j = 0; p_fourcc[j]; j++ )
+        {
+            if( p_fourcc[j] == i_fourcc )
+                return &p_list_chroma_description[i].description;
+        }
+    }
+    return NULL;
+}

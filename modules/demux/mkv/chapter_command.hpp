@@ -1,5 +1,5 @@
 /*****************************************************************************
- * mkv.cpp : matroska demuxer
+ * chapter_command.hpp : matroska demuxer
  *****************************************************************************
  * Copyright (C) 2003-2004 the VideoLAN team
  * $Id$
@@ -45,28 +45,13 @@ public:
     ,i_codec_id( codec_id )
     ,sys( demuxer )
     {}
- 
+
     virtual ~chapter_codec_cmds_c()
     {
         delete p_private_data;
-        std::vector<KaxChapterProcessData*>::iterator indexe = enter_cmds.begin();
-        while ( indexe != enter_cmds.end() )
-        {
-            delete (*indexe);
-            indexe++;
-        }
-        std::vector<KaxChapterProcessData*>::iterator indexl = leave_cmds.begin();
-        while ( indexl != leave_cmds.end() )
-        {
-            delete (*indexl);
-            indexl++;
-        }
-        std::vector<KaxChapterProcessData*>::iterator indexd = during_cmds.begin();
-        while ( indexd != during_cmds.end() )
-        {
-            delete (*indexd);
-            indexd++;
-        }
+        vlc_delete_all( enter_cmds );
+        vlc_delete_all( leave_cmds );
+        vlc_delete_all( during_cmds );
     }
 
     void SetPrivate( const KaxChapterProcessPrivate & private_data )
@@ -75,11 +60,11 @@ public:
     }
 
     void AddCommand( const KaxChapterProcessCommand & command );
- 
-    /// \return wether the codec has seeked in the files or not
+
+    /// \return whether the codec has seeked in the files or not
     virtual bool Enter() { return false; }
     virtual bool Leave() { return false; }
-    virtual std::string GetCodecName( bool f_for_title = false ) const { return ""; }
+    virtual std::string GetCodecName( bool ) const { return ""; }
     virtual int16 GetTitleNumber() { return -1; }
 
     KaxChapterProcessPrivate *p_private_data;
@@ -110,9 +95,9 @@ public:
         p_PRMs[ 0x80 + 16 ] = 0xFFFFu;
         p_PRMs[ 0x80 + 18 ] = 0xFFFFu;
     }
- 
+
     bool Interpret( const binary * p_command, size_t i_size = 8 );
- 
+
     uint16 GetPRM( size_t index ) const
     {
         if ( index < 256 )
@@ -144,7 +129,7 @@ public:
         }
         return false;
     }
- 
+
     bool SetGPRM( size_t index, uint16 value )
     {
         if ( index < 16 )
@@ -201,11 +186,11 @@ protected:
 
     uint16       p_PRMs[256];
     demux_sys_t  & sys;
- 
+
     // DVD command IDs
 
     // Tests
-    // wether it's a comparison on the value or register
+    // whether it's a comparison on the value or register
     static const uint16 CMD_DVD_TEST_VALUE          = 0x80;
     static const uint16 CMD_DVD_IF_GPREG_AND        = (1 << 4);
     static const uint16 CMD_DVD_IF_GPREG_EQUAL      = (2 << 4);
@@ -214,7 +199,7 @@ protected:
     static const uint16 CMD_DVD_IF_GPREG_SUP        = (5 << 4);
     static const uint16 CMD_DVD_IF_GPREG_INF_EQUAL  = (6 << 4);
     static const uint16 CMD_DVD_IF_GPREG_INF        = (7 << 4);
- 
+
     static const uint16 CMD_DVD_NOP                    = 0x0000;
     static const uint16 CMD_DVD_GOTO_LINE              = 0x0001;
     static const uint16 CMD_DVD_BREAK                  = 0x0002;
@@ -243,7 +228,7 @@ protected:
     static const uint16 CMD_DVD_MULT_GPREG             = 0x7500;
     static const uint16 CMD_DVD_GPREG_DIV_VALUE        = 0x7600;
     static const uint16 CMD_DVD_GPREG_AND_VALUE        = 0x7900;
- 
+
     // callbacks when browsing inside CodecPrivate
     static bool MatchIsDomain     ( const chapter_codec_cmds_c &data, const void *p_cookie, size_t i_cookie_size );
     static bool MatchIsVMG        ( const chapter_codec_cmds_c &data, const void *p_cookie, size_t i_cookie_size );
@@ -280,10 +265,10 @@ public:
     {}
 
     bool Interpret( const binary * p_command, size_t i_size );
- 
+
     // DVD command IDs
     static const std::string CMD_MS_GOTO_AND_PLAY;
- 
+
 protected:
     demux_sys_t  & sys;
 };

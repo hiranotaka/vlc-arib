@@ -6,19 +6,19 @@
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -68,7 +68,6 @@ struct sout_stream_id_t
 
 struct sout_stream_sys_t
 {
-    sout_stream_t   *p_out;
     sout_stream_id_t **pp_es;
     int i_es_num;
 };
@@ -83,8 +82,7 @@ static int Open( vlc_object_t *p_this )
 
     p_sys          = malloc( sizeof( sout_stream_sys_t ) );
 
-    p_sys->p_out = sout_StreamNew( p_stream->p_sout, p_stream->psz_next );
-    if( !p_sys->p_out )
+    if( !p_stream->p_next )
     {
         msg_Err( p_stream, "cannot create chain" );
         free( p_sys );
@@ -99,9 +97,6 @@ static int Open( vlc_object_t *p_this )
 
     p_stream->p_sys     = p_sys;
 
-    /* update p_sout->i_out_pace_nocontrol */
-    p_stream->p_sout->i_out_pace_nocontrol++;
-
     return VLC_SUCCESS;
 }
 
@@ -113,9 +108,6 @@ static void Close( vlc_object_t * p_this )
     sout_stream_t     *p_stream = (sout_stream_t*)p_this;
     sout_stream_sys_t *p_sys = (sout_stream_sys_t *)p_stream->p_sys;
 
-    sout_StreamDelete( p_sys->p_out );
-    p_stream->p_sout->i_out_pace_nocontrol--;
-
     free( p_sys );
 }
 
@@ -126,7 +118,7 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
 
     p_es->fmt = *p_fmt;
     p_es->id = NULL;
-    p_es->i_last = 0;
+    p_es->i_last = VLC_TS_INVALID;
     p_es->b_error = false;
     TAB_APPEND( p_sys->i_es_num, p_sys->pp_es, p_es );
 
@@ -142,7 +134,7 @@ static int Del( sout_stream_t *p_stream, sout_stream_id_t *p_es )
     free( p_es );
 
     if ( id != NULL )
-        return p_sys->p_out->pf_del( p_sys->p_out, id );
+        return p_stream->p_next->pf_del( p_stream->p_next, id );
     else
         return VLC_SUCCESS;
 }
@@ -155,9 +147,9 @@ static int Send( sout_stream_t *p_stream, sout_stream_id_t *p_es,
     int i;
 
     p_es->i_last = p_buffer->i_dts;
-    if ( p_es->id == NULL && p_es->b_error != true )
+    if ( !p_es->id && !p_es->b_error )
     {
-        p_es->id = p_sys->p_out->pf_add( p_sys->p_out, &p_es->fmt );
+        p_es->id = p_stream->p_next->pf_add( p_stream->p_next, &p_es->fmt );
         if ( p_es->id == NULL )
         {
             p_es->b_error = true;
@@ -166,8 +158,8 @@ static int Send( sout_stream_t *p_stream, sout_stream_id_t *p_es,
         }
     }
 
-    if ( p_es->b_error != true )
-        p_sys->p_out->pf_send( p_sys->p_out, p_es->id, p_buffer );
+    if ( !p_es->b_error )
+        p_stream->p_next->pf_send( p_stream->p_next, p_es->id, p_buffer );
     else
         block_ChainRelease( p_buffer );
 
@@ -178,7 +170,7 @@ static int Send( sout_stream_t *p_stream, sout_stream_id_t *p_es,
                    || p_sys->pp_es[i]->fmt.i_cat == AUDIO_ES)
               && p_sys->pp_es[i]->i_last < i_current )
         {
-            p_sys->p_out->pf_del( p_sys->p_out, p_sys->pp_es[i]->id );
+            p_stream->p_next->pf_del( p_stream->p_next, p_sys->pp_es[i]->id );
             p_sys->pp_es[i]->id = NULL;
         }
     }

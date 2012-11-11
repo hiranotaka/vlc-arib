@@ -1,5 +1,5 @@
 /*****************************************************************************
- * external.hpp : Dialogs from other LibVLC core and other plugins
+ * variables.hpp : Dialogs from other LibVLC core and other plugins
  ****************************************************************************
  * Copyright (C) 2009 Rémi Denis-Courmont
  *
@@ -21,6 +21,10 @@
 #ifndef QVLC_VARIABLES_H_
 #define QVLC_VARIABLES_H_ 1
 
+#ifdef HAVE_CONFIG_H
+# include <config.h>
+#endif
+
 #include <QObject>
 #include <vlc_common.h>
 
@@ -32,39 +36,85 @@ private:
                          vlc_value_t, vlc_value_t, void *);
     vlc_object_t *object;
     QString name;
-    virtual void trigger (vlc_object_t *, vlc_value_t, vlc_value_t) = 0;
+    virtual void trigger (vlc_value_t, vlc_value_t) = 0;
 
 public:
     QVLCVariable (vlc_object_t *, const char *, int, bool);
-    virtual ~QVLCVariable (void);
+    ~QVLCVariable (void);
 };
 
 class QVLCPointer : public QVLCVariable
 {
     Q_OBJECT
 private:
-    virtual void trigger (vlc_object_t *, vlc_value_t, vlc_value_t);
+    virtual void trigger (vlc_value_t, vlc_value_t);
 
 public:
     QVLCPointer (vlc_object_t *, const char *, bool inherit = false);
+    bool addCallback (QObject *, const char *,
+                      Qt::ConnectionType type = Qt::AutoConnection);
 
 signals:
-    void pointerChanged (vlc_object_t *, void *, void *);
-    void pointerChanged (vlc_object_t *, void *);
+    void pointerChanged (void *);
 };
 
 class QVLCInteger : public QVLCVariable
 {
     Q_OBJECT
 private:
-    virtual void trigger (vlc_object_t *, vlc_value_t, vlc_value_t);
+    virtual void trigger (vlc_value_t, vlc_value_t);
 
 public:
     QVLCInteger (vlc_object_t *, const char *, bool inherit = false);
+    bool addCallback (QObject *, const char *,
+                      Qt::ConnectionType type = Qt::AutoConnection);
 
 signals:
-    void integerChanged (vlc_object_t *, int, int);
-    void integerChanged (vlc_object_t *, int);
+    void integerChanged (qlonglong);
 };
 
+class QVLCBool : public QVLCVariable
+{
+    Q_OBJECT
+private:
+    virtual void trigger (vlc_value_t, vlc_value_t);
+
+public:
+    QVLCBool (vlc_object_t *, const char *, bool inherit = false);
+    bool addCallback (QObject *, const char *,
+                      Qt::ConnectionType type = Qt::AutoConnection);
+
+signals:
+    void boolChanged (bool);
+};
+
+class QVLCFloat : public QVLCVariable
+{
+    Q_OBJECT
+private:
+    virtual void trigger (vlc_value_t, vlc_value_t);
+
+public:
+    QVLCFloat (vlc_object_t *, const char *, bool inherit = false);
+    bool addCallback (QObject *, const char *,
+                      Qt::ConnectionType type = Qt::AutoConnection);
+
+signals:
+    void floatChanged (float);
+};
+
+class QVLCString : public QVLCVariable
+{
+    Q_OBJECT
+private:
+    virtual void trigger (vlc_value_t, vlc_value_t);
+
+public:
+    QVLCString (vlc_object_t *, const char *, bool inherit = false);
+    bool addCallback (QObject *, const char *,
+                      Qt::ConnectionType type = Qt::AutoConnection);
+
+signals:
+    void stringChanged (QString);
+};
 #endif

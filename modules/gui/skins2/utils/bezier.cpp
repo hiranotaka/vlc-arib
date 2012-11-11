@@ -90,7 +90,7 @@ Bezier::Bezier( intf_thread_t *p_intf, const vector<float> &rAbscissas,
     m_nbPoints = m_leftVect.size();
 
     // If we have only one control point, we duplicate it
-    // This allows to simplify the algorithms used in the class
+    // This allows simplifying the algorithms used in the class
     if( m_nbPoints == 1 )
     {
         m_leftVect.push_back( m_leftVect[0] );
@@ -194,6 +194,23 @@ int Bezier::findNearestPoint( int x, int y ) const
 }
 
 
+inline float Bezier::power( float x, int n )
+{
+#if 0
+    return n <= 0 ? 1 : x * power( x, n - 1 );
+#else
+    return powf( x, n );
+#endif
+}
+
+
+inline float Bezier::computeCoeff( int i, int n, float t ) const
+{
+    return (power( t, i ) * power( 1 - t, (n - i) ) *
+        (m_ft[n] / m_ft[i] / m_ft[n - i]));
+}
+
+
 void Bezier::computePoint( float t, int &x, int &y ) const
 {
     // See http://astronomy.swin.edu.au/~pbourke/curves/bezier/ for a simple
@@ -212,18 +229,3 @@ void Bezier::computePoint( float t, int &x, int &y ) const
     y = lrintf(yPos);
 }
 
-
-inline float Bezier::computeCoeff( int i, int n, float t ) const
-{
-    return (power( t, i ) * power( 1 - t, (n - i) ) *
-        (m_ft[n] / m_ft[i] / m_ft[n - i]));
-}
-
-
-inline float Bezier::power( float x, int n ) const
-{
-    if( n > 0 )
-        return x * power( x, n - 1);
-    else
-        return 1;
-}

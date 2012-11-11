@@ -25,24 +25,18 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_playlist.h>
 #include <vlc_plugin.h>
-#include <errno.h>
-#include <vlc_charset.h>
-#include <vlc_interface.h>
 #include <vlc_services_discovery.h>
 
-#ifdef HAVE_SYS_STAT_H
-#include <sys/stat.h>
-#endif
-
-#include "libmtp.h"
+#include <libmtp.h>
 
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
 static int Open( vlc_object_t * );
 static void Close( vlc_object_t * );
+
+VLC_SD_PROBE_HELPER("mtp", "MTP devices", SD_CAT_DEVICES)
 
 vlc_module_begin()
     set_shortname( "MTP" )
@@ -51,7 +45,9 @@ vlc_module_begin()
     set_subcategory( SUBCAT_PLAYLIST_SD )
     set_capability( "services_discovery", 0 )
     set_callbacks( Open, Close )
-    linked_with_a_crap_library_which_uses_atexit()
+    cannot_unload_broken_library()
+
+    VLC_SD_PROBE_SUBMODULE
 vlc_module_end()
 
 
@@ -122,8 +118,8 @@ static void Close( vlc_object_t *p_this )
     services_discovery_t *p_sd = ( services_discovery_t * )p_this;
 
     free( p_sd->p_sys->psz_name );
-    vlc_cancel (p_sd->p_sys->thread);
-    vlc_join (p_sd->p_sys->thread, NULL);
+    vlc_cancel( p_sd->p_sys->thread );
+    vlc_join( p_sd->p_sys->thread, NULL );
     free( p_sd->p_sys );
 }
 
@@ -149,6 +145,8 @@ static void *Run( void *data )
             msg_Dbg( p_sd, "New device found" );
             if( AddDevice( p_sd, &p_rawdevices[0] ) == VLC_SUCCESS )
                 i_status = 1;
+            else
+                i_status = 2;
         }
         else
         {
@@ -163,7 +161,13 @@ static void *Run( void *data )
         }
         free( p_rawdevices );
         vlc_restorecancel(canc);
-        msleep( 500000 );
+        if( i_status == 2 )
+        {
+            msleep( 5000000 );
+            i_status = 0;
+        }
+        else
+            msleep( 500000 );
     }
     return NULL;
 }
@@ -218,7 +222,7 @@ static int AddDevice( services_discovery_t *p_sd,
     }
     else
     {
-        msg_Warn( p_sd, "No device found, after all" );
+        msg_Info( p_sd, "The device seems to be mounted, unmount it first" );
         return VLC_EGENERIC;
     }
 }
@@ -238,8 +242,7 @@ static void AddTrack( services_discovery_t *p_sd, LIBMTP_track_t *p_track )
         msg_Err( p_sd, "Error adding %s, skipping it", p_track->filename );
         return;
     }
-    if( ( p_input = input_item_New( p_sd, psz_string,
-                                    p_track->title ) ) == NULL )
+    if( ( p_input = input_item_New( psz_string, p_track->title ) ) == NULL )
     {
         msg_Err( p_sd, "Error adding %s, skipping it", p_track->filename );
         free( psz_string );
@@ -269,11 +272,10 @@ static void AddTrack( services_discovery_t *p_sd, LIBMTP_track_t *p_track )
 static void CloseDevice( services_discovery_t *p_sd )
 {
     input_item_t **pp_items = p_sd->p_sys->pp_items;
-    int i_i;
 
     if( pp_items != NULL )
     {
-        for( i_i = 0; i_i < p_sd->p_sys->i_count; i_i++ )
+        for( int i_i = 0; i_i < p_sd->p_sys->i_count; i_i++ )
         {
             if( pp_items[i_i] != NULL )
             {

@@ -53,7 +53,7 @@ vlc_module_begin();
     set_subcategory( SUBCAT_INPUT_DEMUX );
     set_description( N_("Dirac video demuxer" ) );
     set_capability( "demux", 50 );
-    add_integer( DEMUX_CFG_PREFIX DEMUX_DTSOFFSET, 0, NULL,
+    add_integer( DEMUX_CFG_PREFIX DEMUX_DTSOFFSET, 0,
                  DEMUX_DTSOFFSET_TEXT, DEMUX_DTSOFFSET_LONGTEXT, false )
     set_callbacks( Open, Close );
 vlc_module_end();
@@ -176,12 +176,7 @@ static int Demux( demux_t *p_demux)
             p_sys->i_state++;
             /* by default, timestamps are invalid.
              * Except when we need an anchor point */
-#if VLC_TS_INVALID == 0
-            /* xxx: to be removed in 1.1 */
-            p_block_in->i_dts = 1;
-#else
-            p_block_in->i_dts = 0;
-#endif
+            p_block_in->i_dts = VLC_TS_0;
         }
     }
 

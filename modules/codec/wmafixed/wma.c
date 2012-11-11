@@ -30,7 +30,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
-#include <vlc_aout.h>
 #include <vlc_block_helper.h>
 #include <vlc_bits.h>
 
@@ -72,7 +71,7 @@ static unsigned int pi_channels_maps[7] =
 static int  OpenDecoder   ( vlc_object_t * );
 static void CloseDecoder  ( vlc_object_t * );
 
-static aout_buffer_t *DecodeFrame  ( decoder_t *, block_t ** );
+static block_t *DecodeFrame( decoder_t *, block_t ** );
 
 /*****************************************************************************
  * Module descriptor
@@ -81,7 +80,7 @@ vlc_module_begin();
     set_category( CAT_INPUT );
     set_subcategory( SUBCAT_INPUT_ACODEC );
     set_description( _("WMA v1/v2 fixed point audio decoder") );
-    set_capability( "decoder", 50 );
+    set_capability( "decoder", 80 );
     add_shortcut( "wmafixed" )
     set_callbacks( OpenDecoder, CloseDecoder );
 vlc_module_end();
@@ -90,15 +89,15 @@ vlc_module_end();
  * SplitBuffer: Needed because aout really doesn't like big audio chunk and
  * wma produces easily > 30000 samples...
  *****************************************************************************/
-static aout_buffer_t *SplitBuffer( decoder_t *p_dec )
+static block_t *SplitBuffer( decoder_t *p_dec )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     unsigned int i_samples = __MIN( p_sys->i_samples, 2048 );
-    aout_buffer_t *p_buffer;
+    block_t *p_buffer;
 
     if( i_samples == 0 ) return NULL;
 
-    if( !( p_buffer = p_dec->pf_aout_buffer_new( p_dec, i_samples ) ) )
+    if( !( p_buffer = decoder_NewAudioBuffer( p_dec, i_samples ) ) )
         return NULL;
 
     p_buffer->i_pts = date_Get( &p_sys->end_date );
@@ -192,14 +191,11 @@ static int OpenDecoder( vlc_object_t *p_this )
 /*****************************************************************************
  * DecodeFrame: decodes a wma frame.
  *****************************************************************************/
-static aout_buffer_t *DecodeFrame( decoder_t *p_dec, block_t **pp_block )
+static block_t *DecodeFrame( decoder_t *p_dec, block_t **pp_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     block_t       *p_block;
-    aout_buffer_t *p_aout_buffer = NULL;
-#ifdef NDEBUG
-    mtime_t start = mdate(); /* for statistics */
-#endif
+    block_t       *p_aout_buffer = NULL;
 
     if( !pp_block || !*pp_block ) return NULL;
 
@@ -229,12 +225,12 @@ static aout_buffer_t *DecodeFrame( decoder_t *p_dec, block_t **pp_block )
     }
 
     /* Date management */
-    if( p_block->i_pts > 0 &&
+    if( p_block->i_pts > VLC_TS_INVALID &&
         p_block->i_pts != date_Get( &p_sys->end_date ) )
     {
         date_Set( &p_sys->end_date, p_block->i_pts );
         /* don't reuse the same pts */
-        p_block->i_pts = 0;
+        p_block->i_pts = VLC_TS_INVALID;
     }
     else if( !date_Get( &p_sys->end_date ) )
     {
@@ -302,9 +298,6 @@ static aout_buffer_t *DecodeFrame( decoder_t *p_dec, block_t **pp_block )
     p_aout_buffer = SplitBuffer( p_dec );
     assert( p_aout_buffer );
 
-#ifdef NDEBUG
-    msg_Dbg( p_dec, "%s took %"PRIi64" us",__func__,mdate()-start);
-#endif
     return p_aout_buffer;
 }
 

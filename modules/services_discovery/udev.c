@@ -5,49 +5,68 @@
 /*****************************************************************************
  * Copyright © 2009 Rémi Denis-Courmont
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public License
- * as published by the Free Software Foundation; either version 2.1
- * of the License, or (at your option) any later version.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
+ * (at your option) any later version.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- ****************************************************************************/
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
 #endif
 
+#include <errno.h>
+#include <search.h>
+#include <poll.h>
+
 #include <libudev.h>
+
 #include <vlc_common.h>
 #include <vlc_services_discovery.h>
 #include <vlc_plugin.h>
-#include <search.h>
-#include <poll.h>
-#include <errno.h>
+#ifdef HAVE_ALSA
+# include <vlc_modules.h>
+#endif
+#include <vlc_url.h>
 
 static int OpenV4L (vlc_object_t *);
+#ifdef HAVE_ALSA
+static int OpenALSA (vlc_object_t *);
+#endif
 static int OpenDisc (vlc_object_t *);
 static void Close (vlc_object_t *);
+static int vlc_sd_probe_Open (vlc_object_t *);
 
 /*
  * Module descriptor
  */
 vlc_module_begin ()
-    set_shortname (N_("Devices"))
-    set_description (N_("Capture devices"))
+    set_shortname (N_("Video capture"))
+    set_description (N_("Video capture (Video4Linux)"))
     set_category (CAT_PLAYLIST)
     set_subcategory (SUBCAT_PLAYLIST_SD)
     set_capability ("services_discovery", 0)
     set_callbacks (OpenV4L, Close)
-    add_shortcut ("v4l")
-
+    add_shortcut ("v4l", "video")
+#ifdef HAVE_ALSA
+    add_submodule ()
+    set_shortname (N_("Audio capture"))
+    set_description (N_("Audio capture (ALSA)"))
+    set_category (CAT_PLAYLIST)
+    set_subcategory (SUBCAT_PLAYLIST_SD)
+    set_capability ("services_discovery", 0)
+    set_callbacks (OpenALSA, Close)
+    add_shortcut ("alsa", "audio")
+#endif
     add_submodule ()
     set_shortname (N_("Discs"))
     set_description (N_("Discs"))
@@ -57,7 +76,35 @@ vlc_module_begin ()
     set_callbacks (OpenDisc, Close)
     add_shortcut ("disc")
 
+    VLC_SD_PROBE_SUBMODULE
+
 vlc_module_end ()
+
+static int vlc_sd_probe_Open (vlc_object_t *obj)
+{
+    vlc_probe_t *probe = (vlc_probe_t *)obj;
+
+    struct udev *udev = udev_new ();
+    if (udev == NULL)
+        return VLC_PROBE_CONTINUE;
+
+    struct udev_monitor *mon = udev_monitor_new_from_netlink (udev, "udev");
+    if (mon != NULL)
+    {
+        vlc_sd_probe_Add (probe, "v4l{longname=\"Video capture\"}",
+                          N_("Video capture"), SD_CAT_DEVICES);
+#ifdef HAVE_ALSA
+        if (!module_exists ("pulselist"))
+            vlc_sd_probe_Add (probe, "alsa{longname=\"Audio capture\"}",
+                              N_("Audio capture"), SD_CAT_DEVICES);
+#endif
+        vlc_sd_probe_Add (probe, "disc{longname=\"Discs\"}", N_("Discs"),
+                          SD_CAT_DEVICES);
+        udev_monitor_unref (mon);
+    }
+    udev_unref (udev);
+    return VLC_PROBE_CONTINUE;
+}
 
 struct device
 {
@@ -71,7 +118,6 @@ struct subsys
     const char *name;
     char * (*get_mrl) (struct udev_device *dev);
     char * (*get_name) (struct udev_device *dev);
-    char * (*get_cat) (struct udev_device *dev);
     int item_type;
 };
 
@@ -119,8 +165,7 @@ static int AddDevice (services_discovery_t *sd, struct udev_device *dev)
     if (mrl == NULL)
         return 0; /* don't know if it was an error... */
     char *name = p_sys->subsys->get_name (dev);
-    input_item_t *item = input_item_NewWithType (VLC_OBJECT (sd), mrl,
-                                                 name ? name : mrl,
+    input_item_t *item = input_item_NewWithType (mrl, name ? name : mrl,
                                                  0, NULL, 0, -1,
                                                  p_sys->subsys->item_type);
     msg_Dbg (sd, "adding %s (%s)", mrl, name);
@@ -151,10 +196,8 @@ static int AddDevice (services_discovery_t *sd, struct udev_device *dev)
         *dp = d;
     }
 
-    name = p_sys->subsys->get_cat (dev);
-    services_discovery_AddItem (sd, item, name ? name : "Generic");
+    services_discovery_AddItem (sd, item, NULL);
     d->sd = sd;
-    free (name);
     return 0;
 }
 
@@ -354,25 +397,34 @@ static char *decode_property (struct udev_device *dev, const char *name)
     return decode (udev_device_get_property_value (dev, name));
 }
 
+
 /*** Video4Linux support ***/
-static bool is_v4l_legacy (struct udev_device *dev)
+static bool v4l_is_legacy (struct udev_device *dev)
 {
     const char *version;
 
     version = udev_device_get_property_value (dev, "ID_V4L_VERSION");
-    return version && !strcmp (version, "1");
+    return (version != NULL) && !strcmp (version, "1");
+}
+
+static bool v4l_can_capture (struct udev_device *dev)
+{
+    const char *caps;
+
+    caps = udev_device_get_property_value (dev, "ID_V4L_CAPABILITIES");
+    return (caps != NULL) && (strstr (caps, ":capture:") != NULL);
 }
 
 static char *v4l_get_mrl (struct udev_device *dev)
 {
     /* Determine media location */
-    const char *scheme = "v4l2";
-    if (is_v4l_legacy (dev))
-        scheme = "v4l";
+    if (v4l_is_legacy (dev) || !v4l_can_capture (dev))
+        return NULL;
+
     const char *node = udev_device_get_devnode (dev);
     char *mrl;
 
-    if (asprintf (&mrl, "%s://%s", scheme, node) == -1)
+    if (asprintf (&mrl, "v4l2://%s", node) == -1)
         mrl = NULL;
     return mrl;
 }
@@ -383,19 +435,90 @@ static char *v4l_get_name (struct udev_device *dev)
     return prd ? strdup (prd) : NULL;
 }
 
-static char *v4l_get_cat (struct udev_device *dev)
-{
-    return decode_property (dev, "ID_VENDOR_ENC");
-}
-
 int OpenV4L (vlc_object_t *obj)
 {
     static const struct subsys subsys = {
-        "video4linux", v4l_get_mrl, v4l_get_name, v4l_get_cat, ITEM_TYPE_CARD,
+        "video4linux", v4l_get_mrl, v4l_get_name, ITEM_TYPE_CARD,
     };
 
     return Open (obj, &subsys);
 }
+
+
+#ifdef HAVE_ALSA
+/*** Advanced Linux Sound Architecture support ***/
+#include <alsa/asoundlib.h>
+
+static int alsa_get_device (struct udev_device *dev, unsigned *restrict pcard,
+                            unsigned *restrict pdevice)
+{
+    const char *node = udev_device_get_devpath (dev);
+    char type;
+
+    node = strrchr (node, '/');
+    if (node == NULL)
+        return -1;
+    if (sscanf (node, "/pcmC%uD%u%c", pcard, pdevice, &type) < 3)
+        return -1;
+    if (type != 'c')
+        return -1;
+    return 0;
+}
+
+
+static char *alsa_get_mrl (struct udev_device *dev)
+{
+    /* Determine media location */
+    char *mrl;
+    unsigned card, device;
+
+    if (alsa_get_device (dev, &card, &device))
+        return NULL;
+
+    if (asprintf (&mrl, "alsa://plughw:%u,%u", card, device) == -1)
+        mrl = NULL;
+    return mrl;
+}
+
+static char *alsa_get_name (struct udev_device *dev)
+{
+    char *name = NULL;
+    unsigned card, device;
+
+    if (alsa_get_device (dev, &card, &device))
+        return NULL;
+
+    char card_name[4 + 3 * sizeof (int)];
+    snprintf (card_name, sizeof (card_name), "hw:%u", card);
+
+    snd_ctl_t *ctl;
+    if (snd_ctl_open (&ctl, card_name, 0))
+        return NULL;
+
+    snd_pcm_info_t *pcm_info;
+    snd_pcm_info_alloca (&pcm_info);
+    snd_pcm_info_set_device (pcm_info, device);
+    snd_pcm_info_set_subdevice (pcm_info, 0);
+    snd_pcm_info_set_stream (pcm_info, SND_PCM_STREAM_CAPTURE);
+    if (snd_ctl_pcm_info (ctl, pcm_info))
+        goto out;
+
+    name = strdup (snd_pcm_info_get_name (pcm_info));
+out:
+    snd_ctl_close (ctl);
+    return name;
+}
+
+int OpenALSA (vlc_object_t *obj)
+{
+    static const struct subsys subsys = {
+        "sound", alsa_get_mrl, alsa_get_name, ITEM_TYPE_CARD,
+    };
+
+    return Open (obj, &subsys);
+}
+#endif /* HAVE_ALSA */
+
 
 /*** Discs support ***/
 static char *disc_get_mrl (struct udev_device *dev)
@@ -407,66 +530,86 @@ static char *disc_get_mrl (struct udev_device *dev)
         return NULL; /* Ignore non-optical block devices */
 
     val = udev_device_get_property_value (dev, "ID_CDROM_MEDIA_STATE");
-    if ((val == NULL) || !strcmp (val, "blank"))
+    if (val && !strcmp (val, "blank"))
         return NULL; /* ignore empty drives and virgin recordable discs */
 
-    const char *scheme = "file";
+    const char *scheme = NULL;
     val = udev_device_get_property_value (dev,
                                           "ID_CDROM_MEDIA_TRACK_COUNT_AUDIO");
     if (val && atoi (val))
         scheme = "cdda"; /* Audio CD rather than file system */
-#if 0 /* we can use file:// for DVDs */
     val = udev_device_get_property_value (dev, "ID_CDROM_MEDIA_DVD");
     if (val && atoi (val))
         scheme = "dvd";
-#endif
+
     val = udev_device_get_property_value (dev, "ID_CDROM_MEDIA_BD");
     if (val && atoi (val))
-        scheme = "bd";
+        scheme = "bluray";
 #ifdef LOL
     val = udev_device_get_property_value (dev, "ID_CDROM_MEDIA_HDDVD");
     if (val && atoi (val))
         scheme = "hddvd";
 #endif
 
-    val = udev_device_get_devnode (dev);
-    char *mrl;
+    /* We didn't get any property that could tell we have optical disc
+       that we can play */
+    if (scheme == NULL)
+        return NULL;
 
-    if (asprintf (&mrl, "%s://%s", scheme, val) == -1)
-        mrl = NULL;
-    return mrl;
+    val = udev_device_get_devnode (dev);
+    return vlc_path2uri (val, scheme);
 }
 
 static char *disc_get_name (struct udev_device *dev)
 {
-    return decode_property (dev, "ID_FS_LABEL_ENC");
-}
+    char *name = NULL;
+    struct udev_list_entry *list, *entry;
 
-static char *disc_get_cat (struct udev_device *dev)
-{
-    const char *val;
-    const char *cat = "Unknown";
+    list = udev_device_get_properties_list_entry (dev);
+    if (unlikely(list == NULL))
+        return NULL;
 
-    val = udev_device_get_property_value (dev, "ID_CDROM_MEDIA_CD");
-    if (val && atoi (val))
-        cat = "CD";
-    val = udev_device_get_property_value (dev, "ID_CDROM_MEDIA_DVD");
-    if (val && atoi (val))
-        cat = "DVD";
-    val = udev_device_get_property_value (dev, "ID_CDROM_MEDIA_BD");
-    if (val && atoi (val))
-        cat = "Blue-ray disc";
-    val = udev_device_get_property_value (dev, "ID_CDROM_MEDIA_HDDVD");
-    if (val && atoi (val))
-        cat = "HD DVD";
+    const char *cat = NULL;
+    udev_list_entry_foreach (entry, list)
+    {
+        const char *name = udev_list_entry_get_name (entry);
 
-    return strdup (cat);
+        if (strncmp (name, "ID_CDROM_MEDIA_", 15))
+            continue;
+        if (!atoi (udev_list_entry_get_value (entry)))
+            continue;
+        name += 15;
+
+        if (!strncmp (name, "CD", 2))
+            cat = N_("CD");
+        else if (!strncmp (name, "DVD", 3))
+            cat = N_("DVD");
+        else if (!strncmp (name, "BD", 2))
+            cat = N_("Blu-Ray");
+        else if (!strncmp (name, "HDDVD", 5))
+            cat = N_("HD DVD");
+
+        if (cat != NULL)
+            break;
+    }
+
+    if (cat == NULL)
+        cat = N_("Unknown type");
+
+    char *label = decode_property (dev, "ID_FS_LABEL_ENC");
+
+    if (label)
+        if (asprintf(&name, "%s (%s)", label, vlc_gettext(cat)) < 0)
+            name = NULL;
+    free(label);
+
+    return name;
 }
 
 int OpenDisc (vlc_object_t *obj)
 {
     static const struct subsys subsys = {
-        "block", disc_get_mrl, disc_get_name, disc_get_cat, ITEM_TYPE_DISC,
+        "block", disc_get_mrl, disc_get_name, ITEM_TYPE_DISC,
     };
 
     return Open (obj, &subsys);

@@ -84,23 +84,23 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_VIDEO_VFILTER );
 
     set_section( N_("Crop"), NULL )
-        add_integer_with_range( CFG_PREFIX "croptop", 0, 0, INT_MAX, NULL,
+        add_integer_with_range( CFG_PREFIX "croptop", 0, 0, INT_MAX,
                                 CROPTOP_TEXT, CROPTOP_LONGTEXT, false )
-        add_integer_with_range( CFG_PREFIX "cropbottom", 0, 0, INT_MAX, NULL,
+        add_integer_with_range( CFG_PREFIX "cropbottom", 0, 0, INT_MAX,
                                 CROPBOTTOM_TEXT, CROPBOTTOM_LONGTEXT, false )
-        add_integer_with_range( CFG_PREFIX "cropleft", 0, 0, INT_MAX, NULL,
+        add_integer_with_range( CFG_PREFIX "cropleft", 0, 0, INT_MAX,
                                 CROPLEFT_TEXT, CROPLEFT_LONGTEXT, false )
-        add_integer_with_range( CFG_PREFIX "cropright", 0, 0, INT_MAX, NULL,
+        add_integer_with_range( CFG_PREFIX "cropright", 0, 0, INT_MAX,
                                 CROPRIGHT_TEXT, CROPRIGHT_LONGTEXT, false )
 
     set_section( N_("Padd"), NULL )
-        add_integer_with_range( CFG_PREFIX "paddtop", 0, 0, INT_MAX, NULL,
+        add_integer_with_range( CFG_PREFIX "paddtop", 0, 0, INT_MAX,
                                 PADDTOP_TEXT, PADDTOP_LONGTEXT, false )
-        add_integer_with_range( CFG_PREFIX "paddbottom", 0, 0, INT_MAX, NULL,
+        add_integer_with_range( CFG_PREFIX "paddbottom", 0, 0, INT_MAX,
                                 PADDBOTTOM_TEXT, PADDBOTTOM_LONGTEXT, false )
-        add_integer_with_range( CFG_PREFIX "paddleft", 0, 0, INT_MAX, NULL,
+        add_integer_with_range( CFG_PREFIX "paddleft", 0, 0, INT_MAX,
                                 PADDLEFT_TEXT, PADDLEFT_LONGTEXT, false )
-        add_integer_with_range( CFG_PREFIX "paddright", 0, 0, INT_MAX, NULL,
+        add_integer_with_range( CFG_PREFIX "paddright", 0, 0, INT_MAX,
                                 PADDRIGHT_TEXT, PADDRIGHT_LONGTEXT, false )
 vlc_module_end ()
 
@@ -190,6 +190,9 @@ static int OpenFilter( vlc_object_t *p_this )
              p_filter->fmt_out.video.i_width,
              p_filter->fmt_out.video.i_height );
 
+    p_filter->fmt_out.video.i_sar_num = p_filter->fmt_in.video.i_sar_num * p_filter->fmt_out.video.i_visible_height;
+    p_filter->fmt_out.video.i_sar_den = p_filter->fmt_in.video.i_sar_den * p_filter->fmt_out.video.i_visible_width;
+
     return VLC_SUCCESS;
 }
 
@@ -266,7 +269,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
         p_in += i_ycrop * p_plane->i_pitch;
 
         /* Padd on the top */
-        vlc_memset( p_out, i_padd_color, i_ypadd * p_outplane->i_pitch );
+        memset( p_out, i_padd_color, i_ypadd * p_outplane->i_pitch );
         p_out += i_ypadd * p_outplane->i_pitch;
 
         int i_line;
@@ -279,16 +282,16 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
             p_in += i_xcrop * i_pixel_pitch;
 
             /* Padd on the left */
-            vlc_memset( p_out, i_padd_color, i_xpadd * i_pixel_pitch );
+            memset( p_out, i_padd_color, i_xpadd * i_pixel_pitch );
             p_out += i_xpadd * i_pixel_pitch;
 
             /* Copy the image and crop on the right */
-            vlc_memcpy( p_out, p_in, i_width * i_pixel_pitch );
+            memcpy( p_out, p_in, i_width * i_pixel_pitch );
             p_out += i_width * i_pixel_pitch;
             p_in += i_width * i_pixel_pitch;
 
             /* Padd on the right */
-            vlc_memset( p_out, i_padd_color,
+            memset( p_out, i_padd_color,
                         ( i_outwidth - i_xpadd - i_width ) * i_pixel_pitch );
 
             /* Got to begining of the next line */
@@ -297,7 +300,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
         }
 
         /* Padd on the bottom */
-        vlc_memset( p_out, i_padd_color,
+        memset( p_out, i_padd_color,
                  ( i_outheight - i_ypadd - i_height ) * p_outplane->i_pitch );
     }
 

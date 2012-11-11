@@ -44,7 +44,7 @@ vlc_module_begin ()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_DEMUX )
     set_description( N_("MPEG-I/II video demuxer" ) )
-    set_capability( "demux", 100 )
+    set_capability( "demux", 5 )
     set_callbacks( Open, Close )
     add_shortcut( "mpgv" )
 vlc_module_end ()
@@ -153,12 +153,12 @@ static int Demux( demux_t *p_demux )
     if( p_sys->b_start )
     {
         p_block_in->i_pts =
-        p_block_in->i_dts = 1;
+        p_block_in->i_dts = VLC_TS_0;
     }
     else
     {
         p_block_in->i_pts =
-        p_block_in->i_dts = 0;
+        p_block_in->i_dts = VLC_TS_INVALID;
     }
 
     while( (p_block_out = p_sys->p_packetizer->pf_packetize( p_sys->p_packetizer, &p_block_in )) )

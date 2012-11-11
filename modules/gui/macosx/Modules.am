@@ -1,19 +1,33 @@
-# Automake forgets to add a proper tag to libtool with Objective-C files.
-# Moreovcer Libtool should default tag to CC when none is specified but
-# obviously does not. Here is a fix for that.
-LIBTOOL=@LIBTOOL@ --tag=CC
+AM_LIBTOOLFLAGS=--tag=CC
 
 SOURCES_macosx = \
+	CompatibilityFixes.h \
+	StringUtility.h \
+	StringUtility.m \
 	AppleRemote.h \
 	AppleRemote.m \
+	SPInvocationGrabbing.h \
+	SPInvocationGrabbing.m \
+	SPMediaKeyTap.h \
+	SPMediaKeyTap.m \
+	MainMenu.h \
+	MainMenu.m \
+	MainWindow.h \
+	MainWindow.m \
+	CoreInteraction.h \
+	CoreInteraction.m \
+	ExtensionsManager.h \
+	ExtensionsManager.m \
+	ExtensionsDialogProvider.h \
+	ExtensionsDialogProvider.m \
+	VLCUIWidgets.h \
+	VLCUIWidgets.m \
 	about.h \
 	about.m \
 	applescript.h \
 	applescript.m \
 	controls.h \
 	controls.m \
-	equalizer.m \
-	equalizer.h \
 	coredialogs.m \
 	coredialogs.h \
 	intf.m \
@@ -35,26 +49,38 @@ SOURCES_macosx = \
 	simple_prefs.m \
 	output.h \
 	output.m \
-	vout.m \
-	voutgl.m \
-	vout.h \
 	wizard.h \
 	wizard.m \
-	extended.h \
-	extended.m \
+	AudioEffects.h \
+	AudioEffects.m \
+	TrackSynchronization.h \
+	TrackSynchronization.m \
+	VideoEffects.h \
+	VideoEffects.m \
 	bookmarks.h \
 	bookmarks.m \
-	embeddedwindow.h \
-	embeddedwindow.m \
-	sidebarview.h \
-	sidebarview.m \
-	sidestatusview.h \
-	sidestatusview.m \
+	PXSourceList.h \
+	PXSourceList.m \
+	PXSourceListDataSource.h \
+	PXSourceListDelegate.h \
+	SideBarItem.h \
+	SideBarItem.m \
 	fspanel.m \
 	fspanel.h \
 	eyetv.h \
 	eyetv.m \
-	vlm.h \
-	vlm.m \
+	VideoView.h \
+	VideoView.m \
+	MainWindowTitle.h \
+	MainWindowTitle.m \
+	ConvertAndSave.h \
+	ConvertAndSave.m \
+	SharedDialogs.h \
+	SharedDialogs.m \
+	Windows.h \
+	Windows.m \
+	ControlsBar.m \
+	ControlsBar.h \
+	VLCVoutWindowController.m \
+	VLCVoutWindowController.h \
 	$(NULL)
-

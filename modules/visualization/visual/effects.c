@@ -100,13 +100,37 @@ int spectrum_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
     int16_t  *p_buffs;                    /* int16_t converted buffer */
     int16_t  *p_s16_buff;                 /* int16_t converted buffer */
 
-    p_s16_buff = malloc( p_buffer->i_nb_samples * p_effect->i_nb_chans * sizeof(int16_t));
-    if( !p_s16_buff )
-        return -1;
+    /* Create p_data if needed */
+    if( !p_data )
+    {
+        p_effect->p_data = p_data = malloc( sizeof( spectrum_data ) );
+        if( !p_data )
+            return -1;
 
-    p_buffs = p_s16_buff;
-    i_80_bands = config_GetInt ( p_aout, "visual-80-bands" );
-    i_peak     = config_GetInt ( p_aout, "visual-peaks" );
+        p_data->peaks = calloc( 80, sizeof(int) );
+        p_data->prev_heights = calloc( 80, sizeof(int) );
+
+        p_data->i_prev_nb_samples = 0;
+        p_data->p_prev_s16_buff = NULL;
+    }
+    peaks = (int *)p_data->peaks;
+    prev_heights = (int *)p_data->prev_heights;
+
+    /* Allocate the buffer only if the number of samples change */
+    if( p_buffer->i_nb_samples != p_data->i_prev_nb_samples )
+    {
+        free( p_data->p_prev_s16_buff );
+        p_data->p_prev_s16_buff = malloc( p_buffer->i_nb_samples *
+                                          p_effect->i_nb_chans *
+                                          sizeof(int16_t));
+        p_data->i_prev_nb_samples = p_buffer->i_nb_samples;
+        if( !p_data->p_prev_s16_buff )
+            return -1;
+    }
+    p_buffs = p_s16_buff = p_data->p_prev_s16_buff;
+
+    i_80_bands = var_InheritInteger( p_aout, "visual-80-bands" );
+    i_peak     = var_InheritInteger( p_aout, "visual-peaks" );
 
     if( i_80_bands != 0)
     {
@@ -119,32 +143,9 @@ int spectrum_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
         i_nb_bands = 20;
     }
 
-    if( !p_data )
-    {
-        p_effect->p_data = p_data = malloc( sizeof( spectrum_data ) );
-        if( !p_data )
-        {
-            free( p_s16_buff );
-            return -1;
-        }
-
-        p_data->peaks = calloc( 80, sizeof(int) );
-        p_data->prev_heights = calloc( 80, sizeof(int) );
-
-        peaks = ( int * )p_data->peaks;
-        prev_heights = ( int * )p_data->prev_heights;
-    }
-    else
-    {
-        peaks = (int *)p_data->peaks;
-        prev_heights = (int *)p_data->prev_heights;
-    }
-
-
     height = malloc( i_nb_bands * sizeof(int) );
     if( !height )
     {
-        free( p_s16_buff );
         return -1;
     }
     /* Convert the buffer to int16_t  */
@@ -163,7 +164,6 @@ int spectrum_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
     if( !p_state)
     {
         free( height );
-        free( p_s16_buff );
         msg_Err(p_aout,"unable to initialize FFT transform");
         return -1;
     }
@@ -327,7 +327,6 @@ int spectrum_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
 
     fft_close( p_state );
 
-    free( p_s16_buff );
     free( height );
 
     return 0;
@@ -387,7 +386,7 @@ int spectrometer_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
     fft_state *p_state;                 /* internal FFT data */
 
     int i , j , k;
-    int i_line;
+    int i_line = 0;
     int16_t p_dest[FFT_BUFFER_SIZE];      /* Adapted FFT result */
     int16_t p_buffer1[FFT_BUFFER_SIZE];   /* Buffer on which we perform
                                              the FFT (first channel) */
@@ -397,25 +396,50 @@ int spectrometer_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
     int16_t  *p_buffs;                    /* int16_t converted buffer */
     int16_t  *p_s16_buff;                /* int16_t converted buffer */
 
-    i_line = 0;
+    /* Create the data struct if needed */
+    spectrometer_data *p_data = p_effect->p_data;
+    if( !p_data )
+    {
+        p_data = malloc( sizeof(spectrometer_data) );
+        if( !p_data )
+            return -1;
+        p_data->peaks = calloc( 80, sizeof(int) );
+        if( !p_data->peaks )
+        {
+            free( p_data );
+            return -1;
+        }
+        p_data->i_prev_nb_samples = 0;
+        p_data->p_prev_s16_buff = NULL;
+        p_effect->p_data = (void*)p_data;
+    }
+    peaks = p_data->peaks;
 
-    p_s16_buff = malloc( p_buffer->i_nb_samples * p_effect->i_nb_chans * sizeof(int16_t) );
-    if( !p_s16_buff )
-        return -1;
+    /* Allocate the buffer only if the number of samples change */
+    if( p_buffer->i_nb_samples != p_data->i_prev_nb_samples )
+    {
+        free( p_data->p_prev_s16_buff );
+        p_data->p_prev_s16_buff = malloc( p_buffer->i_nb_samples *
+                                          p_effect->i_nb_chans *
+                                          sizeof(int16_t));
+        p_data->i_prev_nb_samples = p_buffer->i_nb_samples;
+        if( !p_data->p_prev_s16_buff )
+            return -1;
+    }
+    p_buffs = p_s16_buff = p_data->p_prev_s16_buff;
 
-    p_buffs = p_s16_buff;
-    i_original     = config_GetInt ( p_aout, "spect-show-original" );
-    i_80_bands     = config_GetInt ( p_aout, "spect-80-bands" );
-    i_separ        = config_GetInt ( p_aout, "spect-separ" );
-    i_amp          = config_GetInt ( p_aout, "spect-amp" );
-    i_peak         = config_GetInt ( p_aout, "spect-show-peaks" );
-    i_show_base    = config_GetInt ( p_aout, "spect-show-base" );
-    i_show_bands   = config_GetInt ( p_aout, "spect-show-bands" );
-    i_rad          = config_GetInt ( p_aout, "spect-radius" );
-    i_sections     = config_GetInt ( p_aout, "spect-sections" );
-    i_extra_width  = config_GetInt ( p_aout, "spect-peak-width" );
-    i_peak_height  = config_GetInt ( p_aout, "spect-peak-height" );
-    color1         = config_GetInt ( p_aout, "spect-color" );
+    i_original     = var_InheritInteger( p_aout, "spect-show-original" );
+    i_80_bands     = var_InheritInteger( p_aout, "spect-80-bands" );
+    i_separ        = var_InheritInteger( p_aout, "spect-separ" );
+    i_amp          = var_InheritInteger( p_aout, "spect-amp" );
+    i_peak         = var_InheritInteger( p_aout, "spect-show-peaks" );
+    i_show_base    = var_InheritInteger( p_aout, "spect-show-base" );
+    i_show_bands   = var_InheritInteger( p_aout, "spect-show-bands" );
+    i_rad          = var_InheritInteger( p_aout, "spect-radius" );
+    i_sections     = var_InheritInteger( p_aout, "spect-sections" );
+    i_extra_width  = var_InheritInteger( p_aout, "spect-peak-width" );
+    i_peak_height  = var_InheritInteger( p_aout, "spect-peak-height" );
+    color1         = var_InheritInteger( p_aout, "spect-color" );
 
     if( i_80_bands != 0)
     {
@@ -428,32 +452,9 @@ int spectrometer_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
         i_nb_bands = 20;
     }
 
-    if( !p_effect->p_data )
-    {
-        p_effect->p_data=(void *)malloc( 80 * sizeof(int) );
-        if( !p_effect->p_data )
-        {
-            free( p_s16_buff );
-            return -1;
-        }
-        peaks = (int *)p_effect->p_data;
-        for( i = 0 ; i < i_nb_bands ; i++ )
-        {
-           peaks[i] = 0;
-        }
-    }
-    else
-    {
-        peaks =(int *)p_effect->p_data;
-    }
-
-    height = (int *)malloc( i_nb_bands * sizeof(int) );
+    height = malloc( i_nb_bands * sizeof(int) );
     if( !height)
-    {
-        free( p_effect->p_data );
-        free( p_s16_buff );
         return -1;
-    }
 
     /* Convert the buffer to int16_t  */
     /* Pasted from float32tos16.c */
@@ -472,8 +473,6 @@ int spectrometer_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
     {
         msg_Err(p_aout,"unable to initialize FFT transform");
         free( height );
-        free( p_effect->p_data );
-        free( p_s16_buff );
         return -1;
     }
     p_buffs = p_s16_buff;
@@ -785,7 +784,6 @@ int spectrometer_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
 
     fft_close( p_state );
 
-    free( p_s16_buff );
     free( height );
 
     return 0;
@@ -821,7 +819,7 @@ int scope_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
         uint8_t i_value;
 
         /* Left channel */
-        i_value =  p_sample[p_effect->i_idx_left] * 127;
+        i_value =  (1.0+p_sample[p_effect->i_idx_left]) * 127;
         *(ppp_area[0][0]
                 + p_picture->p[0].i_pitch * i_index / p_effect->i_width
                 + p_picture->p[0].i_lines * i_value / 512
@@ -833,7 +831,7 @@ int scope_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
 
 
         /* Right channel */
-        i_value = p_sample[p_effect->i_idx_right] * 127;
+        i_value = (1.0+p_sample[p_effect->i_idx_right]) * 127;
         *(ppp_area[1][0]
                 + p_picture->p[0].i_pitch * i_index / p_effect->i_width
                 + p_picture->p[0].i_lines * i_value / 512
@@ -856,7 +854,6 @@ int vuMeter_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
                 const block_t * p_buffer , picture_t * p_picture)
 {
     VLC_UNUSED(p_aout);
-    int j;
     float i_value_l = 0;
     float i_value_r = 0;
 
@@ -891,7 +888,7 @@ int vuMeter_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
     if( !p_effect->p_data )
     {
         /* Allocate memory to save hand positions */
-        p_effect->p_data = (void *)malloc( 2 * sizeof(float) );
+        p_effect->p_data = malloc( 2 * sizeof(float) );
         i_value = p_effect->p_data;
         i_value[0] = i_value_l;
         i_value[1] = i_value_r;
@@ -913,21 +910,23 @@ int vuMeter_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
             i_value[1] = i_value[1] - 6;
     }
 
-    int x, y, k;
+    int x, y;
     float teta;
     float teta_grad;
 
-    for ( j = 0; j < 2; j++ )
+    int start_x = p_effect->i_width / 2 - 120; /* i_width.min = 532 (visual.c) */
+
+    for ( int j = 0; j < 2; j++ )
     {
         /* Draw the two scales */
-        k = 0;
+        int k = 0;
         teta_grad = GRAD_ANGLE_MIN;
         for ( teta = -M_PI_4; teta <= M_PI_4; teta = teta + 0.003 )
         {
             for ( unsigned i = 140; i <= 150; i++ )
             {
                 y = i * cos(teta) + 20;
-                x = i * sin(teta) + 150 + 240 * j;
+                x = i * sin(teta) + start_x + 240 * j;
                 /* Compute the last color for the gradation */
                 if (teta >= teta_grad + GRAD_INCR && teta_grad <= GRAD_ANGLE_MAX)
                 {
@@ -951,7 +950,7 @@ int vuMeter_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
         for ( int i = 0; i <= 150; i++ )
         {
             y = i * cos(teta) + 20;
-            x = i * sin(teta) + 150 + 240 * j;
+            x = i * sin(teta) + start_x + 240 * j;
             *(p_picture->p[0].p_pixels +
                     (p_picture->p[0].i_lines - y - 1 ) * p_picture->p[0].i_pitch
                     + x ) = 0xAD;
@@ -969,7 +968,7 @@ int vuMeter_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
             for ( int i = 0; i < 10; i++ )
             {
                 y = i * cos(teta) + 20;
-                x = i * sin(teta) + 150 + 240 * j;
+                x = i * sin(teta) + start_x + 240 * j;
                 *(p_picture->p[0].p_pixels +
                         (p_picture->p[0].i_lines - y - 1 ) * p_picture->p[0].i_pitch
                         + x ) = 0xFF;

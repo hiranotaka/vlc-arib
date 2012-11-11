@@ -47,7 +47,6 @@
 #include <libzvbi.h>
 
 #include <vlc_codec.h>
-#include <vlc_osd.h>
 
 /*****************************************************************************
  * Module descriptor.
@@ -59,7 +58,7 @@ static void Close( vlc_object_t * );
 #define PAGE_LONGTEXT N_("Open the indicated Teletext page." \
         "Default page is index 100")
 
-#define OPAQUE_TEXT N_("Text is always opaque")
+#define OPAQUE_TEXT N_("Teletext transparency")
 #define OPAQUE_LONGTEXT N_("Setting vbi-opaque to false " \
         "makes the boxed text transparent." )
 
@@ -86,13 +85,13 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_INPUT_SCODEC )
     set_callbacks( Open, Close )
 
-    add_integer( "vbi-page", 100, NULL,
+    add_integer( "vbi-page", 100,
                  PAGE_TEXT, PAGE_LONGTEXT, false )
-    add_bool( "vbi-opaque", true, NULL,
+    add_bool( "vbi-opaque", true,
                  OPAQUE_TEXT, OPAQUE_LONGTEXT, false )
-    add_integer( "vbi-position", 4, NULL, POS_TEXT, POS_LONGTEXT, false )
-        change_integer_list( pi_pos_values, ppsz_pos_descriptions, NULL );
-    add_bool( "vbi-text", false, NULL,
+    add_integer( "vbi-position", 4, POS_TEXT, POS_LONGTEXT, false )
+        change_integer_list( pi_pos_values, ppsz_pos_descriptions );
+    add_bool( "vbi-text", false,
               TELX_TEXT, TELX_LONGTEXT, false )
 vlc_module_end ()
 
@@ -148,10 +147,12 @@ typedef enum {
     DATA_UNIT_STUFFING                      = 0xFF,
 } data_unit_id;
 
+#define MAX_SLICES 32
+
 struct decoder_sys_t
 {
     vbi_decoder *     p_vbi_dec;
-    vbi_dvb_demux *   p_dvb_demux;
+    vbi_sliced        p_vbi_sliced[MAX_SLICES];
     unsigned int      i_last_page;
     bool              b_update;
     bool              b_text;   /* Subtitles as text */
@@ -206,20 +207,18 @@ static int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
 
     p_dec->pf_decode_sub = Decode;
-    p_sys = p_dec->p_sys = malloc( sizeof(decoder_sys_t) );
+    p_sys = p_dec->p_sys = calloc( 1, sizeof(decoder_sys_t) );
     if( p_sys == NULL )
         return VLC_ENOMEM;
-    memset( p_sys, 0, sizeof(decoder_sys_t) );
 
     p_sys->i_key[0] = p_sys->i_key[1] = p_sys->i_key[2] = '*' - '0';
     p_sys->b_update = false;
     p_sys->p_vbi_dec = vbi_decoder_new();
-    p_sys->p_dvb_demux = vbi_dvb_pes_demux_new( NULL, NULL );
     vlc_mutex_init( &p_sys->lock );
 
-    if( (p_sys->p_vbi_dec == NULL) || (p_sys->p_dvb_demux == NULL) )
+    if( p_sys->p_vbi_dec == NULL )
     {
-        msg_Err( p_dec, "VBI decoder/demux could not be created." );
+        msg_Err( p_dec, "VBI decoder could not be created." );
         Close( p_this );
         return VLC_ENOMEM;
     }
@@ -246,8 +245,7 @@ static int Open( vlc_object_t *p_this )
 
     /* Create the var on vlc_global. */
     p_sys->i_wanted_page = var_CreateGetInteger( p_dec, "vbi-page" );
-    var_AddCallback( p_dec, "vbi-page",
-                     RequestPage, p_sys );
+    var_AddCallback( p_dec, "vbi-page", RequestPage, p_sys );
 
     /* Check if the Teletext track has a known "initial page". */
     if( p_sys->i_wanted_page == 100 && p_dec->fmt_in.subs.teletext.i_magazine != -1 )
@@ -295,19 +293,14 @@ static void Close( vlc_object_t *p_this )
 
     if( p_sys->p_vbi_dec )
         vbi_decoder_delete( p_sys->p_vbi_dec );
-    if( p_sys->p_dvb_demux )
-        vbi_dvb_demux_delete( p_sys->p_dvb_demux );
     free( p_sys );
 }
-
-#define MAX_SLICES 32
 
 #ifdef WORDS_BIGENDIAN
 # define ZVBI_PIXFMT_RGBA32 VBI_PIXFMT_RGBA32_BE
 #else
 # define ZVBI_PIXFMT_RGBA32 VBI_PIXFMT_RGBA32_LE
 #endif
-
 
 /*****************************************************************************
  * Decode:
@@ -320,8 +313,6 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     video_format_t  fmt;
     bool            b_cached = false;
     vbi_page        p_page;
-    const uint8_t   *p_pos;
-    unsigned int    i_left;
 
     if( (pp_block == NULL) || (*pp_block == NULL) )
         return NULL;
@@ -329,20 +320,44 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     p_block = *pp_block;
     *pp_block = NULL;
 
-    p_pos = p_block->p_buffer;
-    i_left = p_block->i_buffer;
-
-    while( i_left > 0 )
+    if( p_block->i_buffer > 0 &&
+        ( ( p_block->p_buffer[0] >= 0x10 && p_block->p_buffer[0] <= 0x1f ) ||
+          ( p_block->p_buffer[0] >= 0x99 && p_block->p_buffer[0] <= 0x9b ) ) )
     {
-        vbi_sliced      p_sliced[MAX_SLICES];
-        unsigned int    i_lines = 0;
-        int64_t         i_pts;
+        vbi_sliced   *p_sliced = p_sys->p_vbi_sliced;
+        unsigned int i_lines = 0;
 
-        i_lines = vbi_dvb_demux_cor( p_sys->p_dvb_demux, p_sliced,
-                                     MAX_SLICES, &i_pts, &p_pos, &i_left );
+        p_block->i_buffer--;
+        p_block->p_buffer++;
+        while( p_block->i_buffer >= 2 )
+        {
+            int      i_id   = p_block->p_buffer[0];
+            unsigned i_size = p_block->p_buffer[1];
+
+            if( 2 + i_size > p_block->i_buffer )
+                break;
+
+            if( ( i_id == 0x02 || i_id == 0x03 ) && i_size >= 44 && i_lines < MAX_SLICES )
+            {
+                unsigned line_offset  = p_block->p_buffer[2] & 0x1f;
+                unsigned field_parity = p_block->p_buffer[2] & 0x20;
+
+                p_sliced[i_lines].id = VBI_SLICED_TELETEXT_B;
+                if( line_offset > 0 )
+                    p_sliced[i_lines].line = line_offset + (field_parity ? 0 : 313);
+                else
+                    p_sliced[i_lines].line = 0;
+                for( int i = 0; i < 42; i++ )
+                    p_sliced[i_lines].data[i] = vbi_rev8( p_block->p_buffer[4 + i] );
+                i_lines++;
+            }
+
+            p_block->i_buffer -= 2 + i_size;
+            p_block->p_buffer += 2 + i_size;
+        }
 
         if( i_lines > 0 )
-            vbi_decode( p_sys->p_vbi_dec, p_sliced, i_lines, i_pts / 90000.0 );
+            vbi_decode( p_sys->p_vbi_dec, p_sliced, i_lines, (double)p_block->i_pts / 1000000 );
     }
 
     /* */
@@ -457,7 +472,7 @@ static subpicture_t *Subpicture( decoder_t *p_dec, video_format_t *p_fmt,
 
     /* If there is a page or sub to render, then we do that here */
     /* Create the subpicture unit */
-    p_spu = decoder_NewSubpicture( p_dec );
+    p_spu = decoder_NewSubpicture( p_dec, NULL );
     if( !p_spu )
     {
         msg_Warn( p_dec, "can't get spu buffer" );
@@ -465,16 +480,15 @@ static subpicture_t *Subpicture( decoder_t *p_dec, video_format_t *p_fmt,
     }
 
     memset( &fmt, 0, sizeof(video_format_t) );
-    fmt.i_chroma = b_text ? VLC_CODEC_TEXT :
-                                   VLC_CODEC_RGBA;
-    fmt.i_aspect = b_text ? 0 : VOUT_ASPECT_FACTOR;
+    fmt.i_chroma = b_text ? VLC_CODEC_TEXT : VLC_CODEC_RGBA;
+    fmt.i_sar_num = 0;
+    fmt.i_sar_den = 1;
     if( b_text )
     {
         fmt.i_bits_per_pixel = 0;
     }
     else
     {
-        fmt.i_sar_num = fmt.i_sar_den = 1;
         fmt.i_width = fmt.i_visible_width = i_columns * 12;
         fmt.i_height = fmt.i_visible_height = i_rows * 10;
         fmt.i_bits_per_pixel = 32;
@@ -667,7 +681,7 @@ static int EventKey( vlc_object_t *p_this, char const *psz_cmd,
     decoder_t *p_dec = p_data;
     decoder_sys_t *p_sys = p_dec->p_sys;
 
-    VLC_UNUSED(psz_cmd); VLC_UNUSED(oldval);
+    VLC_UNUSED(psz_cmd); VLC_UNUSED(oldval); VLC_UNUSED( p_this );
 
     /* FIXME: Capture + and - key for subpage browsing */
     if( newval.i_int == '-' || newval.i_int == '+' )
@@ -683,7 +697,8 @@ static int EventKey( vlc_object_t *p_this, char const *psz_cmd,
         if ( !vbi_bcd_digits_greater( p_sys->i_wanted_subpage, 0x00 ) || vbi_bcd_digits_greater( p_sys->i_wanted_subpage, 0x99 ) )
                 p_sys->i_wanted_subpage = VBI_ANY_SUBNO;
         else
-            vout_OSDMessage( p_this, DEFAULT_CHAN, "%s: %d", _("Subpage"), vbi_bcd2dec( p_sys->i_wanted_subpage) );
+            msg_Info( p_dec, "subpage: %d",
+                      vbi_bcd2dec( p_sys->i_wanted_subpage) );
 
         p_sys->b_update = true;
         vlc_mutex_unlock( &p_sys->lock );
@@ -697,7 +712,8 @@ static int EventKey( vlc_object_t *p_this, char const *psz_cmd,
     p_sys->i_key[0] = p_sys->i_key[1];
     p_sys->i_key[1] = p_sys->i_key[2];
     p_sys->i_key[2] = (int)(newval.i_int - '0');
-    vout_OSDMessage( p_this, DEFAULT_CHAN, "%s: %c%c%c", _("Page"), (char)(p_sys->i_key[0]+'0'), (char)(p_sys->i_key[1]+'0'), (char)(p_sys->i_key[2]+'0') );
+    msg_Info( p_dec, "page: %c%c%c", (char)(p_sys->i_key[0]+'0'),
+              (char)(p_sys->i_key[1]+'0'), (char)(p_sys->i_key[2]+'0') );
 
     int i_new_page = 0;
 

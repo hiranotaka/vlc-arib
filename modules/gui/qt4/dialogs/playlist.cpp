@@ -31,36 +31,53 @@
 #include "util/qt_dirs.hpp"
 
 #include <QUrl>
+#include <QMimeData>
 #include <QHBoxLayout>
-
-PlaylistDialog *PlaylistDialog::instance = NULL;
 
 PlaylistDialog::PlaylistDialog( intf_thread_t *_p_intf )
                 : QVLCMW( _p_intf )
 {
-    QWidget *main = new QWidget( this );
-    setCentralWidget( main );
     setWindowTitle( qtr( "Playlist" ) );
     setWindowRole( "vlc-playlist" );
-    setWindowOpacity( config_GetFloat( p_intf, "qt-opacity" ) );
+    setWindowOpacity( var_InheritFloat( p_intf, "qt-opacity" ) );
 
-    QHBoxLayout *l = new QHBoxLayout( centralWidget() );
+    playlistWidget = new PlaylistWidget( p_intf, this );
+    setCentralWidget( playlistWidget );
 
-    getSettings()->beginGroup("playlistdialog");
+    readSettings( "playlistdialog", QSize( 600,700 ) );
+}
 
-    playlistWidget = new PlaylistWidget( p_intf );
-    l->addWidget( playlistWidget );
+PlaylistWidget *PlaylistDialog::exportPlaylistWidget()
+{
+    Q_ASSERT( playlistWidget );
+    PlaylistWidget *widget = playlistWidget;
+    layout()->removeWidget( playlistWidget );
+    playlistWidget = NULL;
+    return widget;
+}
 
-    readSettings( getSettings(), QSize( 600,700 ) );
+void PlaylistDialog::importPlaylistWidget( PlaylistWidget *widget )
+{
+    Q_ASSERT( !playlistWidget );
+    playlistWidget = widget;
+    setCentralWidget( playlistWidget );
+    playlistWidget->show();
+}
 
-    getSettings()->endGroup();
+bool PlaylistDialog::hasPlaylistWidget()
+{
+    return ( !! playlistWidget );
+}
+
+void PlaylistDialog::hideEvent( QHideEvent * event )
+{
+    QWidget::hideEvent( event );
+    emit visibilityChanged( false );
 }
 
 PlaylistDialog::~PlaylistDialog()
 {
-    getSettings()->beginGroup("playlistdialog");
-    writeSettings( getSettings() );
-    getSettings()->endGroup();
+    writeSettings( "playlistdialog" );
 }
 
 void PlaylistDialog::dropEvent( QDropEvent *event )

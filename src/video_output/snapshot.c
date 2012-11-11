@@ -7,36 +7,36 @@
  * Authors: Gildas Bazin <gbazin _AT_ videolan _DOT_ org>
  *          Laurent Aimar <fenrir _AT_ videolan _DOT_ org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
 
-#include <vlc_common.h>
-#include <vlc_charset.h>
-#include <vlc_strings.h>
-#include <vlc_block.h>
-
-#include "snapshot.h"
-
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
 #include <time.h>
+
+#include <vlc_common.h>
+#include <vlc_fs.h>
+#include <vlc_strings.h>
+#include <vlc_block.h>
+
+#include "snapshot.h"
 
 /* */
 void vout_snapshot_Init(vout_snapshot_t *snap)
@@ -141,7 +141,7 @@ int vout_snapshot_SaveImage(char **name, int *sequential,
 {
     /* */
     char *filename;
-    DIR *pathdir = utf8_opendir(cfg->path);
+    DIR *pathdir = vlc_opendir(cfg->path);
     if (pathdir != NULL) {
         /* The use specified a directory path */
         closedir(pathdir);
@@ -149,8 +149,10 @@ int vout_snapshot_SaveImage(char **name, int *sequential,
         /* */
         char *prefix = NULL;
         if (cfg->prefix_fmt)
-            prefix = str_format(object, cfg->prefix_fmt);
-        if (!prefix) {
+            prefix = str_format_time(cfg->prefix_fmt);
+        if (prefix)
+            filename_sanitize(prefix);
+        else {
             prefix = strdup("vlcsnap-");
             if (!prefix)
                 goto error;
@@ -165,7 +167,7 @@ int vout_snapshot_SaveImage(char **name, int *sequential,
                     free(prefix);
                     goto error;
                 }
-                if (utf8_stat(filename, &st)) {
+                if (vlc_stat(filename, &st)) {
                     *sequential = num;
                     break;
                 }
@@ -200,7 +202,7 @@ int vout_snapshot_SaveImage(char **name, int *sequential,
         free(prefix);
     } else {
         /* The user specified a full path name (including file name) */
-        filename = str_format(object, cfg->path);
+        filename = str_format_time(cfg->path);
         path_sanitize(filename);
     }
 
@@ -208,7 +210,7 @@ int vout_snapshot_SaveImage(char **name, int *sequential,
         goto error;
 
     /* Save the snapshot */
-    FILE *file = utf8_fopen(filename, "wb");
+    FILE *file = vlc_fopen(filename, "wb");
     if (!file) {
         msg_Err(object, "Failed to open '%s'", filename);
         free(filename);

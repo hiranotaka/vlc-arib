@@ -32,7 +32,7 @@
  * or (at your option) any later version.
  * Thus, the following statements apply to our changes:
  *
- * Copyright (C) 2006-2007 the VideoLAN team
+ * Copyright (C) 2006-2007 VLC authors and VideoLAN
  * Authors: Eric Petit <titer@m0k.org>
  *          Felix Kühne <fkuehne at videolan dot org>
  *
@@ -73,7 +73,12 @@ enum AppleRemoteEventIdentifier
     kRemoteButtonPlay_Sleep         =1<<10,
     kRemoteControl_Switched         =1<<11,
     kRemoteButtonVolume_Plus_Hold   =1<<12,
-    kRemoteButtonVolume_Minus_Hold  =1<<13
+    kRemoteButtonVolume_Minus_Hold  =1<<13,
+    k2009RemoteButtonPlay
+
+   =1<<14,
+    k2009RemoteButtonFullscreen
+ =1<<15
 };
 typedef enum AppleRemoteEventIdentifier AppleRemoteEventIdentifier;
 
@@ -84,13 +89,13 @@ The class is not thread safe
 @interface AppleRemote : NSObject {
     IOHIDDeviceInterface** hidDeviceInterface;
     IOHIDQueueInterface**  queue;
-    NSMutableArray*        allCookies;
-    NSMutableDictionary*   cookieToButtonMapping;
+    NSArray*        _allCookies;
+    NSDictionary*   _cookieToButtonMapping;
     CFRunLoopSourceRef     eventSource;
 
-    BOOL openInExclusiveMode;
-    BOOL simulatePlusMinusHold;
-    BOOL processesBacklog;
+    BOOL _openInExclusiveMode;
+    BOOL _simulatePlusMinusHold;
+    BOOL _processesBacklog;
 
     /* state for simulating plus/minus hold */
     BOOL lastEventSimulatedHold;
@@ -98,24 +103,20 @@ The class is not thread safe
     NSTimeInterval lastPlusMinusEventTime;
 
     int remoteId;
-    unsigned int clickCountEnabledButtons;
-    NSTimeInterval maxClickTimeDifference;
+    unsigned int _clickCountEnabledButtons;
+    NSTimeInterval _maxClickTimeDifference;
     NSTimeInterval lastClickCountEventTime;
     AppleRemoteEventIdentifier lastClickCountEvent;
     unsigned int eventClickCount;
 
-    IBOutlet id delegate;
+    id delegate;
 }
++ (AppleRemote *)sharedInstance;
 
-- (int) remoteId;
-
-- (BOOL) isRemoteAvailable;
-
-- (BOOL) isListeningToRemote;
-- (void) setListeningToRemote: (BOOL) value;
-
-- (BOOL) isOpenInExclusiveMode;
-- (void) setOpenInExclusiveMode: (BOOL) value;
+@property (readonly) int remoteId;
+@property (readonly) BOOL remoteAvailable;
+@property (readwrite) BOOL listeningToRemote;
+@property (readwrite) BOOL openInExclusiveMode;
 
 /* click counting makes it possible to recognize if the user has pressed a button repeatedly
  * click counting does delay each event as it has to wait if there is another event (second click)
@@ -123,38 +124,31 @@ The class is not thread safe
  * of the user and the call of your delegate method
  * click counting can be enabled individually for specific buttons. Use the property clickCountEnableButtons
  * to set the buttons for which click counting shall be enabled */
-- (BOOL) clickCountingEnabled;
-- (void) setClickCountingEnabled: (BOOL) value;
+@property (readwrite) BOOL clickCountingEnabled;
 
-- (unsigned int) clickCountEnabledButtons;
-- (void) setClickCountEnabledButtons: (unsigned int)value;
+@property (readwrite) unsigned int clickCountEnabledButtons;
 
 /* the maximum time difference till which clicks are recognized as multi clicks */
-- (NSTimeInterval) maximumClickCountTimeDifference;
-- (void) setMaximumClickCountTimeDifference: (NSTimeInterval) timeDiff;
+@property (readwrite) NSTimeInterval maximumClickCountTimeDifference;
 
 /* When your application needs to much time on the main thread when processing an event other events
  * may already be received which are put on a backlog. As soon as your main thread
  * has some spare time this backlog is processed and may flood your delegate with calls.
  * Backlog processing is turned off by default. */
-- (BOOL) processesBacklog;
-- (void) setProcessesBacklog: (BOOL) value;
+@property (readwrite) BOOL processesBacklog;
 
 /* Sets an NSApplication delegate which starts listening when application is becoming active
  * and stops listening when application resigns being active.
  * If an NSApplication delegate has been already set all method calls will be forwarded to this delegate, too. */
-- (BOOL) listeningOnAppActivate;
-- (void) setListeningOnAppActivate: (BOOL) value;
+@property (readwrite) BOOL listeningOnAppActivate;
 
 /* Simulating plus/minus hold does deactivate sending of individual requests for plus/minus pressed down/released.
  * Instead special hold events are being triggered when the user is pressing and holding plus/minus for a small period.
  * With simulating enabled the plus/minus buttons do behave as the left/right buttons */
-- (BOOL) simulatesPlusMinusHold;
-- (void) setSimulatesPlusMinusHold: (BOOL) value;
+@property (readwrite) BOOL simulatesPlusMinusHold;
 
 /* Delegates are not retained */
-- (void) setDelegate: (id) delegate;
-- (id) delegate;
+@property (readwrite, assign) id delegate;
 
 - (IBAction) startListening: (id) sender;
 - (IBAction) stopListening: (id) sender;
@@ -174,8 +168,9 @@ The class is not thread safe
 @end
 
 @interface AppleRemote (PrivateMethods)
+@property (readonly) NSDictionary * cookieToButtonMapping;
+
 - (void) setRemoteId: (int) aValue;
-- (NSDictionary*) cookieToButtonMapping;
 - (IOHIDQueueInterface**) queue;
 - (IOHIDDeviceInterface**) hidDeviceInterface;
 - (void) handleEventWithCookieString: (NSString*) cookieString sumOfValues: (SInt32) sumOfValues;

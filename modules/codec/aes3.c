@@ -31,7 +31,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
-#include <vlc_aout.h>
 #include <assert.h>
 
 /*****************************************************************************
@@ -119,11 +118,11 @@ static void Close( vlc_object_t *p_this )
  ****************************************************************************
  * Beware, this function must be fed with complete frames (PES packet).
  *****************************************************************************/
-static aout_buffer_t *Decode( decoder_t *p_dec, block_t **pp_block )
+static block_t *Decode( decoder_t *p_dec, block_t **pp_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     block_t       *p_block;
-    aout_buffer_t *p_aout_buffer;
+    block_t       *p_aout_buffer;
     int            i_frame_length, i_bits;
 
     p_block = Parse( p_dec, &i_frame_length, &i_bits, pp_block, false );
@@ -240,7 +239,7 @@ static int Open( decoder_t *p_dec, bool b_packetizer )
     /* Allocate the memory needed to store the decoder's structure */
     p_dec->p_sys = p_sys = malloc( sizeof(decoder_sys_t) );
 
-    if( !p_sys )
+    if( unlikely( !p_sys ) )
         return VLC_EGENERIC;
 
     /* Misc init */
@@ -261,6 +260,9 @@ static int Open( decoder_t *p_dec, bool b_packetizer )
     }
     else
     {
+        p_dec->fmt_out.i_codec = VLC_CODEC_S16N;
+        p_dec->fmt_out.audio.i_bitspersample = 16;
+
         p_dec->pf_decode_audio = Decode;
         p_dec->pf_packetize    = NULL;
     }
@@ -288,7 +290,6 @@ static block_t *Parse( decoder_t *p_dec, int *pi_frame_length, int *pi_bits,
     uint32_t h;
     unsigned int i_size;
     int i_channels;
-    int i_id;
     int i_bits;
 
     if( !pp_block || !*pp_block ) return NULL;
@@ -297,7 +298,7 @@ static block_t *Parse( decoder_t *p_dec, int *pi_frame_length, int *pi_bits,
     *pp_block = NULL; /* So the packet doesn't get re-sent */
 
     /* Date management */
-    if( p_block->i_pts > 0 &&
+    if( p_block->i_pts > VLC_TS_INVALID &&
         p_block->i_pts != date_Get( &p_sys->end_date ) )
     {
         date_Set( &p_sys->end_date, p_block->i_pts );
@@ -329,7 +330,6 @@ static block_t *Parse( decoder_t *p_dec, int *pi_frame_length, int *pi_bits,
     h = GetDWBE( p_block->p_buffer );
     i_size = (h >> 16) & 0xffff;
     i_channels = 2 + 2*( (h >> 14) & 0x03 );
-    i_id = (h >> 6) & 0xff;
     i_bits = 16 + 4*( (h >> 4)&0x03 );
 
     if( AES3_HEADER_LEN + i_size != p_block->i_buffer || i_bits > 24 )
@@ -352,7 +352,7 @@ static block_t *Parse( decoder_t *p_dec, int *pi_frame_length, int *pi_bits,
 
     p_dec->fmt_out.audio.i_channels = i_channels;
     p_dec->fmt_out.audio.i_original_channels = pi_original_channels[i_channels/2-1];
-    p_dec->fmt_out.audio.i_physical_channels = pi_original_channels[i_channels/2-1] & AOUT_CHAN_PHYSMASK;
+    p_dec->fmt_out.audio.i_physical_channels = pi_original_channels[i_channels/2-1];
 
     *pi_frame_length = (p_block->i_buffer - AES3_HEADER_LEN) / ( (4+i_bits) * i_channels / 8 );
     *pi_bits = i_bits;

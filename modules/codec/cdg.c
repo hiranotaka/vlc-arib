@@ -37,35 +37,35 @@
  *****************************************************************************/
 
 /* The screen size */
-#define CDG_SCREEN_WIDTH (300)
-#define CDG_SCREEN_HEIGHT (216)
+#define CDG_SCREEN_WIDTH 300u
+#define CDG_SCREEN_HEIGHT 216u
 
 /* The border of the screen size */
-#define CDG_SCREEN_BORDER_WIDTH (6)
-#define CDG_SCREEN_BORDER_HEIGHT (12)
+#define CDG_SCREEN_BORDER_WIDTH 6u
+#define CDG_SCREEN_BORDER_HEIGHT 12u
 
 /* The display part */
 #define CDG_DISPLAY_WIDTH  (CDG_SCREEN_WIDTH-2*CDG_SCREEN_BORDER_WIDTH)
 #define CDG_DISPLAY_HEIGHT (CDG_SCREEN_HEIGHT-2*CDG_SCREEN_BORDER_HEIGHT)
 
-#define CDG_SCREEN_PITCH (CDG_SCREEN_WIDTH)
+#define CDG_SCREEN_PITCH CDG_SCREEN_WIDTH
 
 struct decoder_sys_t
 {
-    uint8_t color[16][3];
-    int     i_offseth;
-    int     i_offsetv;
-    uint8_t screen[CDG_SCREEN_PITCH*CDG_SCREEN_HEIGHT];
-    uint8_t *p_screen;
+    uint8_t  color[16][3];
+    unsigned i_offseth;
+    unsigned i_offsetv;
+    uint8_t  screen[CDG_SCREEN_PITCH*CDG_SCREEN_HEIGHT];
+    uint8_t  *p_screen;
 
-    int     i_packet;
+    int      i_packet;
 };
 
-#define CDG_PACKET_SIZE (24)
+#define CDG_PACKET_SIZE 24u
 
-#define CDG_COLOR_R_SHIFT ( 0)
-#define CDG_COLOR_G_SHIFT ( 8)
-#define CDG_COLOR_B_SHIFT (16)
+#define CDG_COLOR_R_SHIFT  0
+#define CDG_COLOR_G_SHIFT  8
+#define CDG_COLOR_B_SHIFT 16
 
 /*****************************************************************************
  * Local prototypes
@@ -116,8 +116,8 @@ static int Open( vlc_object_t *p_this )
     p_dec->fmt_out.i_codec = VLC_CODEC_RGB32;
     p_dec->fmt_out.video.i_width = CDG_DISPLAY_WIDTH;
     p_dec->fmt_out.video.i_height = CDG_DISPLAY_HEIGHT;
-    p_dec->fmt_out.video.i_aspect =
-        VOUT_ASPECT_FACTOR * p_dec->fmt_out.video.i_width / p_dec->fmt_out.video.i_height;
+    p_dec->fmt_out.video.i_sar_num = 1;
+    p_dec->fmt_out.video.i_sar_den = 1;
     p_dec->fmt_out.video.i_rmask = 0xff << CDG_COLOR_R_SHIFT;
     p_dec->fmt_out.video.i_gmask = 0xff << CDG_COLOR_G_SHIFT;
     p_dec->fmt_out.video.i_bmask = 0xff << CDG_COLOR_B_SHIFT;
@@ -166,7 +166,7 @@ static picture_t *Decode( decoder_t *p_dec, block_t **pp_block )
             goto exit;
 
         Render( p_sys, p_pic );
-        p_pic->date = p_block->i_pts > 0 ? p_block->i_pts : p_block->i_dts;
+        p_pic->date = p_block->i_pts > VLC_TS_INVALID ? p_block->i_pts : p_block->i_dts;
     }
 
 exit:
@@ -254,7 +254,13 @@ static int DecodeTileBlock( decoder_sys_t *p_cdg, const uint8_t *p_data, int doX
         for( x = 0; x < 6; x++ )
         {
             const int idx = ( p_data[4+y] >> (5-x) ) & 0x01;
-            uint8_t *p = &p_cdg->p_screen[(sy+y)*CDG_SCREEN_PITCH+(sx+x)];
+
+            unsigned index = (sy+y)*CDG_SCREEN_PITCH+(sx+x);
+            if( index >= CDG_SCREEN_PITCH*CDG_SCREEN_HEIGHT )
+                return 0;
+
+            uint8_t *p = &p_cdg->p_screen[index];
+
             if( doXor )
                 *p ^= p_color[idx];
             else
@@ -271,7 +277,6 @@ static int DecodeScroll( decoder_sys_t *p_cdg, const uint8_t *p_data, int b_copy
     uint8_t color = p_data[0]&0x0f;
     int i_shifth;
     int i_shiftv;
-    int x, y;
 
     /* */
     p_cdg->i_offseth = p_data[1]&0x7;
@@ -310,17 +315,17 @@ static int DecodeScroll( decoder_sys_t *p_cdg, const uint8_t *p_data, int b_copy
     ScreenFill( p_cdg, 0, 0, CDG_SCREEN_WIDTH, CDG_SCREEN_HEIGHT, color );
 
     /* Copy back */
-    for( y = 0; y < CDG_SCREEN_HEIGHT; y++ )
+    for( unsigned y = 0; y < CDG_SCREEN_HEIGHT; y++ )
     {
         int dy = i_shiftv + y;
-        for( x = 0; x < CDG_SCREEN_WIDTH; x++ )
+        for( unsigned x = 0; x < CDG_SCREEN_WIDTH; x++ )
         {
             int dx = i_shifth + x;
 
             if( b_copy )
             {
-                dy = ( dy + CDG_SCREEN_HEIGHT ) % CDG_SCREEN_HEIGHT;
-                dy = ( dy + CDG_SCREEN_WIDTH  ) % CDG_SCREEN_WIDTH;
+                dy = (dy + CDG_SCREEN_HEIGHT) % CDG_SCREEN_HEIGHT;
+                dx = (dx + CDG_SCREEN_WIDTH ) % CDG_SCREEN_WIDTH;
             }
             else
             {
@@ -402,11 +407,9 @@ static uint32_t RenderRGB( int r, int g, int b )
 
 static int Render( decoder_sys_t *p_cdg, picture_t *p_picture )
 {
-    int x, y;
-
-    for( y = 0; y < CDG_DISPLAY_HEIGHT; y++ )
+    for( unsigned y = 0; y < CDG_DISPLAY_HEIGHT; y++ )
     {
-        for( x = 0; x < CDG_DISPLAY_WIDTH; x++ )
+        for( unsigned x = 0; x < CDG_DISPLAY_WIDTH; x++ )
         {
             const int sx = x + p_cdg->i_offseth + CDG_SCREEN_BORDER_WIDTH;
             const int sy = y + p_cdg->i_offsetv + CDG_SCREEN_BORDER_HEIGHT;

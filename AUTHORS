@@ -1,473 +1,689 @@
-# $Id$
-# 
-# The format of this file was inspired by the Linux kernel CREDITS file.
-# Authors are listed alphabetically.
-# 
-# The fields are: name (N), email (E), web-address (W), SVN account login (C),
-# PGP key ID and fingerprint (P), description (D), and snail-mail address (S).
+VideoLAN and the VLC team would like to acknowledge the following contributors:
 
-N: Laurent Aimar
-E: fenrir@via.ecp.fr
-C: fenrir
-D: input and decoders core improvements
-D: avi, asf/wmv/wma, mp4/mov, mp3, aac, wav demultiplexers
-D: MPEG-4, Div & OpenDivX and various decoders (ffmpeg)
-D: AAC decoder (libfaad2)
-D: cinepak, adpcm, araw, musepack decoders
-D: Subtile file parser.
-D: mms, ftp access
-D: Stream output
-D: VLM
-S: France
+Programming:
+------------
+Rémi Denis-Courmont
+Jean-Baptiste Kempf
+Laurent Aimar
+Gildas Bazin
+Pierre d'Herbemont
+Rafaël Carré
+Felix Paul Kühne
+Rémi Duraffort
+Derk-Jan Hartman
+Antoine Cellerier
+Samuel Hocevar
+Jean-Paul Saman
+Christophe Mutricy
+Clément Stenac
+Christophe Massiot
+Ilkka Ollakka
+Pierre Ynard
+Damien Fouilleul
+Sigmund Augdal Helberg
+Erwan Tulou
+Olivier Teulière
+Cyril Deguet
+Eric Petit
+Filippo Carone
+Rocky Bernstein
+François Cartegnie
+Olivier Aubert
+Jakob Leben
+Benjamin Pracht
+Pavlov Konstantin
+Jean-Philippe André
+Hugo Beauzée-Luyssen
+Steve Lhomme
+Stéphane Borel
+JP Dinger
+Geoffroy Couprie
+Marian Ďurkovič
+Yoann Peronneau
+Jon Lech Johansen
+Sébastien Escudier
+Dennis van Amerongen
+Faustino Osuna
+Jérôme Decoodt
+Loïc Minier
+KO Myung-Hun
+David Flynn
+Mark Moriarty
+Ludovic Fauvet
+Fabio Ritrovato
+Tony Castley
+Mirsal Ennaime
+Kaarlo Raiha
+Srikanth Raju
+Michel Kaempf
+Jean-Marc Dressler
+Johan Bilien
+Vincent Seguin
+David Fuhrmann
+Martin Storsjö
+Simon Latapie
+Christopher Mueller
+Bernie Purcell
+Henri Fallon
+Emmanuel Puig
+Sebastien Zwickert
+Adrien Maglo
+Renaud Dartus
+Alexis de Lattre
+Vincent Penquerc'h
+Arnaud de Bossoreille de Ribou
+Denis Charmet
+Mohammed Adnène Trojette
+Boris Dorès
+Edward Wang
+Jai Menon
+Anil Daoud
+Daniel Mierswa
+Pierre Baillet
+Rob Jonson
+Dominique Leuenberger
+Andre Pang
+Akash Mehrotra
+André Weber
+Anthony Loiseau
+Lukas Durfina
+Xavier Marchesini
+Cyril Mathé
+Juho Vähä-Herttua
+Ken Self
+Juha Jeronen
+Richard Hosking
+Éric Lassauge
+Alexis Ballier
+Marc Ariberti
+Benoit Steiner
+Michel Lespinasse
+Tobias Güntner
+Carlo Calabrò
+Cheng Sun
+Nicolas Chauvet
+Dean Lee
+Naohiro Koriyama
+Alexey Sokolov
+Basos G
+Brad Smith
+Michał Trzebiatowski
+Philippe Morin
+Vicente Jimenez Aguilar
+Vincenzo Reale
+Yuval Tze
+Brendon Justin
+Yves Duret
+Frédéric Yhuel
+Michael Hanselmann
+Damien Erambert
+Damien Lucas
+Marián Hikaník
+Mihkel Kirjutas
+Richard Shepherd
+Sébastien Toque
+Gaël Hendryckx
+Grigori Goronzy
+Stephan Assmus
+Adrien Grand
+Colin Guthrie
+David Menestrina
+Dominique Martinet
+Fumio Nakayama
+Jason Luka
+Luc Saillard
+Pankaj Yadav
+Ramiro Polla
+Sidney Doria
+Steinar H. Gunderson
+Can Wu
+Christophe Courtaut
+Gonçalo Cordeiro
+Hannes Domani
+Ivo Ivanov
+Manol Manolov
+Mindaugas Baranauskas
+A S Alam
+Antoine Lejeune
+Arnaud Schauly
+Branko Kokanovic
+Christoph Miebach
+David González
+Dylan Yudaken
+Florian G. Pflug
+G Finch
+Gaëtan Rousseaux
+Keary Griffin
+Konstanty Bialkowski
+Myckel Habets
+Przemyslaw Fiala
+Tanguy Krotoff
+Thomas De Rocker
+Xabier Aramendi
+Benjamin Drung
+David Kaplan
+Devin Heitmueller
+Eugenio Jarosiewicz
+Guillaume Poussel
+Justus Piater
+Luca Barbato
+Martin T. H. Sandsmark
+Rune Botten
+Søren Bøg
+Toralf Niebuhr
+Austin Burrow
+Bill C. Riemers
+Cristian Maglie
+Elminster2031
+Fabian Keil
+Jakub Wieczorek
+Khoem Sokhem
+Mario Siegmann
+Martin Briza
+Mike Houben
+Romain Goyet
+Barry Wardell
+Ben Hutchings
+Besnard Jean-Baptiste
+Brian Weaver
+Casian Andrei
+Clement Chesnin
+Daniel Nylander
+Eirik U. Birkeland
+FUJISAWA Tooru
+Gabor Kelemen
+Jamil Ahmed
+Jonathan Rosser
+Joris van Rooij
+Kaloyan Kovachev
+Katsushi Kobayashi
+Kelly Anderson
+Loren Merritt
+Maciej Blizinski
+Mark Bidewell
+Miguel Angel Cabrera Moya
+Ming Hu
+Niles Bindel
+Otto Kekäläinen
+Pauline Castets
+Predrag Ljubenović
+Scott Caudle
+Simon Hailes
+Xavier Martin
+Yaron Shahrabani
+Adrian Yanes
+Alex Converse
+Alexander Bethke
+Alexander Law
+Andres Krapf
+Andri Pálsson
+Andy Chenee
+Anuradha Suraparaju
+Aurélien Nephtali
+Benjamin Poulain
+Brieuc Jeunhomme
+Chris Clayton
+Chris Smowton
+Colin Delacroix
+Cédric Cocquebert
+Danny Wood
+David K
+Denis Arnaud
+Edouard Gomez
+Emmanuel de Roux
+GBX
+Gaurav Narula
+Georgi Chorbadzhiyski
+Geraud CONTINSOUZAS
+Jan Winter
+Jean-François Massol
+Jean-Philippe Grimaldi
+Jon Stacey
+Kai Lauterbach
+Konstantin Bogdanov
+Kuan-Chung Chiu
+Mark Hassman
+Matthias Dahl
+Michael Feurstein
+Michael McEll
+Michael Ploujnikov
+Mike Schrag
+Niklas Hayer
+Olivier Gambier
+Paul Corke
+Praveen Illa
+Ron Frederick
+Ronald Wright
+Rov Juvano
+Sabourin Gilles
+Sasha Koruga
+Sergey Radionov
+Sven Petai
+Thierry Reding
+Tomer Barletz
+Tristan Leteurtre
+Wang Bo
+maxime Ripard
+xxcv
+Adam Hoka
+Adrian Knoth
+Adrien Cunin
+Alan Fischer
+Alex Helfet
+Alexandre Ferreira
+Alina Friedrichsen
+An L. Ber
+Andreas Schlick
+Andrey Makhnutin
+Andrey Wolk
+Arnaud Vallat
+Ashok Bhat
+Austin English
+Baptiste Coudurier
+Benoit Calvez
+Björn Stenberg
+Blake Livingston
+Brandon Brooks
+Brian Johnson
+Brian Kurle
+Chris White
+Christian Masus
+Christoph Seibert
+Christopher Key
+Christopher Rath
+Claudio Ortelli
+Clement Lecigne
+Cody Russell
+Cristian Morales Vega
+Dan Rosenberg
+Daniel Dreibrodt
+Daniel Marth
+Daniel Tisza
+David Planella
+Detlef Schroeder
+Diego Fernando Nieto
+Dominic Spitaler
+Dominik 'Rathann' Mierzejewski
+Edward Sheldrake
+Elliot Murphy
+Eren Inan Canpolat
+Ernest E. Teem III
+Etienne Membrives
+Fargier Sylvain
+Fathi Boudra
+Felix Geyer
+Filipe Azevedo
+Florian Hubold
+Frank Enderle
+François Revol
+Frédéric Crozat
+Georg Seifert
+Gertjan Van Droogenbroeck
+Gilles Chanteperdrix
+Greg Farrell
+Gwenole Beauchesne
+Götz Waschk
+Hans-Kristian Arntzen
+Harry Sintonen
+Iain Wade
+Ibraheem Paredath
+Ismael Luceno
+James Bond
+James Turner
+Janne Kujanpää
+Jarmo Torvinen
+Jason Scheunemann
+Jeff Lu
+Jeroen Ost
+Johann Ransay
+Johannes Weißl
+John Hendrikx
+John Stebbins
+Jonas Gehring
+Joseph S. Atkinson
+Julien / Gellule
+Julien Humbert
+Kamil Baldyga
+Kamil Klimek
+Kevin Anthony
+Kevin DuBois
+Lari Natri
+Lorenzo Pistone
+Lucas C. Villa Real
+Lukáš Lalinský
+Mal Graty
+Malte Tancred
+Mark Lee
+Martin Pöhlmann
+Marton Balint
+Mathew King
+Mathieu Sonet
+Matthew A. Townsend
+Matthias Bauer
+Mika Tiainen
+Mike Cardillo
+Mounir Lamouri (volkmar)
+Nathan Phillip Brink
+Nick Briggs
+Nick Pope
+Pavol Babincak
+Pere Orga
+Peter Bak Nielsen
+Phil Roffe and David Grellscheid
+Pierre Souchay
+Pádraig Brady
+R.M
+Ralph Giles
+Ricardo Pérez López
+Robert Jedrzejczyk
+Robert Paciorek
+Rolf Ahrenberg
+Roman Pen
+Ruud Althuizen
+Sam Lade
+Samuel Pitoiset
+Samuli Suominen
+Scott Lyons
+Sebastian Birk
+Sergey Puzanov
+Sharad Dixit
+Stephan Krempel
+Steven Kramer
+Steven Sheehy
+Sukrit Sangwan
+Sveinn í Felli
+Sveinung Kvilhaugsvik
+Sylvain Cadhillac
+Theron Lewis
+Thijs Alkemade
+Timo Paulssen
+Tomasen
+Tony Vankrunkelsven
+Tristan Heaven
+Yannick Bréhon
+Yavor Doganov
+Yohann Martineau
+bbcallen
+dharani.prabhu.s
+suheaven
+wucan
+김정은
+Adam Sampson
+Alexander Gall
+Alex Antropoff
+Alexis Guillard
+Alex Izvorski
+Amir Gouini
+Andrea Guzzo
+Andrew Flintham
+Andrew Zaikin
+Andy Lindsay
+Arai/Fujisawa Tooru
+Arkadiusz Miskiewicz
+Arnaud Gomes-do-Vale
+Arwed v. Merkatz
+Barak Ori
+Basil Achermann
+Benjamin Mironer
+Bill
+Bob Maguire
+Brian C. Wiles
+Brian Raymond
+Brian Robb
+Carsten Gottbehüt
+Carsten Haitzler
+Charles Hordis
+Chris Clepper
+Christian Henz
+Christof Baumgaertner
+Christophe Burgalat
+Christopher Johnson
+Cian Duffy
+Colin Simmonds
+Damian Ivereigh
+Daniel Fischer
+Daniel Stränger
+Danko Dolch
+Dennis Lou
+Dermot McGahon
+Diego Petteno
+Douglas West
+Dugal Harris
+Emmanuel Blindauer
+Enrico Gueli
+Enrique Osuna
+Eren Türkay
+Eric Dudiak
+Espen Skoglund
+Ethan C. Baldridge
+François Seingier
+Frans van Veen
+Frédéric Ruget
+Gerald Hansink
+Gisle Vanem
+Glen Gray
+Goetz Waschk
+Gregory Hazel
+Gustaf Neumann
+Hang Su
+Hans Lambermont
+Hans-Peter Jansen
+Harris Dugal
+Heiko Panther
+Igor Helman
+Isaac Osunkunle
+Jan David Mol
+Jan Gerber
+Jan Van Boghout
+Jasper Alias
+Jean-Alexis Montignies
+Jean-Baptiste Le Stang
+Jean Sreng
+Jeffrey Baker
+Jeroen Massar
+Jérôme Guilbaud
+Johannes Buchner
+Johen Michael Zorko
+Johnathan Rosser
+John Dalgliesh
+John Paul Lorenti
+Jörg
+Joseph Tulou
+Julien Blache
+Julien Plissonneau Duquène
+Julien Robert
+Kenneth Ostby
+Kenneth Self
+Kevin H. Patterson
+Koehler, Vitally
+K. Staring
+Lahiru Lakmal Priyadarshana
+Laurent Mutricy
+Leo Spalteholz
+Loox Thefuture
+Marc Nolette
+Marco Munderloh
+Mark Gritter
+Markus Kern
+Markus Kuespert
+Martin Hamrle
+Martin Kahr
+Mateus Krepsky Ludwich
+Mathias Kretschmer
+Mats Rojestal
+Matthias P. Nowak
+Matthieu Lochegnies
+Michael Mondragon
+Michael S. Feurstein
+Michel Lanners
+Mickael Hoerdt
+Miguel Angel Cabrera
+Mikko Hirvonen
+Moritz Bunkus
+Nilmoni Deb
+Olivier Houchard
+Olivier Pomel
+Ondrej Kuda aka Albert
+Øyvind Kolbu
+Pascal Levesque
+Patrick Horn
+Patrick McLean
+Paul Mackerras
+Peter Surda
+Petr Vacek
+Philippe Van Hecke
+Pierre-Luc Beaudoin
+Pierre Marc Dumuid
+Régis Duchesne
+Remco Poortinga
+Rene Gollent
+Rob Casey
+Robson Braga Araujo
+Roine Gustafsson
+Roman Bednarek
+Rudolf Cornelissen
+Sašo Kiselkov
+Sebastian Jenny
+Shane Harper
+Stefán Freyr Stefánsson
+Steve Brown
+Steven M. Schultz
+Tapio Hiltunen
+Thomas L. Wood
+Thomas Mühlgrabner
+Thomas Parmelan
+Tim 'O Callagha
+Tim Schuerewegen
+Tong Ka Man
+Torsten Spindler
+Udo Richter
+Vincent Dimar
+Vincent Penne
+Vitalijus Slavinskas
+Vitaly V. Bursov
+Vladimir Chernyshov
+Wade Majors
+Wallace Wadge
+Watanabe Go
+William Hawkins
+Xavier Maillard
+Ye zhang
+Yuehua Zhao
 
-N: Marc Ariberti
-E: marcari@via.ecp.fr
-C: marcari
-D: communication with channel server
-D: YOPY port
-S: France
+Artwork
+-------
+Damien Erambert
+Daniel Dreibrodt, aka aLtgLasS
+David Weber
+Davor Orel
+Dominic Spitaler
+Eurodata Computer Club
+Geoffrey Roussel
+Joeri van Dooren
+kty0ne
+Max Rudberg
+Richard Øiestad
+Simon Damkjær Andersen
+Tom Bigelajzen
+Vincent van den Heuvel
 
-N: Stephan Assmus
-E: stippi@yellowbites.com
-C: stippi
-D: BeOS module fixes and enhancements
-S: Germany
+Documentation
+-------------
+Bill Eldridge
 
-N: Olivier Aubert
-E: olivier.aubert at liris dot cnrs dot fr
-D: Mediacontrol API, Python bindings, svg module
-S: France
-
-N: Sigmund Augdal Helberg
-E: dnumgis@videolan.org
-C: sigmunau
-D: lirc plugin
-D: aalib plugin
-D: Subtitles and freetype
-D: Hotkeys
-D: Shoutcast discovery module and b4s playlist parser
-D: wxWidgets preferences
-D: File-Info and metadata handling
-S: Norway
-
-N: Pierre Baillet
-E: oct@zoy.org
-C: octplane
-D: SDL audio and video output
-S: France
-
-N: Gildas Bazin
-E: gbazin@videolan.org
-C: gbazin
-D: Core improvements, decoders API
-D: Win32 port, win32 VCD/CDDA input and win32 ipv6 code
-D: DirectX audio/video output, win32 WaveOut audio output
-D: DirectShow input
-D: a52, dts, vorbis, speex, flac and theora decoders/packetizers
-D: mpeg1/2 video decoder (libmpeg2), bandlimited resampling
-D: Ogg and Raw DV demultiplexers
-D: Configuration file infrastructure
-D: wxWindows and http interfaces
-D: Pocket PC port
-S: France
-
-N: Rocky Bernstein
-E: rocky@panix.com
-C: rocky
-D: Navigation-enabled VCD (via libvcdinfo) enhanced CDDA (via libcdio)
-D: SVCD/CVD subtitles
-S: USA
-
-N: Johan Bilien
-E: jobi@via.ecp.fr
-C: jobi
-D: VCD input
-D: Satellite input
-D: libdvbpsi support
-S: France
-
-N: Stéphane Borel
-E: stef@via.ecp.fr
-C: stef
-D: MPEG video decoder
-D: DVD input, IFO parsing, CSS decryption
-D: DVD navigation
-S: France
-
-N: Arnaud de Bossoreille de Ribou
-E: bozo@via.ecp.fr
-C: bozo
-D: SDL video output
-S: France
-
-N: Filippo Carone 
-E: filippo[dontspam]@carone.org
-C: littlejohn
-D: Java bindings
-S: Italy
-
-N: Rafaël "Hanz, David" Carré
-E: funman@videolanorg
-C: funman
-P: C0AFF10F
-D: D-Bus control, Audioscrobbler, Telepathy, Taglib meta reader/writer
-D: Ncurses enhancements, Power management inhibition
-D: PGP update core
-D: Spread bugfixes
-S: Netherlands
-
-N: Tony Castley
-E: tony@castley.net
-C: tcastley
-D: BeOS interface, BeOS Video
-S: Australia
-
-N: Antoine Cellerier
-E: dionoea@videolan.org
-C: dionoea
-D: Video Filters: mosaic, gradient and edge detection, magnify, rss, croppadd, erase, extract, gaussianblur, motion detect, puzzle, rotate, bluescreen, alphamask, psychedelic
-D: Demux: podcast, shoutcast
-D: Access: v4l2
-D: HTTP interface pages
-D: Lua (interface, meta fetcher, playlist, ...) modules
-S: France
-
-N: Renaud Dartus
-E: reno@via.ecp.fr
-C: reno
-D: AC3 decoder
-S: France
-
-N: Cyril Deguet
-E: asmax@via.ecp.fr
-C: asmax
-D: Audio output
-D: skins module (X11 port)
-D: skins2 module (core and X11 port)
-D: JACK audio output
-S: France
-
-N: Rémi Denis-Courmont
-W: www.remlab.net
-C: courmisch
-D: network subsystem
-D: threading subsystem
-D: Demux: RTP receiver, VOC, XA, Standard MIDI files
-D: Codecs: EA ADPCM, MIDI synthesis
-D: TLS and SRTP
-S: Finland
-
-N: Colin Delacroix
-E: colin#zoy.org
-C: colin
-D: initial MacOS X port
-S: France
-
-N: Pierre d'Herbemont
-E: pdherbemont#videolan.org
-C: pdherbemont
-D: Mac OS X Framework
-D: LibVLC enhancements
-S: France
-
-N: Boris Dorès
-E: babal(at)via.ecp.fr
-C: babal
-D: Win32 network input
-D: Win32 interface
-D: Headphone channel mixer, Dolby Surround decoder
-D: Audio output core enhancements
-S: France
-
-N: Jean-Marc Dressler
-E: polux@via.ecp.fr
-C: polux
-D: BeOS port
-D: MPEG video decoder
-S: France
-
-N: Henri Fallon
-E: henri@via.ecp.fr
-C: henri
-D: ALSA audio output
-D: MPEG TS input
-D: Decoder modularization
-S: USA
-
-N: Andrew Flintham
-E: amf@cus.org.uk
-D: text subtitler and font scripts
-S: United Kingdom
-
-N: Damien Fouilleul
-E: Damien.Fouilleul@laposte.net
-C: Quovodis
-D: ActiveX control
-D: Safari/Firefox plugin for MacOS X
-D: Direct3D Video output
-D: SSE2 chroma converters
-D: improved MMX chroma converters
-S: Ireland
-
-N: Alexis Guillard
-E: alexis.guillard@bt.com
-D: IPv6 support
-S: United Kingdom
-
-N: Gerald Hansink
-E: gerald.hansink@ordina.nl
-D: Qt Embedded Video Output
-S: Netherlands
-
-N: Shane Harper
-E: shanegh@optusnet.com.au
-D: SDL plugin fixes and enhancements
-D: XVideo video output
-D: Gnome and Gtk+ interface enhancements
-S: United Kingdom
-
-N: Dugal Harris
-E: dugalh (at) protoclea .dot co dot. za
-D: OpenCV video filter
-S: South Africa
-
-N: Derk-Jan Hartman
-E: hartman@videolan.org
-C: hartman
-D: Mac OS X interface
-D: Dutch translation
-D: Directory input
-D: Mac OS X Video Output
-D: Mac OS X Audio Output
-D: Kasenna client support
-D: contrib system for 3rd party libraries
-S: Netherlands
-
-N: Gaël Hendryckx
-E: jimmy@via.ecp.fr
-C: jimmy
-D: IDCT and YUV transforms
-S: France
-
-N: Samuel Hocevar
-E: sam@zoy.org
-C: sam
-D: playlist and modules system
-D: Gnome and Gtk+ interfaces
-D: Glide, fb, and caca video outputs
-D: Esound audio output
-D: DVD subtitles decoder
-D: Video output
-D: Mozilla plug-in
-S: France
-
-N: Eugenio Jarosiewicz
-E: ej0@cise.ufl.edu
-C: ej
-D: MacOS X interface, and various fixes
-S: USA, Florida
-
-N: Jon Lech Johansen
-E: jon-vl@nanocrew.net
-C: jlj
-D: PS input fixes
-D: Win32 DVD input port
-D: QNX RTOS plug-in
-D: MacOS X port
-D: norwegian translation
-D: MP4 DRMS support
-S: France
-
-N: Michel Kaempf
-E: maxx@via.ecp.fr
-C: maxx
-D: audio output
-D: AC3 decoder
-D: MPEG audio decoder
-S: France
-
-N: Jean-Baptiste Kempf
-E: jb@videolan.org
-C: jb
-D: Qt4 Interface
-D: Contribs system
-S: France
-
-N: Pavlov Konstantin
-E: thresh@videolan.org
-C: thresh
-D: Build system/linkage fixes
-D: Pidfile creation on daemon mode
-D: Parts of Russian translation
-D: ALTLinux VLC maintainer
-S: Russia
-
-N: Felix Paul Kühne
-E: fkuehne@videolan.org
-C: fkuehne
-D: MacOS X Interface (wizard, structure, extended controls panel, bookmarks window, fullscreen controller)
-D: Interface Interaction (core and OSX)
-D: contrib system for 3rd party libraries
-D: German translation
-S: Germany
-
-N: Simon Latapie
-E: garf@via.ecp.fr
-C: garf
-D: contrast/HSB, and logo video filters
-D: HTTP interface
-D: VLM
-S: France
-
-N: Pascal Levesque
-E: pascal.levesque@mindready.com
-D: QNX RTOS video output and audio output
-S: Canada, Québec
-
-N: Christophe Massiot
-E: massiot@via.ecp.fr
-C: massiot
-D: decoder and input core functions
-D: audio output
-D: MPEG video decoder
-D: Many ports (Mac OS X, iPAQ, *BSD, Solaris...)
-D: DVB input
-D: mosaic
-D: TS muxer/demuxer improvements
-D: contrib system for 3rd party libraries
-D: documentation
-D: fortunes maintainer
-S: France
-
-N: Loïc Minier
-E: lool@via.ecp.fr
-C: lool
-D: Gtk/gnome enhancements
-D: xosd interface plug-in
-D: SLP
-S: France
-
-N: Christophe Mutricy
-E: xtophe at videolan d0t org
-C: xtophe
-D: libnotify plugin
-D: contrib system for 3rd party libraries
-D: win32 binary contribs
-D: Varios fixes (configure.ac, wxWidgets, M3U, ...)
-S: England
-
-N: Florian G. Pflug
-E: fgp@phlo.org
-C: fgp
-D: MacOS X port
-S: Austria
-
-N: Heiko Panther
-E: heiko.panther@web.de
-D: Mac OS X audio device selection framework
-S: Germany
-
-N: Vincent Penne
-E: ziggy at sashipa dot com
-D: teletext decoder
-S: France
-
-N: Eric Petit
-E: titer@videolan.org
-C: titer
-D: BeOS module fixes and enhancements
-D: Stream output
-D: Mac OS X OpenGL video output
-D: contrib system for 3rd party libraries
-S: France
-
-N: Benjamin Pracht
-E: bigben+spam@videolan.org
-C: bigben
-D: MacOS X Interface (playlist)
-D: documentation
-S: France / Germany
-
-N: Emmanuel Puig
-E: karibu@videolan.org
-C: karibu
-D: skins module (core and win32 port)
-S: France
-
-N: Frédéric Ruget
-E: frederic.ruget@free.fr
-D: Portaudio audio output
-S: France
-
-N: Jean-Paul Saman
-E: jp_dot_saman#videolan_dot_nl
-D: libmad plug-in
-D: iPAQ port
-D: PDA (Familiar Linux) interface 
-D: Dutch Translation
-D: DVB-S/C/T on v4l2 API
-D: HD1000 port 
-D: OSD menu
-D: Digital Video (Firewire/IEEE1394/I-Link)
-S: Netherlands
-
-N: Arnaud Schauly
-E: gitan@via.ecp.fr
-C: gitan
-D: SAP module
-S: France
-
-N: Vincent Seguin
-E: seguin@via.ecp.fr
-C: seguin
-D: core VLC structure
-D: interface and message queue
-D: video output
-D: YUV transforms
-D: X11 and GGI video outputs
-S: France
-
-N: Ken Self
-E: kens@campoz.fslife.co.uk
-C: kenS
-D: BDA module
-S: United Kingdom
-
-N: Richard Shepherd
-E: richard@rshepherd.demon.co.uk
-C: richards
-D: BeOS video output (BBitmap and Overlay)
-S: United Kingdom
-
-N: Clément Stenac
-E: zorglub@videolan.org
-C: zorglub
-D: Playlist core and demuxers, SAP parser
-D: wxWidgets and joystick interfaces
-D: Announce system
-D: visualisation, volume normalizer
-S: France
-
-N: Peter Surda
-E: shurdeek@panorama.sth.ac.at
-D: rc plugin for VLC control through /dev/stdin
-S: Austria
-
-N: Olivier Teulière
-E: ipkiss@via.ecp.fr
-C: ipkiss
-D: Win32 interface
-D: skins module (core and win32 port)
-D: skins2 module (core and win32 port)
-S: France
-
-N: Yuehua Zhao
-E: zhao908@hotmail.com
-D: real video codec
-S: China
-
-N: Bo Wang
-E: silencewang@msn.com
-D: real file/rtsp pause and seek support
-S: China
-
+Localization
+------------
+Ajith Manjula - Sinhala
+Alexander Didebulidze - Georgian
+Alexander Law - Russian
+Alexey Lugin - Ukrainian
+Alexey Salmin - Russian
+Amanpreet Singh Alam - Punjabi
+André de Barros Martins Ribeiro - Brazilian portuguese
+Andrey Brilevskiy - Russian
+Andrey Wolk - Russian
+Anh Phan - Vietnamese
+Animesh Swar - Nepalese
+Ara Bextiyar - Sorani (Kurdish)
+Ari Constâncio - Portuguese
+Arkadiusz Lipiec - Polish
+Audrey Prevost - French
+Bayarsaikhan Enkhtaivan Баярсайхан Энхтайван - Mongolian
+Bruno Queirós - Portuguese
+Bruno Vella - Italian
+Carlo Calabrò - Italian
+Cristian Secară - Romanian
+Daniel Nylander - Swedish
+David González - Spanish
+Dean Lee - Chinese
+DirektX - Hungarian
+Dominko Aždajić - Croatian
+Dylan Aïssi - French
+Eduard Babayan - Armenian
+Eirik U. Birkeland - Norwegian Nynorsk
+Éric Lassauge  -- French
+Farzaneh Sarafraz - Persian
+Fouzia Bourai - Arabic
+Frank Chao - Chinese Traditional
+Fumio Nakayama - Japanese
+Gabor Kelemen - Hungarian
+Gaëtan Rousseaux - Walloon
+Goce Manevski - Macedonian
+Gorana Milicevic - Serbian
+Haakon Meland Eriksen - Norwegian
+Han HoJoong - Korean
+H.Shalitha Vikum - Sinhala
+Ivo Ivanov - Bulgarian
+Jamil Ahmed - Bengali
+Javier Varela - Spanish
+Jean-Pierre Kuypers - French
+Joel Arvidsson - Swedish
+Jon Stødle - Norwegian Nynorsk
+Jonas Larsen - Danish
+Jouni Kähkönen - Finnish
+Kai Hermann - German
+Kang Jeong-Hee - Korean
+Kaya Zeren - Turkish
+Kypchak Kypchak - Kazakh
+Laurent Jonqueres - Occitan
+Lorena Gomes - Catalan
+Luqman Hakim - Indonesian
+Mahrazi Mohd Kamal - Malay
+Manolis Stefanis - Modern Greek
+Marián Hikaník - Slovak
+Marko Uskokovic - Serbian
+Matej Urbančič - Slovenian
+Mathias C. Berens, welcome-soft - German
+Mattias Põldaru - Estonian
+Md. Rezwan Shahid - Bengali
+Meelad Zakaria - Persian
+Michał Trzebiatowski - Polish
+Mindaugas Baranauskas - Lithuanian
+Miroslav Oujeský - Czech
+Morten Brix Pedersen - Danish
+Myckel Habets - Dutch
+Namhyung Kim - Korean
+Oleksandr Natalenko - Ukrainian
+Omer Ensari - Kurmanji (Kurdish)
+Otto Kekäläinen - Finnish
+Pittayakom Saingtong - Thai
+Predrag Ljubenović - Serbian
+Roustam Ghizdatov - Russian
+Salar Khalilzadeh" - Persian
+Сергей Дарьичев - Belarusian
+Sidney Doria - Brazilian Portuguese
+Sreejith P - Malayalam
+Tadashi Jokagi - Japanese
+Thomas De Rocker - Dutch
+Thomas Graf - gettext support, German
+Tomáš Chvátal - Czech
+Tòni Galhard - Occitan
+Valek Filippov - Russian
+Vicente Jimenez Aguilar - Spanish
+Vincenzo Reale - Italian
+Vladimir Yermolayev  - Russian
+Wei Mingzhi - Simplied Chinese
+Xènia Albà Cantero - Catalan
+Xuacu Saturio - Asturian
+Yuksel Yildirim - Turkish
+Zhang Tong - Chinese

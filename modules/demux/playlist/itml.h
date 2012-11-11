@@ -1,5 +1,5 @@
 /*******************************************************************************
- * itml.c : iTunes Music Library import functions
+ * itml.h : iTunes Music Library import functions
  *******************************************************************************
  * Copyright (C) 2007 the VideoLAN team
  * $Id$
@@ -26,11 +26,10 @@
  */
 
 /* defines */
-#define FREE_NAME()     FREENULL( psz_name )
 #define FREE_VALUE()    FREENULL( psz_value )
 #define FREE_KEY()      FREENULL( psz_key )
-#define FREE_ATT()      do{ FREE_NAME();FREE_VALUE(); }while(0)
-#define FREE_ATT_KEY()  do{ FREE_NAME();FREE_VALUE();FREE_KEY();} while(0)
+#define FREE_ATT()      FREE_VALUE()
+#define FREE_ATT_KEY()  do{ FREE_VALUE();FREE_KEY();} while(0)
 
 #define UNKNOWN_CONTENT 0
 #define SIMPLE_CONTENT 1
@@ -40,7 +39,7 @@
                            const char      *psz_name,\
                            char            *psz_value)
 #define COMPLEX_INTERFACE (demux_t         *p_demux,\
-                           input_item_t    *p_input_item,\
+                           input_item_node_t    *p_input_node,\
                            track_elem_t    *p_track,\
                            xml_reader_t    *p_xml_reader,\
                            const char      *psz_element,\

@@ -1,7 +1,7 @@
 --[==========================================================================[
  http.lua: HTTP interface module for VLC
 --[==========================================================================[
- Copyright (C) 2007 the VideoLAN team
+ Copyright (C) 2007-2009 the VideoLAN team
  $Id$
 
  Authors: Antoine Cellerier <dionoea at videolan dot org>
@@ -23,7 +23,6 @@
 
 --[==========================================================================[
 Configuration options:
- * host: A host to listen on.
  * dir: Directory to use as the http interface's root.
  * no_error_detail: If set, do not print the Lua error message when generating
                     a page fails.
@@ -37,6 +36,20 @@ vlc.msg.info("Lua HTTP interface")
 
 open_tag = "<?vlc"
 close_tag = "?>"
+
+-- TODO: use internal VLC mime lookup function for mimes not included here
+mimes = {
+    txt = "text/plain",
+    json = "text/plain",
+    html = "text/html",
+    xml = "text/xml",
+    js = "text/javascript",
+    css = "text/css",
+    png = "image/png",
+    jpg = "image/jpeg",
+    jpeg = "image/jpeg",
+    ico = "image/x-icon",
+}
 
 function escape(s)
     return (string.gsub(s,"([%^%$%%%.%[%]%*%+%-%?])","%%%1"))
@@ -66,6 +79,7 @@ function process_raw(filename)
     --]]
     return assert(loadstring(code,filename))
 end
+
 function process(filename)
     local mtime = 0    -- vlc.net.stat(filename).modification_time
     local func = false -- process_raw(filename)
@@ -102,7 +116,7 @@ function callback_error(path,url,msg)
 </html>]]
 end
 
-function dirlisting(url,listing,acl_)
+function dirlisting(url,listing)
     local list = {}
     for _,f in ipairs(listing) do
         if not string.match(f,"^%.") then
@@ -120,10 +134,54 @@ function dirlisting(url,listing,acl_)
 </body>
 </html>]]
     end
-    return h:file(url,"text/html",nil,nil,acl_,callback,nil)
+    return h:file(url,"text/html",nil,password,callback,nil)
 end
 
-function file(h,path,url,acl_,mime)
+-- FIXME: Experimental art support. Needs some cleaning up.
+function callback_art(data, request, args)
+    local art = function(data, request)
+        local num = nil
+        if args ~= nil then
+            num = string.gmatch(args, "item=(.*)")
+            if num ~= nil then
+                num = num()
+            end
+        end
+        local item
+        if num == nil then
+            item = vlc.input.item()
+        else
+            item = vlc.playlist.get(num).item
+        end
+        local metas = item:metas()
+        local filename = vlc.strings.decode_uri(string.gsub(metas["artwork_url"],"file://",""))
+        local size = vlc.net.stat(filename).size
+        local ext = string.match(filename,"%.([^%.]-)$")
+        local raw = io.open(filename):read("*a")
+        local content = [[Content-Type: ]]..mimes[ext]..[[
+
+Content-Length: ]]..size..[[
+
+
+]]..raw..[[
+
+]]
+        return content
+    end
+
+    local ok, content = pcall(art, data, request)
+    if not ok then
+        return [[Status: 404
+Content-Type: text/plain
+Content-Length: 5
+
+Error
+]]
+    end
+    return content
+end
+
+function file(h,path,url,mime)
     local generate_page = process(path)
     local callback = function(data,request)
         -- FIXME: I'm sure that we could define a real sandbox
@@ -149,10 +207,10 @@ function file(h,path,url,acl_,mime)
         end
         return table.concat(page)
     end
-    return h:file(url or path,mime,nil,nil,acl_,callback,nil)
+    return h:file(url or path,mime,nil,password,callback,nil)
 end
 
-function rawfile(h,path,url,acl_)
+function rawfile(h,path,url)
     local filename = path
     local mtime = 0    -- vlc.net.stat(filename).modification_time
     local page = false -- io.open(filename):read("*a")
@@ -165,17 +223,17 @@ function rawfile(h,path,url,acl_)
             else
                 vlc.msg.dbg("Reloading `"..filename.."'")
             end
-            page = io.open(filename):read("*a")
+            page = io.open(filename,"rb"):read("*a")
             mtime = new_mtime
         end
         return page
     end
-    return h:file(url or path,nil,nil,nil,acl_,callback,nil)
+    return h:file(url or path,nil,nil,password,callback,nil)
 end
 
 function parse_url_request(request)
     if not request then return {} end
-    t = {}
+    local t = {}
     for k,v in string.gmatch(request,"([^=&]+)=?([^=&]*)") do
         local k_ = vlc.strings.decode_uri(k)
         local v_ = vlc.strings.decode_uri(v)
@@ -197,7 +255,7 @@ function parse_url_request(request)
 end
 
 local function find_datadir(name)
-    local list = vlc.misc.datadir_list(name)
+    local list = vlc.config.datadir_list(name)
     for _, l in ipairs(list) do
         local s = vlc.net.stat(l)
         if s then
@@ -213,35 +271,16 @@ do
     package.path = http_dir.."/?.lua"
     local ok, err = pcall(require,"custom")
     if not ok then
-        vlc.msg.warn("Couldn't load "..http_dir.."/custom.lua")
+        vlc.msg.warn("Couldn't load "..http_dir.."/custom.lua",err)
     else
         vlc.msg.dbg("Loaded "..http_dir.."/custom.lua")
     end
     package.path = oldpath
 end
-local files = {}
-local mimes = {
-    txt = "text/plain",
-    html = "text/html",
-    xml = "text/xml",
-    js = "text/javascript",
-    css = "text/css",
-    png = "image/png",
-    ico = "image/x-icon",
-}
-local function load_dir(dir,root,parent_acl)
+files = {}
+local function load_dir(dir,root)
     local root = root or "/"
     local has_index = false
-    local my_acl = parent_acl
-    do
-        local af = dir.."/.hosts"
-        local s = vlc.net.stat(af)
-        if s and s.type == "file" then
-            -- We found an acl
-            my_acl = vlc.acl(false)
-            my_acl:load_file(af)
-        end
-    end
     local d = vlc.net.opendir(dir)
     for _,f in ipairs(d) do
         if not string.match(f,"^%.") then
@@ -258,29 +297,28 @@ local function load_dir(dir,root,parent_acl)
                 local mime = mimes[ext]
                 -- print(url,mime)
                 if mime and string.match(mime,"^text/") then
-                    table.insert(files,file(h,dir.."/"..f,url,my_acl and my_acl.private,mime))
+                    table.insert(files,file(h,dir.."/"..f,url,mime))
                 else
-                    table.insert(files,rawfile(h,dir.."/"..f,url,my_acl and my_acl.private))
+                    table.insert(files,rawfile(h,dir.."/"..f,url))
                 end
             elseif s.type == "dir" then
-                load_dir(dir.."/"..f,root..f.."/",my_acl)
+                load_dir(dir.."/"..f,root..f.."/")
             end
         end
     end
     if not has_index and not config.no_index then
         -- print("Adding index for", root)
-        table.insert(files,dirlisting(root,d,my_acl and my_acl.private))
+        table.insert(files,dirlisting(root,d))
     end
 end
 
-local u = vlc.net.url_parse( config.host or "localhost:8080" )
-h = vlc.httpd(u.host,u.port)
-load_dir( http_dir )
-
-while not vlc.misc.lock_and_wait() do end -- everything happens in callbacks
-
--- FIXME: We shouldn't need to do this ourselves.
-for i=1,#files do
-    getmetatable(files[i]).__gc(files[i])
-    files[i] = nil
+if config.host then
+    vlc.msg.err("\""..config.host.."\" HTTP host ignored")
+    local port = string.match(config.host, ":(%d+)[^]]*$")
+    vlc.msg.info("Pass --http-host=IP "..(port and "and --http-port="..port.." " or "").."on the command line instead.")
 end
+
+password = vlc.var.inherit(nil,"http-password")
+h = vlc.httpd()
+load_dir( http_dir )
+a = h:handler("/art",nil,password,callback_art,nil)

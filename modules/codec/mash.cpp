@@ -1,5 +1,5 @@
 /*****************************************************************************
- * mash.c: Video decoder using openmash codec implementations
+ * mash.cpp: Video decoder using openmash codec implementations
  *****************************************************************************
  * Copyright (C) 2004 the VideoLAN team
  * $Id$
@@ -97,7 +97,7 @@ static int OpenDecoder( vlc_object_t *p_this )
           (decoder_sys_t *)malloc(sizeof(decoder_sys_t)) ) == NULL )
         return VLC_ENOMEM;
     /* Misc init */
-    p_sys->i_pts = 0;
+    p_sys->i_pts = VLC_TS_INVALID;
     p_sys->b_inited = false;
     p_sys->i_counter = 0;
 
@@ -143,7 +143,8 @@ static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
     p_block = *pp_block;
 
-    if( !p_sys->i_pts && !p_block->i_pts && !p_block->i_dts )
+    if( p_sys->i_pts <= VLC_TS_INVALID && p_block->i_pts <= VLC_TS_INVALID &&
+        p_block->i_dts <= VLC_TS_INVALID )
     {
         /* We've just started the stream, wait for the first PTS. */
         block_Release( p_block );
@@ -152,11 +153,10 @@ static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
 
     /* Date management */
-    if( p_block->i_pts > 0 || p_block->i_dts > 0 )
-    {
-        if( p_block->i_pts > 0 ) p_sys->i_pts = p_block->i_pts;
-        else if( p_block->i_dts > 0 ) p_sys->i_pts = p_block->i_dts;
-    }
+    if( p_block->i_pts > VLC_TS_INVALID )
+        p_sys->i_pts = p_block->i_pts;
+    else if( p_block->i_dts > VLC_TS_INVALID )
+        p_sys->i_pts = p_block->i_dts;
 
     i_video_header = *(uint32_t*)p_block->p_buffer; /* yes, it is native endian */
     sbit = i_video_header >> 29; /* start bit position */
@@ -173,7 +173,7 @@ static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     mvdv = i_video_header & 0x1f; /* vertical motion vector data */
     cc = p_block->i_buffer - 4;
     msg_Dbg( p_dec, "packet size %d", cc );
- 
+
     /* Find out p_vdec->i_raw_size */
     p_sys->p_decoder->decode( p_block->p_buffer + 4 /*bp?*/,
                               cc /*cc?*/,
@@ -192,7 +192,7 @@ static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
                   i_height);
         video_format_Setup( &p_dec->fmt_out.video, VLC_CODEC_I420,
                             i_width, i_height,
-                            VOUT_ASPECT_FACTOR * i_width / i_height );
+                            1, 1 );
         p_sys->b_inited = true;
     }
     p_pic = NULL;
@@ -209,11 +209,11 @@ static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         p_sys->p_decoder->sync();
         p_sys->i_counter = 0;
         p_frame = p_sys->p_decoder->frame();
-        vlc_memcpy( p_dec, p_pic->p[0].p_pixels, p_frame, i_width*i_height );
+        memcpy( p_dec, p_pic->p[0].p_pixels, p_frame, i_width*i_height );
         p_frame += i_width * i_height;
-        vlc_memcpy( p_dec, p_pic->p[1].p_pixels, p_frame, i_width*i_height/4 );
+        memcpy( p_dec, p_pic->p[1].p_pixels, p_frame, i_width*i_height/4 );
         p_frame += i_width * i_height/4;
-        vlc_memcpy( p_dec, p_pic->p[2].p_pixels, p_frame, i_width*i_height/4 );
+        memcpy( p_dec, p_pic->p[2].p_pixels, p_frame, i_width*i_height/4 );
         p_pic->date = p_sys->i_pts;
     }
     block_Release( p_block);

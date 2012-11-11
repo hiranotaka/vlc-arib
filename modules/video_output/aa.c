@@ -36,6 +36,13 @@
 #include <assert.h>
 #include <aalib.h>
 
+#ifndef WIN32
+# ifdef X_DISPLAY_MISSING
+#  error Xlib required due to XInitThreads
+# endif
+# include <vlc_xlib.h>
+#endif
+
 /* TODO
  * - what about RGB palette ?
  */
@@ -50,7 +57,7 @@ vlc_module_begin()
     set_category(CAT_VIDEO)
     set_subcategory(SUBCAT_VIDEO_VOUT)
     set_description(N_("ASCII-art video output"))
-    set_capability("vout display", 10)
+    set_capability("vout display", /*10*/0)
     add_shortcut("aalib")
     set_callbacks(Open, Close)
 vlc_module_end()
@@ -58,10 +65,10 @@ vlc_module_end()
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
-static picture_t *Get    (vout_display_t *);
-static void       Prepare(vout_display_t *, picture_t *);
-static void       Display(vout_display_t *, picture_t *);
-static int        Control(vout_display_t *, int, va_list);
+static picture_pool_t *Pool   (vout_display_t *, unsigned);
+static void            Prepare(vout_display_t *, picture_t *, subpicture_t *);
+static void            PictureDisplay(vout_display_t *, picture_t *, subpicture_t *);
+static int             Control(vout_display_t *, int, va_list);
 
 /* */
 static void Manage(vout_display_t *);
@@ -83,6 +90,11 @@ static int Open(vlc_object_t *object)
     vout_display_t *vd = (vout_display_t *)object;
     vout_display_sys_t *sys;
 
+#ifndef WIN32
+    if (!vlc_xlib_init (object))
+        return VLC_EGENERIC;
+#endif
+
     /* Allocate structure */
     vd->sys = sys = calloc(1, sizeof(*sys));
     if (!sys)
@@ -97,6 +109,7 @@ static int Open(vlc_object_t *object)
         msg_Err(vd, "cannot initialize aalib");
         goto error;
     }
+    vout_display_DeleteWindow(vd, NULL);
 
     aa_autoinitkbd(sys->aa_context, 0);
     aa_autoinitmouse(sys->aa_context, AA_MOUSEALLMASK);
@@ -115,11 +128,11 @@ static int Open(vlc_object_t *object)
     vd->fmt = fmt;
     vd->info = info;
 
-    vd->get = Get;
+    vd->pool    = Pool;
     vd->prepare = Prepare;
-    vd->display = Display;
+    vd->display = PictureDisplay;
     vd->control = Control;
-    vd->manage = Manage;
+    vd->manage  = Manage;
 
     /* Inspect initial configuration and send correction events
      * FIXME how to handle aspect ratio with aa ? */
@@ -152,11 +165,12 @@ static void Close(vlc_object_t *object)
 }
 
 /**
- * Return a direct buffer
+ * Return a pool of direct buffers
  */
-static picture_t *Get(vout_display_t *vd)
+static picture_pool_t *Pool(vout_display_t *vd, unsigned count)
 {
     vout_display_sys_t *sys = vd->sys;
+    VLC_UNUSED(count);
 
     if (!sys->pool) {
         picture_resource_t rsc;
@@ -171,16 +185,13 @@ static picture_t *Get(vout_display_t *vd)
             return NULL;
 
         sys->pool = picture_pool_New(1, &p_picture);
-        if (!sys->pool)
-            return NULL;
     }
-
-    return picture_pool_Get(sys->pool);
+    return sys->pool;
 }
 
 /**
  * Prepare a picture for display */
-static void Prepare(vout_display_t *vd, picture_t *picture)
+static void Prepare(vout_display_t *vd, picture_t *picture, subpicture_t *subpicture)
 {
     vout_display_sys_t *sys = vd->sys;
 
@@ -197,6 +208,7 @@ static void Prepare(vout_display_t *vd, picture_t *picture)
 #else
     VLC_UNUSED(picture);
 #endif
+    VLC_UNUSED(subpicture);
 
     aa_fastrender(sys->aa_context, 0, 0,
                   vd->fmt.i_width, vd->fmt.i_height);
@@ -205,12 +217,13 @@ static void Prepare(vout_display_t *vd, picture_t *picture)
 /**
  * Display a picture
  */
-static void Display(vout_display_t *vd, picture_t *picture)
+static void PictureDisplay(vout_display_t *vd, picture_t *picture, subpicture_t *subpicture)
 {
     vout_display_sys_t *sys = vd->sys;
 
     aa_flush(sys->aa_context);
     picture_Release(picture);
+    VLC_UNUSED(subpicture);
 }
 
 /**

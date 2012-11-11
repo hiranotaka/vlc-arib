@@ -29,11 +29,13 @@
 #include "../utils/position.hpp"
 #include "../utils/var_bool.hpp"
 
+#include <assert.h>
+
 
 CtrlGeneric::CtrlGeneric( intf_thread_t *pIntf, const UString &rHelp,
                           VarBool *pVisible):
-    SkinObject( pIntf ), m_pLayout( NULL ), m_pPosition( NULL ),
-    m_help( rHelp ), m_pVisible( pVisible )
+    SkinObject( pIntf ), m_pLayout( NULL ), m_pVisible( pVisible ),
+    m_pPosition( NULL ), m_help( rHelp )
 {
     // Observe the visibility variable
     if( m_pVisible )
@@ -45,7 +47,6 @@ CtrlGeneric::CtrlGeneric( intf_thread_t *pIntf, const UString &rHelp,
 
 CtrlGeneric::~CtrlGeneric()
 {
-    delete m_pPosition;
     if( m_pVisible )
     {
         m_pVisible->delObserver( this );
@@ -56,16 +57,28 @@ CtrlGeneric::~CtrlGeneric()
 void CtrlGeneric::setLayout( GenericLayout *pLayout,
                              const Position &rPosition )
 {
+    assert( !m_pLayout && pLayout);
+
     m_pLayout = pLayout;
-    delete m_pPosition;
     m_pPosition = new Position( rPosition );
     onPositionChange();
 }
 
+void CtrlGeneric::unsetLayout()
+{
+    assert( m_pLayout );
+
+    delete m_pPosition;
+    m_pPosition = NULL;
+    m_pLayout = NULL;
+}
 
 void CtrlGeneric::notifyLayout( int width, int height,
-                                int xOffSet, int yOffSet ) const
+                                int xOffSet, int yOffSet )
 {
+    width = ( width > 0 ) ? width : m_pPosition->getWidth();
+    height = ( height > 0 ) ? height : m_pPosition->getHeight();
+
     // Notify the layout
     if( m_pLayout )
     {
@@ -151,6 +164,7 @@ bool CtrlGeneric::isVisible() const
 
 void CtrlGeneric::onUpdate( Subject<VarBool> &rVariable, void *arg  )
 {
+    (void)arg;
     // Is it the visibility variable ?
     if( &rVariable == m_pVisible )
     {

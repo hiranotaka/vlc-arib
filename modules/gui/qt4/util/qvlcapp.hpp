@@ -29,10 +29,8 @@
 #include <QEvent>
 
 #if defined(Q_WS_WIN)
-#   include <windows.h>
-#   include <vlc_common.h>
-#   include <vlc_interface.h>
 #   include "qt4.hpp"
+#   include <windows.h>
 #   include "input_manager.hpp"
 #endif
 
@@ -40,79 +38,28 @@ class QVLCApp : public QApplication
 {
     Q_OBJECT
 
-public:
-#ifdef WIN32
-    QVLCApp( intf_thread_t *p_intf, int & argc, char ** argv ) : QApplication( argc, argv, true )
+private slots:
+    void doQuit()
     {
-        connect( this, SIGNAL(quitSignal()), this, SLOT(quit()) );
-        CONNECT( this, playPauseSignal(), THEMIM, togglePlayPause() );
-        CONNECT( this, prevSignal(), THEMIM, prev() );
-        CONNECT( this, nextSignal(), THEMIM, next() );
+        closeAllWindows();
+        quit();
     }
-#else
+
+public:
     QVLCApp( int & argc, char ** argv ) : QApplication( argc, argv, true )
     {
-        connect( this, SIGNAL(quitSignal()), this, SLOT(quit()) );
+        connect( this, SIGNAL(quitSignal()), this, SLOT(doQuit()) );
     }
-#endif
 
     static void triggerQuit()
     {
-         QVLCApp *app = qobject_cast<QVLCApp*>( instance() );
-         if ( app )
-             emit app->quitSignal();
+        QVLCApp *app = qobject_cast<QVLCApp*>( instance() );
+        if( app )
+            emit app->quitSignal();
     }
-
-#if defined (Q_WS_X11)
-     QVLCApp( Display *dp, int & argc, char ** argv )
-         : QApplication( dp, argc, argv )
-     {
-        connect( this, SIGNAL(quitSignal()), this, SLOT(quit()) );
-     }
-#endif
-
-#if defined(Q_WS_WIN)
-#define THBN_CLICKED        0x1800
-protected:
-    virtual bool winEventFilter( MSG *msg, long *result )
-    {
-        switch( msg->message )
-        {
-            case 0x0319: /* WM_APPCOMMAND 0x0319 */
-                DefWindowProc( msg->hwnd, msg->message,
-                               msg->wParam, msg->lParam );
-                break;
-            case 0xC0C2: /* TaskbarButtonCreated */
-                break;
-            case WM_COMMAND:
-                if (HIWORD(msg->wParam) == THBN_CLICKED)
-                {
-                    switch(LOWORD(msg->wParam))
-                    {
-                        case 0:
-                            emit prevSignal();
-                            break;
-                        case 1:
-                            emit playPauseSignal();
-                            break;
-                        case 2:
-                            emit nextSignal();
-                            break;
-                    }
-                }
-                break;
-        }
-        return false;
-    }
-#endif
-
 
 signals:
     void quitSignal();
-    void playPauseSignal();
-    void prevSignal();
-    void nextSignal();
 
 };
-
 #endif

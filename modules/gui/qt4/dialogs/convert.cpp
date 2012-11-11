@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Convert.cpp : Convertion dialogs
+ * convert.cpp : Convertion dialogs
  ****************************************************************************
  * Copyright (C) 2009 the VideoLAN team
  * $Id$
@@ -102,16 +102,23 @@ ConvertDialog::ConvertDialog( QWidget *parent, intf_thread_t *_p_intf,
 
     mainLayout->addWidget( buttonBox, 5, 3 );
 
-    BUTTONACT( okButton, close() );
-    BUTTONACT( cancelButton, cancel() );
+    BUTTONACT(okButton,close());
+    BUTTONACT(cancelButton,cancel());
+
+    CONNECT(dumpBox,toggled(bool),this,dumpChecked(bool));
+    CONNECT(profile, optionsChanged(), this, setDestinationFileExtension());
+    CONNECT(fileLine, editingFinished(), this, setDestinationFileExtension());
 }
 
 void ConvertDialog::fileBrowse()
 {
+    QString fileExtension = "." + profile->getMux();
+
     QString fileName = QFileDialog::getSaveFileName( this, qtr( "Save file..." ),
-            "",
- qtr( "Containers (*.ps *.ts *.mpg *.ogg *.asf *.mp4 *.mov *.wav *.raw *.flv)" ) );
+        "",
+        QString( qtr( "Containers (*" ) + fileExtension + ")" ) );
     fileLine->setText( toNativeSeparators( fileName ) );
+    setDestinationFileExtension();
 }
 
 void ConvertDialog::cancel()
@@ -135,13 +142,38 @@ void ConvertDialog::close()
             mrl.remove( '}' );
             mrl += ",deinterlace}";
         }
-        mrl += ":duplicate{";
-        if( displayBox->isChecked() ) mrl += "dst=display,";
-        mrl += "dst=std{access=file,mux=" + profile->getMux() +
-            ",dst='" + fileLine->text() + "'}";
+        mrl += ":";
+        if( displayBox->isChecked() )
+            mrl += "duplicate{dst=display,dst=";
+        mrl += "std{access=file{no-overwrite},mux=" + profile->getMux()
+             + ",dst='" + fileLine->text() + "'}";
+        if( displayBox->isChecked() )
+            mrl += "}";
     }
 
-    msg_Warn( p_intf, "Transcode MRL: %s", qtu( mrl ) );
+    msg_Dbg( p_intf, "Transcode MRL: %s", qtu( mrl ) );
     accept();
 }
 
+void ConvertDialog::dumpChecked( bool checked )
+{
+    deinterBox->setEnabled( !checked );
+    displayBox->setEnabled( !checked );
+    profile->setEnabled( !checked );
+}
+
+void ConvertDialog::setDestinationFileExtension()
+{
+    if( !fileLine->text().isEmpty() )
+    {
+        QString newFileExtension = "." + profile->getMux();
+        QString newFileName;
+        int index = fileLine->text().lastIndexOf( "." );
+        if( index != -1 ) {
+            newFileName = fileLine->text().left( index ).append( newFileExtension );
+        } else {
+            newFileName = fileLine->text().append( newFileExtension );
+        }
+        fileLine->setText( toNativeSeparators( newFileName ) );
+    }
+}

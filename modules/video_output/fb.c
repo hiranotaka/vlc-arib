@@ -30,7 +30,6 @@
 # include "config.h"
 #endif
 
-#include <errno.h>                                                 /* ENOMEM */
 #include <signal.h>                                      /* SIGUSR1, SIGUSR2 */
 #include <fcntl.h>                                                 /* open() */
 #include <unistd.h>                                               /* close() */
@@ -47,7 +46,7 @@
 #include <vlc_plugin.h>
 #include <vlc_vout_display.h>
 #include <vlc_picture_pool.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -58,21 +57,24 @@
 #define DEVICE_LONGTEXT N_(\
     "Framebuffer device to use for rendering (usually /dev/fb0).")
 
-#define TTY_TEXT N_("Run fb on current tty.")
+#define TTY_TEXT N_("Run fb on current tty")
 #define TTY_LONGTEXT N_(\
     "Run framebuffer on current TTY device (default enabled). " \
     "(disable tty handling with caution)")
 
-#define FB_MODE_TEXT N_("Framebuffer resolution to use.")
+#define FB_MODE_TEXT N_("Framebuffer resolution to use")
 #define FB_MODE_LONGTEXT N_(\
     "Select the resolution for the framebuffer. Currently it supports " \
     "the values 0=QCIF 1=CIF 2=NTSC 3=PAL, 4=auto (default 4=auto)")
 
-#define HW_ACCEL_TEXT N_("Framebuffer uses hw acceleration.")
+#define HW_ACCEL_TEXT N_("Framebuffer uses hw acceleration")
 #define HW_ACCEL_LONGTEXT N_(\
     "If your framebuffer supports hardware acceleration or does double buffering " \
     "in hardware then you must disable this option. It then does double buffering " \
     "in software.")
+
+#define CHROMA_TEXT N_("Image format (default RGB)")
+#define CHROMA_LONGTEXT N_("Chroma fourcc used by the framebuffer. Default is RGB since the fb device has no way to report its chroma.")
 
 static int  Open (vlc_object_t *);
 static void Close(vlc_object_t *);
@@ -81,14 +83,14 @@ vlc_module_begin ()
     set_shortname("Framebuffer")
     set_category(CAT_VIDEO)
     set_subcategory(SUBCAT_VIDEO_VOUT)
-    add_file(FB_DEV_VAR, "/dev/fb0", NULL, DEVICE_TEXT, DEVICE_LONGTEXT,
-              false)
-    add_bool("fb-tty", true, NULL, TTY_TEXT, TTY_LONGTEXT, true)
-    add_obsolete_string("fb-chroma")
+    add_loadfile(FB_DEV_VAR, "/dev/fb0", DEVICE_TEXT, DEVICE_LONGTEXT,
+                 false)
+    add_bool("fb-tty", true, TTY_TEXT, TTY_LONGTEXT, true)
+    add_string( "fb-chroma", NULL, CHROMA_TEXT, CHROMA_LONGTEXT, true )
     add_obsolete_string("fb-aspect-ratio")
-    add_integer("fb-mode", 4, NULL, FB_MODE_TEXT, FB_MODE_LONGTEXT,
+    add_integer("fb-mode", 4, FB_MODE_TEXT, FB_MODE_LONGTEXT,
                  true)
-    add_bool("fb-hw-accel", true, NULL, HW_ACCEL_TEXT, HW_ACCEL_LONGTEXT,
+    add_bool("fb-hw-accel", true, HW_ACCEL_TEXT, HW_ACCEL_LONGTEXT,
               true)
     set_description(N_("GNU/Linux framebuffer video output"))
     set_capability("vout display", 30)
@@ -98,15 +100,16 @@ vlc_module_end ()
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
-static picture_t *Get    (vout_display_t *);
-static void       Display(vout_display_t *, picture_t *);
-static int        Control(vout_display_t *, int, va_list);
-static void       Manage (vout_display_t *);
+static picture_pool_t *Pool  (vout_display_t *, unsigned);
+static void           Display(vout_display_t *, picture_t *, subpicture_t *);
+static int            Control(vout_display_t *, int, va_list);
 
 /* */
 static int  OpenDisplay  (vout_display_t *, bool force_resolution);
 static void CloseDisplay (vout_display_t *);
+#if 0
 static void SwitchDisplay(int i_signal);
+#endif
 static void TextMode     (int tty);
 static void GfxMode      (int tty);
 
@@ -121,8 +124,10 @@ struct vout_display_sys_t {
     struct termios      old_termios;
 
     /* Original configuration information */
+#if 0
     struct sigaction            sig_usr1;           /* USR1 previous handler */
     struct sigaction            sig_usr2;           /* USR2 previous handler */
+#endif
     struct vt_mode              vt_mode;                 /* previous VT mode */
 
     /* Framebuffer information */
@@ -137,15 +142,34 @@ struct vout_display_sys_t {
     /* Video information */
     uint32_t width;
     uint32_t height;
+    uint32_t line_length;
+    vlc_fourcc_t chroma;
     int      bytes_per_pixel;
 
     /* Video memory */
-    uint8_t     *video_ptr;                                  /* base adress */
+    uint8_t     *video_ptr;                                 /* base address */
     size_t      video_size;                                    /* page size */
 
     picture_t       *picture;
     picture_pool_t  *pool;
 };
+
+
+static void ClearScreen(vout_display_sys_t *sys)
+{
+    switch (sys->chroma) {
+    /* XXX: add other chromas */
+    case VLC_CODEC_UYVY: {
+        unsigned int j, size = sys->video_size / 4;
+        uint32_t *ptr = (uint32_t*)((uintptr_t)(sys->video_ptr + 3) & ~3);
+        for(j=0; j < size; j++)
+            ptr[j] = 0x10801080;    /* U = V = 16, Y = 128 */
+        break;
+    }
+    default:    /* RGB */
+        memset(sys->video_ptr, 0, sys->video_size);
+    }
+}
 
 /**
  * This function allocates and initializes a FB vout method.
@@ -161,23 +185,23 @@ static int Open(vlc_object_t *object)
         return VLC_ENOMEM;
 
     /* Does the framebuffer uses hw acceleration? */
-    sys->is_hw_accel = var_CreateGetBool(vd, "fb-hw-accel");
+    sys->is_hw_accel = var_InheritBool(vd, "fb-hw-accel");
 
     /* Set tty and fb devices */
     sys->tty = 0; /* 0 == /dev/tty0 == current console */
-    sys->is_tty = var_CreateGetBool(vd, "fb-tty");
+    sys->is_tty = var_InheritBool(vd, "fb-tty");
 #if !defined(WIN32) &&  defined(HAVE_ISATTY)
     /* Check that stdin is a TTY */
     if (sys->is_tty && !isatty(0)) {
-        msg_Warn(vd, "fd 0 is not a TTY");
+        msg_Warn(vd, "standard input is not a TTY");
         free(sys);
         return VLC_EGENERIC;
     }
-    msg_Warn(vd, "disabling tty handling, use with caution because "
-                 "there is no way to return to the tty.");
+    msg_Warn(vd, "disabling TTY handling, use with caution because "
+                 "there is no way to return to the TTY");
 #endif
 
-    const int mode = var_CreateGetInteger(vd, "fb-mode");
+    const int mode = var_InheritInteger(vd, "fb-mode");
     bool force_resolution = true;
     switch (mode) {
     case 0: /* QCIF */
@@ -202,6 +226,19 @@ static int Open(vlc_object_t *object)
         break;
     }
 
+    char *chroma = var_InheritString(vd, "fb-chroma");
+    if (chroma) {
+        sys->chroma = vlc_fourcc_GetCodecFromString(VIDEO_ES, chroma);
+
+        if (sys->chroma)
+            msg_Dbg(vd, "forcing chroma '%s'", chroma);
+        else
+            msg_Warn(vd, "chroma %s invalid, using default", chroma);
+
+        free(chroma);
+    } else
+        sys->chroma = 0;
+
     /* tty handling */
     if (sys->is_tty && TtyInit(vd)) {
         free(sys);
@@ -217,41 +254,48 @@ static int Open(vlc_object_t *object)
         Close(VLC_OBJECT(vd));
         return VLC_EGENERIC;
     }
+    vout_display_DeleteWindow(vd, NULL);
 
     /* */
     video_format_t fmt = vd->fmt;
 
-    msg_Err(vd, "var_info.bits_per_pixel = %d", sys->var_info.bits_per_pixel);
-    switch (sys->var_info.bits_per_pixel) {
-    case 8: /* FIXME: set the palette */
-        fmt.i_chroma = VLC_CODEC_RGB8;
-        break;
-    case 15:
-        fmt.i_chroma = VLC_CODEC_RGB15;
-        break;
-    case 16:
-        fmt.i_chroma = VLC_CODEC_RGB16;
-        break;
-    case 24:
-        fmt.i_chroma = VLC_CODEC_RGB24;
-        break;
-    case 32:
-        fmt.i_chroma = VLC_CODEC_RGB32;
-        break;
-    default:
-        msg_Err(vd, "unknown screen depth %i",
-                sys->var_info.bits_per_pixel);
-        Close(VLC_OBJECT(vd));
-        return VLC_EGENERIC;
+    if (sys->chroma) {
+        fmt.i_chroma = sys->chroma;
+    } else {
+        /* Assume RGB */
+
+        msg_Dbg(vd, "%d bppd", sys->var_info.bits_per_pixel);
+        switch (sys->var_info.bits_per_pixel) {
+        case 8: /* FIXME: set the palette */
+            fmt.i_chroma = VLC_CODEC_RGB8;
+            break;
+        case 15:
+            fmt.i_chroma = VLC_CODEC_RGB15;
+            break;
+        case 16:
+            fmt.i_chroma = VLC_CODEC_RGB16;
+            break;
+        case 24:
+            fmt.i_chroma = VLC_CODEC_RGB24;
+            break;
+        case 32:
+            fmt.i_chroma = VLC_CODEC_RGB32;
+            break;
+        default:
+            msg_Err(vd, "unknown screendepth %i", sys->var_info.bits_per_pixel);
+            Close(VLC_OBJECT(vd));
+            return VLC_EGENERIC;
+        }
+        if (sys->var_info.bits_per_pixel != 8) {
+            fmt.i_rmask = ((1 << sys->var_info.red.length) - 1)
+                                 << sys->var_info.red.offset;
+            fmt.i_gmask = ((1 << sys->var_info.green.length) - 1)
+                                 << sys->var_info.green.offset;
+            fmt.i_bmask = ((1 << sys->var_info.blue.length) - 1)
+                                 << sys->var_info.blue.offset;
+        }
     }
-    if (sys->var_info.bits_per_pixel != 8) {
-        fmt.i_rmask = ((1 << sys->var_info.red.length) - 1)
-                             << sys->var_info.red.offset;
-        fmt.i_gmask = ((1 << sys->var_info.green.length) - 1)
-                             << sys->var_info.green.offset;
-        fmt.i_bmask = ((1 << sys->var_info.blue.length) - 1)
-                             << sys->var_info.blue.offset;
-    }
+
     fmt.i_width  = sys->width;
     fmt.i_height = sys->height;
 
@@ -262,11 +306,11 @@ static int Open(vlc_object_t *object)
     /* */
     vd->fmt     = fmt;
     vd->info    = info;
-    vd->get     = Get;
+    vd->pool    = Pool;
     vd->prepare = NULL;
     vd->display = Display;
     vd->control = Control;
-    vd->manage  = Manage;
+    vd->manage  = NULL;
 
     /* */
     vout_display_SendEventFullscreen(vd, true);
@@ -296,7 +340,7 @@ static void Close(vlc_object_t *object)
 }
 
 /* */
-static picture_t *Get(vout_display_t *vd)
+static picture_pool_t *Pool(vout_display_t *vd, unsigned count)
 {
     vout_display_sys_t *sys = vd->sys;
 
@@ -307,12 +351,7 @@ static picture_t *Get(vout_display_t *vd)
             memset(&rsc, 0, sizeof(rsc));
             rsc.p[0].p_pixels = sys->video_ptr;
             rsc.p[0].i_lines  = sys->var_info.yres;
-            if (sys->var_info.xres_virtual)
-                rsc.p[0].i_pitch = sys->var_info.xres_virtual *
-                                   sys->bytes_per_pixel;
-            else
-                rsc.p[0].i_pitch = sys->var_info.xres *
-                                   sys->bytes_per_pixel;
+            rsc.p[0].i_pitch = sys->line_length;
 
             sys->picture = picture_NewFromResource(&vd->fmt, &rsc);
             if (!sys->picture)
@@ -322,13 +361,11 @@ static picture_t *Get(vout_display_t *vd)
         if (sys->is_hw_accel)
             sys->pool = picture_pool_New(1, &sys->picture);
         else
-            sys->pool = picture_pool_NewFromFormat(&vd->fmt, 1);
-        if (!sys->pool)
-            return NULL;
+            sys->pool = picture_pool_NewFromFormat(&vd->fmt, count);
     }
-    return picture_pool_Get(sys->pool);
+    return sys->pool;
 }
-static void Display(vout_display_t *vd, picture_t *picture)
+static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpicture)
 {
     vout_display_sys_t *sys = vd->sys;
 
@@ -353,6 +390,7 @@ static void Display(vout_display_t *vd, picture_t *picture)
         picture_Copy(sys->picture, picture);
 
     picture_Release(picture);
+    VLC_UNUSED(subpicture);
 }
 static int Control(vout_display_t *vd, int query, va_list args)
 {
@@ -370,26 +408,6 @@ static int Control(vout_display_t *vd, int query, va_list args)
         msg_Err(vd, "Unsupported query in vout display fb");
         return VLC_EGENERIC;
     }
-}
-static void Manage (vout_display_t *vd)
-{
-    VLC_UNUSED(vd);
-#if 0
-    /*
-     * Size change
-     */
-    if (vd->i_changes & VOUT_SIZE_CHANGE)
-    {
-        msg_Dbg(vd, "reinitializing framebuffer screen");
-        vd->i_changes &= ~VOUT_SIZE_CHANGE;
-
-        vout_display_SendEventDisplaySize();
-
-        /* Clear screen */
-        memset(vd->sys->video_ptr, 0, vd->sys->video_size);
-
-    }
-#endif
 }
 
 /* following functions are local */
@@ -424,6 +442,7 @@ static int TtyInit(vout_display_t *vd)
 
     ioctl(sys->tty, VT_RELDISP, VT_ACKACQ);
 
+#if 0
     /* Set-up tty signal handler to be aware of tty changes */
     struct sigaction sig_tty;
     memset(&sig_tty, 0, sizeof(sig_tty));
@@ -435,6 +454,7 @@ static int TtyInit(vout_display_t *vd)
         /* FIXME SIGUSR1 could have succeed */
         goto error_signal;
     }
+#endif
 
     /* Set-up tty according to new signal handler */
     if (-1 == ioctl(sys->tty, VT_GETMODE, &sys->vt_mode)) {
@@ -454,9 +474,11 @@ static int TtyInit(vout_display_t *vd)
     return VLC_SUCCESS;
 
 error:
+#if 0
     sigaction(SIGUSR1, &sys->sig_usr1, NULL);
     sigaction(SIGUSR2, &sys->sig_usr2, NULL);
 error_signal:
+#endif
     tcsetattr(0, 0, &sys->old_termios);
     TextMode(sys->tty);
     return VLC_EGENERIC;
@@ -468,9 +490,11 @@ static void TtyExit(vout_display_t *vd)
     /* Reset the terminal */
     ioctl(sys->tty, VT_SETMODE, &sys->vt_mode);
 
+#if 0
     /* Remove signal handlers */
     sigaction(SIGUSR1, &sys->sig_usr1, NULL);
     sigaction(SIGUSR2, &sys->sig_usr2, NULL);
+#endif
 
     /* Reset the keyboard state */
     tcsetattr(0, 0, &sys->old_termios);
@@ -486,15 +510,14 @@ static int OpenDisplay(vout_display_t *vd, bool force_resolution)
 {
     vout_display_sys_t *sys = vd->sys;
     char *psz_device;                             /* framebuffer device path */
-    struct fb_fix_screeninfo    fix_info;     /* framebuffer fix information */
 
     /* Open framebuffer device */
-    if (!(psz_device = config_GetPsz(vd, FB_DEV_VAR))) {
+    if (!(psz_device = var_InheritString(vd, FB_DEV_VAR))) {
         msg_Err(vd, "don't know which fb device to open");
         return VLC_EGENERIC;
     }
 
-    sys->fd = utf8_open(psz_device, O_RDWR);
+    sys->fd = vlc_open(psz_device, O_RDWR);
     if (sys->fd == -1) {
         msg_Err(vd, "cannot open %s (%m)", psz_device);
         free(psz_device);
@@ -528,6 +551,7 @@ static int OpenDisplay(vout_display_t *vd, bool force_resolution)
         return VLC_EGENERIC;
     }
 
+    struct fb_fix_screeninfo fix_info;
     /* Get some information again, in the definitive configuration */
     if (ioctl(sys->fd, FBIOGET_FSCREENINFO, &fix_info) ||
         ioctl(sys->fd, FBIOGET_VSCREENINFO, &sys->var_info)) {
@@ -551,6 +575,7 @@ static int OpenDisplay(vout_display_t *vd, bool force_resolution)
     sys->height = sys->var_info.yres;
     sys->width  = sys->var_info.xres_virtual ? sys->var_info.xres_virtual :
                                                sys->var_info.xres;
+    sys->line_length = fix_info.line_length;
 
     /* FIXME: if the image is full-size, it gets cropped on the left
      * because of the xres / xres_virtual slight difference */
@@ -610,7 +635,7 @@ static int OpenDisplay(vout_display_t *vd, bool force_resolution)
         return VLC_EGENERIC;
     }
 
-    sys->video_size = sys->width * sys->height * sys->bytes_per_pixel;
+    sys->video_size = sys->line_length * sys->var_info.yres_virtual;
 
     /* Map a framebuffer at the beginning */
     sys->video_ptr = mmap(NULL, sys->video_size,
@@ -630,8 +655,8 @@ static int OpenDisplay(vout_display_t *vd, bool force_resolution)
         close(sys->fd);
         return VLC_EGENERIC;
     }
-    /* Clear the screen */
-    memset(sys->video_ptr, 0, sys->video_size);
+
+    ClearScreen(sys);
 
     msg_Dbg(vd,
             "framebuffer type=%d, visual=%d, ypanstep=%d, ywrap=%d, accel=%d",
@@ -648,8 +673,7 @@ static void CloseDisplay(vout_display_t *vd)
     vout_display_sys_t *sys = vd->sys;
 
     if (sys->video_ptr != MAP_FAILED) {
-        /* Clear display */
-        memset(sys->video_ptr, 0, sys->video_size);
+        ClearScreen(sys);
         munmap(sys->video_ptr, sys->video_size);
     }
 
@@ -669,6 +693,7 @@ static void CloseDisplay(vout_display_t *vd)
     }
 }
 
+#if 0
 /*****************************************************************************
  * SwitchDisplay: VT change signal handler
  *****************************************************************************
@@ -677,8 +702,6 @@ static void CloseDisplay(vout_display_t *vd)
  *****************************************************************************/
 static void SwitchDisplay(int i_signal)
 {
-    VLC_UNUSED(i_signal);
-#if 0
     vout_display_t *vd;
 
     vlc_mutex_lock(&p_vout_bank->lock);
@@ -706,8 +729,8 @@ static void SwitchDisplay(int i_signal)
     }
 
     vlc_mutex_unlock(&p_vout_bank->lock);
-#endif
 }
+#endif
 
 /*****************************************************************************
  * TextMode and GfxMode : switch tty to text/graphic mode

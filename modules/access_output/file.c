@@ -31,7 +31,6 @@
 #endif
 
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -40,13 +39,15 @@
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
 #include <vlc_block.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 #include <vlc_strings.h>
+#include <vlc_dialog.h>
 
-#if defined( WIN32 ) && !defined( UNDER_CE )
+#if defined( WIN32 ) || defined( __OS2__ )
 #   include <io.h>
-#   define lseek _lseeki64
-#else
+#endif
+
+#ifndef WIN32
 #   include <unistd.h>
 #endif
 
@@ -61,9 +62,14 @@ static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
 #define SOUT_CFG_PREFIX "sout-file-"
+#define OVERWRITE_TEXT N_("Overwrite existing file")
+#define OVERWRITE_LONGTEXT N_( \
+    "If the file already exists, it will be overwritten.")
 #define APPEND_TEXT N_("Append to file")
 #define APPEND_LONGTEXT N_( "Append to file if it exists instead " \
                             "of replacing it.")
+#define SYNC_TEXT N_("Synchronous writing")
+#define SYNC_LONGTEXT N_( "Open the file with synchronous writing.")
 
 vlc_module_begin ()
     set_description( N_("File stream output") )
@@ -71,10 +77,15 @@ vlc_module_begin ()
     set_capability( "sout access", 50 )
     set_category( CAT_SOUT )
     set_subcategory( SUBCAT_SOUT_ACO )
-    add_shortcut( "file" )
-    add_shortcut( "stream" )
-    add_bool( SOUT_CFG_PREFIX "append", false, NULL, APPEND_TEXT,APPEND_LONGTEXT,
+    add_shortcut( "file", "stream", "fd" )
+    add_bool( SOUT_CFG_PREFIX "overwrite", true, OVERWRITE_TEXT,
+              OVERWRITE_LONGTEXT, true )
+    add_bool( SOUT_CFG_PREFIX "append", false, APPEND_TEXT,APPEND_LONGTEXT,
               true )
+#ifdef O_SYNC
+    add_bool( SOUT_CFG_PREFIX "sync", false, SYNC_TEXT,SYNC_LONGTEXT,
+              false )
+#endif
     set_callbacks( Open, Close )
 vlc_module_end ()
 
@@ -83,18 +94,18 @@ vlc_module_end ()
  * Exported prototypes
  *****************************************************************************/
 static const char *const ppsz_sout_options[] = {
-    "append", NULL
+    "append",
+    "overwrite",
+#ifdef O_SYNC
+    "sync",
+#endif
+    NULL
 };
 
 static ssize_t Write( sout_access_out_t *, block_t * );
 static int Seek ( sout_access_out_t *, off_t  );
 static ssize_t Read ( sout_access_out_t *, block_t * );
 static int Control( sout_access_out_t *, int, va_list );
-
-struct sout_access_out_sys_t
-{
-    int i_handle;
-};
 
 /*****************************************************************************
  * Open: open the file
@@ -112,35 +123,75 @@ static int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
+    bool overwrite = var_GetBool (p_access, SOUT_CFG_PREFIX"overwrite");
     bool append = var_GetBool( p_access, SOUT_CFG_PREFIX "append" );
 
+    if (!strcmp (p_access->psz_access, "fd"))
+    {
+        char *end;
+
+        fd = strtol (p_access->psz_path, &end, 0);
+        if (!*p_access->psz_path || *end)
+        {
+            msg_Err (p_access, "invalid file descriptor: %s",
+                     p_access->psz_path);
+            return VLC_EGENERIC;
+        }
+        fd = vlc_dup (fd);
+        if (fd == -1)
+        {
+            msg_Err (p_access, "cannot use file descriptor: %m");
+            return VLC_EGENERIC;
+        }
+    }
+    else
     if( !strcmp( p_access->psz_path, "-" ) )
     {
-#ifndef UNDER_CE
-#ifdef WIN32
-        setmode (fileno (stdout), O_BINARY);
+#if defined( WIN32 ) || defined( __OS2__ )
+        setmode (STDOUT_FILENO, O_BINARY);
 #endif
-        fd = dup (fileno (stdout));
+        fd = vlc_dup (STDOUT_FILENO);
+        if (fd == -1)
+        {
+            msg_Err (p_access, "cannot use standard output: %m");
+            return VLC_EGENERIC;
+        }
         msg_Dbg( p_access, "using stdout" );
-#else
-#warning stdout is not supported on Windows Mobile, but may be used on Windows CE
-        fd = -1;
-#endif
     }
     else
     {
-        char *psz_tmp = str_format( p_access, p_access->psz_path );
-        path_sanitize( psz_tmp );
+        char *path = str_format_time (p_access->psz_path);
+        path_sanitize (path);
 
-        fd = utf8_open( psz_tmp, O_RDWR | O_CREAT | O_LARGEFILE |
-                        (append ? 0 : O_TRUNC), 0666 );
-        free( psz_tmp );
-    }
-
-    if (fd == -1)
-    {
-        msg_Err( p_access, "cannot open `%s' (%m)", p_access->psz_path );
-        return VLC_EGENERIC;
+        int flags = O_RDWR | O_CREAT | O_LARGEFILE;
+        if (!overwrite)
+            flags |= O_EXCL;
+        if (!append)
+            flags |= O_TRUNC;
+#ifdef O_SYNC
+        if (var_GetBool (p_access, SOUT_CFG_PREFIX"sync"))
+            flags |= O_SYNC;
+#endif
+        do
+        {
+            fd = vlc_open (path, flags, 0666);
+            if (fd != -1)
+                break;
+            if (fd == -1)
+                msg_Err (p_access, "cannot create %s: %m", path);
+            if (overwrite || errno != EEXIST)
+                break;
+            flags &= ~O_EXCL;
+        }
+        while (dialog_Question (p_access, path,
+                                _("The output file already exists. "
+                                "If recording continues, the file will be "
+                                "overridden and its content will be lost."),
+                                _("Keep existing file"),
+                                _("Overwrite"), NULL) == 2);
+        free (path);
+        if (fd == -1)
+            return VLC_EGENERIC;
     }
 
     p_access->pf_write = Write;

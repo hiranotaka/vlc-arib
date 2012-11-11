@@ -1,64 +1,200 @@
 /*****************************************************************************
  * meta.c : Metadata handling
  *****************************************************************************
- * Copyright (C) 1998-2004 the VideoLAN team
+ * Copyright (C) 1998-2004 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Antoine Cellerier <dionoea@videolan.org>
  *          Clément Stenac <zorglub@videolan.org
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
 
+#include <assert.h>
+
 #include <vlc_common.h>
 #include <vlc_playlist.h>
 #include <vlc_url.h>
+#include <vlc_arrays.h>
+#include <vlc_modules.h>
 
 #include "input_internal.h"
 #include "../playlist/art.h"
 
-/* FIXME bad name convention */
-const char * input_MetaTypeToLocalizedString( vlc_meta_type_t meta_type )
+struct vlc_meta_t
 {
-    switch( meta_type )
-    {
-    case vlc_meta_Title:        return _("Title");
-    case vlc_meta_Artist:       return _("Artist");
-    case vlc_meta_Genre:        return _("Genre");
-    case vlc_meta_Copyright:    return _("Copyright");
-    case vlc_meta_Album:        return _("Album");
-    case vlc_meta_TrackNumber:  return _("Track number");
-    case vlc_meta_Description:  return _("Description");
-    case vlc_meta_Rating:       return _("Rating");
-    case vlc_meta_Date:         return _("Date");
-    case vlc_meta_Setting:      return _("Setting");
-    case vlc_meta_URL:          return _("URL");
-    case vlc_meta_Language:     return _("Language");
-    case vlc_meta_NowPlaying:   return _("Now Playing");
-    case vlc_meta_Publisher:    return _("Publisher");
-    case vlc_meta_EncodedBy:    return _("Encoded by");
-    case vlc_meta_ArtworkURL:   return _("Artwork URL");
-    case vlc_meta_TrackID:      return _("Track ID");
-
-    default: abort();
-    }
+    char * ppsz_meta[VLC_META_TYPE_COUNT];
+    
+    vlc_dictionary_t extra_tags;
+    
+    int i_status;
 };
+
+/* FIXME bad name convention */
+const char * vlc_meta_TypeToLocalizedString( vlc_meta_type_t meta_type )
+{
+    static const char posix_names[][16] =
+    {
+        [vlc_meta_Title]       = N_("Title"),
+        [vlc_meta_Artist]      = N_("Artist"),
+        [vlc_meta_Genre]       = N_("Genre"),
+        [vlc_meta_Copyright]   = N_("Copyright"),
+        [vlc_meta_Album]       = N_("Album"),
+        [vlc_meta_TrackNumber] = N_("Track number"),
+        [vlc_meta_Description] = N_("Description"),
+        [vlc_meta_Rating]      = N_("Rating"),
+        [vlc_meta_Date]        = N_("Date"),
+        [vlc_meta_Setting]     = N_("Setting"),
+        [vlc_meta_URL]         = N_("URL"),
+        [vlc_meta_Language]    = N_("Language"),
+        [vlc_meta_NowPlaying]  = N_("Now Playing"),
+        [vlc_meta_Publisher]   = N_("Publisher"),
+        [vlc_meta_EncodedBy]   = N_("Encoded by"),
+        [vlc_meta_ArtworkURL]  = N_("Artwork URL"),
+        [vlc_meta_TrackID]     = N_("Track ID"),
+    };
+
+    assert (meta_type < (sizeof(posix_names) / sizeof(posix_names[0])));
+    return vlc_gettext (posix_names[meta_type]);
+};
+
+
+/**
+ * vlc_meta contructor.
+ * vlc_meta_Delete() will free the returned pointer.
+ */ 
+vlc_meta_t *vlc_meta_New( void )
+{
+    vlc_meta_t *m = (vlc_meta_t*)malloc( sizeof(*m) );
+    if( !m )
+        return NULL;
+    memset( m->ppsz_meta, 0, sizeof(m->ppsz_meta) );
+    m->i_status = 0;
+    vlc_dictionary_init( &m->extra_tags, 0 );
+    return m;
+}
+
+/* Free a dictonary key allocated by strdup() in vlc_meta_AddExtra() */
+static void vlc_meta_FreeExtraKey( void *p_data, void *p_obj )
+{
+    VLC_UNUSED( p_obj );
+    free( p_data );
+}
+
+void vlc_meta_Delete( vlc_meta_t *m )
+{
+    int i;
+    for( i = 0; i < VLC_META_TYPE_COUNT ; i++ )
+        free( m->ppsz_meta[i] );
+    vlc_dictionary_clear( &m->extra_tags, vlc_meta_FreeExtraKey, NULL );
+    free( m );
+}
+
+/**
+ * vlc_meta has two kinds of meta, the one in a table, and the one in a
+ * dictionary.
+ * FIXME - Why don't we merge those two?
+ */ 
+
+void vlc_meta_Set( vlc_meta_t *p_meta, vlc_meta_type_t meta_type, const char *psz_val )
+{
+    free( p_meta->ppsz_meta[meta_type] );
+    p_meta->ppsz_meta[meta_type] = psz_val ? strdup( psz_val ) : NULL;
+}
+
+const char *vlc_meta_Get( const vlc_meta_t *p_meta, vlc_meta_type_t meta_type )
+{
+    return p_meta->ppsz_meta[meta_type];
+}
+
+void vlc_meta_AddExtra( vlc_meta_t *m, const char *psz_name, const char *psz_value )
+{
+    char *psz_oldvalue = (char *)vlc_dictionary_value_for_key( &m->extra_tags, psz_name );
+    if( psz_oldvalue != kVLCDictionaryNotFound )
+        vlc_dictionary_remove_value_for_key( &m->extra_tags, psz_name,
+                                            vlc_meta_FreeExtraKey, NULL );
+    vlc_dictionary_insert( &m->extra_tags, psz_name, strdup(psz_value) );
+}
+
+const char * vlc_meta_GetExtra( const vlc_meta_t *m, const char *psz_name )
+{
+    return (char *)vlc_dictionary_value_for_key(&m->extra_tags, psz_name);
+}
+
+unsigned vlc_meta_GetExtraCount( const vlc_meta_t *m )
+{
+    return vlc_dictionary_keys_count(&m->extra_tags);
+}
+
+char** vlc_meta_CopyExtraNames( const vlc_meta_t *m )
+{
+    return vlc_dictionary_all_keys(&m->extra_tags);
+}
+
+/**
+ * vlc_meta status (see vlc_meta_status_e)
+ */
+int vlc_meta_GetStatus( vlc_meta_t *m )
+{
+    return m->i_status;
+}
+
+void vlc_meta_SetStatus( vlc_meta_t *m, int status )
+{
+    m->i_status = status;
+}
+
+
+/**
+ * Merging meta
+ */
+void vlc_meta_Merge( vlc_meta_t *dst, const vlc_meta_t *src )
+{
+    char **ppsz_all_keys;
+    int i;
+    
+    if( !dst || !src )
+        return;
+    
+    for( i = 0; i < VLC_META_TYPE_COUNT; i++ )
+    {
+        if( src->ppsz_meta[i] )
+        {
+            free( dst->ppsz_meta[i] );
+            dst->ppsz_meta[i] = strdup( src->ppsz_meta[i] );
+        }
+    }
+    
+    /* XXX: If speed up are needed, it is possible */
+    ppsz_all_keys = vlc_dictionary_all_keys( &src->extra_tags );
+    for( i = 0; ppsz_all_keys && ppsz_all_keys[i]; i++ )
+    {
+        /* Always try to remove the previous value */
+        vlc_dictionary_remove_value_for_key( &dst->extra_tags, ppsz_all_keys[i], vlc_meta_FreeExtraKey, NULL );
+        
+        void *p_value = vlc_dictionary_value_for_key( &src->extra_tags, ppsz_all_keys[i] );
+        vlc_dictionary_insert( &dst->extra_tags, ppsz_all_keys[i], strdup( (const char*)p_value ) );
+        free( ppsz_all_keys[i] );
+    }
+    free( ppsz_all_keys );
+}
+
 
 void input_ExtractAttachmentAndCacheArt( input_thread_t *p_input )
 {
@@ -72,14 +208,6 @@ void input_ExtractAttachmentAndCacheArt( input_thread_t *p_input )
         free( psz_arturl );
         return;
     }
-
-    playlist_t *p_playlist = pl_Hold( p_input );
-    if( !p_playlist )
-    {
-        free( psz_arturl );
-        return;
-    }
-
 
     if( input_item_IsArtFetched( p_item ) )
     {
@@ -121,24 +249,21 @@ void input_ExtractAttachmentAndCacheArt( input_thread_t *p_input )
         psz_type = ".png";
 
     /* */
-    playlist_SaveArt( p_playlist, p_item,
+    playlist_SaveArt( VLC_OBJECT(p_input), p_item,
                       p_attachment->p_data, p_attachment->i_data, psz_type );
 
     vlc_input_attachment_Delete( p_attachment );
 
 exit:
-    pl_Release( p_input );
     free( psz_arturl );
 }
 
 int input_item_WriteMeta( vlc_object_t *obj, input_item_t *p_item )
 {
     meta_export_t *p_export =
-        vlc_custom_create( obj, sizeof( *p_export ), VLC_OBJECT_GENERIC,
-                           "meta writer" );
+        vlc_custom_create( obj, sizeof( *p_export ), "meta writer" );
     if( p_export == NULL )
         return VLC_ENOMEM;
-    vlc_object_attach( p_export, obj );
     p_export->p_item = p_item;
 
     int type;
@@ -146,29 +271,23 @@ int input_item_WriteMeta( vlc_object_t *obj, input_item_t *p_item )
     type = p_item->i_type;
     vlc_mutex_unlock( &p_item->lock );
     if( type != ITEM_TYPE_FILE )
-    {
-        char *psz_uri = input_item_GetURI( p_item );
+        goto error;
 
-#warning FIXME: function for URI->path conversion!
-        decode_URI( psz_uri );
-        if( !strncmp( psz_uri, "file://", 7 ) )
-        {
-            p_export->psz_file = strdup( psz_uri + 7 );
-            free( psz_uri );
-        }
-        else
-#warning This should not happen!
-            p_export->psz_file = psz_uri;
-    }
-    else
-    {
-        vlc_object_release( p_export );
-        return VLC_EGENERIC;
-    }
+    char *psz_uri = input_item_GetURI( p_item );
+    p_export->psz_file = make_path( psz_uri );
+    if( p_export->psz_file == NULL )
+        msg_Err( p_export, "cannot write meta to remote media %s", psz_uri );
+    free( psz_uri );
+    if( p_export->psz_file == NULL )
+        goto error;
 
     module_t *p_mod = module_need( p_export, "meta writer", NULL, false );
     if( p_mod )
         module_unneed( p_export, p_mod );
     vlc_object_release( p_export );
     return VLC_SUCCESS;
+
+error:
+    vlc_object_release( p_export );
+    return VLC_EGENERIC;
 }

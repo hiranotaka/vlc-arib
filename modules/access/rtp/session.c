@@ -28,7 +28,7 @@
 #include <assert.h>
 #include <errno.h>
 
-#include <vlc/vlc.h>
+#include <vlc_common.h>
 #include <vlc_demux.h>
 
 #include "rtp.h"
@@ -141,12 +141,14 @@ struct rtp_source_t
     mtime_t  last_rx; /* last received packet local timestamp */
     uint32_t last_ts; /* last received packet RTP timestamp */
 
+    uint32_t ref_rtp; /* sender RTP timestamp reference */
+    mtime_t  ref_ntp; /* sender NTP timestamp reference */
+
     uint16_t bad_seq; /* tentatively next expected sequence for resync */
     uint16_t max_seq; /* next expected sequence */
 
     uint16_t last_seq; /* sequence of the next dequeued packet */
     block_t *blocks; /* re-ordered blocks queue */
-    mtime_t  ref_ts; /* reference timestamp for reordering */
     void    *opaque[0]; /* Per-source private payload data */
 };
 
@@ -165,7 +167,9 @@ rtp_source_create (demux_t *demux, const rtp_session_t *session,
 
     source->ssrc = ssrc;
     source->jitter = 0;
-    source->ref_ts = 0;
+    source->ref_rtp = 0;
+    /* TODO: use VLC_TS_0, but VLC does not like negative PTS at the moment */
+    source->ref_ntp = UINT64_C (1) << 62;
     source->max_seq = source->bad_seq = init_seq;
     source->last_seq = init_seq - 1;
     source->blocks = NULL;
@@ -268,7 +272,7 @@ rtp_queue (demux_t *demux, rtp_session_t *session, block_t *block)
         }
 
         /* RTP source garbage collection */
-        if ((tmp->last_rx + (p_sys->timeout * CLOCK_FREQ)) < now)
+        if ((tmp->last_rx + p_sys->timeout) < now)
         {
             rtp_source_destroy (demux, session, tmp);
             if (--session->srcc > 0)
@@ -316,6 +320,7 @@ rtp_queue (demux_t *demux, rtp_session_t *session, block_t *block)
         }
     }
     src->last_rx = now;
+    block->i_pts = now; /* store reception time until dequeued */
     src->last_ts = rtp_timestamp (block);
 
     /* Check sequence number */
@@ -371,6 +376,110 @@ drop:
 }
 
 
+static void rtp_decode (demux_t *, const rtp_session_t *, rtp_source_t *);
+
+/**
+ * Dequeues RTP packets and pass them to decoder. Not cancellation-safe(?).
+ * A packet is decoded if it is the next in sequence order, or if we have
+ * given up waiting on the missing packets (time out) from the last one
+ * already decoded.
+ *
+ * @param demux VLC demux object
+ * @param session RTP session receiving the packet
+ * @param deadlinep pointer to deadline to call rtp_dequeue() again
+ * @return true if the buffer is not empty, false otherwise.
+ * In the later case, *deadlinep is undefined.
+ */
+bool rtp_dequeue (demux_t *demux, const rtp_session_t *session,
+                  mtime_t *restrict deadlinep)
+{
+    mtime_t now = mdate ();
+    bool pending = false;
+
+    *deadlinep = INT64_MAX;
+
+    for (unsigned i = 0, max = session->srcc; i < max; i++)
+    {
+        rtp_source_t *src = session->srcv[i];
+        block_t *block;
+
+        /* Because of IP packet delay variation (IPDV), we need to guesstimate
+         * how long to wait for a missing packet in the RTP sequence
+         * (see RFC3393 for background on IPDV).
+         *
+         * This situation occurs if a packet got lost, or if the network has
+         * re-ordered packets. Unfortunately, the MSL is 2 minutes, orders of
+         * magnitude too long for multimedia. We need a trade-off.
+         * If we underestimated IPDV, we may have to discard valid but late
+         * packets. If we overestimate it, we will either cause too much
+         * delay, or worse, underflow our downstream buffers, as we wait for
+         * definitely a lost packets.
+         *
+         * The rest of the "de-jitter buffer" work is done by the internal
+         * LibVLC E/S-out clock synchronization. Here, we need to bother about
+         * re-ordering packets, as decoders can't cope with mis-ordered data.
+         */
+        while (((block = src->blocks)) != NULL)
+        {
+            if ((int16_t)(rtp_seq (block) - (src->last_seq + 1)) <= 0)
+            {   /* Next (or earlier) block ready, no need to wait */
+                rtp_decode (demux, session, src);
+                continue;
+            }
+
+            /* Wait for 3 times the inter-arrival delay variance (about 99.7%
+             * match for random gaussian jitter).
+             */
+            mtime_t deadline;
+            const rtp_pt_t *pt = rtp_find_ptype (session, src, block, NULL);
+            if (pt)
+                deadline = CLOCK_FREQ * 3 * src->jitter / pt->frequency;
+            else
+                deadline = 0; /* no jitter estimate with no frequency :( */
+
+            /* Make sure we wait at least for 25 msec */
+            if (deadline < (CLOCK_FREQ / 40))
+                deadline = CLOCK_FREQ / 40;
+
+            /* Additionnaly, we implicitly wait for the packetization time
+             * multiplied by the number of missing packets. block is the first
+             * non-missing packet (lowest sequence number). We have no better
+             * estimated time of arrival, as we do not know the RTP timestamp
+             * of not yet received packets. */
+            deadline += block->i_pts;
+            if (now >= deadline)
+            {
+                rtp_decode (demux, session, src);
+                continue;
+            }
+            if (*deadlinep > deadline)
+                *deadlinep = deadline;
+            pending = true; /* packet pending in buffer */
+            break;
+        }
+    }
+    return pending;
+}
+
+/**
+ * Dequeues all RTP packets and pass them to decoder. Not cancellation-safe(?).
+ * This function can be used when the packet source is known not to reorder.
+ */
+void rtp_dequeue_force (demux_t *demux, const rtp_session_t *session)
+{
+    for (unsigned i = 0, max = session->srcc; i < max; i++)
+    {
+        rtp_source_t *src = session->srcv[i];
+        block_t *block;
+
+        while (((block = src->blocks)) != NULL)
+            rtp_decode (demux, session, src);
+    }
+}
+
+/**
+ * Decodes one RTP packet.
+ */
 static void
 rtp_decode (demux_t *demux, const rtp_session_t *session, rtp_source_t *src)
 {
@@ -409,11 +518,12 @@ rtp_decode (demux_t *demux, const rtp_session_t *session, rtp_source_t *src)
      * DTS is unknown. Also, while the clock frequency depends on the payload
      * format, a single source MUST only use payloads of a chosen frequency.
      * Otherwise it would be impossible to compute consistent timestamps. */
-    /* FIXME: handle timestamp wrap properly */
-    /* TODO: inter-medias/sessions sync (using RTCP-SR) */
     const uint32_t timestamp = rtp_timestamp (block);
-    src->ref_ts = 0;
-    block->i_pts = CLOCK_FREQ * timestamp / pt->frequency;
+    block->i_pts = src->ref_ntp
+       + CLOCK_FREQ * (int32_t)(timestamp - src->ref_rtp) / pt->frequency;
+    /* TODO: proper inter-medias/sessions sync (using RTCP-SR) */
+    src->ref_ntp = block->i_pts;
+    src->ref_rtp = timestamp;
 
     /* CSRC count */
     size_t skip = 12u + (block->p_buffer[0] & 0x0F) * 4;
@@ -439,79 +549,4 @@ rtp_decode (demux_t *demux, const rtp_session_t *session, rtp_source_t *src)
 
 drop:
     block_Release (block);
-}
-
-
-/**
- * Dequeues an RTP packet and pass it to decoder. Not cancellation-safe(?).
- *
- * @param demux VLC demux object
- * @param session RTP session receiving the packet
- * @param deadlinep pointer to deadline to call rtp_dequeue() again
- * @return true if the buffer is not empty, false otherwise.
- * In the later case, *deadlinep is undefined.
- */
-bool rtp_dequeue (demux_t *demux, const rtp_session_t *session,
-                  mtime_t *restrict deadlinep)
-{
-    mtime_t now = mdate ();
-    bool pending = false;
-
-    *deadlinep = INT64_MAX;
-
-    for (unsigned i = 0, max = session->srcc; i < max; i++)
-    {
-        rtp_source_t *src = session->srcv[i];
-        block_t *block;
-
-        /* Because of IP packet delay variation (IPDV), we need to guesstimate
-         * how long to wait for a missing packet in the RTP sequence
-         * (see RFC3393 for background on IPDV).
-         *
-         * This situation occurs if a packet got lost, or if the network has
-         * re-ordered packets. Unfortunately, the MSL is 2 minutes, orders of
-         * magnitude too long for multimedia. We need a tradeoff.
-         * If we underestimated IPDV, we may have to discard valid but late
-         * packets. If we overestimate it, we will either cause too much
-         * delay, or worse, underflow our downstream buffers, as we wait for
-         * definitely a lost packets.
-         *
-         * The rest of the "de-jitter buffer" work is done by the interval
-         * LibVLC E/S-out clock synchronization. Here, we need to bother about
-         * re-ordering packets, as decoders can't cope with mis-ordered data.
-         */
-        while (((block = src->blocks)) != NULL)
-        {
-            if ((int16_t)(rtp_seq (block) - (src->last_seq + 1)) <= 0)
-            {   /* Next (or earlier) block ready, no need to wait */
-                rtp_decode (demux, session, src);
-                continue;
-            }
-
-            /* Wait for 3 times the inter-arrival delay variance (about 99.7%
-             * match for random gaussian jitter). Additionnaly, we implicitly
-             * wait for misordering times the packetization time.
-             */
-            mtime_t deadline = src->ref_ts;
-            const rtp_pt_t *pt = rtp_find_ptype (session, src, block, NULL);
-            if (!deadline)
-                deadline = src->ref_ts = now;
-            if (pt)
-                deadline += CLOCK_FREQ * 3 * src->jitter / pt->frequency;
-
-            /* Make sure we wait at least for 25 msec */
-            deadline = __MAX(deadline, src->ref_ts + CLOCK_FREQ / 40);
-
-            if (now >= deadline)
-            {
-                rtp_decode (demux, session, src);
-                continue;
-            }
-            if (*deadlinep > deadline)
-                *deadlinep = deadline;
-            pending = true; /* packet pending in buffer */
-            break;
-        }
-    }
-    return pending;
 }

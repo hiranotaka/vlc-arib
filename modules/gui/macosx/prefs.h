@@ -1,7 +1,7 @@
 /*****************************************************************************
  * prefs.h: MacOS X module for vlc
  *****************************************************************************
- * Copyright (C) 2002-2007 the VideoLAN team
+ * Copyright (C) 2002-2007 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
@@ -40,14 +40,14 @@
     IBOutlet id o_save_btn;
     IBOutlet id o_cancel_btn;
     IBOutlet id o_reset_btn;
-    IBOutlet id o_basicFull_matrix;
+    IBOutlet id o_showBasic_btn;
 }
 
 + (VLCPrefs *)sharedInstance;
 
 - (void)initStrings;
 - (void)setTitle: (NSString *) o_title_name;
-- (void)showPrefs;
+- (void)showPrefsWithLevel:(NSInteger)i_window_level;
 - (IBAction)savePrefs: (id)sender;
 - (IBAction)closePrefs: (id)sender;
 - (IBAction)resetAll: (id)sender;

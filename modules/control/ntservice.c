@@ -66,15 +66,15 @@ vlc_module_begin ()
     set_description( N_("Windows Service interface") )
     set_category( CAT_INTERFACE )
     set_subcategory( SUBCAT_INTERFACE_CONTROL )
-    add_bool( "ntservice-install", false, NULL,
+    add_bool( "ntservice-install", false,
               INSTALL_TEXT, INSTALL_LONGTEXT, true )
-    add_bool( "ntservice-uninstall", false, NULL,
+    add_bool( "ntservice-uninstall", false,
               UNINSTALL_TEXT, UNINSTALL_LONGTEXT, true )
-    add_string ( "ntservice-name", VLCSERVICENAME, NULL,
+    add_string ( "ntservice-name", VLCSERVICENAME,
                  NAME_TEXT, NAME_LONGTEXT, true )
-    add_string ( "ntservice-options", NULL, NULL,
+    add_string ( "ntservice-options", NULL,
                  OPTIONS_TEXT, OPTIONS_LONGTEXT, true )
-    add_string ( "ntservice-extraintf", NULL, NULL,
+    add_string ( "ntservice-extraintf", NULL,
                  EXTRAINTF_TEXT, EXTRAINTF_LONGTEXT, true )
 
     set_capability( "interface", 0 )
@@ -134,17 +134,17 @@ static void Run( intf_thread_t *p_intf )
     int canc = vlc_savecancel();
     p_global_intf = p_intf;
     p_intf->p_sys = &sys;
-    p_intf->p_sys->psz_service = config_GetPsz( p_intf, "ntservice-name" );
+    p_intf->p_sys->psz_service = var_InheritString( p_intf, "ntservice-name" );
     p_intf->p_sys->psz_service = p_intf->p_sys->psz_service ?
         p_intf->p_sys->psz_service : strdup(VLCSERVICENAME);
 
-    if( config_GetInt( p_intf, "ntservice-install" ) )
+    if( var_InheritBool( p_intf, "ntservice-install" ) )
     {
         NTServiceInstall( p_intf );
         return;
     }
 
-    if( config_GetInt( p_intf, "ntservice-uninstall" ) )
+    if( var_InheritBool( p_intf, "ntservice-uninstall" ) )
     {
         NTServiceUninstall( p_intf );
         return;
@@ -182,21 +182,21 @@ static int NTServiceInstall( intf_thread_t *p_intf )
     GetModuleFileName( NULL, psz_pathtmp, MAX_PATH );
     sprintf( psz_path, "\"%s\" -I "MODULE_STRING, psz_pathtmp );
 
-    psz_extra = config_GetPsz( p_intf, "ntservice-extraintf" );
-    if( psz_extra && *psz_extra )
+    psz_extra = var_InheritString( p_intf, "ntservice-extraintf" );
+    if( psz_extra )
     {
         strcat( psz_path, " --ntservice-extraintf " );
         strcat( psz_path, psz_extra );
+        free( psz_extra );
     }
-    free( psz_extra );
 
-    psz_extra = config_GetPsz( p_intf, "ntservice-options" );
+    psz_extra = var_InheritString( p_intf, "ntservice-options" );
     if( psz_extra && *psz_extra )
     {
         strcat( psz_path, " " );
         strcat( psz_path, psz_extra );
+        free( psz_extra );
     }
-    free( psz_extra );
 
     SC_HANDLE service =
         CreateService( handle, p_sys->psz_service, p_sys->psz_service,
@@ -293,7 +293,7 @@ static void WINAPI ServiceDispatch( DWORD numArgs, char **args )
     /*
      * Load background interfaces
      */
-    psz_modules = config_GetPsz( p_intf, "ntservice-extraintf" );
+    psz_modules = var_InheritString( p_intf, "ntservice-extraintf" );
     psz_parser = psz_modules;
     while( psz_parser && *psz_parser )
     {

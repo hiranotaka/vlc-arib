@@ -18,8 +18,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -32,15 +32,12 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
+#include <vlc_modules.h>                 /* module_need for "video blending" */
 #include "screen.h"
 
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
-#define CACHING_TEXT N_("Caching value in ms")
-#define CACHING_LONGTEXT N_( \
-    "Caching value for screen capture. "\
-    "This value should be set in milliseconds." )
 #define FPS_TEXT N_("Frame rate")
 #define FPS_LONGTEXT N_( \
     "Desired frame rate for the capture." )
@@ -62,12 +59,8 @@
     "Left coordinate of the subscreen top left corner." )
 
 #define WIDTH_TEXT N_( "Subscreen width" )
-#define WIDTH_LONGTEXT N_( \
-    "Subscreen width" )
 
 #define HEIGHT_TEXT N_( "Subscreen height" )
-#define HEIGHT_LONGTEXT N_( \
-    "Subscreen height"  )
 
 #define FOLLOW_MOUSE_TEXT N_( "Follow the mouse" )
 #define FOLLOW_MOUSE_LONGTEXT N_( \
@@ -79,6 +72,15 @@
 #define MOUSE_LONGTEXT N_( \
     "If specified, will use the image to draw the mouse pointer on the " \
     "capture." )
+#endif
+
+#ifdef SCREEN_DISPLAY_ID
+#define DISPLAY_ID_TEXT N_( "Display ID" )
+#define DISPLAY_ID_LONGTEXT N_( \
+    "Display ID. If not specified, main display ID is used. " )
+#define INDEX_TEXT N_( "Screen index" )
+#define INDEX_LONGTEXT N_( \
+    "Index of screen (1, 2, 3, ...). Alternative to Display ID." )
 #endif
 
 static int  Open ( vlc_object_t * );
@@ -96,27 +98,29 @@ vlc_module_begin ()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
 
-    add_integer( "screen-caching", DEFAULT_PTS_DELAY / 1000, NULL,
-        CACHING_TEXT, CACHING_LONGTEXT, true )
-    add_float( "screen-fps", SCREEN_FPS, 0, FPS_TEXT, FPS_LONGTEXT, true )
+    add_float( "screen-fps", SCREEN_FPS, FPS_TEXT, FPS_LONGTEXT, false )
 
 #ifdef SCREEN_SUBSCREEN
-    add_integer( "screen-top", 0, NULL, TOP_TEXT, TOP_LONGTEXT, true )
-    add_integer( "screen-left", 0, NULL, LEFT_TEXT, LEFT_LONGTEXT, true )
-    add_integer( "screen-width", 0, NULL, WIDTH_TEXT, WIDTH_LONGTEXT, true )
-    add_integer( "screen-height", 0, NULL, HEIGHT_TEXT, HEIGHT_LONGTEXT, true )
-    add_bool( "screen-follow-mouse", false, NULL, FOLLOW_MOUSE_TEXT,
-              FOLLOW_MOUSE_LONGTEXT, true )
+    add_integer( "screen-top", 0, TOP_TEXT, TOP_LONGTEXT, true )
+    add_integer( "screen-left", 0, LEFT_TEXT, LEFT_LONGTEXT, true )
+    add_integer( "screen-width", 0, WIDTH_TEXT, WIDTH_TEXT, true )
+    add_integer( "screen-height", 0, HEIGHT_TEXT, HEIGHT_TEXT, true )
+
+    add_bool( "screen-follow-mouse", false, FOLLOW_MOUSE_TEXT,
+              FOLLOW_MOUSE_LONGTEXT, false )
 #endif
 
 #ifdef SCREEN_MOUSE
-    add_file( "screen-mouse-image", "", NULL, MOUSE_TEXT, MOUSE_LONGTEXT,
-              true )
+    add_loadfile( "screen-mouse-image", "", MOUSE_TEXT, MOUSE_LONGTEXT, true )
 #endif
 
 #ifdef WIN32
-    add_integer( "screen-fragment-size", 0, NULL, FRAGS_TEXT,
-        FRAGS_LONGTEXT, true )
+    add_integer( "screen-fragment-size", 0, FRAGS_TEXT, FRAGS_LONGTEXT, true )
+#endif
+
+#ifdef SCREEN_DISPLAY_ID
+    add_integer( "screen-display-id", 0, DISPLAY_ID_TEXT, DISPLAY_ID_LONGTEXT, true )
+    add_integer( "screen-index", 0, INDEX_TEXT, INDEX_LONGTEXT, true )
 #endif
 
     set_capability( "access_demux", 0 )
@@ -145,9 +149,6 @@ static int Open( vlc_object_t *p_this )
     if( !p_sys )
         return VLC_ENOMEM;
 
-    /* Update default_pts to a suitable value for screen access */
-    var_Create( p_demux, "screen-caching", VLC_VAR_INTEGER|VLC_VAR_DOINHERIT );
-
     p_sys->f_fps = var_CreateGetFloat( p_demux, "screen-fps" );
     p_sys->i_incr = 1000000 / p_sys->f_fps;;
     p_sys->i_next_date = 0;
@@ -164,6 +165,11 @@ static int Open( vlc_object_t *p_this )
                           p_sys->i_left,
                           p_sys->i_width,
                           p_sys->i_height );
+#endif
+
+#ifdef SCREEN_DISPLAY_ID
+    p_sys->i_display_id = var_CreateGetInteger( p_demux, "screen-display-id" );
+    p_sys->i_screen_index = var_CreateGetInteger( p_demux, "screen-index" );
 #endif
 
     if( screen_InitCapture( p_demux ) != VLC_SUCCESS )
@@ -194,7 +200,7 @@ static int Open( vlc_object_t *p_this )
             p_sys->fmt.video.i_width = p_sys->i_width;
             p_sys->fmt.video.i_visible_height =
             p_sys->fmt.video.i_height = p_sys->i_height;
-            p_sys->b_follow_mouse = var_CreateGetInteger( p_demux,
+            p_sys->b_follow_mouse = var_CreateGetBool( p_demux,
                                                 "screen-follow-mouse" );
             if( p_sys->b_follow_mouse )
                 msg_Dbg( p_demux, "mouse following enabled" );
@@ -301,7 +307,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
         case DEMUX_GET_PTS_DELAY:
             pi64 = (int64_t*)va_arg( args, int64_t * );
-            *pi64 = (int64_t)var_GetInteger( p_demux, "screen-caching" ) *1000;
+            *pi64 = INT64_C(1000)
+                  * var_InheritInteger( p_demux, "live-caching" );
             return VLC_SUCCESS;
 
         case DEMUX_GET_TIME:
@@ -340,7 +347,8 @@ void RenderCursor( demux_t *p_demux, int i_x, int i_y,
                        p_sys->fmt.video.i_chroma,
                        p_sys->fmt.video.i_width,
                        p_sys->fmt.video.i_height,
-                       p_sys->fmt.video.i_aspect );
+                       p_sys->fmt.video.i_sar_num,
+                       p_sys->fmt.video.i_sar_den );
     if( !p_sys->p_blend )
     {
         p_sys->p_blend = vlc_object_create( p_demux, sizeof(filter_t) );
@@ -355,7 +363,6 @@ void RenderCursor( demux_t *p_demux, int i_x, int i_y,
             if( !p_sys->p_blend->p_module )
             {
                 msg_Err( p_demux, "Could not load video blending module" );
-                vlc_object_detach( p_sys->p_blend );
                 vlc_object_release( p_sys->p_blend );
                 p_sys->p_blend = NULL;
             }

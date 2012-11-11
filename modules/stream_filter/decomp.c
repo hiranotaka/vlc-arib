@@ -1,21 +1,21 @@
 /*****************************************************************************
  * decomp.c : Decompression module for vlc
  *****************************************************************************
- * Copyright © 2008 Rémi Denis-Courmont
+ * Copyright © 2008-2009 Rémi Denis-Courmont
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -26,6 +26,7 @@
 #include <vlc_plugin.h>
 #include <vlc_stream.h>
 #include <vlc_network.h>
+#include <vlc_fs.h>
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
@@ -47,17 +48,24 @@
 
 static int  OpenGzip (vlc_object_t *);
 static int  OpenBzip2 (vlc_object_t *);
+static int  OpenXZ (vlc_object_t *);
 static void Close (vlc_object_t *);
 
 vlc_module_begin ()
-    set_description (N_("Decompression"))
     set_category (CAT_INPUT)
     set_subcategory (SUBCAT_INPUT_STREAM_FILTER)
     set_capability ("stream_filter", 20)
+
+    set_description (N_("LZMA decompression"))
+    set_callbacks (OpenXZ, Close)
+
+    add_submodule ()
+    set_description (N_("Burrows-Wheeler decompression"))
     set_callbacks (OpenBzip2, Close)
     /* TODO: access shortnames for stream_UrlNew() */
 
     add_submodule ()
+    set_description (N_("gzip decompression"))
     set_callbacks (OpenGzip, Close)
 vlc_module_end ()
 
@@ -69,12 +77,6 @@ struct stream_sys_t
     pid_t        pid;
     int          write_fd, read_fd;
 };
-
-static void cloexec (int fd)
-{
-    int flags = fcntl (fd, F_GETFD);
-    fcntl (fd, F_SETFD, FD_CLOEXEC | ((flags != -1) ? flags : 0));
-}
 
 extern char **environ;
 
@@ -91,7 +93,7 @@ static void *Thread (void *data)
     stream_t *stream = data;
     stream_sys_t *p_sys = stream->p_sys;
 #ifdef HAVE_VMSPLICE
-    ssize_t page_mask = sysconf (_SC_PAGE_SIZE) - 1;
+    const ssize_t page_mask = sysconf (_SC_PAGE_SIZE) - 1;
 #endif
     int fd = p_sys->write_fd;
     bool error = false;
@@ -103,9 +105,14 @@ static void *Thread (void *data)
 #ifdef HAVE_VMSPLICE
         unsigned char *buf = mmap (NULL, bufsize, PROT_READ|PROT_WRITE,
                                    MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+        if (unlikely(buf == MAP_FAILED))
+            break;
         vlc_cleanup_push (cleanup_mmap, buf);
 #else
-        unsigned char buf[bufsize];
+        unsigned char *buf = malloc (bufsize);
+        if (unlikely(buf == NULL))
+            break;
+        vlc_cleanup_push (free, buf);
 #endif
 
         len = stream_Read (stream->p_source, buf, bufsize);
@@ -134,13 +141,14 @@ static void *Thread (void *data)
                 break;
             }
         }
-#ifdef HAVE_VMSPLICE
-        vlc_cleanup_run (); /* munmap (buf, bufsize) */
-#endif
+        vlc_cleanup_run (); /* free (buf) */
     }
     while (!error);
 
     msg_Dbg (stream, "compressed stream at EOF");
+    /* Let child process know about EOF */
+    p_sys->write_fd = -1;
+    close (fd);
     return NULL;
 }
 
@@ -239,10 +247,10 @@ static int Control (stream_t *stream, int query, va_list args)
             *(va_arg (args, bool *)) = false;
             break;
         case STREAM_GET_POSITION:
-            *(va_arg (args, int64_t *)) = p_sys->offset;
+            *(va_arg (args, uint64_t *)) = p_sys->offset;
             break;
         case STREAM_GET_SIZE:
-            *(va_arg (args, int64_t *)) = 0;
+            *(va_arg (args, uint64_t *)) = 0;
             break;
         default:
             return VLC_EGENERIC;
@@ -275,15 +283,13 @@ static int Open (stream_t *stream, const char *path)
 
     /* We use two pipes rather than one stream socket pair, so that we can
      * use vmsplice() on Linux. */
-    if (pipe (comp) == 0)
+    if (vlc_pipe (comp) == 0)
     {
-        cloexec (comp[1]);
         p_sys->write_fd = comp[1];
 
         int uncomp[2];
-        if (pipe (uncomp) == 0)
+        if (vlc_pipe (uncomp) == 0)
         {
-            cloexec (uncomp[0]);
             p_sys->read_fd = uncomp[0];
 
 #if (_POSIX_SPAWN >= 0)
@@ -293,9 +299,7 @@ static int Open (stream_t *stream, const char *path)
                 char *const argv[] = { (char *)path, NULL };
 
                 if (!posix_spawn_file_actions_adddup2 (&actions, comp[0], 0)
-                 && !posix_spawn_file_actions_addclose (&actions, comp[0])
                  && !posix_spawn_file_actions_adddup2 (&actions, uncomp[1], 1)
-                 && !posix_spawn_file_actions_addclose (&actions, uncomp[1])
                  && !posix_spawnp (&p_sys->pid, path, &actions, NULL, argv,
                                    environ))
                 {
@@ -318,9 +322,7 @@ static int Open (stream_t *stream, const char *path)
                     break;
                 case 0:
                     dup2 (comp[0], 0);
-                    close (comp[0]);
                     dup2 (uncomp[1], 1);
-                    close (uncomp[1]);
                     execlp (path, path, (char *)NULL);
                     exit (1); /* if we get, execlp() failed! */
                 default:
@@ -357,7 +359,9 @@ static void Close (vlc_object_t *obj)
     vlc_cancel (p_sys->thread);
     close (p_sys->read_fd);
     vlc_join (p_sys->thread, NULL);
-    close (p_sys->write_fd);
+    if (p_sys->write_fd != -1)
+        /* Killed before EOF? */
+        close (p_sys->write_fd);
 
     msg_Dbg (obj, "waiting for PID %u", (unsigned)p_sys->pid);
     while (waitpid (p_sys->pid, &status, 0) == -1);
@@ -408,3 +412,21 @@ static int OpenBzip2 (vlc_object_t *obj)
     return Open (stream, "bzcat");
 }
 
+/**
+ * Detects xz file format
+ */
+static int OpenXZ (vlc_object_t *obj)
+{
+    stream_t      *stream = (stream_t *)obj;
+    const uint8_t *peek;
+
+    /* (Try to) parse the xz stream header */
+    if (stream_Peek (stream->p_source, &peek, 8) < 8)
+        return VLC_EGENERIC;
+
+    if (memcmp (peek, "\xfd\x37\x7a\x58\x5a", 6))
+        return VLC_EGENERIC;
+
+    msg_Dbg (obj, "detected xz compressed stream");
+    return Open (stream, "xzcat");
+}

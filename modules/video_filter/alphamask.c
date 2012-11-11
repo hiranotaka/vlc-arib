@@ -34,6 +34,7 @@
 
 #include <vlc_image.h>
 #include <vlc_filter.h>
+#include <vlc_url.h>
 
 #define ALPHAMASK_HELP N_( \
     "Use an image's alpha channel as a transparency mask." )
@@ -65,11 +66,10 @@ vlc_module_begin ()
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
     set_capability( "video filter2", 0 )
-    add_shortcut( "alphamask" )
-    add_shortcut( "mask" )
+    add_shortcut( "alphamask", "mask" )
     set_callbacks( Create, Destroy )
 
-    add_string( CFG_PREFIX "mask", NULL, NULL, MASK_TEXT,
+    add_loadfile( CFG_PREFIX "mask", NULL, MASK_TEXT,
                 MASK_LONGTEXT, false )
 vlc_module_end ()
 
@@ -92,7 +92,7 @@ static int Create( vlc_object_t *p_this )
     if( p_filter->fmt_in.video.i_chroma != VLC_CODEC_YUVA )
     {
         msg_Err( p_filter,
-                 "Unsupported input chroma \"%4s\". "
+                 "Unsupported input chroma \"%4.4s\". "
                  "Alphamask can only use \"YUVA\".",
                  (char*)&p_filter->fmt_in.video.i_chroma );
         return VLC_EGENERIC;
@@ -182,8 +182,10 @@ static void LoadMask( filter_t *p_filter, const char *psz_filename )
     if( p_filter->p_sys->p_mask )
         picture_Release( p_filter->p_sys->p_mask );
     p_image = image_HandlerCreate( p_filter );
+    char *psz_url = vlc_path2uri( psz_filename, NULL );
     p_filter->p_sys->p_mask =
-        image_ReadUrl( p_image, psz_filename, &fmt_in, &fmt_out );
+        image_ReadUrl( p_image, psz_url, &fmt_in, &fmt_out );
+    free( psz_url );
     image_HandlerDelete( p_image );
 }
 

@@ -208,7 +208,6 @@ static int Open( vlc_object_t * p_this )
     demux_sys_t *p_sys;
     const uint8_t *p_peek;
     frame_header_t fh;
-    bool  b_extended;
 
     /* Check id */
     if( stream_Peek( p_demux->s, &p_peek, 12 ) != 12 ||
@@ -270,8 +269,6 @@ static int Open( vlc_object_t * p_this )
         goto error;
     if( p_peek[0] == 'X' )
     {
-        b_extended = true;
-
         if( FrameHeaderLoad( p_demux, &fh ) )
             goto error;
         if( fh.i_length != 512 )
@@ -283,16 +280,16 @@ static int Open( vlc_object_t * p_this )
         if( !p_sys->b_seekable )
             msg_Warn( p_demux, "stream is not seekable, skipping seektable" );
         else if( SeekTableLoad( p_demux, p_sys ) )
-            goto error;
-
+        {
+            p_sys->b_index = false;
+            msg_Warn( p_demux, "Seektable is broken, seek won't be accurate" );
+        }
     }
     else
     {
-        b_extended = false;
-
         /* XXX: for now only file with extended chunk are supported
          * why: because else we need to have support for rtjpeg+stupid nuv shit */
-        msg_Err( p_demux, "incomplete NUV support (upload samples)" );
+        msg_Err( p_demux, "VLC doesn't support NUV without extended chunks (please upload samples)" );
         goto error;
     }
 
@@ -306,7 +303,8 @@ static int Open( vlc_object_t * p_this )
         fmt.video.i_height = p_sys->hdr.i_height;
         fmt.i_extra = p_sys->i_extra_f;
         fmt.p_extra = p_sys->p_extra_f;
-        fmt.video.i_aspect = VOUT_ASPECT_FACTOR * p_sys->hdr.d_aspect;
+        fmt.video.i_sar_num = p_sys->hdr.d_aspect * fmt.video.i_height;
+        fmt.video.i_sar_den = fmt.video.i_width;
 
         p_sys->p_es_video = es_out_Add( p_demux->out, &fmt );
     }
@@ -388,18 +386,20 @@ static int Demux( demux_t *p_demux )
     if( ( p_data = stream_Block( p_demux->s, fh.i_length ) ) == NULL )
         return 0;
 
-    p_data->i_dts = (int64_t)fh.i_timecode * 1000;
-    p_data->i_pts = (fh.i_type == 'V') ? 0 : p_data->i_dts;
+    p_data->i_dts = VLC_TS_0 + (int64_t)fh.i_timecode * 1000;
+    p_data->i_pts = (fh.i_type == 'V') ? VLC_TS_INVALID : p_data->i_dts;
 
     /* only add keyframes to index */
     if( !fh.i_keyframe && !p_sys->b_index )
-        demux_IndexAppend( &p_sys->idx, p_data->i_dts, stream_Tell(p_demux->s) - NUV_FH_SIZE );
+        demux_IndexAppend( &p_sys->idx,
+                           p_data->i_dts - VLC_TS_0,
+                           stream_Tell(p_demux->s) - NUV_FH_SIZE );
 
     /* */
-    if( p_data->i_dts > p_sys->i_pcr )
+    if( p_sys->i_pcr < 0 || p_sys->i_pcr < p_data->i_dts - VLC_TS_0 )
     {
-        p_sys->i_pcr = p_data->i_dts;
-        es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_pcr );
+        p_sys->i_pcr = p_data->i_dts - VLC_TS_0;
+        es_out_Control( p_demux->out, ES_OUT_SET_PCR, VLC_TS_0 + p_sys->i_pcr );
     }
 
     if( fh.i_type == 'A' && p_sys->p_es_audio )
@@ -418,6 +418,8 @@ static int Demux( demux_t *p_demux )
         {
             /* for rtjpeg data, the header is also needed */
             p_data = block_Realloc( p_data, NUV_FH_SIZE, fh.i_length );
+            if( unlikely(!p_data) )
+                abort();
             memcpy( p_data->p_buffer, p_sys->fh_buffer, NUV_FH_SIZE );
         }
         /* 0,1,2,3 -> rtjpeg, >=4 mpeg4 */
@@ -767,8 +769,8 @@ static int SeekTableLoad( demux_t *p_demux, demux_sys_t *p_sys )
     const int32_t i_seek_elements = fh.i_length / 12;
 
     /* Get keyframe adjust offsets */
-    int32_t i_kfa_elements;
-    uint8_t *p_kfa_table;
+    int32_t i_kfa_elements = 0;
+    uint8_t *p_kfa_table = NULL;
 
     if( p_sys->exh.i_keyframe_adjust_offset > 0 )
     {
@@ -805,11 +807,6 @@ static int SeekTableLoad( demux_t *p_demux, demux_sys_t *p_sys )
             i_kfa_elements = fh.i_length / 8;
         }
     }
-    else
-    {
-        i_kfa_elements = 0;
-    }
-
 
     if( i_kfa_elements > 0 )
         msg_Warn( p_demux, "untested keyframe adjust support, upload samples" );
@@ -923,8 +920,8 @@ static void demux_IndexAppend( demux_index_t *p_idx,
         else
         {
             p_idx->i_idx_max += 1000;
-            p_idx->idx = realloc( p_idx->idx,
-                                  p_idx->i_idx_max*sizeof(demux_index_entry_t));
+            p_idx->idx = xrealloc( p_idx->idx,
+                                p_idx->i_idx_max*sizeof(demux_index_entry_t));
         }
     }
 

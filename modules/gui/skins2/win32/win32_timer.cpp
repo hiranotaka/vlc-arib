@@ -31,6 +31,7 @@
 void CALLBACK CallbackTimer( HWND hwnd, UINT uMsg,
                              UINT_PTR idEvent, DWORD dwTime )
 {
+    (void)hwnd; (void)uMsg; (void)dwTime;
     Win32Timer *pTimer = (Win32Timer*)idEvent;
     if( pTimer != NULL )
     {
@@ -70,11 +71,9 @@ void Win32Timer::execute()
     // Execute the callback
     m_rCommand.execute();
 
-    // Restart the timer if needed
-    if( ! m_oneShot )
-    {
-        start( m_interval, m_oneShot );
-    }
+    // Stop the timer if requested
+    if( m_oneShot )
+        stop();
 }
 
 #endif

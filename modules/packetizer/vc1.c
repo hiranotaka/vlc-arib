@@ -138,10 +138,12 @@ static int Open( vlc_object_t *p_this )
     /* Create the output format */
     es_format_Copy( &p_dec->fmt_out, &p_dec->fmt_in );
     p_dec->p_sys = p_sys = malloc( sizeof( decoder_sys_t ) );
+    if( unlikely( !p_sys ) )
+        return VLC_ENOMEM;
 
     packetizer_Init( &p_sys->packetizer,
                      p_vc1_startcode, sizeof(p_vc1_startcode),
-                     NULL, 0,
+                     NULL, 0, 4,
                      PacketizeReset, PacketizeParse, PacketizeValidate, p_dec );
 
     p_sys->b_sequence_header = false;
@@ -283,7 +285,7 @@ static void DecodeRIDU( uint8_t *p_ret, int *pi_ret, uint8_t *src, int i_src )
     while( src < end && dst < dst_end )
     {
         if( src < end - 3 && src[0] == 0x00 && src[1] == 0x00 &&
-            src[2] == 0x03 )
+            src[2] == 0x03 && dst < dst_end - 1 )
         {
             *dst++ = 0x00;
             *dst++ = 0x00;
@@ -309,7 +311,7 @@ static void BuildExtraData( decoder_t *p_dec )
     if( p_es->i_extra != i_extra )
     {
         p_es->i_extra = i_extra;
-        p_es->p_extra = realloc( p_dec->fmt_out.p_extra, p_es->i_extra );
+        p_es->p_extra = xrealloc( p_es->p_extra, p_es->i_extra );
     }
     memcpy( p_es->p_extra,
             p_sys->sh.p_sh->p_buffer, p_sys->sh.p_sh->i_buffer );
@@ -490,7 +492,8 @@ static block_t *ParseIDU( decoder_t *p_dec, bool *pb_used_ts, block_t *p_frag )
                 const int i_display_width  = bs_read( &s, 14 )+1;
                 const int i_display_height = bs_read( &s, 14 )+1;
 
-                p_es->video.i_aspect = VOUT_ASPECT_FACTOR * i_display_width / i_display_height;
+                p_es->video.i_sar_num = i_display_width  * p_es->video.i_height;
+                p_es->video.i_sar_den = i_display_height * p_es->video.i_width;
 
                 if( !p_sys->b_sequence_header )
                     msg_Dbg( p_dec, "display size %dx%d", i_display_width, i_display_height );

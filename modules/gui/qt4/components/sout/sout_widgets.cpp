@@ -1,5 +1,5 @@
 /*****************************************************************************
- * profile_selector.cpp : A small profile selector and editor
+ * sout_widgets.cpp : Widgets for stream output destination boxes
  ****************************************************************************
  * Copyright (C) 2007-2009 the VideoLAN team
  * Copyright (C) 2007 Société des arts technologiques
@@ -27,12 +27,16 @@
 #include "components/sout/sout_widgets.hpp"
 #include "dialogs/sout.hpp"
 #include "util/qt_dirs.hpp"
+#include <vlc_intf_strings.h>
 
 #include <QGroupBox>
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QFileDialog>
+
+#define I_FILE_SLASH_DIR \
+    I_DIR_OR_FOLDER( N_("File/Directory"), N_("File/Folder") )
 
 SoutInputBox::SoutInputBox( QWidget *_parent, const QString& mrl ) : QGroupBox( _parent )
 {
@@ -72,12 +76,12 @@ void SoutInputBox::setMRL( const QString& mrl )
         type = mrl.left( i );
     }
     else
-        type = qtr( "File/Directory" );
+        type = qtr( I_FILE_SLASH_DIR );
     sourceValueLabel->setText( type );
 }
 
-#define CT( x ) connect( x, SIGNAL( textChanged( const QString& ) ), this, SIGNAL( mrlUpdated() ) );
-#define CS( x ) connect( x, SIGNAL( valueChanged( int ) ), this, SIGNAL( mrlUpdated() ) );
+#define CT( x ) connect( x, SIGNAL(textChanged(QString)), this, SIGNAL(mrlUpdated()) );
+#define CS( x ) connect( x, SIGNAL(valueChanged(int)), this, SIGNAL(mrlUpdated()) );
 
 /* FileDest Box */
 FileDestBox::FileDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
@@ -109,11 +113,22 @@ QString FileDestBox::getMRL( const QString& mux )
     if( fileEdit->text().isEmpty() ) return "";
 
     SoutMrl m;
-    m.begin( "std" );
-    m.option( "access", "file" );
+    m.begin( "file" );
+    QString outputfile = fileEdit->text();
     if( !mux.isEmpty() )
-        m.option( "mux", mux ); //FIXME: alert if ext doesn't match
-    m.option( "dst", fileEdit->text() );
+    {
+        if( outputfile.contains( QRegExp("\\..{2,4}$")) &&
+            !outputfile.endsWith(mux) )
+        {
+           /* Replace the extension according to muxer */
+           outputfile.replace(QRegExp("\\..{2,4}$"),"."+mux);
+        } else if (!outputfile.endsWith( mux ) )
+        {
+           m.option( "mux", mux );
+        }
+    }
+    m.option( "dst", outputfile );
+    m.option( "no-overwrite" );
     m.end();
 
     return m.getMrl();
@@ -122,7 +137,7 @@ QString FileDestBox::getMRL( const QString& mux )
 void FileDestBox::fileBrowse()
 {
     QString fileName = QFileDialog::getSaveFileName( this, qtr( "Save file..." ),
-            "", qtr( "Containers (*.ps *.ts *.mpg *.ogg *.asf *.mp4 *.mov *.wav *.raw *.flv)" ) );
+            "", qtr( "Containers (*.ps *.ts *.mpg *.ogg *.asf *.mp4 *.mov *.wav *.raw *.flv *.webm)" ) );
     fileEdit->setText( toNativeSeparators( fileName ) );
     emit mrlUpdated();
 }
@@ -138,13 +153,13 @@ HTTPDestBox::HTTPDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
         this );
     layout->addWidget(httpOutput, 0, 0, 1, -1);
 
-    QLabel *HTTPLabel = new QLabel( qtr("Address"), this );
+    QLabel *HTTPLabel = new QLabel( qtr("Path"), this );
     QLabel *HTTPPortLabel = new QLabel( qtr("Port"), this );
-    layout->addWidget(HTTPLabel, 1, 0, 1, 1);
-    layout->addWidget(HTTPPortLabel, 2, 0, 1, 1);
+    layout->addWidget(HTTPLabel, 2, 0, 1, 1);
+    layout->addWidget(HTTPPortLabel, 1, 0, 1, 1);
 
     HTTPEdit = new QLineEdit(this);
-    HTTPEdit->setText( "0.0.0.0" );
+    HTTPEdit->setText( "/" );
 
     HTTPPort = new QSpinBox(this);
     HTTPPort->setMaximumSize(QSize(90, 16777215));
@@ -153,8 +168,8 @@ HTTPDestBox::HTTPDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
     HTTPPort->setMaximum(65535);
     HTTPPort->setValue(8080);
 
-    layout->addWidget(HTTPEdit, 1, 1, 1, 1);
-    layout->addWidget(HTTPPort, 2, 1, 1, 1);
+    layout->addWidget(HTTPEdit, 2, 1, 1, 1);
+    layout->addWidget(HTTPPort, 1, 1, 1, 1);
     CS( HTTPPort );
     CT( HTTPEdit );
 }
@@ -163,12 +178,26 @@ QString HTTPDestBox::getMRL( const QString& mux )
 {
     if( HTTPEdit->text().isEmpty() ) return "";
 
+    QString path = HTTPEdit->text();
+    if( path[0] != '/' )
+        path.prepend( qfu("/") );
+    QString port;
+    port.setNum( HTTPPort->value() );
+    QString dst = ":" + port + path;
+
     SoutMrl m;
-    m.begin( "std" );
-    m.option(  "access", "http" );
-    if( !mux.isEmpty() )
-        m.option( "mux", mux );
-    m.option( "dst", HTTPEdit->text(), HTTPPort->value() );
+    m.begin( "http" );
+    /* Path-extension is primary muxer to use if possible,
+       otherwise check for mux-choise and see that it isn't mp4
+       then fallback to flv*/
+    if ( !path.contains(QRegExp("\\..{2,3}$") ) )
+    {
+        if( !mux.isEmpty() && mux.compare("mp4") )
+           m.option( "mux", mux );
+        else
+           m.option( "mux", "ffmpeg{mux=flv}" );
+    }
+    m.option( "dst", dst );
     m.end();
 
     return m.getMrl();
@@ -180,7 +209,7 @@ MMSHDestBox::MMSHDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
 
     QLabel *mmshOutput = new QLabel(
         qtr( "This module outputs the transcoded stream to a network "
-             " via the mms protocol." ), this );
+             "via the mms protocol." ), this );
     layout->addWidget(mmshOutput, 0, 0, 1, -1);
 
     QLabel *MMSHLabel = new QLabel( qtr("Address"), this );
@@ -196,7 +225,7 @@ MMSHDestBox::MMSHDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
     MMSHPort->setAlignment(Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter);
     MMSHPort->setMinimum(1);
     MMSHPort->setMaximum(65535);
-    MMSHPort->setValue(1234);
+    MMSHPort->setValue(8080);
 
     layout->addWidget(MMSHEdit, 1, 1, 1, 1);
     layout->addWidget(MMSHPort, 2, 1, 1, 1);
@@ -204,7 +233,7 @@ MMSHDestBox::MMSHDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
     CT( MMSHEdit );
 }
 
-QString MMSHDestBox::getMRL( const QString& mux )
+QString MMSHDestBox::getMRL( const QString& )
 {
     if( MMSHEdit->text().isEmpty() ) return "";
 
@@ -213,6 +242,56 @@ QString MMSHDestBox::getMRL( const QString& mux )
     m.option(  "access", "mmsh" );
     m.option( "mux", "asfh" );
     m.option( "dst", MMSHEdit->text(), MMSHPort->value() );
+    m.end();
+
+    return m.getMrl();
+}
+
+
+RTSPDestBox::RTSPDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
+{
+    QGridLayout *layout = new QGridLayout( this );
+
+    QLabel *rtspOutput = new QLabel(
+        qtr( "This module outputs the transcoded stream to a network via "
+             "RTSP." ), this );
+    layout->addWidget( rtspOutput, 0, 0, 1, -1 );
+
+    QLabel *RTSPLabel = new QLabel( qtr("Path"), this );
+    QLabel *RTSPPortLabel = new QLabel( qtr("Port"), this );
+    layout->addWidget( RTSPLabel, 2, 0, 1, 1 );
+    layout->addWidget( RTSPPortLabel, 1, 0, 1, 1 );
+
+    RTSPEdit = new QLineEdit( this );
+    RTSPEdit->setText( "/" );
+
+    RTSPPort = new QSpinBox( this );
+    RTSPPort->setMaximumSize( QSize( 90, 16777215 ) );
+    RTSPPort->setAlignment( Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter );
+    RTSPPort->setMinimum( 1 );
+    RTSPPort->setMaximum( 65535 );
+    RTSPPort->setValue( 8554 );
+
+    layout->addWidget( RTSPEdit, 2, 1, 1, 1 );
+    layout->addWidget( RTSPPort, 1, 1, 1, 1 );
+    CS( RTSPPort );
+    CT( RTSPEdit );
+}
+
+QString RTSPDestBox::getMRL( const QString& )
+{
+    if( RTSPEdit->text().isEmpty() ) return "";
+
+    QString path = RTSPEdit->text();
+    if( path[0] != '/' )
+        path.prepend( qfu("/") );
+    QString port;
+    port.setNum( RTSPPort->value() );
+    QString sdp = "rtsp://:" + port + path;
+
+    SoutMrl m;
+    m.begin( "rtp" );
+    m.option( "sdp", sdp );
     m.end();
 
     return m.getMrl();
@@ -253,9 +332,9 @@ QString UDPDestBox::getMRL( const QString& mux )
     if( UDPEdit->text().isEmpty() ) return "";
 
     SoutMrl m;
-    m.begin( "std" );
-    m.option(  "access", "udp" );
-    if( !mux.isEmpty() )
+    m.begin( "udp" );
+    /* udp output, ts-mux is really only reasonable one to use*/
+    if( !mux.isEmpty() && !mux.compare("ts" ) )
         m.option( "mux", mux );
     m.option( "dst", UDPEdit->text(), UDPPort->value() );
     m.end();
@@ -265,7 +344,8 @@ QString UDPDestBox::getMRL( const QString& mux )
 
 
 
-RTPDestBox::RTPDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
+RTPDestBox::RTPDestBox( QWidget *_parent, const char *_mux )
+    : VirtualDestBox( _parent ), mux( qfu(_mux) )
 {
     QGridLayout *layout = new QGridLayout( this );
 
@@ -275,65 +355,48 @@ RTPDestBox::RTPDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
     layout->addWidget(rtpOutput, 0, 0, 1, -1);
 
     QLabel *RTPLabel = new QLabel( qtr("Address"), this );
-    QLabel *RTPPortLabel = new QLabel( qtr("Port"), this );
-    layout->addWidget(RTPLabel, 1, 0, 1, 1);
-    layout->addWidget(RTPPortLabel, 2, 0, 1, 1);
-
     RTPEdit = new QLineEdit(this);
+    layout->addWidget(RTPLabel, 1, 0, 1, 1);
+    layout->addWidget(RTPEdit, 1, 1, 1, 1);
 
+    QLabel *RTPPortLabel = new QLabel( qtr("Base port"), this );
     RTPPort = new QSpinBox(this);
     RTPPort->setMaximumSize(QSize(90, 16777215));
     RTPPort->setAlignment(Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter);
     RTPPort->setMinimum(1);
     RTPPort->setMaximum(65535);
-    RTPPort->setValue(1234);
-
-    RTPPortAudio = new QSpinBox(this);
-    RTPPortAudio->setMaximumSize(QSize(90, 16777215));
-    RTPPortAudio->setAlignment(Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter);
-    RTPPortAudio->setMinimum(-1);
-    RTPPortAudio->setMaximum(65535);
-    RTPPortAudio->setValue(-1);
-
-    RTPPortVideo = new QSpinBox(this);
-    RTPPortVideo->setMaximumSize(QSize(90, 16777215));
-    RTPPortVideo->setAlignment(Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter);
-    RTPPortVideo->setMinimum(-1);
-    RTPPortVideo->setMaximum(65535);
-    RTPPortVideo->setValue(-1);
-
-    layout->addWidget(RTPEdit, 1, 1, 1, 1);
+    RTPPort->setValue(5004);
+    layout->addWidget(RTPPortLabel, 2, 0, 1, 1);
     layout->addWidget(RTPPort, 2, 1, 1, 1);
 
-    QLabel *RTPPortAudioLabel = new QLabel( qtr("Audio Port"), this );
-    QLabel *RTPPortVideoLabel = new QLabel( qtr("Video Port"), this );
-    layout->addWidget(RTPPortAudioLabel, 3, 0, 1, 1);
-    layout->addWidget(RTPPortAudio, 3, 1, 1, 1);
-    layout->addWidget(RTPPortVideoLabel, 3, 2, 1, 1);
-    layout->addWidget(RTPPortVideo, 3, 3, 1, 1);
+    QLabel *SAPNameLabel = new QLabel( qtr("Stream name"), this );
+    SAPName = new QLineEdit(this);
+    layout->addWidget(SAPNameLabel, 3, 0, 1, 1);
+    layout->addWidget(SAPName, 3, 1, 1, 1);
 
-
-    CS( RTPPort );
-    CS( RTPPortAudio );
-    CS( RTPPortVideo );
     CT( RTPEdit );
+    CS( RTPPort );
+    CT( SAPName );
 }
 
-QString RTPDestBox::getMRL( const QString& mux )
+QString RTPDestBox::getMRL( const QString& )
 {
-    if( RTPEdit->text().isEmpty() ) return "";
+    QString addr = RTPEdit->text();
+    QString name = SAPName->text();
+
+    if( addr.isEmpty() ) return qfu("");
 
     SoutMrl m;
     m.begin( "rtp" );
     m.option( "dst", RTPEdit->text() );
     m.option( "port", RTPPort->value() );
+    /* mp4-mux ain't usable in rtp-output either */
     if( !mux.isEmpty() )
         m.option( "mux", mux );
-    if( mux.isEmpty() || mux.compare( "ts", Qt::CaseInsensitive ) )
+    if( !name.isEmpty() )
     {
-
-        m.option( "port-audio", RTPPortAudio->value() );
-        m.option( "port-video", RTPPortVideo->value() );
+        m.option( "sap" );
+        m.option( "name", name );
     }
     m.end();
 
@@ -362,7 +425,7 @@ ICEDestBox::ICEDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
     ICEPort->setAlignment(Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter);
     ICEPort->setMinimum(1);
     ICEPort->setMaximum(65535);
-    ICEPort->setValue(1234);
+    ICEPort->setValue(8000);
 
     layout->addWidget(ICEEdit, 1, 1, 1, 1);
     layout->addWidget(ICEPort, 2, 1, 1, 1);
@@ -385,7 +448,7 @@ ICEDestBox::ICEDestBox( QWidget *_parent ) : VirtualDestBox( _parent )
 #undef CS
 #undef CT
 
-QString ICEDestBox::getMRL( const QString& mux )
+QString ICEDestBox::getMRL( const QString& )
 {
     if( ICEEdit->text().isEmpty() ) return "";
 

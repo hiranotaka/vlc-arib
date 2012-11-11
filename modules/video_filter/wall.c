@@ -37,6 +37,9 @@
 /* FIXME it is needed for VOUT_ALIGN_* only */
 #include <vlc_vout.h>
 
+#define ROW_MAX (15)
+#define COL_MAX (15)
+
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -68,11 +71,13 @@ vlc_module_begin()
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
-    add_integer( CFG_PREFIX "cols", 3, NULL, COLS_TEXT, COLS_LONGTEXT, false )
-    add_integer( CFG_PREFIX "rows", 3, NULL, ROWS_TEXT, ROWS_LONGTEXT, false )
-    add_string( CFG_PREFIX "active", NULL, NULL, ACTIVE_TEXT, ACTIVE_LONGTEXT,
+    add_integer( CFG_PREFIX "cols", 3, COLS_TEXT, COLS_LONGTEXT, false )
+    change_integer_range( 1, COL_MAX )
+    add_integer( CFG_PREFIX "rows", 3, ROWS_TEXT, ROWS_LONGTEXT, false )
+    change_integer_range( 1, ROW_MAX )
+    add_string( CFG_PREFIX "active", NULL, ACTIVE_TEXT, ACTIVE_LONGTEXT,
                  true )
-    add_string( CFG_PREFIX "element-aspect", "4:3", NULL, ASPECT_TEXT, ASPECT_LONGTEXT, false )
+    add_string( CFG_PREFIX "element-aspect", "16:9", ASPECT_TEXT, ASPECT_LONGTEXT, false )
 
     add_shortcut( "wall" )
     set_callbacks( Open, Close )
@@ -97,8 +102,6 @@ typedef struct
     int  i_top;
 } wall_output_t;
 
-#define ROW_MAX (15)
-#define COL_MAX (15)
 struct video_splitter_sys_t
 {
     int           i_col;
@@ -129,10 +132,10 @@ static int Open( vlc_object_t *p_this )
 
     /* */
     p_sys->i_col = var_CreateGetInteger( p_splitter, CFG_PREFIX "cols" );
-    p_sys->i_col = __MAX( 1, __MIN( COL_MAX, p_sys->i_col ) );
+    p_sys->i_col = VLC_CLIP( COL_MAX, 1, p_sys->i_col );
 
     p_sys->i_row = var_CreateGetInteger( p_splitter, CFG_PREFIX "rows" );
-    p_sys->i_row = __MAX( 1, __MIN( ROW_MAX, p_sys->i_row ) );
+    p_sys->i_row = VLC_CLIP( ROW_MAX, 1, p_sys->i_row );
 
     msg_Dbg( p_splitter, "opening a %i x %i wall",
              p_sys->i_col, p_sys->i_row );
@@ -351,8 +354,8 @@ static int Open( vlc_object_t *p_this )
             p_cfg->fmt.i_width          = p_output->i_width;
             p_cfg->fmt.i_visible_height =
             p_cfg->fmt.i_height         = p_output->i_height;
-            p_cfg->fmt.i_aspect         = (int64_t)i_aspect * i_target_height * p_output->i_width / i_target_width / p_output->i_height;
-
+            p_cfg->fmt.i_sar_num        = (int64_t)i_aspect * i_target_height;
+            p_cfg->fmt.i_sar_den        = VOUT_ASPECT_FACTOR * i_target_width;
             p_cfg->window.i_x     = p_output->i_left; /* FIXME relative to video-x/y (TODO in wrapper.c) ? */
             p_cfg->window.i_y     = p_output->i_top;
             p_cfg->window.i_align = p_output->i_align;

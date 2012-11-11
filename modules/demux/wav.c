@@ -100,9 +100,9 @@ static int Open( vlc_object_t * p_this )
     demux_sys_t *p_sys;
 
     const uint8_t *p_peek;
-    unsigned int i_size;
-    unsigned int i_extended;
-    const char        *psz_name;
+    unsigned int   i_size;
+    unsigned int   i_extended;
+    const char    *psz_name;
 
     WAVEFORMATEXTENSIBLE *p_wf_ext = NULL;
     WAVEFORMATEX         *p_wf = NULL;
@@ -116,13 +116,13 @@ static int Open( vlc_object_t * p_this )
         return VLC_EGENERIC;
     }
 
-    p_demux->pf_demux   = Demux;
-    p_demux->pf_control = Control;
-    p_demux->p_sys      = p_sys = malloc( sizeof( *p_sys ) );
-    if( p_sys == NULL )
+    p_demux->pf_demux     = Demux;
+    p_demux->pf_control   = Control;
+    p_demux->p_sys        = p_sys = malloc( sizeof( *p_sys ) );
+    if( unlikely(!p_sys) )
         return VLC_ENOMEM;
 
-    p_sys->p_es         = NULL;
+    p_sys->p_es           = NULL;
     p_sys->b_chan_reorder = false;
     p_sys->i_channel_mask = 0;
 
@@ -148,12 +148,12 @@ static int Open( vlc_object_t * p_this )
 
     /* load waveformatex */
     p_wf_ext = malloc( i_size );
-    if( p_wf_ext == NULL )
+    if( unlikely( !p_wf_ext ) )
          goto error;
 
-    p_wf = &p_wf_ext->Format;
+    p_wf         = &p_wf_ext->Format;
     p_wf->cbSize = 0;
-    i_size -= 2;
+    i_size      -= 2;
     if( stream_Read( p_demux->s, p_wf, i_size ) != (int)i_size ||
         ( ( i_size & 1 ) && stream_Read( p_demux->s, NULL, 1 ) != 1 ) )
     {
@@ -164,10 +164,10 @@ static int Open( vlc_object_t * p_this )
     es_format_Init( &p_sys->fmt, AUDIO_ES, 0 );
     wf_tag_to_fourcc( GetWLE( &p_wf->wFormatTag ), &p_sys->fmt.i_codec,
                       &psz_name );
-    p_sys->fmt.audio.i_channels = GetWLE ( &p_wf->nChannels );
-    p_sys->fmt.audio.i_rate = GetDWLE( &p_wf->nSamplesPerSec );
-    p_sys->fmt.audio.i_blockalign = GetWLE( &p_wf->nBlockAlign );
-    p_sys->fmt.i_bitrate = GetDWLE( &p_wf->nAvgBytesPerSec ) * 8;
+    p_sys->fmt.audio.i_channels      = GetWLE ( &p_wf->nChannels );
+    p_sys->fmt.audio.i_rate          = GetDWLE( &p_wf->nSamplesPerSec );
+    p_sys->fmt.audio.i_blockalign    = GetWLE( &p_wf->nBlockAlign );
+    p_sys->fmt.i_bitrate             = GetDWLE( &p_wf->nAvgBytesPerSec ) * 8;
     p_sys->fmt.audio.i_bitspersample = GetWLE( &p_wf->wBitsPerSample );
     if( i_size >= sizeof(WAVEFORMATEX) )
         p_sys->fmt.i_extra = __MIN( GetWLE( &p_wf->cbSize ), i_size - sizeof(WAVEFORMATEX) );
@@ -181,7 +181,7 @@ static int Open( vlc_object_t * p_this )
         ( p_sys->fmt.i_extra + sizeof( WAVEFORMATEX )
             >= sizeof( WAVEFORMATEXTENSIBLE ) ) )
     {
-        unsigned i, i_channel_mask;
+        unsigned i_channel_mask;
         GUID guid_subformat;
 
         guid_subformat = p_wf_ext->SubFormat;
@@ -198,7 +198,7 @@ static int Open( vlc_object_t * p_this )
         if( i_channel_mask )
         {
             int i_match = 0;
-            for( i = 0; i < sizeof(pi_channels_src)/sizeof(*pi_channels_src); i++ )
+            for( unsigned i = 0; i < sizeof(pi_channels_src)/sizeof(*pi_channels_src); i++ )
             {
                 if( i_channel_mask & pi_channels_src[i] )
                 {
@@ -286,12 +286,12 @@ static int Open( vlc_object_t * p_this )
     if( p_sys->fmt.i_extra > 0 )
     {
         p_sys->fmt.p_extra = malloc( p_sys->fmt.i_extra );
-        if( !p_sys->fmt.p_extra )
+        if( unlikely(!p_sys->fmt.p_extra) )
         {
             p_sys->fmt.i_extra = 0;
             goto error;
         }
-        memcpy( p_sys->fmt.p_extra, ((uint8_t *)p_wf) + i_extended,
+        memcpy( p_sys->fmt.p_extra, (uint8_t *)p_wf + sizeof( WAVEFORMATEX ) + i_extended,
                 p_sys->fmt.i_extra );
     }
 
@@ -341,6 +341,9 @@ static int Open( vlc_object_t * p_this )
         goto error;
     case VLC_CODEC_GSM_MS:
     case VLC_CODEC_ADPCM_G726:
+    case VLC_CODEC_TRUESPEECH:
+    case VLC_CODEC_ATRAC3:
+    case VLC_CODEC_G723_1:
         if( FrameInfo_MSGSM( &p_sys->i_frame_size, &p_sys->i_frame_samples,
                              &p_sys->fmt ) )
             goto error;
@@ -388,7 +391,7 @@ static int Open( vlc_object_t * p_this )
     return VLC_SUCCESS;
 
 error:
-    msg_Err( p_demux, "An error occured during wav demuxing" );
+    msg_Err( p_demux, "An error occurred during wav demuxing" );
     free( p_wf );
     free( p_sys );
     return VLC_EGENERIC;
@@ -419,7 +422,7 @@ static int Demux( demux_t *p_demux )
     }
 
     p_block->i_dts =
-    p_block->i_pts = date_Increment( &p_sys->pts, p_sys->i_frame_samples );
+    p_block->i_pts = VLC_TS_0 + date_Get( &p_sys->pts );
 
     /* set PCR */
     es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_block->i_pts );
@@ -433,6 +436,8 @@ static int Demux( demux_t *p_demux )
 
     es_out_Send( p_demux->out, p_sys->p_es, p_block );
 
+    date_Increment( &p_sys->pts, p_sys->i_frame_samples );
+
     return 1;
 }
 
@@ -442,7 +447,7 @@ static int Demux( demux_t *p_demux )
 static void Close ( vlc_object_t * p_this )
 {
     demux_t     *p_demux = (demux_t*)p_this;
-    demux_sys_t *p_sys  = p_demux->p_sys;
+    demux_sys_t *p_sys   = p_demux->p_sys;
 
     free( p_sys );
 }

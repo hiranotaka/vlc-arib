@@ -36,6 +36,7 @@
 #include <vlc_common.h>
 #include <vlc_input.h>
 #include <vlc_interface.h>
+#include <vlc_rand.h>
 
 #include "vcd.h"
 #include "vcdplayer.h"
@@ -538,7 +539,7 @@ vcdplayer_pbc_nav ( access_t * p_access, uint8_t *wait_time )
           /* Pick a random selection. */
           unsigned int bsn=vcdinf_get_bsn(p_vcdplayer->pxd.psd);
           int rand_selection=bsn +
-            (int) ((i_selections+0.0)*rand()/(RAND_MAX+1.0));
+            ((unsigned)vlc_lrand48() % (unsigned)i_selections);
           lid_t rand_lid=vcdinfo_selection_get_lid (p_vcdplayer->vcd,
                             p_vcdplayer->i_lid,
                             rand_selection);
@@ -556,16 +557,6 @@ vcdplayer_pbc_nav ( access_t * p_access, uint8_t *wait_time )
       }
       break;
     }
-  case VCDINFO_ITEM_TYPE_NOTFOUND:
-    LOG_ERR( "NOTFOUND in PBC -- not supposed to happen" );
-    break;
-  case VCDINFO_ITEM_TYPE_SPAREID2:
-    LOG_ERR( "SPAREID2 in PBC -- not supposed to happen" );
-    break;
-  case VCDINFO_ITEM_TYPE_LID:
-    LOG_ERR( "LID in PBC -- not supposed to happen" );
-    break;
- 
   default:
     ;
   }

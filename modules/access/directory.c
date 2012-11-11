@@ -31,87 +31,29 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_plugin.h>
+#include "fs.h"
 #include <vlc_access.h>
 
-#ifdef HAVE_SYS_TYPES_H
-#   include <sys/types.h>
-#endif
-#ifdef HAVE_SYS_STAT_H
-#   include <sys/stat.h>
-#endif
-
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <errno.h>
 #ifdef HAVE_UNISTD_H
 #   include <unistd.h>
-#elif defined( WIN32 ) && !defined( UNDER_CE )
+#   include <fcntl.h>
+#elif defined( WIN32 )
 #   include <io.h>
 #endif
 
-#ifdef HAVE_DIRENT_H
-#   include <dirent.h>
-#endif
-#ifdef __sun__
-static inline int dirfd (DIR *dir)
-{
-    return dir->dd_fd;
-}
-#endif
-
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 #include <vlc_url.h>
 #include <vlc_strings.h>
-
-/*****************************************************************************
- * Module descriptor
- *****************************************************************************/
-static int  Open ( vlc_object_t * );
-static void Close( vlc_object_t * );
-
-#define RECURSIVE_TEXT N_("Subdirectory behavior")
-#define RECURSIVE_LONGTEXT N_( \
-        "Select whether subdirectories must be expanded.\n" \
-        "none: subdirectories do not appear in the playlist.\n" \
-        "collapse: subdirectories appear but are expanded on first play.\n" \
-        "expand: all subdirectories are expanded.\n" )
-
-static const char *const psz_recursive_list[] = { "none", "collapse", "expand" };
-static const char *const psz_recursive_list_text[] = {
-    N_("none"), N_("collapse"), N_("expand") };
-
-#define IGNORE_TEXT N_("Ignored extensions")
-#define IGNORE_LONGTEXT N_( \
-        "Files with these extensions will not be added to playlist when " \
-        "opening a directory.\n" \
-        "This is useful if you add directories that contain playlist files " \
-        "for instance. Use a comma-separated list of extensions." )
-
-vlc_module_begin ()
-    set_category( CAT_INPUT )
-    set_shortname( N_("Directory" ) )
-    set_subcategory( SUBCAT_INPUT_ACCESS )
-    set_description( N_("Standard filesystem directory input") )
-    set_capability( "access", 55 )
-    add_shortcut( "directory" )
-    add_shortcut( "dir" )
-    add_shortcut( "file" )
-    add_string( "recursive", "expand" , NULL, RECURSIVE_TEXT,
-                RECURSIVE_LONGTEXT, false )
-      change_string_list( psz_recursive_list, psz_recursive_list_text, 0 )
-    add_string( "ignore-filetypes", "m3u,db,nfo,ini,jpg,jpeg,ljpg,gif,png,pgm,pgmyuv,pbm,pam,tga,bmp,pnm,xpm,xcf,pcx,tif,tiff,lbm,sfv,txt,sub,idx,srt,cue,ssa",
-                NULL, IGNORE_TEXT, IGNORE_LONGTEXT, false )
-    set_callbacks( Open, Close )
-vlc_module_end ()
-
-
-/*****************************************************************************
- * Local prototypes, constants, structures
- *****************************************************************************/
+#include <vlc_charset.h>
 
 enum
 {
-    MODE_EXPAND,
+    MODE_NONE,
     MODE_COLLAPSE,
-    MODE_NONE
+    MODE_EXPAND,
 };
 
 typedef struct directory_t directory_t;
@@ -120,72 +62,131 @@ struct directory_t
     directory_t *parent;
     DIR         *handle;
     char        *uri;
-#ifndef WIN32
-    struct stat  st;
+    char       **filev;
+    int          filec, i;
+#ifdef HAVE_OPENAT
+    dev_t        device;
+    ino_t        inode;
+#else
+    char         *path;
 #endif
-    char         path[1];
 };
 
 struct access_sys_t
 {
     directory_t *current;
-    DIR *handle;
     char *ignored_exts;
-    int mode;
+    char mode;
+    bool header;
     int i_item_count;
-    char *psz_xspf_extension;
+    char *xspf_ext;
+    int (*compar)(const char **a, const char **b);
 };
 
-static block_t *Block( access_t * );
-static int Control( access_t *, int, va_list );
+/* Select non-hidden files only */
+static int visible (const char *name)
+{
+    return name[0] != '.';
+}
+
+static int collate (const char **a, const char **b)
+{
+#ifdef HAVE_STRCOLL
+    return strcoll (*a, *b);
+#else
+    return strcmp  (*a, *b);
+#endif
+}
+
+static int version (const char **a, const char **b)
+{
+    return strverscmp (*a, *b);
+}
 
 /*****************************************************************************
  * Open: open the directory
  *****************************************************************************/
-static int Open( vlc_object_t *p_this )
+int DirOpen( vlc_object_t *p_this )
 {
     access_t *p_access = (access_t*)p_this;
-    access_sys_t *p_sys;
 
-    if( !p_access->psz_path )
+    if( !p_access->psz_filepath )
         return VLC_EGENERIC;
 
-    DIR *handle;
-    if (strcmp (p_access->psz_path, "-"))
-        handle = utf8_opendir (p_access->psz_path);
-    else
-    {
-#if 0   /* This won't work yet, it generates paths like "-/music.ogg".
-         * We'd need to use openat() here and in the file access... */
-        int fd = dup (0);
-        handle = fdopendir (fd);
-        if (handle == NULL)
-            close (fd);
-#else
-        return VLC_EGENERIC;
-#endif
-    }
-
+    DIR *handle = vlc_opendir (p_access->psz_filepath);
     if (handle == NULL)
         return VLC_EGENERIC;
 
-    p_sys = malloc (sizeof (*p_sys));
-    if (!p_sys)
+    return DirInit (p_access, handle);
+}
+
+int DirInit (access_t *p_access, DIR *handle)
+{
+    access_sys_t *p_sys = malloc (sizeof (*p_sys));
+    if (unlikely(p_sys == NULL))
+        goto error;
+
+    char *uri;
+    if (!strcmp (p_access->psz_access, "fd"))
     {
-        closedir( handle );
-        return VLC_ENOMEM;
+        if (asprintf (&uri, "fd://%s", p_access->psz_location) == -1)
+            uri = NULL;
+    }
+    else
+        uri = vlc_path2uri (p_access->psz_filepath, "file");
+    if (unlikely(uri == NULL))
+        goto error;
+
+    /* "Open" the base directory */
+    directory_t *root = malloc (sizeof (*root));
+    if (unlikely(root == NULL))
+    {
+        free (uri);
+        goto error;
     }
 
+    char *psz_sort = var_InheritString (p_access, "directory-sort");
+    if (!psz_sort)
+        p_sys->compar = collate;
+    else if (!strcasecmp (psz_sort, "version"))
+        p_sys->compar = version;
+    else if (!strcasecmp (psz_sort, "none"))
+        p_sys->compar = NULL;
+    else
+        p_sys->compar = collate;
+    free(psz_sort);
+
+    root->parent = NULL;
+    root->handle = handle;
+    root->uri = uri;
+    root->filec = vlc_loaddir (handle, &root->filev, visible, p_sys->compar);
+    if (root->filec < 0)
+        root->filev = NULL;
+    root->i = 0;
+#ifdef HAVE_OPENAT
+    struct stat st;
+    if (fstat (dirfd (handle), &st))
+    {
+        free (root);
+        free (uri);
+        goto error;
+    }
+    root->device = st.st_dev;
+    root->inode = st.st_ino;
+#else
+    root->path = strdup (p_access->psz_filepath);
+#endif
+
     p_access->p_sys = p_sys;
-    p_sys->current = NULL;
-    p_sys->handle = handle;
-    p_sys->ignored_exts = var_CreateGetString (p_access, "ignore-filetypes");
+    p_sys->current = root;
+    p_sys->ignored_exts = var_InheritString (p_access, "ignore-filetypes");
+    p_sys->header = true;
     p_sys->i_item_count = 0;
-    p_sys->psz_xspf_extension = strdup( "" );
+    p_sys->xspf_ext = strdup ("");
 
     /* Handle mode */
-    char *psz = var_CreateGetString( p_access, "recursive" );
-    if( *psz == '\0' || !strcasecmp( psz, "none" )  )
+    char *psz = var_InheritString (p_access, "recursive");
+    if (psz == NULL || !strcasecmp (psz, "none"))
         p_sys->mode = MODE_NONE;
     else if( !strcasecmp( psz, "collapse" )  )
         p_sys->mode = MODE_COLLAPSE;
@@ -193,20 +194,26 @@ static int Open( vlc_object_t *p_this )
         p_sys->mode = MODE_EXPAND;
     free( psz );
 
+    access_InitFields(p_access);
     p_access->pf_read  = NULL;
-    p_access->pf_block = Block;
+    p_access->pf_block = DirBlock;
     p_access->pf_seek  = NULL;
-    p_access->pf_control= Control;
+    p_access->pf_control= DirControl;
     free (p_access->psz_demux);
     p_access->psz_demux = strdup ("xspf-open");
 
     return VLC_SUCCESS;
+
+error:
+    closedir (handle);
+    free (p_sys);
+    return VLC_EGENERIC;
 }
 
 /*****************************************************************************
  * Close: close the target
  *****************************************************************************/
-static void Close( vlc_object_t * p_this )
+void DirClose( vlc_object_t * p_this )
 {
     access_t *p_access = (access_t*)p_this;
     access_sys_t *p_sys = p_access->p_sys;
@@ -218,33 +225,35 @@ static void Close( vlc_object_t * p_this )
         p_sys->current = current->parent;
         closedir (current->handle);
         free (current->uri);
+        while (current->i < current->filec)
+            free (current->filev[current->i++]);
+        free (current->filev);
+#ifndef HAVE_OPENAT
+        free (current->path);
+#endif
         free (current);
     }
-    if (p_sys->handle != NULL)
-        closedir (p_sys->handle); /* corner case,:Block() not called ever */
-    free (p_sys->psz_xspf_extension);
+
+    free (p_sys->xspf_ext);
     free (p_sys->ignored_exts);
     free (p_sys);
 }
 
+#ifdef HAVE_OPENAT
 /* Detect directories that recurse into themselves. */
-static bool has_inode_loop (const directory_t *dir)
+static bool has_inode_loop (const directory_t *dir, dev_t dev, ino_t inode)
 {
-#ifndef WIN32
-    dev_t dev = dir->st.st_dev;
-    ino_t inode = dir->st.st_ino;
-
-    while ((dir = dir->parent) != NULL)
-        if ((dir->st.st_dev == dev) && (dir->st.st_ino == inode))
+    while (dir != NULL)
+    {
+        if ((dir->device == dev) && (dir->inode == inode))
             return true;
-#else
-# define fstat( fd, st ) (0)
-    VLC_UNUSED( dir );
-#endif
+        dir = dir->parent;
+    }
     return false;
 }
+#endif
 
-static block_t *Block (access_t *p_access)
+block_t *DirBlock (access_t *p_access)
 {
     access_sys_t *p_sys = p_access->p_sys;
     directory_t *current = p_sys->current;
@@ -252,7 +261,7 @@ static block_t *Block (access_t *p_access)
     if (p_access->info.b_eof)
         return NULL;
 
-    if (current == NULL)
+    if (p_sys->header)
     {   /* Startup: send the XSPF header */
         static const char header[] =
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -262,56 +271,36 @@ static block_t *Block (access_t *p_access)
         if (!block)
             goto fatal;
         memcpy (block->p_buffer, header, sizeof (header) - 1);
-
-        /* "Open" the base directory */
-        current = malloc (sizeof (*current) + strlen (p_access->psz_path));
-        if (current == NULL)
-        {
-            block_Release (block);
-            goto fatal;
-        }
-        current->parent = NULL;
-        current->handle = p_sys->handle;
-        strcpy (current->path, p_access->psz_path);
-        current->uri = make_URI (current->path);
-        if ((current->uri == NULL)
-         || fstat (dirfd (current->handle), &current->st))
-        {
-            free (current->uri);
-            free (current);
-            block_Release (block);
-            goto fatal;
-        }
-
-        p_sys->handle = NULL;
-        p_sys->current = current;
+        p_sys->header = false;
         return block;
     }
 
-    char *entry = utf8_readdir (current->handle);
-    if (entry == NULL)
+    if (current->i >= current->filec)
     {   /* End of directory, go back to parent */
         closedir (current->handle);
         p_sys->current = current->parent;
         free (current->uri);
+        free (current->filev);
+#ifndef HAVE_OPENAT
+        free (current->path);
+#endif
         free (current);
 
         if (p_sys->current == NULL)
         {   /* End of XSPF playlist */
             char *footer;
-            int len = asprintf( &footer, " </trackList>\n" \
-                " <extension application=\"http://www.videolan.org/vlc/playlist/0\">\n" \
-                "%s" \
-                " </extension>\n" \
-                "</playlist>\n", p_sys->psz_xspf_extension );
-            if( len < 0 )
+            int len = asprintf (&footer, " </trackList>\n"
+                " <extension application=\"http://www.videolan.org/"
+                                             "vlc/playlist/0\">\n"
+                "%s"
+                " </extension>\n"
+                "</playlist>\n", p_sys->xspf_ext ? p_sys->xspf_ext : "");
+            if (unlikely(len == -1))
                 goto fatal;
 
-            block_t *block = block_Alloc ( len );
-            if (!block)
-                goto fatal;
-            memcpy (block->p_buffer, footer, len);
-            free( footer );
+            block_t *block = block_heap_Alloc (footer, len);
+            if (unlikely(block == NULL))
+                free (footer);
             p_access->info.b_eof = true;
             return block;
         }
@@ -319,87 +308,98 @@ static block_t *Block (access_t *p_access)
         {
             /* This was the end of a "subnode" */
             /* Write the ID to the extension */
-            char *old_xspf_extension = p_sys->psz_xspf_extension;
-            if (old_xspf_extension == NULL)
-                goto fatal;
-
-            int len2 = asprintf( &p_sys->psz_xspf_extension, "%s  </vlc:node>\n", old_xspf_extension );
-            if (len2 == -1)
-                goto fatal;
-            free( old_xspf_extension );
+            char *old_xspf_ext = p_sys->xspf_ext;
+            if (old_xspf_ext != NULL
+             && asprintf (&p_sys->xspf_ext, "%s  </vlc:node>\n",
+                          old_xspf_ext ? old_xspf_ext : "") == -1)
+                p_sys->xspf_ext = NULL;
+            free (old_xspf_ext);
         }
         return NULL;
     }
 
-    /* Skip current, parent and hidden directories */
-    if (entry[0] == '.')
-    {
-        free (entry);
-        return NULL;
-    }
+    char *entry = current->filev[current->i++];
+
     /* Handle recursion */
     if (p_sys->mode != MODE_COLLAPSE)
     {
-        directory_t *sub = malloc (sizeof (*sub) + strlen (current->path) + 1
-                                                 + strlen (entry));
-        if (sub == NULL)
+        DIR *handle;
+#ifdef HAVE_OPENAT
+        int fd = vlc_openat (dirfd (current->handle), entry,
+                             O_RDONLY | O_DIRECTORY);
+        if (fd == -1)
+        {
+            if (errno == ENOTDIR)
+                goto notdir;
+            goto skip; /* File cannot be opened... forget it */
+        }
+
+        struct stat st;
+        if (fstat (fd, &st)
+         || p_sys->mode == MODE_NONE
+         || has_inode_loop (current, st.st_dev, st.st_ino)
+         || (handle = fdopendir (fd)) == NULL)
+        {
+            close (fd);
+            goto skip;
+        }
+#else
+        char *path;
+        if (asprintf (&path, "%s/%s", current->path, entry) == -1)
+            goto skip;
+        if ((handle = vlc_opendir (path)) == NULL)
+            goto notdir;
+        if (p_sys->mode == MODE_NONE)
+            goto skip;
+#endif
+        directory_t *sub = malloc (sizeof (*sub));
+        if (unlikely(sub == NULL))
+        {
+            closedir (handle);
+#ifndef HAVE_OPENAT
+            free (path);
+#endif
+            goto skip;
+        }
+        sub->parent = current;
+        sub->handle = handle;
+        sub->filec = vlc_loaddir (handle, &sub->filev, visible, p_sys->compar);
+        if (sub->filec < 0)
+            sub->filev = NULL;
+        sub->i = 0;
+#ifdef HAVE_OPENAT
+        sub->device = st.st_dev;
+        sub->inode = st.st_ino;
+#else
+        sub->path = path;
+#endif
+        p_sys->current = sub;
+
+        char *encoded = encode_URI_component (entry);
+        if (encoded == NULL
+         || (asprintf (&sub->uri, "%s/%s", current->uri, encoded) == -1))
+             sub->uri = NULL;
+        free (encoded);
+        if (unlikely(sub->uri == NULL))
         {
             free (entry);
-            return NULL;
+            goto fatal;
         }
-        sprintf (sub->path, "%s/%s", current->path, entry);
 
-        DIR *handle = utf8_opendir (sub->path);
-        if (handle != NULL)
-        {
-            sub->parent = current;
-            sub->handle = handle;
-
-            char *encoded = encode_URI_component (entry);
-            if ((encoded == NULL)
-             || (asprintf (&sub->uri, "%s/%s", current->uri, encoded) == -1))
-                 sub->uri = NULL;
-            free (encoded);
-
-            if ((p_sys->mode == MODE_NONE)
-             || fstat (dirfd (handle), &sub->st)
-             || has_inode_loop (sub)
-             || (sub->uri == NULL))
-            {
-                free (entry);
-                closedir (handle);
-                free (sub->uri);
-                free (sub);
-                return NULL;
-            }
-            p_sys->current = sub;
-
-            /* Add node to xspf extension */
-            char *old_xspf_extension = p_sys->psz_xspf_extension;
-            if (old_xspf_extension == NULL)
-            {
-                free (entry);
-                goto fatal;
-            }
-
-            char *title = convert_xml_special_chars (entry);
-            free (entry);
-            if (title == NULL
-             || asprintf (&p_sys->psz_xspf_extension, "%s"
-                          "  <vlc:node title=\"%s\">\n", old_xspf_extension,
-                          title) == -1)
-            {
-                free (title);
-                goto fatal;
-            }
-            free (title);
-            free (old_xspf_extension);
-            return NULL;
-        }
-        else
-            free (sub);
+        /* Add node to XSPF extension */
+        char *old_xspf_ext = p_sys->xspf_ext;
+        EnsureUTF8 (entry);
+        char *title = convert_xml_special_chars (entry);
+        if (old_xspf_ext != NULL
+         && asprintf (&p_sys->xspf_ext, "%s  <vlc:node title=\"%s\">\n",
+                      old_xspf_ext, title ? title : "?") == -1)
+            p_sys->xspf_ext = NULL;
+        free (old_xspf_ext);
+        free (title);
+        goto skip;
     }
 
+notdir:
     /* Skip files with ignored extensions */
     if (p_sys->ignored_exts != NULL)
     {
@@ -443,36 +443,34 @@ static block_t *Block (access_t *p_access)
         goto fatal;
 
     /* Write the ID to the extension */
-    char *old_xspf_extension = p_sys->psz_xspf_extension;
-    if (old_xspf_extension == NULL)
-        goto fatal;
+    char *old_xspf_ext = p_sys->xspf_ext;
+    if (old_xspf_ext != NULL
+     && asprintf (&p_sys->xspf_ext, "%s   <vlc:item tid=\"%i\" />\n",
+                  old_xspf_ext, p_sys->i_item_count - 1) == -1)
+        p_sys->xspf_ext = NULL;
+    free (old_xspf_ext);
 
-    int len2 = asprintf( &p_sys->psz_xspf_extension, "%s   <vlc:item tid=\"%i\" />\n",
-                            old_xspf_extension, p_sys->i_item_count-1 );
-    if (len2 == -1)
-        goto fatal;
-    free( old_xspf_extension );
-
-    /* TODO: new block allocator for malloc()ated data */
-    block_t *block = block_Alloc (len);
-    if (!block)
+    block_t *block = block_heap_Alloc (entry, len);
+    if (unlikely(block == NULL))
     {
         free (entry);
         goto fatal;
     }
-    memcpy (block->p_buffer, entry, len);
-    free (entry);
     return block;
 
 fatal:
     p_access->info.b_eof = true;
+    return NULL;
+
+skip:
+    free (entry);
     return NULL;
 }
 
 /*****************************************************************************
  * Control:
  *****************************************************************************/
-static int Control( access_t *p_access, int i_query, va_list args )
+int DirControl( access_t *p_access, int i_query, va_list args )
 {
     switch( i_query )
     {

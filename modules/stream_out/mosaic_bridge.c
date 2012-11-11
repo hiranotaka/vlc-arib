@@ -30,8 +30,6 @@
 # include "config.h"
 #endif
 
-#include <errno.h>                                                 /* ENOMEM */
-
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
@@ -41,10 +39,9 @@
 
 #include <vlc_image.h>
 #include <vlc_filter.h>
+#include <vlc_modules.h>
 
 #include "../video_filter/mosaic.h"
-
-#include <assert.h>
 
 /*****************************************************************************
  * Local structures
@@ -52,7 +49,6 @@
 struct sout_stream_sys_t
 {
     bridged_es_t *p_es;
-    vlc_mutex_t *p_lock;
 
     decoder_t       *p_decoder;
     image_handler_t *p_image; /* filter for resizing */
@@ -149,24 +145,24 @@ vlc_module_begin ()
     set_capability( "sout stream", 0 )
     add_shortcut( "mosaic-bridge" )
 
-    add_string( CFG_PREFIX "id", "Id", NULL, ID_TEXT, ID_LONGTEXT,
+    add_string( CFG_PREFIX "id", "Id", ID_TEXT, ID_LONGTEXT,
                 false )
-    add_integer( CFG_PREFIX "width", 0, NULL, WIDTH_TEXT,
+    add_integer( CFG_PREFIX "width", 0, WIDTH_TEXT,
                  WIDTH_LONGTEXT, true )
-    add_integer( CFG_PREFIX "height", 0, NULL, HEIGHT_TEXT,
+    add_integer( CFG_PREFIX "height", 0, HEIGHT_TEXT,
                  HEIGHT_LONGTEXT, true )
-    add_string( CFG_PREFIX "sar", "1:1", NULL, RATIO_TEXT,
+    add_string( CFG_PREFIX "sar", "1:1", RATIO_TEXT,
                 RATIO_LONGTEXT, false )
-    add_string( CFG_PREFIX "chroma", NULL, NULL, CHROMA_TEXT, CHROMA_LONGTEXT,
+    add_string( CFG_PREFIX "chroma", NULL, CHROMA_TEXT, CHROMA_LONGTEXT,
                 false )
 
     add_module_list( CFG_PREFIX "vfilter", "video filter2",
-                     NULL, NULL, VFILTER_TEXT, VFILTER_LONGTEXT, false )
+                     NULL, VFILTER_TEXT, VFILTER_LONGTEXT, false )
 
-    add_integer_with_range( CFG_PREFIX "alpha", 255, 0, 255, NULL,
+    add_integer_with_range( CFG_PREFIX "alpha", 255, 0, 255,
                             ALPHA_TEXT, ALPHA_LONGTEXT, false )
-    add_integer( CFG_PREFIX "x", -1, NULL, X_TEXT, X_LONGTEXT, false )
-    add_integer( CFG_PREFIX "y", -1, NULL, Y_TEXT, Y_LONGTEXT, false )
+    add_integer( CFG_PREFIX "x", -1, X_TEXT, X_LONGTEXT, false )
+    add_integer( CFG_PREFIX "y", -1, Y_TEXT, Y_LONGTEXT, false )
 
     set_callbacks( Open, Close )
 vlc_module_end ()
@@ -182,7 +178,6 @@ static int Open( vlc_object_t *p_this )
 {
     sout_stream_t        *p_stream = (sout_stream_t *)p_this;
     sout_stream_sys_t    *p_sys;
-    vlc_object_t         *p_libvlc = VLC_OBJECT( p_this->p_libvlc );
     vlc_value_t           val;
 
     config_ChainParse( p_stream, CFG_PREFIX, ppsz_sout_options,
@@ -194,10 +189,6 @@ static int Open( vlc_object_t *p_this )
 
     p_stream->p_sys = p_sys;
     p_sys->b_inited = false;
-
-    var_Create( p_libvlc, "mosaic-lock", VLC_VAR_MUTEX );
-    var_Get( p_libvlc, "mosaic-lock", &val );
-    p_sys->p_lock = val.p_address;
 
     p_sys->psz_id = var_CreateGetString( p_stream, CFG_PREFIX "id" );
 
@@ -258,8 +249,7 @@ static int Open( vlc_object_t *p_this )
     p_stream->pf_add    = Add;
     p_stream->pf_del    = Del;
     p_stream->pf_send   = Send;
-
-    p_stream->p_sout->i_out_pace_nocontrol++;
+    p_stream->pace_nocontrol = true;
 
     return VLC_SUCCESS;
 }
@@ -279,8 +269,6 @@ static void Close( vlc_object_t * p_this )
     var_DelCallback( p_stream, CFG_PREFIX "x", xCallback, p_stream );
     var_DelCallback( p_stream, CFG_PREFIX "y", yCallback, p_stream );
 
-    p_stream->p_sout->i_out_pace_nocontrol--;
-
     free( p_sys->psz_id );
 
     free( p_sys );
@@ -288,8 +276,8 @@ static void Close( vlc_object_t * p_this )
 
 static int video_filter_buffer_allocation_init( filter_t *p_filter, void *p_data )
 {
-    p_filter->pf_vout_buffer_new = video_new_buffer_filter;
-    p_filter->pf_vout_buffer_del = video_del_buffer_filter;
+    p_filter->pf_video_buffer_new = video_new_buffer_filter;
+    p_filter->pf_video_buffer_del = video_del_buffer_filter;
     p_filter->p_owner = p_data;
     return VLC_SUCCESS;
 }
@@ -306,10 +294,9 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
         return NULL;
 
     /* Create decoder object */
-    p_sys->p_decoder = vlc_object_create( p_stream, VLC_OBJECT_DECODER );
+    p_sys->p_decoder = vlc_object_create( p_stream, sizeof( decoder_t ) );
     if( !p_sys->p_decoder )
         return NULL;
-    vlc_object_attach( p_sys->p_decoder, p_stream );
     p_sys->p_decoder->p_module = NULL;
     p_sys->p_decoder->fmt_in = *p_fmt;
     p_sys->p_decoder->b_pace_control = false;
@@ -324,7 +311,6 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
     p_sys->p_decoder->p_owner = malloc( sizeof(decoder_owner_sys_t) );
     if( !p_sys->p_decoder->p_owner )
     {
-        vlc_object_detach( p_sys->p_decoder );
         vlc_object_release( p_sys->p_decoder );
         return NULL;
     }
@@ -347,13 +333,12 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
             msg_Err( p_stream, "cannot find decoder" );
         }
         free( p_sys->p_decoder->p_owner );
-        vlc_object_detach( p_sys->p_decoder );
         vlc_object_release( p_sys->p_decoder );
         return NULL;
     }
 
     p_sys->b_inited = true;
-    vlc_mutex_lock( p_sys->p_lock );
+    vlc_global_lock( VLC_MOSAIC_MUTEX );
 
     p_bridge = GetBridge( p_stream );
     if ( p_bridge == NULL )
@@ -361,7 +346,7 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
         vlc_object_t *p_libvlc = VLC_OBJECT( p_stream->p_libvlc );
         vlc_value_t val;
 
-        p_bridge = malloc( sizeof( bridge_t ) );
+        p_bridge = xmalloc( sizeof( bridge_t ) );
 
         var_Create( p_libvlc, "mosaic-struct", VLC_VAR_ADDRESS );
         val.p_address = p_bridge;
@@ -379,11 +364,10 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
 
     if ( i == p_bridge->i_es_num )
     {
-        p_bridge->pp_es = realloc( p_bridge->pp_es,
-                                   (p_bridge->i_es_num + 1)
-                                     * sizeof(bridged_es_t *) );
+        p_bridge->pp_es = xrealloc( p_bridge->pp_es,
+                          (p_bridge->i_es_num + 1) * sizeof(bridged_es_t *) );
         p_bridge->i_es_num++;
-        p_bridge->pp_es[i] = malloc( sizeof(bridged_es_t) );
+        p_bridge->pp_es[i] = xmalloc( sizeof(bridged_es_t) );
     }
 
     p_sys->p_es = p_es = p_bridge->pp_es[i];
@@ -398,7 +382,7 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
     p_es->pp_last = &p_es->p_picture;
     p_es->b_empty = false;
 
-    vlc_mutex_unlock( p_sys->p_lock );
+    vlc_global_unlock( VLC_MOSAIC_MUTEX );
 
     if ( p_sys->i_height || p_sys->i_width )
     {
@@ -456,7 +440,6 @@ static int Del( sout_stream_t *p_stream, sout_stream_id_t *id )
         if( p_sys->p_decoder->p_description )
             vlc_meta_Delete( p_sys->p_decoder->p_description );
 
-        vlc_object_detach( p_sys->p_decoder );
         vlc_object_release( p_sys->p_decoder );
 
         free( p_owner );
@@ -466,7 +449,7 @@ static int Del( sout_stream_t *p_stream, sout_stream_id_t *id )
     if( p_sys->p_vf2 )
         filter_chain_Delete( p_sys->p_vf2 );
 
-    vlc_mutex_lock( p_sys->p_lock );
+    vlc_global_lock( VLC_MOSAIC_MUTEX );
 
     p_bridge = GetBridge( p_stream );
     p_es = p_sys->p_es;
@@ -498,7 +481,7 @@ static int Del( sout_stream_t *p_stream, sout_stream_id_t *id )
         var_Destroy( p_libvlc, "mosaic-struct" );
     }
 
-    vlc_mutex_unlock( p_sys->p_lock );
+    vlc_global_unlock( VLC_MOSAIC_MUTEX );
 
     if ( p_sys->p_image )
     {
@@ -518,13 +501,13 @@ static void PushPicture( sout_stream_t *p_stream, picture_t *p_picture )
     sout_stream_sys_t *p_sys = p_stream->p_sys;
     bridged_es_t *p_es = p_sys->p_es;
 
-    vlc_mutex_lock( p_sys->p_lock );
+    vlc_global_lock( VLC_MOSAIC_MUTEX );
 
     *p_es->pp_last = p_picture;
     p_picture->p_next = NULL;
     p_es->pp_last = &p_picture->p_next;
 
-    vlc_mutex_unlock( p_sys->p_lock );
+    vlc_global_unlock( VLC_MOSAIC_MUTEX );
 }
 
 static int Send( sout_stream_t *p_stream, sout_stream_id_t *id,
@@ -558,17 +541,21 @@ static int Send( sout_stream_t *p_stream, sout_stream_id_t *id,
             else
                 fmt_out.i_chroma = VLC_CODEC_I420;
 
+            const unsigned i_fmt_in_aspect =
+                (int64_t)VOUT_ASPECT_FACTOR *
+                fmt_in.i_sar_num * fmt_in.i_width /
+                (fmt_in.i_sar_den * fmt_in.i_height);
             if ( !p_sys->i_height )
             {
                 fmt_out.i_width = p_sys->i_width;
                 fmt_out.i_height = (p_sys->i_width * VOUT_ASPECT_FACTOR
-                    * p_sys->i_sar_num / p_sys->i_sar_den / fmt_in.i_aspect)
+                    * p_sys->i_sar_num / p_sys->i_sar_den / i_fmt_in_aspect)
                       & ~0x1;
             }
             else if ( !p_sys->i_width )
             {
                 fmt_out.i_height = p_sys->i_height;
-                fmt_out.i_width = (p_sys->i_height * fmt_in.i_aspect
+                fmt_out.i_width = (p_sys->i_height * i_fmt_in_aspect
                     * p_sys->i_sar_den / p_sys->i_sar_num / VOUT_ASPECT_FACTOR)
                       & ~0x1;
             }
@@ -595,7 +582,8 @@ static int Send( sout_stream_t *p_stream, sout_stream_id_t *id,
 
             p_new_pic = picture_New( p_pic->format.i_chroma,
                                      p_pic->format.i_width, p_pic->format.i_height,
-                                     p_sys->p_decoder->fmt_out.video.i_aspect );
+                                     p_sys->p_decoder->fmt_out.video.i_sar_num,
+                                     p_sys->p_decoder->fmt_out.video.i_sar_den );
             if( !p_new_pic )
             {
                 picture_Release( p_pic );
@@ -638,18 +626,9 @@ static picture_t *video_new_buffer( vlc_object_t *p_this,
     if( fmt_out->video.i_width != p_sys->video.i_width ||
         fmt_out->video.i_height != p_sys->video.i_height ||
         fmt_out->video.i_chroma != p_sys->video.i_chroma ||
-        fmt_out->video.i_aspect != p_sys->video.i_aspect )
+        (int64_t)fmt_out->video.i_sar_num * p_sys->video.i_sar_den !=
+        (int64_t)fmt_out->video.i_sar_den * p_sys->video.i_sar_num )
     {
-        if( !fmt_out->video.i_sar_num ||
-            !fmt_out->video.i_sar_den )
-        {
-            fmt_out->video.i_sar_num =
-                fmt_out->video.i_aspect * fmt_out->video.i_height;
-
-            fmt_out->video.i_sar_den =
-                VOUT_ASPECT_FACTOR * fmt_out->video.i_width;
-        }
-
         vlc_ureduce( &fmt_out->video.i_sar_num,
                      &fmt_out->video.i_sar_den,
                      fmt_out->video.i_sar_num,
@@ -669,10 +648,7 @@ static picture_t *video_new_buffer( vlc_object_t *p_this,
     /* */
     fmt_out->video.i_chroma = fmt_out->i_codec;
 
-    return picture_New( fmt_out->video.i_chroma,
-                        fmt_out->video.i_width,
-                        fmt_out->video.i_height,
-                        fmt_out->video.i_aspect );
+    return picture_NewFromFormat( &fmt_out->video );
 }
 
 inline static void video_del_buffer_decoder( decoder_t *p_this,

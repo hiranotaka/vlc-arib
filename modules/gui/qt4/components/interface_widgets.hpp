@@ -35,34 +35,33 @@
 
 #include "components/controller.hpp"
 #include "components/controller_widget.hpp"
+#include "dialogs_provider.hpp"
+#include "components/info_panels.hpp"
 
 #include <QWidget>
 #include <QFrame>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPropertyAnimation>
 
 class ResizeEvent;
 class QPixmap;
 class QHBoxLayout;
 class QMenu;
-class ReparentableWidget;
+class QSlider;
 
 /******************** Video Widget ****************/
 class VideoWidget : public QFrame
 {
     Q_OBJECT
-friend class ReparentableWidget;
-
 public:
     VideoWidget( intf_thread_t * );
     virtual ~VideoWidget();
 
-    WId request( int *, int *,
-                 unsigned int *, unsigned int *, bool );
+    WId request( int *, int *, unsigned int *, unsigned int *, bool );
     void  release( void );
     int   control( void *, int, va_list );
-
-    virtual QSize sizeHint() const;
+    void  sync( void );
 
 protected:
     virtual QPaintEngine *paintEngine() const
@@ -73,16 +72,13 @@ protected:
 private:
     intf_thread_t *p_intf;
 
-    QSize videoSize;
-    QWidget *reparentable;
+    QWidget *stable;
     QLayout *layout;
-
 signals:
-    void keyPressed( QKeyEvent * );
+    void sizeChanged( int, int );
 
 public slots:
     void SetSizing( unsigned int, unsigned int );
-    void SetFullScreen( bool );
 };
 
 /******************** Background Widget ****************/
@@ -91,14 +87,19 @@ class BackgroundWidget : public QWidget
     Q_OBJECT
 public:
     BackgroundWidget( intf_thread_t * );
-    virtual ~BackgroundWidget();
-
+    void setExpandstoHeight( bool b_expand ) { b_expandPixmap = b_expand; }
+    void setWithArt( bool b_withart_ ) { b_withart = b_withart_; };
 private:
-    QLabel *label;
-    virtual void contextMenuEvent( QContextMenuEvent *event );
     intf_thread_t *p_intf;
-    virtual void resizeEvent( QResizeEvent * event );
-
+    QString pixmapUrl;
+    bool b_expandPixmap;
+    bool b_withart;
+    QPropertyAnimation *fadeAnimation;
+    virtual void contextMenuEvent( QContextMenuEvent *event );
+protected:
+    void paintEvent( QPaintEvent *e );
+    virtual void showEvent( QShowEvent * e );
+    static const int MARGIN = 5;
 public slots:
     void toggle(){ TOGGLEV( this ); }
     void updateArt( const QString& );
@@ -120,39 +121,72 @@ private slots:
 };
 #endif
 
-class TimeLabel : public QLabel
+class ClickableQLabel : public QLabel
 {
     Q_OBJECT
 public:
-    TimeLabel( intf_thread_t *_p_intf );
+    virtual void mouseDoubleClickEvent( QMouseEvent *event )
+    {
+        Q_UNUSED( event );
+        emit doubleClicked();
+    }
+signals:
+    void doubleClicked();
+};
+
+class TimeLabel : public ClickableQLabel
+{
+    Q_OBJECT
+public:
+    enum Display
+    {
+        Elapsed,
+        Remaining,
+        Both
+    };
+
+    TimeLabel( intf_thread_t *_p_intf, TimeLabel::Display _displayType = TimeLabel::Both );
 protected:
     virtual void mousePressEvent( QMouseEvent *event )
     {
+        if( displayType == TimeLabel::Elapsed ) return;
         toggleTimeDisplay();
         event->accept();
     }
     virtual void mouseDoubleClickEvent( QMouseEvent *event )
     {
+        if( displayType != TimeLabel::Both ) return;
         event->accept();
         toggleTimeDisplay();
-        emit timeLabelDoubleClicked();
+        ClickableQLabel::mouseDoubleClickEvent( event );
     }
 private:
     intf_thread_t *p_intf;
     bool b_remainingTime;
+    int cachedLength;
+    QTimer *bufTimer;
+
+    bool buffering;
+    bool showBuffering;
+    float bufVal;
+    TimeLabel::Display displayType;
+
+    char psz_length[MSTRTIME_MAX_SIZE];
+    char psz_time[MSTRTIME_MAX_SIZE];
     void toggleTimeDisplay();
-signals:
-    void timeLabelDoubleClicked();
+    void paintEvent( QPaintEvent* );
 private slots:
-    void setDisplayPosition( float pos, int time, int length );
-    void setCaching( float );
+    void setDisplayPosition( float pos, int64_t time, int length );
+    void setDisplayPosition( float pos );
+    void updateBuffering( float );
+    void updateBuffering();
 };
 
 class SpeedLabel : public QLabel
 {
     Q_OBJECT
 public:
-    SpeedLabel( intf_thread_t *, const QString&, QWidget * );
+    SpeedLabel( intf_thread_t *, QWidget * );
     virtual ~SpeedLabel();
 
 protected:
@@ -162,10 +196,11 @@ protected:
     }
 private slots:
     void showSpeedMenu( QPoint );
-    void setRate( int );
+    void setRate( float );
 private:
     intf_thread_t *p_intf;
     QMenu *speedControlMenu;
+    QString tooltipStringPattern;
     SpeedControlWidget *speedControl;
 };
 
@@ -175,16 +210,19 @@ class SpeedControlWidget : public QFrame
     Q_OBJECT
 public:
     SpeedControlWidget( intf_thread_t *, QWidget * );
-    void updateControls( int );
+    void updateControls( float );
 private:
-    intf_thread_t *p_intf;
-    QSlider *speedSlider;
+    intf_thread_t* p_intf;
+    QSlider* speedSlider;
+    QDoubleSpinBox* spinBox;
+    int lastValue;
 
 public slots:
     void activateOnState();
 
 private slots:
     void updateRate( int );
+    void updateSpinBoxRate( double );
     void resetRate();
 };
 
@@ -193,24 +231,27 @@ class CoverArtLabel : public QLabel
     Q_OBJECT
 public:
     CoverArtLabel( QWidget *parent, intf_thread_t * );
+    void setItem( input_item_t * );
     virtual ~CoverArtLabel();
 
+protected:
+    virtual void mouseDoubleClickEvent( QMouseEvent *event )
+    {
+        if( ! p_item && qobject_cast<MetaPanel *>(this->window()) == NULL )
+        {
+            THEDP->mediaInfoDialog();
+        }
+        event->accept();
+    }
 private:
     intf_thread_t *p_intf;
+    input_item_t *p_item;
 
 public slots:
-    void requestUpdate() { emit updateRequested(); };
-    void update( )
-    {
-        requestUpdate();
-    }
     void showArtUpdate( const QString& );
-
-private slots:
+    void showArtUpdate( input_item_t * );
     void askForUpdate();
-
-signals:
-    void updateRequested();
+    void setArtFromFile();
 };
 
 #endif

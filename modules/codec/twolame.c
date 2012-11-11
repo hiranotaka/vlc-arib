@@ -1,11 +1,12 @@
 /*****************************************************************************
  * twolame.c: libtwolame encoder (MPEG-1/2 layer II) module
- *            (using libtwolame from http://users.tpg.com.au/adslblvi/)
+ *            (using libtwolame from http://www.twolame.org/)
  *****************************************************************************
  * Copyright (C) 2004-2005 the VideoLAN team
  * $Id$
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
+ *          Gildas Bazin
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,8 +19,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -32,8 +33,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
-#include <vlc_sout.h>
-#include <vlc_aout.h>
 
 #include <twolame.h>
 
@@ -45,7 +44,7 @@
  ****************************************************************************/
 static int OpenEncoder   ( vlc_object_t * );
 static void CloseEncoder ( vlc_object_t * );
-static block_t *Encode   ( encoder_t *, aout_buffer_t * );
+static block_t *Encode   ( encoder_t *, block_t * );
 
 /*****************************************************************************
  * Module descriptor
@@ -74,19 +73,19 @@ static const char *const ppsz_stereo_descriptions[] =
 vlc_module_begin ()
     set_shortname( "Twolame")
     set_description( N_("Libtwolame audio encoder") )
-    set_capability( "encoder", 50 )
+    set_capability( "encoder", 120 )
     set_callbacks( OpenEncoder, CloseEncoder )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACODEC )
 
-    add_float( ENC_CFG_PREFIX "quality", 0.0, NULL, ENC_QUALITY_TEXT,
+    add_float( ENC_CFG_PREFIX "quality", 0.0, ENC_QUALITY_TEXT,
                ENC_QUALITY_LONGTEXT, false )
-    add_integer( ENC_CFG_PREFIX "mode", 0, NULL, ENC_MODE_TEXT,
+    add_integer( ENC_CFG_PREFIX "mode", 0, ENC_MODE_TEXT,
                  ENC_MODE_LONGTEXT, false )
-        change_integer_list( pi_stereo_values, ppsz_stereo_descriptions, NULL );
-    add_bool( ENC_CFG_PREFIX "vbr", false, NULL, ENC_VBR_TEXT,
+        change_integer_list( pi_stereo_values, ppsz_stereo_descriptions );
+    add_bool( ENC_CFG_PREFIX "vbr", false, ENC_VBR_TEXT,
               ENC_VBR_LONGTEXT, false )
-    add_integer( ENC_CFG_PREFIX "psy", 3, NULL, ENC_PSY_TEXT,
+    add_integer( ENC_CFG_PREFIX "psy", 3, ENC_PSY_TEXT,
                  ENC_PSY_LONGTEXT, false )
 vlc_module_end ()
 
@@ -131,9 +130,9 @@ static int OpenEncoder( vlc_object_t *p_this )
     encoder_sys_t *p_sys;
     int i_frequency;
 
-    if( p_enc->fmt_out.i_codec != VLC_CODEC_MPGA &&
-        p_enc->fmt_out.i_codec != VLC_FOURCC('m','p','2','a') &&
-        p_enc->fmt_out.i_codec != VLC_FOURCC('m','p','2',' ') &&
+    if( p_enc->fmt_out.i_codec != VLC_CODEC_MP2 &&
+        p_enc->fmt_out.i_codec != VLC_CODEC_MPGA &&
+        p_enc->fmt_out.i_codec != VLC_FOURCC( 'm', 'p', '2', 'a' ) &&
         !p_enc->b_force )
     {
         return VLC_EGENERIC;
@@ -259,9 +258,13 @@ static void Bufferize( encoder_t *p_enc, int16_t *p_in, int i_nb_samples )
                              * sizeof(int16_t) );
 }
 
-static block_t *Encode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
+static block_t *Encode( encoder_t *p_enc, block_t *p_aout_buf )
 {
     encoder_sys_t *p_sys = p_enc->p_sys;
+
+    /* FIXME:p_aout_buf is NULL when it's time to flush, does twolame has buffer to flush?*/
+    if( unlikely( !p_aout_buf ) ) return NULL;
+
     int16_t *p_buffer = (int16_t *)p_aout_buf->p_buffer;
     int i_nb_samples = p_aout_buf->i_nb_samples;
     block_t *p_chain = NULL;
@@ -284,7 +287,7 @@ static block_t *Encode( encoder_t *p_enc, aout_buffer_t *p_aout_buf )
                                p_sys->p_out_buffer, MAX_CODED_FRAME_SIZE );
         p_sys->i_nb_samples = 0;
         p_block = block_New( p_enc, i_used );
-        vlc_memcpy( p_block->p_buffer, p_sys->p_out_buffer, i_used );
+        memcpy( p_block->p_buffer, p_sys->p_out_buffer, i_used );
         p_block->i_length = (mtime_t)1000000 *
                 (mtime_t)MPEG_FRAME_SIZE / (mtime_t)p_enc->fmt_out.audio.i_rate;
         p_block->i_dts = p_block->i_pts = p_sys->i_pts;

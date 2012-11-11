@@ -29,6 +29,7 @@
 #include "../commands/cmd_playlist.hpp"
 #include "../commands/cmd_playtree.hpp"
 #include <vlc_playlist.h>
+#include <vlc_modules.h>
 
 /// Callback called when a new skin is chosen
 void Dialogs::showChangeSkinCB( intf_dialog_args_t *pArg )
@@ -95,6 +96,8 @@ void Dialogs::showPlaylistSaveCB( intf_dialog_args_t *pArg )
 static int PopupMenuCB( vlc_object_t *p_this, const char *psz_variable,
                         vlc_value_t old_val, vlc_value_t new_val, void *param )
 {
+    (void)p_this; (void)psz_variable; (void)old_val;
+
     Dialogs *p_dialogs = (Dialogs *)param;
     p_dialogs->showPopupMenu( new_val.b_bool != 0, INTF_DIALOG_POPUPMENU );
 
@@ -113,15 +116,13 @@ Dialogs::~Dialogs()
     if( m_pProvider && m_pModule )
     {
         // Detach the dialogs provider from its parent interface
-        vlc_object_detach( m_pProvider );
-
         module_unneed( m_pProvider, m_pModule );
         vlc_object_release( m_pProvider );
-    }
 
-    /* Unregister callbacks */
-    var_DelCallback( getIntf()->p_libvlc, "intf-popupmenu",
-                     PopupMenuCB, this );
+        /* Unregister callbacks */
+        var_DelCallback( getIntf()->p_libvlc, "intf-popupmenu",
+                         PopupMenuCB, this );
+    }
 }
 
 
@@ -167,16 +168,6 @@ bool Dialogs::init()
         vlc_object_release( m_pProvider );
         m_pProvider = NULL;
         return false;
-    }
-
-    // Attach the dialogs provider to its parent interface
-    vlc_object_attach( m_pProvider, getIntf() );
-
-    // Initialize dialogs provider
-    // (returns as soon as initialization is done)
-    if( m_pProvider->pf_run )
-    {
-        m_pProvider->pf_run( m_pProvider );
     }
 
     /* Register callback for the intf-popupmenu variable */

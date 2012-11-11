@@ -29,14 +29,13 @@
 # include "config.h"
 #endif
 
+#include <sys/stat.h>
+
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_url.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 #include <vlc_services_discovery.h>
-
-#include <sys/stat.h>
-
 
 /*****************************************************************************
  * Module descriptor
@@ -61,30 +60,33 @@ OPEN_MODULE( Picture )
 
 #undef OPEN_MODULE
 
+static int vlc_sd_probe_Open( vlc_object_t * );
+
 vlc_module_begin ()
     set_category( CAT_PLAYLIST )
     set_subcategory( SUBCAT_PLAYLIST_SD )
 
-        set_shortname( "Video" )
+        set_shortname( N_("Video") )
         set_description( N_("My Videos") )
-        set_capability( "services_discovery", 10 )
+        set_capability( "services_discovery", 0 )
         set_callbacks( OpenVideo, Close )
         add_shortcut( "video_dir" )
 
     add_submodule ()
-        set_shortname( "Audio" )
+        set_shortname( N_("Audio") )
         set_description( N_("My Music") )
-        set_capability( "services_discovery", 10 )
+        set_capability( "services_discovery", 0 )
         set_callbacks( OpenAudio, Close )
         add_shortcut( "audio_dir" )
 
     add_submodule ()
-        set_shortname( "Picture")
+        set_shortname( N_("Picture") )
         set_description( N_("My Pictures") )
-        set_capability( "services_discovery", 10 )
+        set_capability( "services_discovery", 0 )
         set_callbacks( OpenPicture, Close )
         add_shortcut( "picture_dir" )
 
+    VLC_SD_PROBE_SUBMODULE
 vlc_module_end ()
 
 
@@ -183,17 +185,13 @@ static void *Run( void *data )
         /* make sure the directory exists */
         struct stat st;
         if( psz_dir == NULL            ||
-            utf8_stat( psz_dir, &st )  ||
+            vlc_stat( psz_dir, &st )  ||
             !S_ISDIR( st.st_mode ) )
             continue;
 
-        // TODO:  make_URI is only for file://, what about dir:// ?
-        // char* psz_uri = make_URI( psz_dir );
-        char* psz_uri;
-        if( asprintf( &psz_uri, "dir://%s",  psz_dir ) == -1 )
-            continue;
+        char* psz_uri = vlc_path2uri( psz_dir, "file" );
 
-        input_item_t* p_root = input_item_New( p_sd, psz_uri, NULL );
+        input_item_t* p_root = input_item_New( psz_uri, NULL );
         if( p_sys->i_type == Picture )
             input_item_AddOption( p_root, "ignore-filetypes=ini,db,lnk,txt",
                                   VLC_INPUT_OPTION_TRUSTED );
@@ -259,34 +257,47 @@ static void input_item_subitem_added( const vlc_event_t * p_event,
 static int onNewFileAdded( vlc_object_t *p_this, char const *psz_var,
                      vlc_value_t oldval, vlc_value_t newval, void *p_data )
 {
-    services_discovery_t *p_sd = p_data;
+    (void)p_this;
 
-    (void)p_this; (void)psz_var; (void)oldval;
+    services_discovery_t *p_sd = p_data;
+    services_discovery_sys_t *p_sys = p_sd->p_sys;
+
+    (void)psz_var; (void)oldval;
     char* psz_file = newval.psz_string;
     if( !psz_file || !*psz_file )
         return VLC_EGENERIC;
 
-    char* psz_uri = make_URI( psz_file );
-    input_item_t* p_item = input_item_New( p_sd, psz_uri, NULL );
+    char* psz_uri = vlc_path2uri( psz_file, "file" );
+    input_item_t* p_item = input_item_New( psz_uri, NULL );
 
-    if( fileType( p_sd, psz_file ) == Picture )
+    if( p_sys->i_type == Picture )
     {
-        formatSnapshotItem( p_item );
-        services_discovery_AddItem( p_sd, p_item, NULL );
+        if( fileType( p_sd, psz_file ) == Picture )
+        {
+            formatSnapshotItem( p_item );
+            services_discovery_AddItem( p_sd, p_item, NULL );
 
-        msg_Dbg( p_sd, "New snapshot added : %s", psz_file );
+            msg_Dbg( p_sd, "New snapshot added : %s", psz_file );
+        }
     }
-    else if( fileType( p_sd, psz_file ) == Audio )
+    else if( p_sys->i_type == Audio )
     {
-        services_discovery_AddItem( p_sd, p_item, NULL );
+        if( fileType( p_sd, psz_file ) == Audio )
+        {
+            services_discovery_AddItem( p_sd, p_item, NULL );
 
-        msg_Dbg( p_sd, "New recorded audio added : %s", psz_file );
+            msg_Dbg( p_sd, "New recorded audio added : %s", psz_file );
+        }
     }
-    else if( fileType( p_sd, psz_file ) == Video )
+    else if( p_sys->i_type == Video )
     {
-        services_discovery_AddItem( p_sd, p_item, NULL );
+        if( fileType( p_sd, psz_file ) == Video ||
+            fileType( p_sd, psz_file ) == Unknown )
+        {
+            services_discovery_AddItem( p_sd, p_item, NULL );
 
-        msg_Dbg( p_sd, "New recorded video added : %s", psz_file );
+            msg_Dbg( p_sd, "New recorded video added : %s", psz_file );
+        }
     }
 
     vlc_gc_decref( p_item );
@@ -300,28 +311,13 @@ void formatSnapshotItem( input_item_t *p_item )
     if( !p_item )
         return;
 
-    if( !p_item->p_meta )
-        p_item->p_meta = vlc_meta_New();
+    char* psz_uri = input_item_GetURI( p_item );
 
     /* copy the snapshot mrl as a ArtURL */
-    if( p_item->p_meta )
-    {
-        char* psz_uri = NULL;
-        psz_uri = input_item_GetURI( p_item );
-        if( psz_uri )
-            input_item_SetArtURL( p_item, psz_uri );
-        free( psz_uri );
-    }
+    if( psz_uri )
+        input_item_SetArtURL( p_item, psz_uri );
 
-    /**
-     * TODO: select the best mrl for displaying snapshots
-     *   - vlc://pause:10  => snapshot are displayed as Art
-     *   - file:///path/image.ext  => snapshot are displayed as videos
-     **/
-    input_item_SetURI( p_item, "vlc://pause:10" );
-
-    // input_item_AddOption( p_item, "fake-duration=10000",
-    //                       VLC_INPUT_OPTION_TRUSTED );
+    free( psz_uri );
 }
 
 
@@ -346,4 +342,17 @@ enum type_e fileType( services_discovery_t *p_sd, const char* psz_file )
 
     free( psz_dir );
     return i_ret;
+}
+
+static int vlc_sd_probe_Open( vlc_object_t *obj )
+{
+    vlc_probe_t *probe = (vlc_probe_t *)obj;
+
+    vlc_sd_probe_Add( probe, "video_dir{longname=\"My Videos\"}",
+                      N_("My Videos"), SD_CAT_MYCOMPUTER );
+    vlc_sd_probe_Add( probe, "audio_dir{longname=\"My Music\"}",
+                      N_("My Music"), SD_CAT_MYCOMPUTER );
+    vlc_sd_probe_Add( probe, "picture_dir{longname=\"My Pictures\"}",
+                      N_("My Pictures"), SD_CAT_MYCOMPUTER );
+    return VLC_PROBE_CONTINUE;
 }

@@ -49,7 +49,7 @@ vlc_module_begin ()
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_MISC )
     set_description( N_("Audio filter for A/52->S/PDIF encapsulation") )
-    set_capability( "audio filter2", 10 )
+    set_capability( "audio converter", 10 )
     set_callbacks( Create, NULL )
 vlc_module_end ()
 
@@ -94,23 +94,23 @@ static block_t *DoWork( filter_t * p_filter, block_t *p_in_buf )
     /* Copy the S/PDIF headers. */
     if( p_filter->fmt_out.audio.i_format == VLC_CODEC_SPDIFB )
     {
-        vlc_memcpy( p_out, p_sync_be, 6 );
+        memcpy( p_out, p_sync_be, 6 );
         p_out[4] = p_in[5] & 0x7; /* bsmod */
-        p_out[6] = (i_frame_size >> 4) & 0xff;
-        p_out[7] = (i_frame_size << 4) & 0xff;
-        vlc_memcpy( &p_out[8], p_in, i_frame_size * 2 );
+        SetWBE( p_out + 6, i_frame_size << 4 );
+        memcpy( &p_out[8], p_in, i_frame_size * 2 );
     }
     else
     {
-        vlc_memcpy( p_out, p_sync_le, 6 );
+        memcpy( p_out, p_sync_le, 6 );
         p_out[5] = p_in[5] & 0x7; /* bsmod */
-        p_out[6] = (i_frame_size << 4) & 0xff;
-        p_out[7] = (i_frame_size >> 4) & 0xff;
+        SetWLE( p_out + 6, i_frame_size << 4 );
         swab( p_in, &p_out[8], i_frame_size * 2 );
     }
-    vlc_memset( p_out + 8 + i_frame_size * 2, 0,
+    memset( p_out + 8 + i_frame_size * 2, 0,
                 AOUT_SPDIF_SIZE - i_frame_size * 2 - 8 );
 
+    p_out_buf->i_dts = p_in_buf->i_dts;
+    p_out_buf->i_pts = p_in_buf->i_pts;
     p_out_buf->i_nb_samples = p_in_buf->i_nb_samples;
     p_out_buf->i_buffer = AOUT_SPDIF_SIZE;
 out:

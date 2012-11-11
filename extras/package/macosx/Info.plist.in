@@ -19,6 +19,7 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>f4v</string>
 				<string>flv</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
@@ -59,6 +60,30 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>xa</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>The Sims Audio File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>xesc</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>movie.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Expression Encoder Screen Capture File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
 				<string>pls</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
@@ -72,6 +97,7 @@
 			<key>CFBundleTypeExtensions</key>
 			<array>
 				<string>m3u</string>
+				<string>m3u8</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
 			<string>playlist.icns</string>
@@ -106,6 +132,18 @@
 			<string>playlist.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>ASX file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>b4s</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>playlist.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>B4S file</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 		</dict>
@@ -215,6 +253,7 @@
 			<key>CFBundleTypeExtensions</key>
 			<array>
 				<string>mod</string>
+				<string>xm</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
 			<string>audio.icns</string>
@@ -261,6 +300,42 @@
 			<string>aiff.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>AIFF file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>amr</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Adaptive Multi-Rate Codec File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>aob</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>DVD-Audio Audio Object File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>dts</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>DTS Encoded Audio File</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 		</dict>
@@ -343,6 +418,18 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>cdg</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>subtitle.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Compact Disc Plus Graphics Image file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
 				<string>iso</string>
 				<string>bin</string>
 			</array>
@@ -350,6 +437,18 @@
 			<string>generic.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>ISO file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>idx</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>subtitle.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Index file</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 		</dict>
@@ -375,6 +474,23 @@
 			<string>audio.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>AAC file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>opus</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>ogg.icns</string>
+			<key>CFBundleTypeMIMETypes</key>
+			<array>
+				<string>audio/opus</string>
+				<string>audio/ogg; codecs=opus</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>OPUS file</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 		</dict>
@@ -444,13 +560,49 @@
 				<string>ogx</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
-			<string>generic.icns</string>
+			<string>ogg.icns</string>
 			<key>CFBundleTypeMIMETypes</key>
 			<array>
 				<string>application/ogg</string>
 			</array>
 			<key>CFBundleTypeName</key>
 			<string>Ogg Application File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>oma</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Sony OpenMG Music File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>voc</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Creative Labs Audio File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>vqf</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>TwinVQ Audio File</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 		</dict>
@@ -628,8 +780,22 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>wtv</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>movie.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Windows Recorded TV Show</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
 				<string>mpg</string>
 				<string>mpeg</string>
+				<string>mpeg1</string>
+				<string>mpeg2</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
 			<string>mpeg.icns</string>
@@ -712,10 +878,16 @@
 			<string>Viewer</string>
 		</dict>
 		<dict>
+            <key>CFBundleTypeMIMETypes</key>
+			<array>
+				<string>video/mp2t</string>
+			</array>
 			<key>CFBundleTypeExtensions</key>
 			<array>
 				<string>ts</string>
 				<string>m2ts</string>
+				<string>mts</string>
+				<string>mt2s</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
 			<string>mpeg.icns</string>
@@ -753,6 +925,7 @@
 			<key>CFBundleTypeExtensions</key>
 			<array>
 				<string>mp4</string>
+				<string>mpeg4</string>
 				<string>m4v</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
@@ -789,6 +962,30 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>mid</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>MIDI File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>mlp</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Meridian Lossless Packing Audio File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
 				<string>mka</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
@@ -813,10 +1010,94 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
-				<string>mks</string>
+				<string>webm</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>mkv.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>WebM Video File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>rar</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
 			<string>generic.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>WinRAR Compressed Archive</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>rec</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>movie.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>Topfield PVR Recording</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>rmi</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>RMID MIDI File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>s3m</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>audio.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>ScreamTracker 3 Module</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>vro</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>movie.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>DVD Video Recording Format</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>tod</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>movie.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>JVC Everio Video Capture File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>mks</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>mkv.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>Matroska Elementry Stream</string>
 			<key>CFBundleTypeRole</key>
@@ -890,6 +1171,18 @@
 			<false/>
 			<key>NSPersistentStoreTypeKey</key>
 			<string>XML</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>utf</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>subtitle.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>UTF Subtitle File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeExtensions</key>
@@ -1022,7 +1315,9 @@
 		</dict>
 	</array>
 	<key>SUFeedURL</key>
-	<string>http://jones.videolan.org/~videolan/fpk/sparkle/vlc.xml</string>
+	<string>http://update.videolan.org/vlc/sparkle/vlc.xml</string>
+	<key>SUPublicDSAKeyFile</key>
+	<string>dsa_pub.pem</string>
 	<key>CFBundleExecutable</key>
 	<string>VLC</string>
 	<key>CFBundleGetInfoString</key>
@@ -1096,6 +1391,23 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>@VERSION@</string>
+    <key>LSArchitecturePriority</key>
+	<array>
+		<string>x86_64</string>
+		<string>i386</string>
+		<string>ppc</string>
+	</array>
+	<key>LSMinimumSystemVersionByArchitecture</key>
+	<dict>
+		<key>i386</key>
+		<string>10.5.0</string>
+		<key>x86_64</key>
+		<string>10.6.0</string>
+		<key>ppc</key>
+		<string>10.5.0</string>
+		<key>ppc64</key>
+		<string>10.5.0</string>
+	</dict>
 	<key>NSAppleScriptEnabled</key>
 	<string>YES</string>
 	<key>NSMainNibFile</key>
@@ -1104,5 +1416,9 @@
 	<string>VLCApplication</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>10.5.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
 </dict>
 </plist>

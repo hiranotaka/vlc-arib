@@ -1,25 +1,25 @@
 /*****************************************************************************
  * control.c : Handle control of the playlist & running through it
  *****************************************************************************
- * Copyright (C) 1999-2004 the VideoLAN team
+ * Copyright (C) 1999-2004 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Samuel Hocevar <sam@zoy.org>
  *          Clément Stenac <zorglub@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -39,31 +39,37 @@ static int PlaylistVAControl( playlist_t * p_playlist, int i_query, va_list args
  * Playlist control
  *****************************************************************************/
 
-playlist_t *__pl_Hold( vlc_object_t *p_this )
+static vlc_mutex_t global_lock = VLC_STATIC_MUTEX;
+
+#undef pl_Get
+playlist_t *pl_Get (vlc_object_t *obj)
 {
     playlist_t *pl;
+    libvlc_int_t *p_libvlc = obj->p_libvlc;
 
-    barrier();
-    pl = libvlc_priv (p_this->p_libvlc)->p_playlist;
+    vlc_mutex_lock (&global_lock);
+    pl = libvlc_priv (p_libvlc)->p_playlist;
+    assert (pl != NULL);
 
-    assert( VLC_OBJECT(pl) != p_this /* This does not make sense to hold the playlist
-    using pl_Hold. use vlc_object_hold in this case */ );
-
-    if (pl)
-        vlc_object_hold (pl);
+    if (!libvlc_priv (p_libvlc)->playlist_active)
+    {
+         playlist_Activate (pl);
+         libvlc_priv (p_libvlc)->playlist_active = true;
+    }
+    vlc_mutex_unlock (&global_lock);
     return pl;
 }
 
-void __pl_Release( vlc_object_t *p_this )
+void pl_Deactivate (libvlc_int_t *p_libvlc)
 {
-    playlist_t *pl = libvlc_priv (p_this->p_libvlc)->p_playlist;
-    assert( pl != NULL );
+    bool deactivate;
 
-    /* The rule is that pl_Release() should act on
-       the same object than pl_Hold() */
-    assert( VLC_OBJECT(pl) != p_this);
+    vlc_mutex_lock (&global_lock);
+    deactivate = libvlc_priv (p_libvlc)->playlist_active;
+    vlc_mutex_unlock (&global_lock);
 
-    vlc_object_release( pl );
+    if (deactivate)
+        playlist_Deactivate (libvlc_priv (p_libvlc)->p_playlist);
 }
 
 void playlist_Lock( playlist_t *pl )
@@ -101,7 +107,7 @@ static int PlaylistVAControl( playlist_t * p_playlist, int i_query, va_list args
 
     PL_ASSERT_LOCKED;
 
-    if( !vlc_object_alive( p_playlist ) )
+    if( pl_priv(p_playlist)->killed )
         return VLC_EGENERIC;
 
     if( playlist_IsEmpty( p_playlist ) && i_query != PLAYLIST_STOP )
@@ -152,9 +158,10 @@ static int PlaylistVAControl( playlist_t * p_playlist, int i_query, va_list args
 
     case PLAYLIST_PAUSE:
         if( !pl_priv(p_playlist)->p_input )
-        {    /* FIXME: is this really useful without input? */
-             pl_priv(p_playlist)->status.i_status = PLAYLIST_PAUSED;
-             break;
+        {   /* FIXME: is this really useful without input? */
+            pl_priv(p_playlist)->status.i_status = PLAYLIST_PAUSED;
+            /* return without notifying the playlist thread as there is nothing to do */
+            return VLC_SUCCESS;
         }
 
         if( var_GetInteger( pl_priv(p_playlist)->p_input, "state" ) == PAUSE_S )
@@ -192,29 +199,23 @@ static int PlaylistVAControl( playlist_t * p_playlist, int i_query, va_list args
  * Preparse control
  *****************************************************************************/
 /** Enqueue an item for preparsing */
-int playlist_PreparseEnqueue( playlist_t *p_playlist,
-                              input_item_t *p_item, bool b_locked )
+int playlist_PreparseEnqueue( playlist_t *p_playlist, input_item_t *p_item )
 {
     playlist_private_t *p_sys = pl_priv(p_playlist);
 
-    PL_LOCK_IF( !b_locked );
-    if( p_sys->p_preparser )
-        playlist_preparser_Push( p_sys->p_preparser, p_item );
-    PL_UNLOCK_IF( !b_locked );
-
+    if( unlikely(p_sys->p_preparser == NULL) )
+        return VLC_ENOMEM;
+    playlist_preparser_Push( p_sys->p_preparser, p_item );
     return VLC_SUCCESS;
 }
 
-int playlist_AskForArtEnqueue( playlist_t *p_playlist,
-                               input_item_t *p_item, bool b_locked )
+int playlist_AskForArtEnqueue( playlist_t *p_playlist, input_item_t *p_item )
 {
     playlist_private_t *p_sys = pl_priv(p_playlist);
 
-    PL_LOCK_IF( !b_locked );
-    if( p_sys->p_fetcher )
-        playlist_fetcher_Push( p_sys->p_fetcher, p_item );
-    PL_UNLOCK_IF( !b_locked );
-
+    if( unlikely(p_sys->p_fetcher == NULL) )
+        return VLC_ENOMEM;
+    playlist_fetcher_Push( p_sys->p_fetcher, p_item );
     return VLC_SUCCESS;
 }
 

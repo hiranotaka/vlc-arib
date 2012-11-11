@@ -34,7 +34,7 @@
 #include <assert.h>
 #include <vlc_stream.h>
 #include <vlc_input.h>
-#include <vlc_charset.h>
+#include <vlc_fs.h>
 
 
 /*****************************************************************************
@@ -191,12 +191,16 @@ static int Start( stream_t *s, const char *psz_extension )
     if( !psz_file )
         return VLC_ENOMEM;
 
-    f = utf8_fopen( psz_file, "wb" );
+    f = vlc_fopen( psz_file, "wb" );
     if( !f )
     {
         free( psz_file );
         return VLC_EGENERIC;
     }
+
+    /* signal new record file */
+    var_SetString( s->p_libvlc, "record-file", psz_file );
+
     msg_Dbg( s, "Recording into %s", psz_file );
     free( psz_file );
 

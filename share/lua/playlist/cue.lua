@@ -25,9 +25,9 @@ function probe()
 		return false
 	end
 	header = vlc.peek( 2048 )
-	return string.match( header, "FILE.*WAVE%s[\r\n]+" ) or
-	       string.match( header, "FILE.*AIFF%s[\r\n]+" ) or
-	       string.match( header, "FILE.*MP3%s[\r\n]+" )
+	return string.match( header, "FILE.*WAVE%s*[\r\n]+" ) or
+	       string.match( header, "FILE.*AIFF%s*[\r\n]+" ) or
+	       string.match( header, "FILE.*MP3%s*[\r\n]+" )
 end
 
 -- Helpers
@@ -43,15 +43,14 @@ function cue_path( src )
 	if( string.match( src, "^/" ) or
 		string.match( src, "^\\" ) or
 		string.match( src, "^[%l%u]:\\" ) ) then
-		return src
+		return vlc.strings.make_uri(src)
 	end
 
-	local path = string.gsub( vlc.path, '\\', '/' )
-	local slash = string.find( string.reverse( path ), '/' )
-	if( path == nil ) then
-		return src
-	end
-	return string.sub( path, 1, -slash-1 ) .. '/' .. src
+	local slash = string.find( string.reverse( vlc.path ), '/' )
+        local prefix = vlc.access .. "://" .. string.sub( vlc.path, 1, -slash )
+        -- FIXME: postfix may not be encoded correctly (esp. slashes)
+        local postfix = vlc.strings.encode_uri_component(src)
+	return prefix .. postfix
 end
 
 function cue_track( global, track )
@@ -66,6 +65,7 @@ function cue_track( global, track )
 	t.artist = track.performer or global.performer
 	t.genre = track.genre or global.genre
 	t.date = track.date or global.date
+	t.description = global.comment
 	t.tracknum = track.num
 	t.options = { ":start-time=" .. math.floor(track.index01) }
 
@@ -103,6 +103,8 @@ function parse()
 				data.genre = cue_string( value )
 			elseif( subcmd == "DATE" and value ) then
 				data.date = cue_string( value )
+			elseif( subcmd == "COMMENT" and value ) then
+				data.comment = cue_string( value )
 			end
 		elseif( cmd == "PERFORMER" and arg ) then
 			data.performer = cue_string( arg )

@@ -75,28 +75,28 @@ vlc_module_begin ()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_DEMUX )
 
-    add_bool( "mod-noisereduction", true, NULL, N_("Noise reduction"),
+    add_bool( "mod-noisereduction", true, N_("Noise reduction"),
               NOISE_LONGTEXT, false )
 
-    add_bool( "mod-reverb", false, NULL, N_("Reverb"),
+    add_bool( "mod-reverb", false, N_("Reverb"),
               REVERB_LONGTEXT, false )
-    add_integer_with_range( "mod-reverb-level", 0, 0, 100, NULL,
+    add_integer_with_range( "mod-reverb-level", 0, 0, 100,
              N_("Reverberation level"), REVERB_LEVEL_LONGTEXT, true )
-    add_integer_with_range( "mod-reverb-delay", 40, 0, 1000, NULL,
+    add_integer_with_range( "mod-reverb-delay", 40, 0, 1000,
              N_("Reverberation delay"), REVERB_DELAY_LONGTEXT, true )
 
-    add_bool( "mod-megabass", false, NULL, N_("Mega bass"),
+    add_bool( "mod-megabass", false, N_("Mega bass"),
                     MEGABASS_LONGTEXT, false )
-    add_integer_with_range( "mod-megabass-level", 0, 0, 100, NULL,
+    add_integer_with_range( "mod-megabass-level", 0, 0, 100,
               N_("Mega bass level"), MEGABASS_LEVEL_LONGTEXT, true )
-    add_integer_with_range( "mod-megabass-range", 10, 10, 100, NULL,
+    add_integer_with_range( "mod-megabass-range", 10, 10, 100,
               N_("Mega bass cutoff"), MEGABASS_RANGE_LONGTEXT, true )
 
-    add_bool( "mod-surround", false, NULL, N_("Surround"), N_("Surround"),
+    add_bool( "mod-surround", false, N_("Surround"), N_("Surround"),
                false )
-    add_integer_with_range( "mod-surround-level", 0, 0, 100, NULL,
+    add_integer_with_range( "mod-surround-level", 0, 0, 100,
               N_("Surround level"), SURROUND_LEVEL_LONGTEXT, true )
-    add_integer_with_range( "mod-surround-delay", 5, 0, 1000, NULL,
+    add_integer_with_range( "mod-surround-delay", 5, 0, 1000,
               N_("Surround delay (ms)"), SURROUND_DELAY_LONGTEXT, true )
 
     set_callbacks( Open, Close )
@@ -106,6 +106,7 @@ vlc_module_end ()
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
+static vlc_mutex_t libmodplug_lock = VLC_STATIC_MUTEX;
 
 struct demux_sys_t
 {
@@ -125,14 +126,6 @@ static int Control( demux_t *p_demux, int i_query, va_list args );
 
 static int Validate( demux_t *p_demux, const char *psz_ext );
 
-static const char *ppsz_mod_ext[] =
-{
-    "mod", "s3m", "xm",  "it",  "669", "amf", "ams", "dbm", "dmf", "dsm",
-    "far", "mdl", "med", "mtm", "okt", "ptm", "stm", "ult", "umx", "mt2",
-    "psm", "abc", NULL
-};
-
-
 /* We load the complete file in memory, put a higher bound
  * of 500 Mo (which is really big anyway) */
 #define MOD_MAX_FILE_SIZE (500*1000*1000)
@@ -149,26 +142,16 @@ static int Open( vlc_object_t *p_this )
     /* We accept file based on extension match */
     if( !p_demux->b_force )
     {
-        const char *psz_ext = strrchr( p_demux->psz_path, '.' );
-        int i;
+        const char *psz_ext = p_demux->psz_file ? strrchr( p_demux->psz_file, '.' )
+                                                : NULL;
+        if( psz_ext )
+            psz_ext++;
 
-        if( !psz_ext )
-            return VLC_EGENERIC;
-
-        psz_ext++;  /* skip . */
-        for( i = 0; ppsz_mod_ext[i] != NULL; i++ )
+        if( Validate( p_demux, psz_ext ) )
         {
-            if( !strcasecmp( psz_ext, ppsz_mod_ext[i] ) )
-                break;
-        }
-        if( ppsz_mod_ext[i] == NULL )
-            return VLC_EGENERIC;
-        if( Validate( p_demux, ppsz_mod_ext[i] ) )
-        {
-            msg_Warn( p_demux, "MOD validation failed (ext=%s)", ppsz_mod_ext[i]);
+            msg_Dbg( p_demux, "MOD validation failed (ext=%s)", psz_ext ? psz_ext : "");
             return VLC_EGENERIC;
         }
-        msg_Dbg( p_demux, "running MOD demuxer (ext=%s)", ppsz_mod_ext[i] );
     }
 
     const int64_t i_size = stream_Size( p_demux->s );
@@ -196,6 +179,7 @@ static int Open( vlc_object_t *p_this )
     }
 
     /* Configure modplug before loading the file */
+    vlc_mutex_lock( &libmodplug_lock );
     ModPlug_GetSettings( &settings );
     settings.mFlags = MODPLUG_ENABLE_OVERSAMPLING;
     settings.mChannels = 2;
@@ -203,27 +187,30 @@ static int Open( vlc_object_t *p_this )
     settings.mFrequency = 44100;
     settings.mResamplingMode = MODPLUG_RESAMPLE_FIR;
 
-    if( var_CreateGetBool( p_demux, "mod-noisereduction" ) )
+    if( var_InheritBool( p_demux, "mod-noisereduction" ) )
         settings.mFlags |= MODPLUG_ENABLE_NOISE_REDUCTION;
 
-    if( var_CreateGetBool( p_demux, "mod-reverb" ) )
+    if( var_InheritBool( p_demux, "mod-reverb" ) )
         settings.mFlags |= MODPLUG_ENABLE_REVERB;
-    settings.mReverbDepth = var_CreateGetInteger( p_demux, "mod-reverb-level" );
-    settings.mReverbDelay = var_CreateGetInteger( p_demux, "mod-reverb-delay" );
+    settings.mReverbDepth = var_InheritInteger( p_demux, "mod-reverb-level" );
+    settings.mReverbDelay = var_InheritInteger( p_demux, "mod-reverb-delay" );
 
-    if( var_CreateGetBool( p_demux, "mod-megabass" ) )
+    if( var_InheritBool( p_demux, "mod-megabass" ) )
         settings.mFlags |= MODPLUG_ENABLE_MEGABASS;
-    settings.mBassAmount = var_CreateGetInteger( p_demux, "mod-megabass-level" );
-    settings.mBassRange = var_CreateGetInteger( p_demux, "mod-megabass-range" );
+    settings.mBassAmount = var_InheritInteger( p_demux, "mod-megabass-level" );
+    settings.mBassRange = var_InheritInteger( p_demux, "mod-megabass-range" );
 
-    if( var_CreateGetBool( p_demux, "mod-surround" ) )
+    if( var_InheritBool( p_demux, "mod-surround" ) )
         settings.mFlags |= MODPLUG_ENABLE_SURROUND;
-    settings.mSurroundDepth = var_CreateGetInteger( p_demux, "mod-surround-level" );
-    settings.mSurroundDelay = var_CreateGetInteger( p_demux, "mod-surround-delay" );
+    settings.mSurroundDepth = var_InheritInteger( p_demux, "mod-surround-level" );
+    settings.mSurroundDelay = var_InheritInteger( p_demux, "mod-surround-delay" );
 
     ModPlug_SetSettings( &settings );
 
-    if( ( p_sys->f = ModPlug_Load( p_sys->p_data, p_sys->i_data ) ) == NULL )
+    p_sys->f = ModPlug_Load( p_sys->p_data, p_sys->i_data );
+    vlc_mutex_unlock( &libmodplug_lock );
+
+    if( !p_sys->f )
     {
         msg_Err( p_demux, "failed to understand the file" );
         /* we try to seek to recover for other plugin */
@@ -235,7 +222,7 @@ static int Open( vlc_object_t *p_this )
 
     /* init time */
     date_Init( &p_sys->pts, settings.mFrequency, 1 );
-    date_Set( &p_sys->pts, 1 );
+    date_Set( &p_sys->pts, 0 );
     p_sys->i_length = ModPlug_GetLength( p_sys->f ) * INT64_C(1000);
 
     msg_Dbg( p_demux, "MOD loaded name=%s lenght=%"PRId64"ms",
@@ -292,13 +279,15 @@ static int Demux( demux_t *p_demux )
     }
     p_frame->i_buffer = i_read;
     p_frame->i_dts =
-    p_frame->i_pts = date_Increment( &p_sys->pts, p_frame->i_buffer / i_bk );
+    p_frame->i_pts = VLC_TS_0 + date_Get( &p_sys->pts );
 
     /* Set PCR */
     es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_frame->i_pts );
 
     /* Send data */
     es_out_Send( p_demux->out, p_sys->es, p_frame );
+
+    date_Increment( &p_sys->pts, i_read / i_bk );
 
     return 1;
 }
@@ -332,7 +321,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         if( i64 >= 0 && i64 <= p_sys->i_length )
         {
             ModPlug_Seek( p_sys->f, i64 / 1000 );
-            date_Set( &p_sys->pts, i64 + 1 );
+            date_Set( &p_sys->pts, i64 );
 
             return VLC_SUCCESS;
         }
@@ -354,7 +343,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         if( i64 >= 0 && i64 <= p_sys->i_length )
         {
             ModPlug_Seek( p_sys->f, i64 / 1000 );
-            date_Set( &p_sys->pts, i64 + 1 );
+            date_Set( &p_sys->pts, i64 );
 
             return VLC_SUCCESS;
         }
@@ -458,7 +447,6 @@ static int Validate( demux_t *p_demux, const char *psz_ext )
         {  0, "Extended Module" },      /* XM */
         { 44, "SCRM" },                 /* S3M */
         {  0, "IMPM" },                 /* IT */
-        {  0, "MThd" },                 /* MID */
         {  0, "GF1PATCH110" },          /* PAT */
         { 20, "!SCREAM!" },             /* STM */
         { 20, "!Scream!" },             /* STM */
@@ -494,6 +482,10 @@ static int Validate( demux_t *p_demux, const char *psz_ext )
         { 1080, "OKTA" },
         { 1080, "16CN" },
         { 1080, "32CN" },
+        { 1080, "FLT4" },
+        { 1080, "FLT8" },
+        { 1080, "6CHN" },
+        { 1080, "8CHN" },
         { 1080, "FLT" },
         { 1080, "TDZ" },
         { 1081, "CHN" },
@@ -501,6 +493,22 @@ static int Validate( demux_t *p_demux, const char *psz_ext )
 
         {  -1, NULL }
     };
+    static const char *ppsz_mod_ext[] =
+    {
+        "mod", "s3m", "xm",  "it",  "669", "amf", "ams", "dbm", "dmf", "dsm",
+        "far", "mdl", "med", "mtm", "okt", "ptm", "stm", "ult", "umx", "mt2",
+        "psm", "abc", NULL
+    };
+    bool has_valid_extension = false;
+    if( psz_ext )
+    {
+        for( int i = 0; ppsz_mod_ext[i] != NULL; i++ )
+        {
+            has_valid_extension |= !strcasecmp( psz_ext, ppsz_mod_ext[i] );
+            if( has_valid_extension )
+                break;
+        }
+    }
 
     const uint8_t *p_peek;
     const int i_peek = stream_Peek( p_demux->s, &p_peek, 2048 );
@@ -517,7 +525,10 @@ static int Validate( demux_t *p_demux, const char *psz_ext )
             continue;
 
         if( !memcmp( &p_peek[i_offset], psz_marker, i_size ) )
-            return VLC_SUCCESS;
+        {
+            if( i_size >= 4 || has_valid_extension )
+                return VLC_SUCCESS;
+        }
     }
 
     /* The only two format left untested are ABC and MOD(old version)
@@ -525,7 +536,7 @@ static int Validate( demux_t *p_demux, const char *psz_ext )
 
     /* Check for ABC
      * TODO i_peek = 2048 is too big for such files */
-    if( !strcasecmp( psz_ext, "abc" ) )
+    if( psz_ext && !strcasecmp( psz_ext, "abc" ) )
     {
         bool b_k = false;
         bool b_tx = false;
@@ -541,7 +552,7 @@ static int Validate( demux_t *p_demux, const char *psz_ext )
     }
 
     /* Check for MOD */
-    if( !strcasecmp( psz_ext, "mod" ) && i_peek >= 20 + 15 * 30 )
+    if( psz_ext && !strcasecmp( psz_ext, "mod" ) && i_peek >= 20 + 15 * 30 )
     {
         /* Check that the name is correctly null padded */
         const uint8_t *p = memchr( p_peek, '\0', 20 );

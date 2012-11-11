@@ -46,7 +46,7 @@ static block_t *DoWork( filter_t *, block_t * );
  *****************************************************************************/
 vlc_module_begin ()
     set_description( N_("Audio filter for trivial channel mixing") )
-    set_capability( "audio filter2", 1 )
+    set_capability( "audio converter", 1 )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_MISC )
     set_callbacks( Create, NULL )
@@ -65,8 +65,7 @@ static int Create( vlc_object_t *p_this )
                == p_filter->fmt_out.audio.i_original_channels)
           || p_filter->fmt_in.audio.i_format != p_filter->fmt_out.audio.i_format
           || p_filter->fmt_in.audio.i_rate != p_filter->fmt_out.audio.i_rate
-          || (p_filter->fmt_in.audio.i_format != VLC_CODEC_FL32
-               && p_filter->fmt_in.audio.i_format != VLC_CODEC_FI32) )
+          || p_filter->fmt_in.audio.i_format != VLC_CODEC_FL32 )
     {
         return VLC_EGENERIC;
     }
@@ -78,7 +77,7 @@ static int Create( vlc_object_t *p_this )
 /*****************************************************************************
  * SparseCopy: trivially downmix or upmix a buffer
  *****************************************************************************/
-static void SparseCopy( int32_t * p_dest, const int32_t * p_src, size_t i_len,
+static void SparseCopy( float * p_dest, const float * p_src, size_t i_len,
                         int i_output_stride, int i_input_stride )
 {
     int i;
@@ -115,10 +114,13 @@ static block_t *DoWork( filter_t * p_filter, block_t * p_in_buf )
         if( !p_out_buf )
             goto out;
         p_out_buf->i_nb_samples = p_in_buf->i_nb_samples;
+        p_out_buf->i_dts        = p_in_buf->i_dts;
+        p_out_buf->i_pts        = p_in_buf->i_pts;
+        p_out_buf->i_length     = p_in_buf->i_length;
     }
 
-    int32_t * p_dest = (int32_t *)p_out_buf->p_buffer;
-    const int32_t * p_src = (int32_t *)p_in_buf->p_buffer;
+    float * p_dest = (float *)p_out_buf->p_buffer;
+    const float * p_src = (float *)p_in_buf->p_buffer;
 
     if ( (p_filter->fmt_out.audio.i_original_channels & AOUT_CHAN_PHYSMASK)
                 != (p_filter->fmt_in.audio.i_original_channels & AOUT_CHAN_PHYSMASK)
@@ -161,10 +163,11 @@ static block_t *DoWork( filter_t * p_filter, block_t * p_in_buf )
         int i;
         for ( i = p_in_buf->i_nb_samples; i--; )
         {
-            *p_dest = p_src[1];
-            p_dest++;
-            *p_dest = p_src[0];
-            p_dest++;
+            float i_tmp = p_src[0];
+            p_dest[0] = p_src[1];
+            p_dest[1] = i_tmp;
+
+            p_dest += 2;
             p_src += 2;
         }
     }

@@ -34,18 +34,21 @@
 #include <QString>
 #include <QFileDialog>
 #include <QToolButton>
+#include <QSpinBox>
 #include <assert.h>
 
 SoutDialog::SoutDialog( QWidget *parent, intf_thread_t *_p_intf, const QString& inputMRL )
-           : QVLCDialog( parent,  _p_intf )
+           : QWizard( parent )
 {
+    p_intf = _p_intf;
+
     setWindowTitle( qtr( "Stream Output" ) );
     setWindowRole( "vlc-stream-output" );
 
     /* UI stuff */
     ui.setupUi( this );
     ui.inputBox->setMRL( inputMRL );
-    ui.helpEdit->setPlainText( qtr("This dialog will allow you to stream or "
+    ui.helpEdit->setPlainText( qtr("This wizard will allow you to stream or "
             "convert your media for use locally, on your private network, "
             "or on the Internet.\n"
             "You should start by checking that source matches what you want "
@@ -57,25 +60,19 @@ SoutDialog::SoutDialog( QWidget *parent, intf_thread_t *_p_intf, const QString& 
                  "when you change the above settings,\n"
                  "but you can change it manually." ) ) ;
 
-#if 0
-    /* This needs Qt4.5 to be cool */
     ui.destTab->setTabsClosable( true );
-#else
-    closeTabButton = new QToolButton( this );
-    ui.destTab->setCornerWidget( closeTabButton );
-    closeTabButton->hide();
-    closeTabButton->setAutoRaise( true );
-    closeTabButton->setIcon( QIcon( ":/toolbar/clear" ) );
-    BUTTONACT( closeTabButton, closeTab() );
-#endif
-    CONNECT( ui.destTab, currentChanged( int ), this, tabChanged( int ) );
+    QTabBar* tb = ui.destTab->findChild<QTabBar*>();
+    if( tb != NULL ) tb->tabButton(0, QTabBar::RightSide)->hide();
+    CONNECT( ui.destTab, tabCloseRequested( int ), this, closeTab( int ) );
     ui.destTab->setTabIcon( 0, QIcon( ":/buttons/playlist/playlist_add" ) );
 
     ui.destBox->addItem( qtr( "File" ) );
     ui.destBox->addItem( "HTTP" );
-    ui.destBox->addItem( "MMS" );
-    ui.destBox->addItem( "UDP" );
-    ui.destBox->addItem( "RTP" );
+    ui.destBox->addItem( "MS-WMSP (MMSH)" );
+    ui.destBox->addItem( "RTSP" );
+    ui.destBox->addItem( "RTP / MPEG Transport Stream" );
+    ui.destBox->addItem( "RTP Audio/Video Profile" );
+    ui.destBox->addItem( "UDP (legacy)" );
     ui.destBox->addItem( "IceCast" );
 
     BUTTONACT( ui.addButton, addDest() );
@@ -87,24 +84,11 @@ SoutDialog::SoutDialog( QWidget *parent, intf_thread_t *_p_intf, const QString& 
 #define CC( x ) CONNECT( ui.x, currentIndexChanged( int ), this, updateMRL() );
 
     /* Misc */
-    CB( soutAll ); CB( soutKeep );  CS( ttl ); CT( sapName ); CT( sapGroup );
-    CB( localOutput );
+    CB( soutAll );
+    CB( localOutput ); CB( transcodeBox );
     CONNECT( ui.profileSelect, optionsChanged(), this, updateMRL() );
 
-    okButton = new QPushButton( qtr( "&Stream" ) );
-    QPushButton *cancelButton = new QPushButton( qtr( "&Cancel" ) );
-
-    okButton->setDefault( true );
-    ui.acceptButtonBox->addButton( okButton, QDialogButtonBox::AcceptRole );
-    ui.acceptButtonBox->addButton( cancelButton, QDialogButtonBox::RejectRole );
-
-    BUTTONACT( okButton, ok() );
-    BUTTONACT( cancelButton, cancel() );
-
-    BUTTONACT( ui.nextButton, next() );
-    BUTTONACT( ui.nextButton2, next() );
-    BUTTONACT( ui.prevButton, prev() );
-    BUTTONACT( ui.prevButton2, prev() );
+    setButtonText( QWizard::FinishButton, "Stream" );
 
 #undef CC
 #undef CS
@@ -112,27 +96,11 @@ SoutDialog::SoutDialog( QWidget *parent, intf_thread_t *_p_intf, const QString& 
 #undef CB
 }
 
-void SoutDialog::next()
+void SoutDialog::closeTab( int i )
 {
-    ui.toolBox->setCurrentIndex( ui.toolBox->currentIndex() + 1 );
-}
-
-void SoutDialog::prev()
-{
-    ui.toolBox->setCurrentIndex( ui.toolBox->currentIndex() - 1 );
-}
-
-void SoutDialog::tabChanged( int i )
-{
-    closeTabButton->setVisible( (i != 0) );
-}
-
-void SoutDialog::closeTab()
-{
-    int i = ui.destTab->currentIndex();
     if( i == 0 ) return;
 
-    QWidget *temp = ui.destTab->currentWidget();
+    QWidget* temp = ui.destTab->widget( i );
     ui.destTab->removeTab( i );
     delete temp;
     updateMRL();
@@ -140,55 +108,49 @@ void SoutDialog::closeTab()
 
 void SoutDialog::addDest( )
 {
-    int index;
+    VirtualDestBox *db;
+    QString caption;
+
     switch( ui.destBox->currentIndex() )
     {
         case 0:
-            {
-                FileDestBox *fdb = new FileDestBox( this );
-                index = ui.destTab->addTab( fdb, "File" );
-                CONNECT( fdb, mrlUpdated(), this, updateMRL() );
-            }
+            db = new FileDestBox( this );
+            caption = qtr( "File" );
             break;
         case 1:
-            {
-                HTTPDestBox *hdb = new HTTPDestBox( this );
-                index = ui.destTab->addTab( hdb, "HTTP" );
-                CONNECT( hdb, mrlUpdated(), this, updateMRL() );
-            }
+            db = new HTTPDestBox( this );
+            caption = qfu( "HTTP" );
             break;
         case 2:
-            {
-                MMSHDestBox *mdb = new MMSHDestBox( this );
-                index = ui.destTab->addTab( mdb, "MMSH" );
-                CONNECT( mdb, mrlUpdated(), this, updateMRL() );
-            }
+            db = new MMSHDestBox( this );
+            caption = qfu( "WMSP" );
             break;
         case 3:
-            {
-                UDPDestBox *udb = new UDPDestBox( this );
-                index = ui.destTab->addTab( udb, "UDP" );
-                CONNECT( udb, mrlUpdated(), this, updateMRL() );
-            }
+            db = new RTSPDestBox( this );
+            caption = qfu( "RTSP" );
             break;
         case 4:
-            {
-                RTPDestBox *rdb = new RTPDestBox( this );
-                index = ui.destTab->addTab( rdb, "RTP" );
-                CONNECT( rdb, mrlUpdated(), this, updateMRL() );
-            }
+            db = new RTPDestBox( this, "ts" );
+            caption = "RTP/TS";
             break;
         case 5:
-            {
-                ICEDestBox *idb = new ICEDestBox( this );
-                index = ui.destTab->addTab( idb, "Icecast" );
-                CONNECT( idb, mrlUpdated(), this, updateMRL() );
-            }
+            db = new RTPDestBox( this );
+            caption = "RTP/AVP";
+            break;
+        case 6:
+            db = new UDPDestBox( this );
+            caption = "UDP";
+            break;
+        case 7:
+            db = new ICEDestBox( this );
+            caption = "Icecast";
             break;
         default:
             assert(0);
     }
 
+    int index = ui.destTab->addTab( db, caption );
+    CONNECT( db, mrlUpdated(), this, updateMRL() );
     ui.destTab->setCurrentIndex( index );
     updateMRL();
 }
@@ -228,9 +190,12 @@ void SoutDialog::updateMRL()
     for( int i = 1; i < ui.destTab->count(); i++ )
     {
         VirtualDestBox *vdb = qobject_cast<VirtualDestBox *>(ui.destTab->widget( i ));
-        QString tempMRL = vdb->getMRL( qs_mux );
+        if( !vdb )
+            continue;
 
+        QString tempMRL = vdb->getMRL( qs_mux );
         if( tempMRL.isEmpty() ) continue;
+
         if( multi )
             smrl.option( "dst", tempMRL );
         else
@@ -254,14 +219,9 @@ void SoutDialog::updateMRL()
 
     mrl = smrl.getMrl();
 
-    /* FIXME, deal with SAP
-    sout.b_sap = ui.sap->isChecked();
-    sout.psz_group = strdup( qtu( ui.sapGroup->text() ) );
-    sout.psz_name = strdup( qtu( ui.sapName->text() ) ); */
+    if( ui.soutAll->isChecked() ) mrl.append( " :sout-all" );
 
-    if( ui.soutAll->isChecked() )  mrl.append( " :sout-all" );
-
-    if( ui.soutKeep->isChecked() ) mrl.append( " :sout-keep" );
+    mrl.append( " :sout-keep" );
 
     ui.mrlEdit->setPlainText( mrl );
 }

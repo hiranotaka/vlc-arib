@@ -84,7 +84,7 @@ static int Open( vlc_object_t *p_this )
     es_format_t  fmt;
     const uint8_t *p_peek;
 
-    if( stream_Peek( p_demux->s, &p_peek, 5 ) < 5 ) return VLC_EGENERIC;
+    if( stream_Peek( p_demux->s, &p_peek, 8 ) < 8 ) return VLC_EGENERIC;
     if( p_peek[0] != 'A' || p_peek[1] != 'V' || p_peek[4] != 0x55 )
     {
         /* In case we had forced this demuxer we try to resynch */
@@ -92,16 +92,22 @@ static int Open( vlc_object_t *p_this )
             return VLC_EGENERIC;
     }
 
+    p_sys = malloc( sizeof( demux_sys_t ) );
+    if( unlikely(p_sys == NULL) )
+        return VLC_ENOMEM;
+
     /* Fill p_demux field */
     p_demux->pf_demux = Demux;
     p_demux->pf_control = Control;
-    p_demux->p_sys = p_sys = malloc( sizeof( demux_sys_t ) );
+    p_demux->p_sys = p_sys;
 
     /* Register one audio and one video stream */
     es_format_Init( &fmt, AUDIO_ES, VLC_CODEC_MPGA );
+    fmt.b_packetized = false;
     p_sys->p_audio = es_out_Add( p_demux->out, &fmt );
 
     es_format_Init( &fmt, VIDEO_ES, VLC_CODEC_MPGV );
+    fmt.b_packetized = false;
     p_sys->p_video = es_out_Add( p_demux->out, &fmt );
 
     p_sys->i_vc    = -1;
@@ -131,6 +137,8 @@ static void Close( vlc_object_t *p_this )
 
 /*****************************************************************************
  * Demux:
+ *****************************************************************************
+ * See http://multimedia.cx/mirror/av_format_v1.pdf
  *****************************************************************************/
 static int Demux( demux_t *p_demux )
 {
@@ -207,7 +215,7 @@ static int Demux( demux_t *p_demux )
                 if( ( p_frame = p_sys->p_es ) )
                 {
 
-                    if( p_frame->i_pts > 0 && !p_sys->b_pcr_audio )
+                    if( p_frame->i_pts > VLC_TS_INVALID && !p_sys->b_pcr_audio )
                     {
                         es_out_Control( p_demux->out, ES_OUT_SET_PCR, (int64_t)p_frame->i_pts);
                     }
@@ -221,7 +229,8 @@ static int Demux( demux_t *p_demux )
             {
                 p_frame->p_buffer += i_skip;
                 p_frame->i_buffer -= i_skip;
-                if( i_pts > 0 ) p_frame->i_pts = i_pts * 100 / 9;
+                if( i_pts >= 0 )
+                    p_frame->i_pts = VLC_TS_0 + i_pts * 100 / 9;
                 block_ChainAppend( &p_sys->p_es, p_frame );
             }
             break;
@@ -251,7 +260,7 @@ static int Demux( demux_t *p_demux )
                 p_frame->p_buffer += 8;
                 p_frame->i_buffer -= 8;
                 /* XXX this a hack, some streams aren't compliant and
-                 * doesn't set pes_start flag */
+                 * don't set pes_start flag */
                 if( p_sys->p_pes && p_frame->i_buffer > 4 &&
                     p_frame->p_buffer[0] == 0x00 &&
                     p_frame->p_buffer[1] == 0x00 &&
@@ -377,7 +386,6 @@ static void ParsePES( demux_t *p_demux )
     demux_sys_t *p_sys = p_demux->p_sys;
     block_t     *p_pes = p_sys->p_pes;
     uint8_t     hdr[30];
-    int         i_pes_size;
 
     unsigned    i_skip;
     mtime_t     i_dts = -1;
@@ -388,6 +396,7 @@ static void ParsePES( demux_t *p_demux )
     /* FIXME find real max size */
     block_ChainExtract( p_pes, hdr, 30 );
 
+    /* See §2.4.3.6 of ISO 13818-1 */
     if( hdr[0] != 0 || hdr[1] != 0 || hdr[2] != 1 )
     {
         msg_Warn( p_demux, "invalid hdr [0x%2.2x:%2.2x:%2.2x:%2.2x]",
@@ -395,7 +404,8 @@ static void ParsePES( demux_t *p_demux )
         block_ChainRelease( p_pes );
         return;
     }
-    i_pes_size = GetWBE( &hdr[4] );
+    // hdr[4] i_pes_size, 2 bytes
+    // hdr[6] Marker -> original_or_copy
 
     /* we assume mpeg2 PES */
     i_skip = hdr[8] + 9;
@@ -427,8 +437,10 @@ static void ParsePES( demux_t *p_demux )
     p_pes->i_buffer -= i_skip;
     p_pes->p_buffer += i_skip;
 
-    if( i_dts >= 0 ) p_pes->i_dts = i_dts * 100 / 9;
-    if( i_pts >= 0 ) p_pes->i_pts = i_pts * 100 / 9;
+    if( i_dts >= 0 )
+        p_pes->i_dts = VLC_TS_0 + i_dts * 100 / 9;
+    if( i_pts >= 0 )
+        p_pes->i_pts = VLC_TS_0 + i_pts * 100 / 9;
 
     /* Set PCR */
     if( p_pes->i_pts > 0 )

@@ -23,6 +23,84 @@
 
 #include "test.h"
 
+static void wait_playing(libvlc_media_player_t *mp)
+{
+    libvlc_state_t state;
+    do {
+        state = libvlc_media_player_get_state (mp);
+    } while(state != libvlc_Playing &&
+            state != libvlc_Error &&
+            state != libvlc_Ended );
+
+    state = libvlc_media_player_get_state (mp);
+    assert(state == libvlc_Playing || state == libvlc_Ended);
+}
+
+static void wait_paused(libvlc_media_player_t *mp)
+{
+    libvlc_state_t state;
+    do {
+        state = libvlc_media_player_get_state (mp);
+    } while(state != libvlc_Paused &&
+            state != libvlc_Ended );
+
+    state = libvlc_media_player_get_state (mp);
+    assert(state == libvlc_Paused || state == libvlc_Ended);
+}
+
+/* Test a bunch of A/V properties. This most does nothing since the current
+ * test file contains a dummy audio track. This is a smoke test. */
+static void test_audio_video(libvlc_media_player_t *mp)
+{
+    bool fs = libvlc_get_fullscreen(mp);
+    libvlc_set_fullscreen(mp, true);
+    assert(libvlc_get_fullscreen(mp));
+    libvlc_set_fullscreen(mp, false);
+    assert(!libvlc_get_fullscreen(mp));
+    libvlc_toggle_fullscreen(mp);
+    assert(libvlc_get_fullscreen(mp));
+    libvlc_toggle_fullscreen(mp);
+    assert(!libvlc_get_fullscreen(mp));
+    libvlc_set_fullscreen(mp, fs);
+    assert(libvlc_get_fullscreen(mp) == fs);
+
+    assert(libvlc_video_get_scale(mp) == 0.); /* default */
+    libvlc_video_set_scale(mp, 0.); /* no-op */
+    libvlc_video_set_scale(mp, 2.5);
+    assert(libvlc_video_get_scale(mp) == 2.5);
+    libvlc_video_set_scale(mp, 0.);
+    libvlc_video_set_scale(mp, 0.); /* no-op */
+    assert(libvlc_video_get_scale(mp) == 0.);
+}
+
+static void test_media_player_set_media(const char** argv, int argc)
+{
+    const char * file = test_default_sample;
+
+    log ("Testing set_media\n");
+
+    libvlc_instance_t *vlc = libvlc_new (argc, argv);
+    assert (vlc != NULL);
+
+    libvlc_media_t *md = libvlc_media_new_path (vlc, file);
+    assert (md != NULL);
+
+    libvlc_media_player_t *mp = libvlc_media_player_new (vlc);
+    assert (mp != NULL);
+
+    libvlc_media_player_set_media (mp, md);
+
+    libvlc_media_release (md);
+
+    libvlc_media_player_play (mp);
+
+    wait_playing (mp);
+
+    libvlc_media_player_stop (mp);
+    libvlc_media_player_release (mp);
+    libvlc_release (vlc);
+}
+
 static void test_media_player_play_stop(const char** argv, int argc)
 {
     libvlc_instance_t *vlc;
@@ -32,40 +110,24 @@ static void test_media_player_play_stop(const char** argv, int argc)
 
     log ("Testing play and pause of %s\n", file);
 
-    libvlc_exception_init (&ex);
-    vlc = libvlc_new (argc, argv, &ex);
-    catch ();
+    vlc = libvlc_new (argc, argv);
+    assert (vlc != NULL);
 
-    md = libvlc_media_new (vlc, file, &ex);
-    catch ();
+    md = libvlc_media_new_path (vlc, file);
+    assert (md != NULL);
 
-    mi = libvlc_media_player_new_from_media (md, &ex);
-    catch ();
+    mi = libvlc_media_player_new_from_media (md);
+    assert (mi != NULL);
 
     libvlc_media_release (md);
 
-    libvlc_media_player_play (mi, &ex);
-    catch ();
+    libvlc_media_player_play (mi);
 
-    /* Wait a correct state */
-    libvlc_state_t state;
-    do {
-        state = libvlc_media_player_get_state (mi, &ex);
-        catch ();
-    } while( state != libvlc_Playing &&
-             state != libvlc_Error &&
-             state != libvlc_Ended );
+    wait_playing (mi);
 
-    assert( state == libvlc_Playing || state == libvlc_Ended );
-
-    libvlc_media_player_stop (mi, &ex);
-    catch ();
-
+    libvlc_media_player_stop (mi);
     libvlc_media_player_release (mi);
-    catch ();
-
     libvlc_release (vlc);
-    catch ();
 }
 
 static void test_media_player_pause_stop(const char** argv, int argc)
@@ -77,62 +139,34 @@ static void test_media_player_pause_stop(const char** argv, int argc)
 
     log ("Testing pause and stop of %s\n", file);
 
-    libvlc_exception_init (&ex);
-    vlc = libvlc_new (argc, argv, &ex);
-    catch ();
+    vlc = libvlc_new (argc, argv);
+    assert (vlc != NULL);
 
-    md = libvlc_media_new (vlc, file, &ex);
-    catch ();
+    md = libvlc_media_new_path (vlc, file);
+    assert (md != NULL);
 
-    mi = libvlc_media_player_new_from_media (md, &ex);
-    catch ();
+    mi = libvlc_media_player_new_from_media (md);
+    assert (mi != NULL);
 
     libvlc_media_release (md);
 
-    libvlc_media_player_play (mi, &ex);
-    catch ();
+    test_audio_video(mi);
 
+    libvlc_media_player_play (mi);
     log ("Waiting for playing\n");
+    wait_playing (mi);
+    test_audio_video(mi);
 
-    /* Wait a correct state */
-    libvlc_state_t state;
-    do {
-        state = libvlc_media_player_get_state (mi, &ex);
-        catch ();
-    } while( state != libvlc_Playing &&
-             state != libvlc_Error &&
-             state != libvlc_Ended );
-
-    assert( state == libvlc_Playing || state == libvlc_Ended );
-
-#if 0
-    /* This can't work because under some condition (short file, this is the case) this will be
-     * equivalent to a play() */
-    libvlc_media_player_pause (mi, &ex);
-    catch();
-
+    libvlc_media_player_set_pause (mi, true);
     log ("Waiting for pause\n");
+    wait_paused (mi);
+    test_audio_video(mi);
 
-    /* Wait a correct state */
-    do {
-        state = libvlc_media_player_get_state (mi, &ex);
-        catch ();
-    } while( state != libvlc_Paused &&
-            state != libvlc_Error &&
-            state != libvlc_Ended );
-
-    assert( state == libvlc_Paused || state == libvlc_Ended );
-    catch();
-#endif
-    
-    libvlc_media_player_stop (mi, &ex);
-    catch ();
+    libvlc_media_player_stop (mi);
+    test_audio_video(mi);
 
     libvlc_media_player_release (mi);
-    catch ();
-
     libvlc_release (vlc);
-    catch ();
 }
 
 
@@ -140,6 +174,7 @@ int main (void)
 {
     test_init();
 
+    test_media_player_set_media (test_defaults_args, test_defaults_nargs);
     test_media_player_play_stop (test_defaults_args, test_defaults_nargs);
     test_media_player_pause_stop (test_defaults_args, test_defaults_nargs);
 

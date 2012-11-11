@@ -1,29 +1,78 @@
-BASE_SUBDIRS = dummy memcpy notify testsuite playlist stats osd xml
-EXTRA_SUBDIRS = lua
+SOURCES_vod_rtsp = rtsp.c
+SOURCES_audioscrobbler = audioscrobbler.c
+SOURCES_sqlite = sqlite.c
+SOURCES_xml = xml/libxml.c
 
-SUBDIRS = $(BASE_SUBDIRS)
-DIST_SUBDIRS = $(BASE_SUBDIRS) $(EXTRA_SUBDIRS)
+libexport_plugin_la_SOURCES = \
+	playlist/html.c \
+	playlist/m3u.c \
+	playlist/xspf.c \
+	playlist/export.c
+libexport_plugin_la_CFLAGS = $(AM_CFLAGS)
+libexport_plugin_la_LIBADD = $(AM_LIBADD)
+libvlc_LTLIBRARIES += libexport_plugin.la
 
-if BUILD_LUA
-SUBDIRS += lua
+libgnutls_plugin_la_SOURCES = gnutls.c dhparams.h
+libgnutls_plugin_la_CFLAGS = $(AM_CFLAGS) $(GNUTLS_CFLAGS)
+libgnutls_plugin_la_LIBADD = $(AM_LIBADD) $(GNUTLS_LIBS)
+if HAVE_WIN32
+libgnutls_plugin_la_LIBADD += $(SOCKET_LIBS)
+endif
+EXTRA_LTLIBRARIES += libgnutls_plugin.la
+libvlc_LTLIBRARIES += $(LTLIBgnutls)
+
+libinhibit_plugin_la_SOURCES = inhibit.c
+libinhibit_plugin_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS)
+libinhibit_plugin_la_LIBADD = $(AM_LIBADD) $(DBUS_LIBS)
+if HAVE_DBUS
+libvlc_LTLIBRARIES += libinhibit_plugin.la
 endif
 
-SOURCES_screensaver = screensaver.c
-SOURCES_qte_main = qte_main.cpp
-SOURCES_freetype = freetype.c text_renderer.h
-SOURCES_win32text = win32text.c
-SOURCES_quartztext = quartztext.c text_renderer.h
-SOURCES_logger = logger.c
-SOURCES_vod_rtsp = rtsp.c
-SOURCES_gnutls = gnutls.c dhparams.h
-SOURCES_svg = svg.c
-SOURCES_audioscrobbler = audioscrobbler.c
-SOURCES_inhibit = inhibit.c
-SOURCES_xdg_screensaver = xdg-screensaver.c
-SOURCES_osso = osso.c
+libosd_parser_plugin_la_SOURCES = \
+	osd/parser.c osd/osd_menu.c osd/osd_menu.h osd/simple.c osd/xml.c
+libosd_parser_plugin_la_CFLAGS = $(AM_CFLAGS)
+libosd_parser_plugin_la_LIBADD = $(AM_LIBADD)
+if BUILD_OSDMENU
+libvlc_LTLIBRARIES += libosd_parser_plugin.la
+endif
+
+libxdg_screensaver_plugin_la_SOURCES = inhibit/xdg.c
+libxdg_screensaver_plugin_la_CFLAGS = $(AM_CFLAGS)
+libxdg_screensaver_plugin_la_LIBADD = $(AM_LIBADD)
+libxscreensaver_plugin_la_SOURCES = inhibit/xscreensaver.c
+libxscreensaver_plugin_la_CFLAGS = $(AM_CFLAGS)
+libxscreensaver_plugin_la_LIBADD = $(AM_LIBADD)
+if HAVE_XCB
+libvlc_LTLIBRARIES += \
+	libxdg_screensaver_plugin.la \
+	libxscreensaver_plugin.la
+endif
+
+libmce_plugin_la_SOURCES = inhibit/mce.c
+libmce_plugin_la_CFLAGS = $(AM_CLFAGS) $(DBUS_CFLAGS) $(MCE_CFLAGS)
+libmce_plugin_la_LIBADD = $(AM_LIBADD) $(DBUS_LIBS) $(MCE_LIBS)
+EXTRA_LTLIBRARIES += libmce_plugin.la
+libvlc_LTLIBRARIES += $(LTLIBmce)
+
+liblogger_plugin_la_SOURCES = logger.c
+liblogger_plugin_la_CFLAGS = $(AM_CFLAGS)
+liblogger_plugin_la_LIBADD = $(AM_LIBADD)
+if HAVE_ANDROID
+liblogger_plugin_la_LIBADD += -llog
+endif
+
+libstats_plugin_la_SOURCES = \
+	stats/demux.c \
+	stats/decoder.c \
+	stats/encoder.c \
+	stats/stats.c stats/stats.h
+libstats_plugin_la_CFLAGS = $(AM_CFLAGS)
+libstats_plugin_la_LIBADD = $(AM_LIBADD)
 
 libvlc_LTLIBRARIES += \
-	liblogger_plugin.la
+	libaudioscrobbler_plugin.la \
+	liblogger_plugin.la \
+	libstats_plugin.la
 
 if ENABLE_SOUT
 libvlc_LTLIBRARIES += \

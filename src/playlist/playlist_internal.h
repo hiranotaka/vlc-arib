@@ -1,25 +1,25 @@
 /*****************************************************************************
  * playlist_internal.h : Playlist internals
  *****************************************************************************
- * Copyright (C) 1999-2008 the VideoLAN team
+ * Copyright (C) 1999-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Samuel Hocevar <sam@zoy.org>
  *          Clément Stenac <zorglub@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifndef __LIBVLC_PLAYLIST_INTERNAL_H
@@ -82,6 +82,7 @@ typedef struct playlist_private_t
     vlc_thread_t thread; /**< engine thread */
     vlc_mutex_t lock; /**< dah big playlist global lock */
     vlc_cond_t signal; /**< wakes up the playlist engine thread */
+    bool     killed; /**< playlist is shutting down */
 
     int      i_last_playlist_id; /**< Last id to an item */
     bool     b_reset_currently_playing; /** Reset current item array */
@@ -101,14 +102,16 @@ typedef struct playlist_private_t
 
 /* Creation/Deletion */
 playlist_t *playlist_Create( vlc_object_t * );
+void playlist_Destroy( playlist_t * );
 
 /* */
 void playlist_Activate( playlist_t * );
 void playlist_Deactivate( playlist_t * );
+void pl_Deactivate (libvlc_int_t *);
 
 /* */
 playlist_item_t *playlist_ItemNewFromInput( playlist_t *p_playlist,
-                                              input_item_t *p_input );
+                                            input_item_t *p_input );
 
 /* Engine */
 playlist_item_t * get_current_status_item( playlist_t * p_playlist);
@@ -130,6 +133,9 @@ void playlist_SendAddNotify( playlist_t *p_playlist, int i_item_id,
 playlist_item_t * playlist_NodeAddInput( playlist_t *, input_item_t *,
         playlist_item_t *,int , int, bool );
 
+int playlist_InsertInputItemTree ( playlist_t *,
+        playlist_item_t *, input_item_node_t *, int, bool );
+
 /* Tree walking */
 playlist_item_t *playlist_ItemFindFromInputAndRoot( playlist_t *p_playlist,
                                 input_item_t *p_input, playlist_item_t *p_root,
@@ -140,10 +146,11 @@ int playlist_DeleteFromInputInParent( playlist_t *, input_item_t *,
 int playlist_DeleteFromItemId( playlist_t*, int );
 int playlist_ItemRelease( playlist_item_t * );
 
-
-void playlist_NodesPairCreate( playlist_t *, const char *, playlist_item_t **, playlist_item_t **, bool );
 int playlist_NodeEmpty( playlist_t *, playlist_item_t *, bool );
+int playlist_DeleteItem( playlist_t * p_playlist, playlist_item_t *, bool);
 
+void ResetCurrentlyPlaying( playlist_t *p_playlist, playlist_item_t *p_cur );
+void ResyncCurrentIndex( playlist_t *p_playlist, playlist_item_t *p_cur );
 
 /**
  * @}
@@ -153,15 +160,15 @@ int playlist_NodeEmpty( playlist_t *, playlist_item_t *, bool );
 //#undef PLAYLIST_DEBUG2
 
 #ifdef PLAYLIST_DEBUG
- #define PL_DEBUG( msg, args... ) msg_Dbg( p_playlist, msg, ## args )
+ #define PL_DEBUG( ... ) msg_Dbg( p_playlist, __VA_ARGS__ )
  #ifdef PLAYLIST_DEBUG2
-  #define PL_DEBUG2( msg, args... ) msg_Dbg( p_playlist, msg, ## args )
+  #define PL_DEBUG2( msg, ... ) msg_Dbg( p_playlist, __VA_ARGS__ )
  #else
-  #define PL_DEBUG2( msg, args... ) {}
+  #define PL_DEBUG2( msg, ... ) {}
  #endif
 #else
- #define PL_DEBUG( msg, args ... ) {}
- #define PL_DEBUG2( msg, args... ) {}
+ #define PL_DEBUG( msg, ... ) {}
+ #define PL_DEBUG2( msg, ... ) {}
 #endif
 
 #define PLI_NAME( p ) p && p->p_input ? p->p_input->psz_name : "null"

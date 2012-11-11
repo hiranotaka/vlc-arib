@@ -1,9 +1,22 @@
 NULL =
 
+LIBVLC_SAMPLES = \
+	libvlc/gtk_player.c \
+	libvlc/libvlc_DVD_ripper.c \
+	libvlc/QtPlayer/LICENSE \
+	libvlc/QtPlayer/main.cpp \
+	libvlc/QtPlayer/player.cpp \
+	libvlc/QtPlayer/player.h \
+	libvlc/QtPlayer/QtVLC.pro \
+	libvlc/vlc-thumb.c \
+	libvlc/wx_player.cpp \
+	$(NULL)
+
+nobase_doc_DATA = $(LIBVLC_SAMPLES)
+
 doc_DATA = \
 	bugreport-howto.txt \
 	fortunes.txt \
-	intf-cdda.txt \
 	intf-vcd.txt \
 	$(NULL)
 
@@ -19,24 +32,24 @@ CHANGELOGS = \
 	ChangeLog-2007 \
 	ChangeLog-2008 \
 	ChangeLog-2009 \
+	ChangeLog-2010 \
+	ChangeLog-2011 \
+	ChangeLog-2012 \
 	$(NULL)
 
 man1_MANS = \
 	   vlc.1 \
-	   vlc-wrapper.1 \
-	   vlc-config.1
+	   vlc-wrapper.1
 
 EXTRA_DIST = \
 	$(CHANGELOGS) \
-        $(man1_MANS) \
-        bugreport-howto.txt \
+	$(man1_MANS) \
+	$(LIBVLC_SAMPLES) \
+	bugreport-howto.txt \
 	fortunes.txt \
-	intf-cdda.txt \
 	intf-vcd.txt \
 	release-howto.txt \
-	arm-crosscompile-howto.sgml \
 	Doxyfile.in \
-	Configure.help \
 	lirc/example.lircrc \
 	skins/skins-howto.txt \
 	skins/events-howto.txt \
@@ -47,7 +60,6 @@ EXTRA_DIST = \
 	skins/curve_maker/Bezier.vbw \
 	strings.txt \
 	translations.txt \
-	win32/Cross-Compile-Howto.txt \
 	demo.sh \
 	$(NULL)
 
@@ -70,7 +82,7 @@ $(CHANGELOGS): Makefile.am
 	fi
 
 # This one needs to be rebuilt all the time :)
-.PHONY: ChangeLog-2009 changelogs doc
+.PHONY: ChangeLog-2012 changelogs doc
 
 changelogs: $(CHANGELOGS)
 

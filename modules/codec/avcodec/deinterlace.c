@@ -1,6 +1,6 @@
 /*****************************************************************************
- * video filter: video filter doing chroma conversion and resizing
- *               using the ffmpeg library
+ * deinterlace.c: video filter doing chroma conversion and resizing
+ *               using the libavcodec library
  *****************************************************************************
  * Copyright (C) 1999-2001 the VideoLAN team
  * $Id$
@@ -33,16 +33,10 @@
 #include <vlc_codec.h>
 #include <vlc_filter.h>
 
-/* ffmpeg header */
-#ifdef HAVE_LIBAVCODEC_AVCODEC_H
-#   include <libavcodec/avcodec.h>
-#elif defined(HAVE_FFMPEG_AVCODEC_H)
-#   include <ffmpeg/avcodec.h>
-#else
-#   include <avcodec.h>
-#endif
+#include <libavcodec/avcodec.h>
 
 #include "avcodec.h"
+#include "avcommon.h"
 
 static picture_t *Deinterlace( filter_t *p_filter, picture_t *p_pic );
 
@@ -72,6 +66,9 @@ int OpenDeinterlace( vlc_object_t *p_this )
     filter_t *p_filter = (filter_t*)p_this;
     filter_sys_t *p_sys;
 
+    /* libavcodec needs to be initialized for some chroma conversions */
+    vlc_init_avcodec();
+
     /* Check if we can handle that formats */
     if( TestFfmpegChroma( -1, p_filter->fmt_in.i_codec  ) != VLC_SUCCESS )
     {
@@ -96,9 +93,6 @@ int OpenDeinterlace( vlc_object_t *p_this )
     p_filter->pf_video_filter = Deinterlace;
 
     msg_Dbg( p_filter, "deinterlacing" );
-
-    /* libavcodec needs to be initialized for some chroma conversions */
-    InitLibavcodec(p_this);
 
     return VLC_SUCCESS;
 }

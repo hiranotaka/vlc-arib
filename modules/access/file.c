@@ -23,38 +23,25 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-/*****************************************************************************
- * Preamble
- *****************************************************************************/
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
 
-#include <vlc_common.h>
-#include <vlc_plugin.h>
-#include <vlc_input.h>
-#include <vlc_access.h>
-#include <vlc_dialog.h>
-
 #include <assert.h>
 #include <errno.h>
-#ifdef HAVE_SYS_TYPES_H
-#   include <sys/types.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#ifdef HAVE_FSTATVFS
+#   include <sys/statvfs.h>
+#   if defined (HAVE_SYS_MOUNT_H)
+#      include <sys/param.h>
+#      include <sys/mount.h>
+#   endif
 #endif
-#ifdef HAVE_SYS_STAT_H
-#   include <sys/stat.h>
-#endif
-#ifdef HAVE_FCNTL_H
-#   include <fcntl.h>
-#endif
-#if defined (__linux__)
-#   include <sys/vfs.h>
 #ifdef HAVE_LINUX_MAGIC_H
+#   include <sys/vfs.h>
 #   include <linux/magic.h>
-#endif
-#elif defined (HAVE_SYS_MOUNT_H)
-#   include <sys/param.h>
-#   include <sys/mount.h>
 #endif
 
 #if defined( WIN32 )
@@ -63,65 +50,19 @@
 #   include <shlwapi.h>
 #else
 #   include <unistd.h>
-#   include <poll.h>
 #endif
+#include <dirent.h>
 
-#if defined( WIN32 ) && !defined( UNDER_CE )
-#   ifdef lseek
-#      undef lseek
-#   endif
-#   define lseek _lseeki64
-#elif defined( UNDER_CE )
-/* FIXME the commandline on wince is a mess */
-# define dup(a) -1
-# define PathIsNetworkPathW(wpath) (! wcsncmp(wpath, L"\\\\", 2))
+#include <vlc_common.h>
+#include "fs.h"
+#include <vlc_input.h>
+#include <vlc_access.h>
+#include <vlc_dialog.h>
+#ifdef WIN32
+# include <vlc_charset.h>
 #endif
-
-#include <vlc_charset.h>
-
-/*****************************************************************************
- * Module descriptor
- *****************************************************************************/
-static int  Open ( vlc_object_t * );
-static void Close( vlc_object_t * );
-
-#define CACHING_TEXT N_("Caching value (ms)")
-#define CACHING_LONGTEXT N_( \
-    "Caching value for files, in milliseconds." )
-
-#define NETWORK_CACHING_TEXT N_("Extra network caching value (ms)")
-#define NETWORK_CACHING_LONGTEXT N_( \
-    "Supplementary caching value for remote files, in milliseconds." )
-
-vlc_module_begin ()
-    set_description( N_("File input") )
-    set_shortname( N_("File") )
-    set_category( CAT_INPUT )
-    set_subcategory( SUBCAT_INPUT_ACCESS )
-    add_integer( "file-caching", DEFAULT_PTS_DELAY / 1000, NULL,
-                 CACHING_TEXT, CACHING_LONGTEXT, true )
-        change_safe()
-    add_integer( "network-caching", 3 * DEFAULT_PTS_DELAY / 1000, NULL,
-                 NETWORK_CACHING_TEXT, NETWORK_CACHING_LONGTEXT, true )
-        change_safe()
-    add_obsolete_string( "file-cat" )
-    set_capability( "access", 50 )
-    add_shortcut( "file" )
-    add_shortcut( "fd" )
-    add_shortcut( "stream" )
-    set_callbacks( Open, Close )
-vlc_module_end ()
-
-
-/*****************************************************************************
- * Exported prototypes
- *****************************************************************************/
-static int  Seek( access_t *, int64_t );
-static int  NoSeek( access_t *, int64_t );
-static ssize_t Read( access_t *, uint8_t *, size_t );
-static int  Control( access_t *, int, va_list );
-
-static int  open_file( access_t *, const char * );
+#include <vlc_fs.h>
+#include <vlc_url.h>
 
 struct access_sys_t
 {
@@ -130,25 +71,27 @@ struct access_sys_t
     int fd;
 
     /* */
-    unsigned caching;
     bool b_pace_control;
 };
 
-#ifndef WIN32
+#if !defined (WIN32) && !defined (__OS2__)
 static bool IsRemote (int fd)
 {
-#ifdef HAVE_FSTATFS
+#if defined (HAVE_FSTATVFS) && defined (MNT_LOCAL)
+    struct statvfs stf;
+
+    if (fstatvfs (fd, &stf))
+        return false;
+    /* fstatvfs() is in POSIX, but MNT_LOCAL is not */
+    return !(stf.f_flag & MNT_LOCAL);
+
+#elif defined (HAVE_LINUX_MAGIC_H)
     struct statfs stf;
 
     if (fstatfs (fd, &stf))
         return false;
 
-#if defined(MNT_LOCAL)
-    return !(stf.f_flags & MNT_LOCAL);
-
-#else
-#   ifdef HAVE_LINUX_MAGIC_H
-    switch (stf.f_type)
+    switch ((unsigned long)stf.f_type)
     {
         case AFS_SUPER_MAGIC:
         case CODA_SUPER_MAGIC:
@@ -159,14 +102,28 @@ static bool IsRemote (int fd)
             return true;
     }
     return false;
-#   endif
-#endif
-#else /* !HAVE_FSTATFS */
+
+#else
     (void)fd;
     return false;
 
 #endif
 }
+# define IsRemote(fd,path) IsRemote(fd)
+
+#else /* WIN32 || __OS2__ */
+static bool IsRemote (const char *path)
+{
+# if !defined(__OS2__)
+    wchar_t *wpath = ToWide (path);
+    bool is_remote = (wpath != NULL && PathIsNetworkPathW (wpath));
+    free (wpath);
+    return is_remote;
+# else
+    return (! strncmp(path, "\\\\", 2));
+# endif
+}
+# define IsRemote(fd,path) IsRemote(path)
 #endif
 
 #ifndef HAVE_POSIX_FADVISE
@@ -174,58 +131,97 @@ static bool IsRemote (int fd)
 #endif
 
 /*****************************************************************************
- * Open: open the file
+ * FileOpen: open the file
  *****************************************************************************/
-static int Open( vlc_object_t *p_this )
+int FileOpen( vlc_object_t *p_this )
 {
     access_t     *p_access = (access_t*)p_this;
-    access_sys_t *p_sys;
-#ifdef WIN32
-    wchar_t wpath[MAX_PATH+1];
-    bool is_remote = false;
-#endif
-
-    STANDARD_READ_ACCESS_INIT;
-    p_sys->i_nb_reads = 0;
-    p_sys->b_pace_control = true;
 
     /* Open file */
     int fd = -1;
 
     if (!strcasecmp (p_access->psz_access, "fd"))
-        fd = dup (atoi (p_access->psz_path));
-    else if (!strcmp (p_access->psz_path, "-"))
-        fd = dup (0);
+    {
+        char *end;
+        int oldfd = strtol (p_access->psz_location, &end, 10);
+
+        if (*end == '\0')
+            fd = vlc_dup (oldfd);
+        else if (*end == '/' && end > p_access->psz_location)
+        {
+            char *name = decode_URI_duplicate (end - 1);
+            if (name != NULL)
+            {
+                name[0] = '.';
+                fd = vlc_openat (oldfd, name, O_RDONLY | O_NONBLOCK);
+                free (name);
+            }
+        }
+    }
     else
     {
-        msg_Dbg (p_access, "opening file `%s'", p_access->psz_path);
-        fd = open_file (p_access, p_access->psz_path);
-#ifdef WIN32
-        if (MultiByteToWideChar (CP_UTF8, 0, p_access->psz_path, -1,
-                                 wpath, MAX_PATH)
-         && PathIsNetworkPathW (wpath))
-            is_remote = true;
-# define IsRemote( fd ) ((void)fd, is_remote)
-#endif
+        const char *path = p_access->psz_filepath;
+
+        if (unlikely(path == NULL))
+            return VLC_EGENERIC;
+        msg_Dbg (p_access, "opening file `%s'", path);
+        fd = vlc_open (path, O_RDONLY | O_NONBLOCK);
+        if (fd == -1)
+        {
+            msg_Err (p_access, "cannot open file %s (%m)", path);
+            dialog_Fatal (p_access, _("File reading failed"),
+                          _("VLC could not open the file \"%s\". (%m)"), path);
+        }
     }
     if (fd == -1)
-        goto error;
+        return VLC_EGENERIC;
 
-#ifdef HAVE_SYS_STAT_H
     struct stat st;
-
     if (fstat (fd, &st))
     {
         msg_Err (p_access, "failed to read (%m)");
         goto error;
     }
+
+#if O_NONBLOCK
+    int flags = fcntl (fd, F_GETFL);
+    if (S_ISFIFO (st.st_mode) || S_ISSOCK (st.st_mode))
+        /* Force non-blocking mode where applicable (fd://) */
+        flags |= O_NONBLOCK;
+    else
+        /* Force blocking mode when not useful or not specified */
+        flags &= ~O_NONBLOCK;
+    fcntl (fd, F_SETFL, flags);
+#endif
+
     /* Directories can be opened and read from, but only readdir() knows
      * how to parse the data. The directory plugin will do it. */
     if (S_ISDIR (st.st_mode))
     {
+#ifdef HAVE_FDOPENDIR
+        DIR *handle = fdopendir (fd);
+        if (handle == NULL)
+            goto error; /* Uh? */
+        return DirInit (p_access, handle);
+#else
         msg_Dbg (p_access, "ignoring directory");
         goto error;
+#endif
     }
+
+    access_sys_t *p_sys = malloc (sizeof (*p_sys));
+    if (unlikely(p_sys == NULL))
+        goto error;
+    access_InitFields (p_access);
+    p_access->pf_read = FileRead;
+    p_access->pf_block = NULL;
+    p_access->pf_control = FileControl;
+    p_access->pf_seek = FileSeek;
+    p_access->p_sys = p_sys;
+    p_sys->i_nb_reads = 0;
+    p_sys->fd = fd;
+    p_sys->b_pace_control = true;
+
     if (S_ISREG (st.st_mode))
         p_access->info.i_size = st.st_size;
     else if (!S_ISBLK (st.st_mode))
@@ -233,15 +229,6 @@ static int Open( vlc_object_t *p_this )
         p_access->pf_seek = NoSeek;
         p_sys->b_pace_control = strcasecmp (p_access->psz_access, "stream");
     }
-#else
-# warning File size not known!
-#endif
-
-    p_sys->caching = var_CreateGetInteger (p_access, "file-caching");
-    if (IsRemote(fd))
-        p_sys->caching += var_CreateGetInteger (p_access, "network-caching");
-
-    p_sys->fd = fd;
 
     if (p_access->pf_seek != NoSeek)
     {
@@ -249,22 +236,37 @@ static int Open( vlc_object_t *p_this )
         posix_fadvise (fd, 0, 4096, POSIX_FADV_WILLNEED);
         /* In most cases, we only read the file once. */
         posix_fadvise (fd, 0, 0, POSIX_FADV_NOREUSE);
+#if defined(HAVE_FCNTL)
+        /* We'd rather use any available memory for reading ahead
+         * than for caching what we've already seen/heard */
+# if defined(F_RDAHEAD)
+        fcntl (fd, F_RDAHEAD, 1);
+# endif
+# if defined(F_NOCACHE)
+        fcntl (fd, F_NOCACHE, 1);
+# endif
+#endif
     }
     return VLC_SUCCESS;
 
 error:
-    if (fd != -1)
-        close (fd);
-    free (p_sys);
+    close (fd);
     return VLC_EGENERIC;
 }
 
 /*****************************************************************************
- * Close: close the target
+ * FileClose: close the target
  *****************************************************************************/
-static void Close (vlc_object_t * p_this)
+void FileClose (vlc_object_t * p_this)
 {
     access_t     *p_access = (access_t*)p_this;
+
+    if (p_access->pf_read == NULL)
+    {
+        DirClose (p_this);
+        return;
+    }
+
     access_sys_t *p_sys = p_access->p_sys;
 
     close (p_sys->fd);
@@ -277,13 +279,13 @@ static void Close (vlc_object_t * p_this)
 /*****************************************************************************
  * Read: standard read on a file descriptor.
  *****************************************************************************/
-static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
+ssize_t FileRead( access_t *p_access, uint8_t *p_buffer, size_t i_len )
 {
     access_sys_t *p_sys = p_access->p_sys;
     int fd = p_sys->fd;
     ssize_t i_ret;
 
-#ifndef WIN32
+#if !defined (WIN32) && !defined (__OS2__)
     if (p_access->pf_seek == NoSeek)
         i_ret = net_Read (p_access, fd, NULL, p_buffer, i_len, false);
     else
@@ -300,8 +302,8 @@ static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
 
             default:
                 msg_Err (p_access, "failed to read (%m)");
-                dialog_Fatal (p_access, _("File reading failed"), "%s",
-                              _("VLC could not read the file."));
+                dialog_Fatal (p_access, _("File reading failed"),
+                              _("VLC could not read the file (%m)."));
                 p_access->info.b_eof = true;
                 return 0;
         }
@@ -316,16 +318,14 @@ static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
     if ((p_access->info.i_size && !(p_sys->i_nb_reads % INPUT_FSTAT_NB_READS))
      || (p_access->info.i_pos > p_access->info.i_size))
     {
-#ifdef HAVE_SYS_STAT_H
         struct stat st;
 
         if ((fstat (fd, &st) == 0)
-         && (p_access->info.i_size != st.st_size))
+         && (p_access->info.i_size != (uint64_t)st.st_size))
         {
             p_access->info.i_size = st.st_size;
             p_access->info.i_update |= INPUT_UPDATE_SIZE;
         }
-#endif
     }
     return i_ret;
 }
@@ -334,7 +334,7 @@ static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
 /*****************************************************************************
  * Seek: seek to a specific location in a file
  *****************************************************************************/
-static int Seek (access_t *p_access, int64_t i_pos)
+int FileSeek (access_t *p_access, uint64_t i_pos)
 {
     p_access->info.i_pos = i_pos;
     p_access->info.b_eof = false;
@@ -343,7 +343,7 @@ static int Seek (access_t *p_access, int64_t i_pos)
     return VLC_SUCCESS;
 }
 
-static int NoSeek (access_t *p_access, int64_t i_pos)
+int NoSeek (access_t *p_access, uint64_t i_pos)
 {
     /* assert(0); ?? */
     (void) p_access; (void) i_pos;
@@ -353,7 +353,7 @@ static int NoSeek (access_t *p_access, int64_t i_pos)
 /*****************************************************************************
  * Control:
  *****************************************************************************/
-static int Control( access_t *p_access, int i_query, va_list args )
+int FileControl( access_t *p_access, int i_query, va_list args )
 {
     access_sys_t *p_sys = p_access->p_sys;
     bool    *pb_bool;
@@ -377,7 +377,11 @@ static int Control( access_t *p_access, int i_query, va_list args )
         /* */
         case ACCESS_GET_PTS_DELAY:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = p_sys->caching * INT64_C(1000);
+            if (IsRemote (p_sys->fd, p_access->psz_filepath))
+                *pi_64 = var_InheritInteger (p_access, "network-caching");
+            else
+                *pi_64 = var_InheritInteger (p_access, "file-caching");
+            *pi_64 *= 1000;
             break;
 
         /* */
@@ -400,41 +404,4 @@ static int Control( access_t *p_access, int i_query, va_list args )
 
     }
     return VLC_SUCCESS;
-}
-
-/*****************************************************************************
- * open_file: Opens a specific file
- *****************************************************************************/
-static int open_file (access_t *p_access, const char *path)
-{
-#if defined(WIN32)
-    if (!strcasecmp (p_access->psz_access, "file")
-      && ('/' == path[0]) && isalpha (path[1])
-      && (':' == path[2]) && ('/' == path[3]))
-        /* Explorer can open path such as file:/C:/ or file:///C:/
-         * hence remove leading / if found */
-        path++;
-#endif
-
-    int fd = utf8_open (path, O_RDONLY | O_NONBLOCK);
-    if (fd == -1)
-    {
-        msg_Err (p_access, "cannot open file %s (%m)", path);
-        dialog_Fatal (p_access, _("File reading failed"),
-                      _("VLC could not open the file \"%s\"."), path);
-        return -1;
-    }
-
-#if defined(HAVE_FCNTL)
-    /* We'd rather use any available memory for reading ahead
-     * than for caching what we've already seen/heard */
-# if defined(F_RDAHEAD)
-    fcntl (fd, F_RDAHEAD, 1);
-# endif
-# if defined(F_NOCACHE)
-    fcntl (fd, F_NOCACHE, 1);
-# endif
-#endif
-
-    return fd;
 }

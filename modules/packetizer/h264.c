@@ -31,6 +31,7 @@
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
+#include <assert.h>
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
@@ -92,12 +93,15 @@ struct decoder_sys_t
     /* */
     bool    b_slice;
     block_t *p_frame;
+    bool    b_frame_sps;
+    bool    b_frame_pps;
 
     bool   b_header;
     bool   b_sps;
     bool   b_pps;
     block_t *pp_sps[SPS_MAX];
     block_t *pp_pps[PPS_MAX];
+    int    i_recovery_frames;  /* -1 = no recovery */
 
     /* avcC data */
     int i_avcC_length_size;
@@ -151,6 +155,8 @@ enum nal_priority_e
     NAL_PRIORITY_HIGHEST    = 3,
 };
 
+#define BLOCK_FLAG_PRIVATE_AUD (1 << BLOCK_FLAG_PRIVATE_SHIFT)
+
 static block_t *Packetize( decoder_t *, block_t ** );
 static block_t *PacketizeAVC1( decoder_t *, block_t ** );
 static block_t *GetCc( decoder_t *p_dec, bool pb_present[4] );
@@ -197,11 +203,14 @@ static int Open( vlc_object_t *p_this )
 
     packetizer_Init( &p_sys->packetizer,
                      p_h264_startcode, sizeof(p_h264_startcode),
-                     p_h264_startcode, 1,
+                     p_h264_startcode, 1, 5,
                      PacketizeReset, PacketizeParse, PacketizeValidate, p_dec );
 
     p_sys->b_slice = false;
     p_sys->p_frame = NULL;
+    p_sys->b_frame_sps = false;
+    p_sys->b_frame_pps = false;
+
     p_sys->b_header= false;
     p_sys->b_sps   = false;
     p_sys->b_pps   = false;
@@ -209,6 +218,7 @@ static int Open( vlc_object_t *p_this )
         p_sys->pp_sps[i] = NULL;
     for( i = 0; i < PPS_MAX; i++ )
         p_sys->pp_pps[i] = NULL;
+    p_sys->i_recovery_frames = -1;
 
     p_sys->slice.i_nal_type = -1;
     p_sys->slice.i_nal_ref_idc = -1;
@@ -221,8 +231,8 @@ static int Open( vlc_object_t *p_this )
     p_sys->slice.i_pic_order_cnt_lsb = -1;
     p_sys->slice.i_delta_pic_order_cnt_bottom = -1;
 
-    p_sys->i_frame_dts = -1;
-    p_sys->i_frame_pts = -1;
+    p_sys->i_frame_dts = VLC_TS_INVALID;
+    p_sys->i_frame_pts = VLC_TS_INVALID;
 
     /* Setup properties */
     es_format_Copy( &p_dec->fmt_out, &p_dec->fmt_in );
@@ -340,8 +350,8 @@ static int Open( vlc_object_t *p_this )
         p_dec->pf_get_cc = GetCc;
 
         /* */
-        p_sys->i_cc_pts = 0;
-        p_sys->i_cc_dts = 0;
+        p_sys->i_cc_pts = VLC_TS_INVALID;
+        p_sys->i_cc_dts = VLC_TS_INVALID;
         p_sys->i_cc_flags = 0;
         cc_Init( &p_sys->cc );
         cc_Init( &p_sys->cc_next );
@@ -499,18 +509,20 @@ static void PacketizeReset( void *p_private, bool b_broken )
         if( p_sys->p_frame )
             block_ChainRelease( p_sys->p_frame );
         p_sys->p_frame = NULL;
+        p_sys->b_frame_sps = false;
+        p_sys->b_frame_pps = false;
         p_sys->slice.i_frame_type = 0;
         p_sys->b_slice = false;
     }
-    p_sys->i_frame_pts = -1;
-    p_sys->i_frame_dts = -1;
+    p_sys->i_frame_pts = VLC_TS_INVALID;
+    p_sys->i_frame_dts = VLC_TS_INVALID;
 }
 static block_t *PacketizeParse( void *p_private, bool *pb_ts_used, block_t *p_block )
 {
     decoder_t *p_dec = p_private;
 
     /* Remove trailing 0 bytes */
-    while( p_block->i_buffer && p_block->p_buffer[p_block->i_buffer-1] == 0x00 )
+    while( p_block->i_buffer > 5 && p_block->p_buffer[p_block->i_buffer-1] == 0x00 )
         p_block->i_buffer--;
 
     return ParseNALBlock( p_dec, pb_ts_used, p_block );
@@ -609,6 +621,8 @@ static block_t *ParseNALBlock( decoder_t *p_dec, bool *pb_used_ts, block_t *p_fr
         /* Reset context */
         p_sys->slice.i_frame_type = 0;
         p_sys->p_frame = NULL;
+        p_sys->b_frame_sps = false;
+        p_sys->b_frame_pps = false;
         p_sys->b_slice = false;
         cc_Flush( &p_sys->cc_next );
     }
@@ -638,6 +652,7 @@ static block_t *ParseNALBlock( decoder_t *p_dec, bool *pb_used_ts, block_t *p_fr
     {
         if( p_sys->b_slice )
             p_pic = OutputPicture( p_dec );
+        p_sys->b_frame_sps = true;
 
         PutSPS( p_dec, p_frag );
 
@@ -648,6 +663,7 @@ static block_t *ParseNALBlock( decoder_t *p_dec, bool *pb_used_ts, block_t *p_fr
     {
         if( p_sys->b_slice )
             p_pic = OutputPicture( p_dec );
+        p_sys->b_frame_pps = true;
 
         PutPPS( p_dec, p_frag );
 
@@ -663,7 +679,21 @@ static block_t *ParseNALBlock( decoder_t *p_dec, bool *pb_used_ts, block_t *p_fr
 
         /* Parse SEI for CC support */
         if( i_nal_type == NAL_SEI )
+        {
             ParseSei( p_dec, p_frag );
+        }
+        else if( i_nal_type == NAL_AU_DELIMITER )
+        {
+            if( p_sys->p_frame && (p_sys->p_frame->i_flags & BLOCK_FLAG_PRIVATE_AUD) )
+            {
+                block_Release( p_frag );
+                p_frag = NULL;
+            }
+            else
+            {
+                p_frag->i_flags |= BLOCK_FLAG_PRIVATE_AUD;
+            }
+        }
     }
 
     /* Append the block */
@@ -671,7 +701,8 @@ static block_t *ParseNALBlock( decoder_t *p_dec, bool *pb_used_ts, block_t *p_fr
         block_ChainAppend( &p_sys->p_frame, p_frag );
 
     *pb_used_ts = false;
-    if( p_sys->i_frame_dts < 0 && p_sys->i_frame_pts < 0 )
+    if( p_sys->i_frame_dts <= VLC_TS_INVALID &&
+        p_sys->i_frame_pts <= VLC_TS_INVALID )
     {
         p_sys->i_frame_dts = i_frag_dts;
         p_sys->i_frame_pts = i_frag_pts;
@@ -685,29 +716,53 @@ static block_t *OutputPicture( decoder_t *p_dec )
     decoder_sys_t *p_sys = p_dec->p_sys;
     block_t *p_pic;
 
-    if( !p_sys->b_header && p_sys->slice.i_frame_type != BLOCK_FLAG_TYPE_I)
+    if ( !p_sys->b_header && p_sys->i_recovery_frames != -1 )
+    {
+        if( p_sys->i_recovery_frames == 0 )
+        {
+            msg_Dbg( p_dec, "Recovery from SEI recovery point complete" );
+            p_sys->b_header = true;
+        }
+        --p_sys->i_recovery_frames;
+    }
+
+    if( !p_sys->b_header && p_sys->i_recovery_frames == -1 &&
+         p_sys->slice.i_frame_type != BLOCK_FLAG_TYPE_I)
         return NULL;
 
-    if( p_sys->slice.i_frame_type == BLOCK_FLAG_TYPE_I && p_sys->b_sps && p_sys->b_pps )
+    const bool b_sps_pps_i = p_sys->slice.i_frame_type == BLOCK_FLAG_TYPE_I &&
+                             p_sys->b_sps &&
+                             p_sys->b_pps;
+    if( b_sps_pps_i || p_sys->b_frame_sps || p_sys->b_frame_pps )
     {
-        block_t *p_list = NULL;
-        int i;
+        block_t *p_head = NULL;
+        if( p_sys->p_frame->i_flags & BLOCK_FLAG_PRIVATE_AUD )
+        {
+            p_head = p_sys->p_frame;
+            p_sys->p_frame = p_sys->p_frame->p_next;
+        }
 
-        for( i = 0; i < SPS_MAX; i++ )
+        block_t *p_list = NULL;
+        for( int i = 0; i < SPS_MAX && (b_sps_pps_i || p_sys->b_frame_sps); i++ )
         {
             if( p_sys->pp_sps[i] )
                 block_ChainAppend( &p_list, block_Duplicate( p_sys->pp_sps[i] ) );
         }
-        for( i = 0; i < PPS_MAX; i++ )
+        for( int i = 0; i < PPS_MAX && (b_sps_pps_i || p_sys->b_frame_pps); i++ )
         {
             if( p_sys->pp_pps[i] )
                 block_ChainAppend( &p_list, block_Duplicate( p_sys->pp_pps[i] ) );
         }
-        if( p_list )
+        if( b_sps_pps_i && p_list )
             p_sys->b_header = true;
 
-        block_ChainAppend( &p_list, p_sys->p_frame );
-        p_pic = block_ChainGather( p_list );
+        if( p_head )
+            p_head->p_next = p_list;
+        else
+            p_head = p_list;
+        block_ChainAppend( &p_head, p_sys->p_frame );
+
+        p_pic = block_ChainGather( p_head );
     }
     else
     {
@@ -717,11 +772,16 @@ static block_t *OutputPicture( decoder_t *p_dec )
     p_pic->i_pts = p_sys->i_frame_pts;
     p_pic->i_length = 0;    /* FIXME */
     p_pic->i_flags |= p_sys->slice.i_frame_type;
+    p_pic->i_flags &= ~BLOCK_FLAG_PRIVATE_AUD;
+    if( !p_sys->b_header )
+        p_pic->i_flags |= BLOCK_FLAG_PREROLL;
 
     p_sys->slice.i_frame_type = 0;
     p_sys->p_frame = NULL;
-    p_sys->i_frame_dts = -1;
-    p_sys->i_frame_pts = -1;
+    p_sys->i_frame_dts = VLC_TS_INVALID;
+    p_sys->i_frame_pts = VLC_TS_INVALID;
+    p_sys->b_frame_sps = false;
+    p_sys->b_frame_pps = false;
     p_sys->b_slice = false;
 
     /* CC */
@@ -729,11 +789,7 @@ static block_t *OutputPicture( decoder_t *p_dec )
     p_sys->i_cc_dts = p_pic->i_dts;
     p_sys->i_cc_flags = p_pic->i_flags;
 
-    /* Swap cc buffer */
-    cc_data_t cc_tmp = p_sys->cc;
     p_sys->cc = p_sys->cc_next;
-    p_sys->cc_next = cc_tmp;
-
     cc_Flush( &p_sys->cc_next );
 
     return p_pic;
@@ -754,11 +810,13 @@ static void PutSPS( decoder_t *p_dec, block_t *p_frag )
 
     bs_init( &s, pb_dec, i_dec );
     int i_profile_idc = bs_read( &s, 8 );
-    /* Skip constraint_set0123, reserved(4), level(8) */
-    bs_skip( &s, 1+1+1+1 + 4 + 8 );
+    p_dec->fmt_out.i_profile = i_profile_idc;
+    /* Skip constraint_set0123, reserved(4) */
+    bs_skip( &s, 1+1+1+1 + 4 );
+    p_dec->fmt_out.i_level = bs_read( &s, 8 );
     /* sps id */
     i_sps_id = bs_read_ue( &s );
-    if( i_sps_id >= SPS_MAX )
+    if( i_sps_id >= SPS_MAX || i_sps_id < 0 )
     {
         msg_Warn( p_dec, "invalid SPS (sps_id=%d)", i_sps_id );
         free( pb_dec );
@@ -774,7 +832,7 @@ static void PutSPS( decoder_t *p_dec, block_t *p_frag )
         /* chroma_format_idc */
         const int i_chroma_format_idc = bs_read_ue( &s );
         if( i_chroma_format_idc == 3 )
-            bs_skip( &s, 1 ); /* seperate_colour_plane_flag */
+            bs_skip( &s, 1 ); /* separate_colour_plane_flag */
         /* bit_depth_luma_minus8 */
         bs_read_ue( &s );
         /* bit_depth_chroma_minus8 */
@@ -800,7 +858,7 @@ static void PutSPS( decoder_t *p_dec, block_t *p_frag )
                     if( i_nextscale != 0 )
                     {
                         /* delta_scale */
-                        i_tmp = bs_read( &s, 1 );
+                        i_tmp = bs_read_se( &s );
                         i_nextscale = ( i_lastscale + i_tmp + 256 ) % 256;
                         /* useDefaultScalingMatrixFlag = ... */
                     }
@@ -854,6 +912,7 @@ static void PutSPS( decoder_t *p_dec, block_t *p_frag )
 
     /* b_frame_mbs_only */
     p_sys->b_frame_mbs_only = bs_read( &s, 1 );
+    p_dec->fmt_out.video.i_height *=  ( 2 - p_sys->b_frame_mbs_only );
     if( p_sys->b_frame_mbs_only == 0 )
     {
         bs_skip( &s, 1 );
@@ -910,12 +969,16 @@ static void PutSPS( decoder_t *p_dec, block_t *p_frag )
                 h = 0;
             }
 
-            if( h != 0 )
-                p_dec->fmt_out.video.i_aspect = (int64_t)VOUT_ASPECT_FACTOR *
-                        ( w * p_dec->fmt_out.video.i_width ) /
-                        ( h * p_dec->fmt_out.video.i_height);
+            if( w != 0 && h != 0 )
+            {
+                p_dec->fmt_out.video.i_sar_num = w;
+                p_dec->fmt_out.video.i_sar_den = h;
+            }
             else
-                p_dec->fmt_out.video.i_aspect = VOUT_ASPECT_FACTOR;
+            {
+                p_dec->fmt_out.video.i_sar_num = 1;
+                p_dec->fmt_out.video.i_sar_den = 1;
+            }
         }
     }
 
@@ -967,7 +1030,7 @@ static void ParseSlice( decoder_t *p_dec, bool *pb_new_picture, slice_t *p_slice
     decoder_sys_t *p_sys = p_dec->p_sys;
     uint8_t *pb_dec;
     int i_dec;
-    int i_first_mb, i_slice_type;
+    int i_slice_type;
     slice_t slice;
     bs_t s;
 
@@ -977,7 +1040,7 @@ static void ParseSlice( decoder_t *p_dec, bool *pb_new_picture, slice_t *p_slice
     bs_init( &s, pb_dec, i_dec );
 
     /* first_mb_in_slice */
-    i_first_mb = bs_read_ue( &s );
+    /* int i_first_mb = */ bs_read_ue( &s );
 
     /* slice_type */
     switch( (i_slice_type = bs_read_ue( &s )) )
@@ -1122,9 +1185,30 @@ static void ParseSei( decoder_t *p_dec, block_t *p_frag )
             if( i_t35 >= 5 &&
                 !memcmp( p_t35, p_dvb1_data_start_code, sizeof(p_dvb1_data_start_code) ) )
             {
-                cc_Extract( &p_sys->cc_next, &p_t35[3], i_t35 - 3 );
+                cc_Extract( &p_sys->cc_next, true, &p_t35[3], i_t35 - 3 );
             }
         }
+
+        /* Look for SEI recovery point */
+        if( i_type == 6 )
+        {
+            bs_t s;
+            const int      i_rec = i_size;
+            const uint8_t *p_rec = &pb_dec[i_used];
+
+            bs_init( &s, p_rec, i_rec );
+            int i_recovery_frames = bs_read_ue( &s );
+            //bool b_exact_match = bs_read( &s, 1 );
+            //bool b_broken_link = bs_read( &s, 1 );
+            //int i_changing_slice_group = bs_read( &s, 2 );
+            if( !p_sys->b_header )
+            {
+                msg_Dbg( p_dec, "Seen SEI recovery point, %d recovery frames", i_recovery_frames );
+                if ( p_sys->i_recovery_frames == -1 || i_recovery_frames < p_sys->i_recovery_frames )
+                    p_sys->i_recovery_frames = i_recovery_frames;
+            }
+        }
+
         i_used += i_size;
     }
 
