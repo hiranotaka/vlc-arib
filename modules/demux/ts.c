@@ -2964,45 +2964,11 @@ static void EITCallBack( demux_t *p_demux,
 
                     for( int i = 0; i < pE->i_entry_count; i++ )
                     {
-#ifdef HAVE_ARIB
-                        if ( !pE->i_item_description_length[i] )
-                            continue;
-#endif
                         char *psz_dsc = EITConvertToUTF8( pE->i_item_description[i],
                                                           pE->i_item_description_length[i],
                                                           p_sys->b_broken_charset );
-#ifdef HAVE_ARIB
-                        int j;
-                        size_t i_length;
-                        j = i;
-                        i_length = 0;
-                        do {
-                            i_length += pE->i_item_length[j];
-                        } while ( ++j < pE->i_entry_count &&
-                                  !pE->i_item_description_length[j] );
-
-                        unsigned char *psz_instring = malloc( i_length );
-                        char *psz_itm = NULL;
-                        if ( psz_instring )
-                        {
-                            j = i;
-                            i_length = 0;
-                            do {
-                                memcpy( psz_instring + i_length,
-                                        pE->i_item[j], pE->i_item_length[j]);
-                                i_length += pE->i_item_length[j];
-                            } while ( ++j < pE->i_entry_count &&
-                                      !pE->i_item_description_length[j] );
-                            psz_itm = EITConvertToUTF8( psz_instring,
-                                                        i_length,
-							false );
-                            free( psz_instring );
-                        }
-#else
                         char *psz_itm = EITConvertToUTF8( pE->i_item[i], pE->i_item_length[i],
-                                                          p_sys->b_broken_charset,
-							  false );
-#endif
+                                                          p_sys->b_broken_charset );
                         if( psz_dsc && psz_itm )
                         {
                             msg_Dbg( p_demux, "       - desc='%s' item='%s'", psz_dsc, psz_itm );
