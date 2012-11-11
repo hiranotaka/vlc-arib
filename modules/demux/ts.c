@@ -953,8 +953,8 @@ static int Demux( demux_t *p_demux )
 #ifdef HAVE_ARIB
                 if( p_pid->i_pid == 0 ||
                     ( p_sys->b_dvb_meta && (p_pid->i_pid == 0x11 ||
-					    p_pid->i_pid == 0x12 ||
-					    p_pid->i_pid == 0x14) ) ||
+                                            p_pid->i_pid == 0x12 ||
+                                            p_pid->i_pid == 0x14) ) ||
                     ( p_sys->arib_card && p_pid->i_pid == 1 ) ||
                     ( p_pid->psi->arib_descrambler ) ||
                     ( p_pid->i_pid == p_sys->i_pid_emm ) )
@@ -1413,7 +1413,7 @@ static void PIDInit( ts_pid_t *pid, bool b_psi, ts_psi_t *p_owner )
             pid->psi->handle = NULL;
             TAB_INIT( pid->psi->i_prg, pid->psi->prg );
 #ifdef HAVE_ARIB
-	    pid->psi->arib_descrambler = NULL;
+            pid->psi->arib_descrambler = NULL;
 #endif
         }
         assert( pid->psi );
@@ -1434,7 +1434,7 @@ static void PIDInit( ts_pid_t *pid, bool b_psi, ts_psi_t *p_owner )
             prg->i_number   = -1;
             prg->i_pid_pcr  = -1;
             prg->i_pid_pmt  = -1;
-	    prg->i_pid_ecm  = -1;
+            prg->i_pid_ecm  = -1;
             prg->i_pcr_value= -1;
             prg->iod        = NULL;
             prg->handle     = NULL;
@@ -4047,7 +4047,7 @@ static void PMTCallBack( void *data, dvbpsi_pmt_t *p_pmt )
             break;
 
         case 0x9:
-	{
+        {
             uint16_t i_sysid = ((uint16_t)p_dr->p_data[0] << 8)
                                 | p_dr->p_data[1];
             msg_Dbg( p_demux, " * descriptor : CA (0x9) SysID 0x%x",
@@ -4060,7 +4060,7 @@ static void PMTCallBack( void *data, dvbpsi_pmt_t *p_pmt )
             }
 #endif
             break;
-	}
+        }
 
         case 0x5: /* Registration Descriptor */
             if( p_dr->i_length != 4 )
