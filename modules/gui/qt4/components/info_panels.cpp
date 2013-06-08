@@ -33,6 +33,9 @@
 #include "qt4.hpp"
 #include "components/info_panels.hpp"
 #include "components/interface_widgets.hpp"
+#include "info_widgets.hpp"
+#include "dialogs/fingerprintdialog.hpp"
+#include "adapters/chromaprint.hpp"
 
 #include <assert.h>
 #include <vlc_url.h>
@@ -107,16 +110,12 @@ MetaPanel::MetaPanel( QWidget *parent,
     label->setFont( smallFont ); label->setContentsMargins( 3, 2, 0, 0 );
     metaLayout->addWidget( label, line - 1, 7, 1, 3  );
 
-    seqnum_text = new QLineEdit;
-    seqnum_text->setMaximumWidth( 60 );
-    metaLayout->addWidget( seqnum_text, line, 7, 1, 1 );
+    tracknumber_text = new QLineEdit;
+    tracknumber_text->setAlignment( Qt::AlignRight );
+    tracknumber_text->setInputMask("0000/0000");
+    tracknumber_text->setMaximumWidth( 128 );
+    metaLayout->addWidget( tracknumber_text, line, 7, 1, -1 );
 
-    label = new QLabel( "/" ); label->setFont( smallFont );
-    metaLayout->addWidget( label, line, 8, 1, 1 );
-
-    seqtot_text = new QLineEdit;
-    seqtot_text->setMaximumWidth( 60 );
-    metaLayout->addWidget( seqtot_text, line, 9, 1, 1 );
     line++;
 
     /* Rating - on the same line */
@@ -132,7 +131,15 @@ MetaPanel::MetaPanel( QWidget *parent,
 
     /* Language on the same line */
     ADD_META( VLC_META_LANGUAGE, language_text, 7, -1 ); line++;
-    ADD_META( VLC_META_PUBLISHER, publisher_text, 0, 7 ); line++;
+    ADD_META( VLC_META_PUBLISHER, publisher_text, 0, 7 );
+
+    fingerprintButton = new QPushButton( qtr("&Fingerprint") );
+    fingerprintButton->setToolTip( qtr( "Find meta data using audio fingerprinting" ) );
+    fingerprintButton->setVisible( false );
+    metaLayout->addWidget( fingerprintButton, line, 7 , 3, -1 );
+    CONNECT( fingerprintButton, clicked(), this, fingerprint() );
+
+    line++;
 
     lblURL = new QLabel;
     lblURL->setOpenExternalLinks( true );
@@ -165,11 +172,10 @@ MetaPanel::MetaPanel( QWidget *parent,
     metaLayout->setRowStretch( line, 10 );
 #undef ADD_META
 
-    CONNECT( seqnum_text, textEdited( QString ), this, enterEditMode() );
-    CONNECT( seqtot_text, textEdited( QString ), this, enterEditMode() );
+    CONNECT( tracknumber_text, textEdited( QString ), this, enterEditMode() );
 
     CONNECT( date_text, textEdited( QString ), this, enterEditMode() );
-    CONNECT( THEMIM->getIM(), artChanged( QString ), this, enterEditMode() );
+//    CONNECT( THEMIM->getIM(), artChanged( QString ), this, enterEditMode() );
 /*    CONNECT( rating_text, valueChanged( QString ), this, enterEditMode( QString ) );*/
 
     /* We are not yet in Edit Mode */
@@ -189,7 +195,7 @@ void MetaPanel::update( input_item_t *p_item )
 
     /* Don't update if you are in edit mode */
     if( b_inEditMode ) return;
-    else p_input = p_item;
+    p_input = p_item;
 
     char *psz_meta;
 #define UPDATE_META( meta, widget ) {                                   \
@@ -216,7 +222,8 @@ void MetaPanel::update( input_item_t *p_item )
     /* URL / URI */
     psz_meta = input_item_GetURI( p_item );
     if( !EMPTY_STR( psz_meta ) )
-         emit uriSet( qfu( psz_meta ) );
+        emit uriSet( qfu( psz_meta ) );
+    fingerprintButton->setVisible( Chromaprint::isSupported( QString( psz_meta ) ) );
     free( psz_meta );
 
     /* Other classic though */
@@ -231,8 +238,16 @@ void MetaPanel::update( input_item_t *p_item )
     UPDATE_META( EncodedBy, encodedby_text );
 
     UPDATE_META( Date, date_text );
-    UPDATE_META( TrackNum, seqnum_text );
-    UPDATE_META( TrackTotal, seqtot_text );
+
+    QString trackposition( "%1/%2" );
+    psz_meta = input_item_GetTrackNum( p_item );
+    trackposition = trackposition.arg( psz_meta );
+    free( psz_meta );
+    psz_meta = input_item_GetTrackTotal( p_item );
+    trackposition = trackposition.arg( psz_meta );
+    free( psz_meta );
+    tracknumber_text->setText( trackposition );
+
 //    UPDATE_META( Setting, setting_text );
 //    UPDATE_META_INT( Rating, rating_text );
 
@@ -281,8 +296,9 @@ void MetaPanel::saveMeta()
     input_item_SetArtist( p_input, qtu( artist_text->text() ) );
     input_item_SetAlbum(  p_input, qtu( collection_text->text() ) );
     input_item_SetGenre(  p_input, qtu( genre_text->text() ) );
-    input_item_SetTrackNum(  p_input, qtu( seqnum_text->text() ) );
-    input_item_SetTrackTotal(  p_input, qtu( seqtot_text->text() ) );
+    QStringList trackparts = tracknumber_text->text().split( "/" );
+    input_item_SetTrackNum( p_input, qtu( trackparts[0] ) );
+    input_item_SetTrackTotal( p_input, qtu( trackparts[1] ) );
     input_item_SetDate(  p_input, qtu( date_text->text() ) );
 
     input_item_SetCopyright( p_input, qtu( copyright_text->text() ) );
@@ -324,17 +340,32 @@ void MetaPanel::clear()
     genre_text->clear();
     copyright_text->clear();
     collection_text->clear();
-    seqnum_text->clear();
-    seqtot_text->clear();
+    tracknumber_text->clear();
     description_text->clear();
     date_text->clear();
     language_text->clear();
     nowplaying_text->clear();
     publisher_text->clear();
     encodedby_text->clear();
+    art_cover->clear();
+    fingerprintButton->setVisible( false );
 
     setEditMode( false );
     emit uriSet( "" );
+}
+
+void MetaPanel::fingerprint()
+{
+    FingerprintDialog *dialog = new FingerprintDialog( this, p_intf, p_input );
+    CONNECT( dialog, metaApplied( input_item_t * ), this, fingerprintUpdate( input_item_t * ) );
+    dialog->setAttribute( Qt::WA_DeleteOnClose, true );
+    dialog->show();
+}
+
+void MetaPanel::fingerprintUpdate( input_item_t *p_item )
+{
+    update( p_item );
+    setEditMode( true );
 }
 
 /**
@@ -487,7 +518,7 @@ void InfoPanel::saveCodecsInfo()
  */
 InputStatsPanel::InputStatsPanel( QWidget *parent ): QWidget( parent )
 {
-     QGridLayout *layout = new QGridLayout(this);
+     QVBoxLayout *layout = new QVBoxLayout(this);
 
      QLabel *topLabel = new QLabel( qtr( "Current"
                  " media / stream " "statistics") );
@@ -522,6 +553,8 @@ InputStatsPanel::InputStatsPanel( QWidget *parent ): QWidget( parent )
                            "0", input , "KiB" );
     CREATE_AND_ADD_TO_CAT( input_bitrate_stat, qtr("Input bitrate"),
                            "0", input, "kb/s" );
+    input_bitrate_graph = new QTreeWidgetItem();
+    input_bitrate_stat->addChild( input_bitrate_graph );
     CREATE_AND_ADD_TO_CAT( demuxed_stat, qtr("Demuxed data size"), "0", input, "KiB") ;
     CREATE_AND_ADD_TO_CAT( stream_bitrate_stat, qtr("Content bitrate"),
                            "0", input, "kb/s" );
@@ -561,7 +594,24 @@ InputStatsPanel::InputStatsPanel( QWidget *parent ): QWidget( parent )
     StatsTree->resizeColumnToContents( 0 );
     StatsTree->setColumnWidth( 1 , 200 );
 
-    layout->addWidget(StatsTree, 1, 0 );
+    layout->addWidget(StatsTree, 4, 0 );
+
+    statsView = new VLCStatsView( this );
+    statsView->setFrameStyle( QFrame::NoFrame );
+    statsView->setSizePolicy( QSizePolicy::Preferred, QSizePolicy::Fixed );
+    input_bitrate_graph->setSizeHint( 1, QSize(0, 100) );
+    QString graphlabel =
+            QString( "<font style=\"color:#ff8c00\">%1</font><br/>%2" )
+            .arg( qtr("Last 60 seconds") )
+            .arg( qtr("Overall") );
+    StatsTree->setItemWidget( input_bitrate_graph, 0, new QLabel( graphlabel ) );
+    StatsTree->setItemWidget( input_bitrate_graph, 1, statsView );
+}
+
+void InputStatsPanel::hideEvent( QHideEvent * event )
+{
+    statsView->reset();
+    QWidget::hideEvent( event );
 }
 
 /**
@@ -580,11 +630,13 @@ void InputStatsPanel::update( input_item_t *p_item )
     { QString str; widget->setText( 1 , str.sprintf( format, ## calc ) );  }
 
     UPDATE_INT( read_media_stat, (p_item->p_stats->i_read_bytes / 1024 ) );
-    UPDATE_FLOAT( input_bitrate_stat,  "%6.0f", (float)(p_item->p_stats->f_input_bitrate *  8000  ));
+    UPDATE_FLOAT( input_bitrate_stat,  "%6.0f", (float)(p_item->p_stats->f_input_bitrate *  8000 ));
     UPDATE_INT( demuxed_stat,    (p_item->p_stats->i_demux_read_bytes / 1024 ) );
-    UPDATE_FLOAT( stream_bitrate_stat, "%6.0f", (float)(p_item->p_stats->f_demux_bitrate *  8000  ));
+    UPDATE_FLOAT( stream_bitrate_stat, "%6.0f", (float)(p_item->p_stats->f_demux_bitrate *  8000 ));
     UPDATE_INT( corrupted_stat,      p_item->p_stats->i_demux_corrupted );
     UPDATE_INT( discontinuity_stat,  p_item->p_stats->i_demux_discontinuity );
+
+    statsView->addValue( p_item->p_stats->f_input_bitrate * 8000 );
 
     /* Video */
     UPDATE_INT( vdecoded_stat,     p_item->p_stats->i_decoded_video );
@@ -610,4 +662,3 @@ void InputStatsPanel::update( input_item_t *p_item )
 void InputStatsPanel::clear()
 {
 }
-

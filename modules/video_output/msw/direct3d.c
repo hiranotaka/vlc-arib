@@ -1,24 +1,24 @@
 /*****************************************************************************
  * direct3d.c: Windows Direct3D video output module
  *****************************************************************************
- * Copyright (C) 2006-2009 the VideoLAN team
+ * Copyright (C) 2006-2009 VLC authors and VideoLAN
  *$Id$
  *
  * Authors: Damien Fouilleul <damienf@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -39,7 +39,6 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_playlist.h>
 #include <vlc_vout_display.h>
 
 #include <windows.h>
@@ -53,13 +52,12 @@
 static int  Open(vlc_object_t *);
 static void Close(vlc_object_t *);
 
-#define DESKTOP_TEXT N_("Enable desktop mode ")
 #define DESKTOP_LONGTEXT N_(\
     "The desktop mode allows you to display the video on the desktop.")
 
 #define HW_BLENDING_TEXT N_("Use hardware blending support")
 #define HW_BLENDING_LONGTEXT N_(\
-    "Try to use hardware acceleration for subtitles/OSD blending.")
+    "Try to use hardware acceleration for subtitle/OSD blending.")
 
 #define D3D_HELP N_("Recommended video output for Windows Vista and later versions")
 
@@ -485,7 +483,7 @@ static int Direct3DCreate(vout_display_t *vd)
 
     LPDIRECT3D9 (WINAPI *OurDirect3DCreate9)(UINT SDKVersion);
     OurDirect3DCreate9 =
-        (void *)GetProcAddress(sys->hd3d9_dll, TEXT("Direct3DCreate9"));
+        (void *)GetProcAddress(sys->hd3d9_dll, "Direct3DCreate9");
     if (!OurDirect3DCreate9) {
         msg_Err(vd, "Cannot locate reference to Direct3DCreate9 ABI in DLL");
         return VLC_EGENERIC;
@@ -610,9 +608,8 @@ static int Direct3DOpen(vout_display_t *vd, video_format_t *fmt)
     // If it is present, override default settings
     for (UINT Adapter=0; Adapter< IDirect3D9_GetAdapterCount(d3dobj); ++Adapter) {
         D3DADAPTER_IDENTIFIER9 Identifier;
-        HRESULT Res;
-        Res = IDirect3D9_GetAdapterIdentifier(d3dobj,Adapter,0,&Identifier);
-        if (strstr(Identifier.Description,"PerfHUD") != 0) {
+        HRESULT Res = IDirect3D9_GetAdapterIdentifier(d3dobj,Adapter,0,&Identifier);
+        if (SUCCEEDED(Res) && strstr(Identifier.Description,"PerfHUD") != 0) {
             AdapterToUse = Adapter;
             DeviceType = D3DDEVTYPE_REF;
             break;
@@ -1450,11 +1447,10 @@ static int DesktopCallback(vlc_object_t *object, char const *psz_cmd,
 
     /* FIXME we should have a way to export variable to be saved */
     if (ch_desktop) {
-        playlist_t *p_playlist = pl_Get(vd);
         /* Modify playlist as well because the vout might have to be
          * restarted */
-        var_Create(p_playlist, "video-wallpaper", VLC_VAR_BOOL);
-        var_SetBool(p_playlist, "video-wallpaper", newval.b_bool);
+        var_Create(object->p_parent, "video-wallpaper", VLC_VAR_BOOL);
+        var_SetBool(object->p_parent, "video-wallpaper", newval.b_bool);
     }
     return VLC_SUCCESS;
 }

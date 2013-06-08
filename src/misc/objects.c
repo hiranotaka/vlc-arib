@@ -56,7 +56,7 @@
 # include <sys/socket.h>
 # include <netinet/in.h>
 # include <unistd.h>    // close(), write()
-#elif defined(WIN32)
+#elif defined(_WIN32)
 # include <io.h>
 # include <winsock2.h>
 # include <ws2tcpip.h>
@@ -287,7 +287,7 @@ static void vlc_object_destroy( vlc_object_t *p_this )
 }
 
 
-#if defined(WIN32) || defined(__OS2__)
+#if defined(_WIN32) || defined(__OS2__)
 /**
  * select()-able pipes emulated using Winsock
  */
@@ -329,7 +329,7 @@ error:
         close (c);
     return -1;
 }
-#endif /* WIN32 || __OS2__ */
+#endif /* _WIN32 || __OS2__ */
 
 static vlc_mutex_t pipe_lock = VLC_STATIC_MUTEX;
 
@@ -378,33 +378,35 @@ int vlc_object_waitpipe( vlc_object_t *obj )
     return internals->pipes[0];
 }
 
-#undef vlc_object_kill
 /**
- * Requests termination of an object, cancels the object thread, and make the
- * object wait pipe (if it exists) readable. Not a cancellation point.
+ * Hack for input objects. Should be removed eventually.
  */
-void vlc_object_kill( vlc_object_t *p_this )
+void ObjectKillChildrens( vlc_object_t *p_obj )
 {
-    vlc_object_internals_t *priv = vlc_internals( p_this );
-    int fd = -1;
+    /* FIXME ObjectKillChildrens seems a very bad idea in fact */
+    /*if( p_obj == VLC_OBJECT(p_input->p->p_sout) ) return;*/
 
+    vlc_object_internals_t *priv = vlc_internals (p_obj);
     if (atomic_exchange (&priv->alive, false))
     {
+        int fd;
+
         vlc_mutex_lock (&pipe_lock);
         fd = priv->pipes[1];
         vlc_mutex_unlock (&pipe_lock);
+        if (fd != -1)
+        {
+            write (fd, &(uint64_t){ 1 }, sizeof (uint64_t));
+            msg_Dbg (p_obj, "object waitpipe triggered");
+        }
     }
 
-    if (fd != -1)
-    {
-        int canc = vlc_savecancel ();
-
-        /* write _after_ setting b_die, so vlc_object_alive() returns false */
-        write (fd, &(uint64_t){ 1 }, sizeof (uint64_t));
-        msg_Dbg (p_this, "waitpipe: object killed");
-        vlc_restorecancel (canc);
-    }
+    vlc_list_t *p_list = vlc_list_children( p_obj );
+    for( int i = 0; i < p_list->i_count; i++ )
+        ObjectKillChildrens( p_list->p_values[i].p_object );
+    vlc_list_release( p_list );
 }
+
 
 #undef vlc_object_find_name
 /**
@@ -426,9 +428,25 @@ vlc_object_t *vlc_object_find_name( vlc_object_t *p_this, const char *psz_name )
 {
     vlc_object_t *p_found;
 
-    /* Reading psz_object_name from a separate inhibits thread-safety.
-     * Use a libvlc address variable instead for that sort of things! */
-    msg_Err( p_this, "%s(\"%s\") is not safe!", __func__, psz_name );
+    /* The object name is not thread-safe, provides no warranty that the
+     * object is fully initialized and still active, and that its owner can
+     * deal with asynchronous and external state changes. There may be multiple
+     * objects with the same name, and the function may fail even if a matching
+     * object exists. DO NOT USE THIS IN NEW CODE. */
+#ifndef NDEBUG
+    /* This was officially deprecated on August 19 2009. For the convenience of
+     * wannabe code janitors, this is the list of names that remain used
+     * and unfixed since then. */
+    static const char const bad[][11] = { "adjust", "clone", "colorthres",
+        "erase", "extract", "gradient", "logo", "marq", "motionblur", "puzzle",
+        "rotate", "sharpen", "transform", "v4l2", "wall" };
+    static const char const poor[][13] = { "invert", "magnify", "motiondetect",
+        "psychedelic", "ripple", "wave" };
+    if( bsearch( psz_name, bad, 15, 11, (void *)strcmp ) == NULL
+     && bsearch( psz_name, poor, 6, 13, (void *)strcmp ) == NULL )
+        return NULL;
+    msg_Err( p_this, "looking for object \"%s\"... FIXME XXX", psz_name );
+#endif
 
     libvlc_lock (p_this->p_libvlc);
     vlc_mutex_lock (&name_lock);
@@ -445,9 +463,12 @@ vlc_object_t *vlc_object_find_name( vlc_object_t *p_this, const char *psz_name )
 void * vlc_object_hold( vlc_object_t *p_this )
 {
     vlc_object_internals_t *internals = vlc_internals( p_this );
+#ifndef NDEBUG
     unsigned refs = atomic_fetch_add (&internals->refs, 1);
-
-    assert (refs > 0); /* Avoid obvious freed object uses */ (void) refs;
+    assert (refs > 0); /* Avoid obvious freed object uses */
+#else
+    atomic_fetch_add (&internals->refs, 1);
+#endif
     return p_this;
 }
 

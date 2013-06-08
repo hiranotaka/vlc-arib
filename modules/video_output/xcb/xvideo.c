@@ -5,20 +5,20 @@
 /*****************************************************************************
  * Copyright © 2009 Rémi Denis-Courmont
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
+ * (at your option) any later version.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- ****************************************************************************/
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -52,6 +52,7 @@
 
 static int  Open (vlc_object_t *);
 static void Close (vlc_object_t *);
+static int EnumAdaptors (vlc_object_t *, const char *, int64_t **, char ***);
 
 /*
  * Module descriptor
@@ -66,6 +67,7 @@ vlc_module_begin ()
 
     add_integer ("xvideo-adaptor", -1,
                  ADAPTOR_TEXT, ADAPTOR_LONGTEXT, true)
+        change_integer_cb (EnumAdaptors)
     add_integer ("xvideo-format-id", 0,
                  FORMAT_TEXT, FORMAT_LONGTEXT, true)
     add_obsolete_bool ("xvideo-shm") /* removed in 2.0.0 */
@@ -384,8 +386,8 @@ static int Open (vlc_object_t *obj)
     /* Connect to X */
     xcb_connection_t *conn;
     const xcb_screen_t *screen;
-    uint8_t depth;
-    p_sys->embed = GetWindow (vd, &conn, &screen, &depth);
+    uint16_t width, height;
+    p_sys->embed = XCB_parent_Create (vd, &conn, &screen, &width, &height);
     if (p_sys->embed == NULL)
     {
         free (p_sys);
@@ -412,7 +414,8 @@ static int Open (vlc_object_t *obj)
     if (adaptors == NULL)
         goto error;
 
-    int forced_adaptor = var_InheritInteger (obj, "xvideo-adaptor");
+    int adaptor_selected = var_InheritInteger (obj, "xvideo-adaptor");
+    int adaptor_current = -1;
 
     /* */
     video_format_t fmt;
@@ -424,14 +427,10 @@ static int Open (vlc_object_t *obj)
          xcb_xv_adaptor_info_next (&it))
     {
         const xcb_xv_adaptor_info_t *a = it.data;
-        char *name;
 
-        if (forced_adaptor != -1 && forced_adaptor != 0)
-        {
-            forced_adaptor--;
+        adaptor_current++;
+        if (adaptor_selected != -1 && adaptor_selected != adaptor_current)
             continue;
-        }
-
         if (!(a->type & XCB_XV_TYPE_INPUT_MASK)
          || !(a->type & XCB_XV_TYPE_IMAGE_MASK))
             continue;
@@ -465,12 +464,8 @@ static int Open (vlc_object_t *obj)
 
     grabbed_port:
         /* Found port - initialize selected format */
-        name = strndup (xcb_xv_adaptor_info_name (a), a->name_size);
-        if (name != NULL)
-        {
-            msg_Dbg (vd, "using adaptor %s", name);
-            free (name);
-        }
+        msg_Dbg (vd, "using adaptor %.*s", (int)a->name_size,
+                 xcb_xv_adaptor_info_name (a));
         msg_Dbg (vd, "using port %"PRIu32, p_sys->port);
         msg_Dbg (vd, "using image format 0x%"PRIx32, p_sys->id);
 
@@ -510,7 +505,7 @@ static int Open (vlc_object_t *obj)
                  p_sys->embed->handle.xid, 0, 0, 1, 1, 0,
                  XCB_WINDOW_CLASS_INPUT_OUTPUT, f->visual, mask, list);
 
-            if (!CheckError (vd, conn, "cannot create X11 window", c))
+            if (!XCB_error_Check (vd, conn, "cannot create X11 window", c))
             {
                 msg_Dbg (vd, "using X11 visual ID 0x%"PRIx32
                          " (depth: %"PRIu8")", f->visual, f->depth);
@@ -565,12 +560,13 @@ static int Open (vlc_object_t *obj)
                 xcb_intern_atom (conn, 1, 21, "XV_AUTOPAINT_COLORKEY"), NULL);
         if (r != NULL && r->atom != 0)
             xcb_xv_set_port_attribute(conn, p_sys->port, r->atom, 1);
+        free(r);
     }
 
     /* Create cursor */
-    p_sys->cursor = CreateBlankCursor (conn, screen);
+    p_sys->cursor = XCB_cursor_Create (conn, screen);
 
-    p_sys->shm = CheckSHM (obj, conn);
+    p_sys->shm = XCB_shm_Check (obj, conn);
 
     /* */
     vout_display_info_t info = vd->info;
@@ -596,9 +592,7 @@ static int Open (vlc_object_t *obj)
     if (is_fullscreen && vout_window_SetFullScreen (p_sys->embed, true))
         is_fullscreen = false;
     vout_display_SendEventFullscreen (vd, is_fullscreen);
-    unsigned width, height;
-    if (!GetWindowSize (p_sys->embed, conn, &width, &height))
-        vout_display_SendEventDisplaySize (vd, width, height, is_fullscreen);
+    vout_display_SendEventDisplaySize (vd, width, height, is_fullscreen);
 
     return VLC_SUCCESS;
 
@@ -624,7 +618,7 @@ static void Close (vlc_object_t *obj)
 
             if (!res->p->p_pixels)
                 break;
-            PictureResourceFree (res, NULL);
+            XCB_pictures_Free (res, NULL);
         }
         picture_pool_Delete (p_sys->pool);
     }
@@ -668,8 +662,8 @@ static void PoolAlloc (vout_display_t *vd, unsigned requested_count)
             res->p[i].i_pitch = pitches[i];
         }
 
-        if (PictureResourceAlloc (vd, res, p_sys->att->data_size,
-                                  p_sys->conn, p_sys->shm))
+        if (XCB_pictures_Alloc (vd, res, p_sys->att->data_size,
+                                p_sys->conn, p_sys->shm))
             break;
 
         /* Allocate further planes as specified by XVideo */
@@ -687,7 +681,7 @@ static void PoolAlloc (vout_display_t *vd, unsigned requested_count)
         pic_array[count] = picture_NewFromResource (&vd->fmt, res);
         if (!pic_array[count])
         {
-            PictureResourceFree (res, p_sys->conn);
+            XCB_pictures_Free (res, p_sys->conn);
             memset (res, 0, sizeof(*res));
             break;
         }
@@ -845,6 +839,81 @@ static void Manage (vout_display_t *vd)
 {
     vout_display_sys_t *p_sys = vd->sys;
 
-    ManageEvent (vd, p_sys->conn, &p_sys->visible);
+    XCB_Manage (vd, p_sys->conn, &p_sys->visible);
 }
 
+static int EnumAdaptors (vlc_object_t *obj, const char *var,
+                         int64_t **vp, char ***tp)
+{
+    size_t n = 0;
+
+    /* Connect to X */
+    char *display = var_InheritString (obj, "x11-display");
+    xcb_connection_t *conn;
+    int snum;
+
+    conn = xcb_connect (display, &snum);
+    free (display);
+    if (xcb_connection_has_error (conn) /*== NULL*/)
+        goto error;
+
+    /* Find configured screen */
+    const xcb_setup_t *setup = xcb_get_setup (conn);
+    const xcb_screen_t *scr = NULL;
+    for (xcb_screen_iterator_t i = xcb_setup_roots_iterator (setup);
+         i.rem > 0; xcb_screen_next (&i))
+    {
+        if (snum == 0)
+        {
+            scr = i.data;
+            break;
+        }
+        snum--;
+    }
+    if (scr == NULL)
+        goto error;
+
+    xcb_xv_query_adaptors_reply_t *adaptors =
+        xcb_xv_query_adaptors_reply (conn,
+            xcb_xv_query_adaptors (conn, scr->root), NULL);
+    if (adaptors == NULL)
+        goto error;
+
+    xcb_xv_adaptor_info_iterator_t it;
+
+    for (it = xcb_xv_query_adaptors_info_iterator (adaptors);
+         it.rem > 0;
+         xcb_xv_adaptor_info_next (&it))
+        n++;
+
+    int64_t *values = xmalloc ((n + 1) * sizeof (*values));
+    char **texts = xmalloc ((n + 1) * sizeof (*texts));
+    *vp = values;
+    *tp = texts;
+    n = 0;
+
+    *(values++) = -1;
+    *(texts++) = strdup (N_("Auto"));
+    n++;
+
+    for (it = xcb_xv_query_adaptors_info_iterator (adaptors);
+         it.rem > 0;
+         xcb_xv_adaptor_info_next (&it))
+    {
+        const xcb_xv_adaptor_info_t *a = it.data;
+
+        n++;
+
+        if (!(a->type & XCB_XV_TYPE_INPUT_MASK)
+         || !(a->type & XCB_XV_TYPE_IMAGE_MASK))
+            continue;
+
+        *(values++) = n - 2;
+        *(texts++) = strndup (xcb_xv_adaptor_info_name (a), a->name_size);
+    }
+    free (adaptors);
+error:
+    xcb_disconnect (conn);
+    (void) obj; (void) var;
+    return n;
+}

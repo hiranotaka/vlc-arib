@@ -16,13 +16,28 @@ SUBDIRS += test
 EXTRA_DIST = \
 	extras/package/win32/vlc.exe.manifest \
 	extras/package/win32/libvlc.dll.manifest \
-	extras/package/win32/peflags.pl \
 	extras/package/win32/change-contribs-directory.sh \
 	extras/package/win32/configure.sh \
 	extras/package/symbian/configure.sh \
 	extras/package/npapi.am \
 	extras/package/win32/NSIS/vlc.win32.nsi.in \
 	extras/package/win32/NSIS/spad.nsi.in \
+	extras/package/win32/NSIS/UAC/examples \
+	extras/package/win32/NSIS/UAC/examples/UAC_AllowLUA.nsi \
+	extras/package/win32/NSIS/UAC/examples/UAC_AdminOnly.nsi \
+	extras/package/win32/NSIS/UAC/examples/UAC_Uninstaller.nsi \
+	extras/package/win32/NSIS/UAC/examples/UAC.nsh \
+	extras/package/win32/NSIS/UAC/examples/UAC_GetUserShellFolderPath.nsi \
+	extras/package/win32/NSIS/UAC/examples/UAC_RealWorldFullyLoadedDualModeExample.nsi \
+	extras/package/win32/NSIS/UAC/History.txt \
+	extras/package/win32/NSIS/UAC/License.txt \
+	extras/package/win32/NSIS/UAC/nsisutil.h \
+	extras/package/win32/NSIS/UAC/resource.h \
+	extras/package/win32/NSIS/UAC/resource.rc \
+	extras/package/win32/NSIS/UAC/runas.cpp \
+	extras/package/win32/NSIS/UAC/uac.cpp \
+	extras/package/win32/NSIS/UAC/uac.h \
+	extras/package/win32/NSIS/UAC/Readme.html \
 	extras/package/win32/NSIS/UAC.nsh \
 	extras/package/win32/NSIS/languages/declaration.nsh \
 	extras/package/win32/NSIS/languages/bengali.nsh \
@@ -73,6 +88,7 @@ DISTCHECK_CONFIGURE_FLAGS = \
 	--disable-mad --disable-libmpeg2 \
 	--disable-faad --disable-skins2 \
 	--disable-live555 \
+	--disable-lua \
 	--disable-fribidi --disable-glx \
 	--disable-mkv \
 	--with-kde-solid='$${datadir}/kde4/apps'
@@ -89,7 +105,7 @@ AUTOMAKE_OPTIONS = \
 ChangeLog: Makefile.am
 	rm -f -- "$@"
 	cd doc && $(MAKE) $(AM_MAKEFLAGS) changelogs
-	$(LN_S) -f doc/ChangeLog-2012 "$@"
+	$(LN_S) -f doc/ChangeLog-2013 "$@"
 
 ###############################################################################
 # Mac OS X project
@@ -659,10 +675,6 @@ install-exec-hook:
 uninstall-hook:
 	rm -f -- "$(DESTDIR)$(vlclibdir)/plugins/plugins.dat"
 
-silentstd = $(silentstd_$(V))
-silentstd_ = $(silentstd_$(AM_DEFAULT_VERBOSITY))
-silentstd_0 = 2>&1 >/dev/null
-
 ###############################################################################
 # PO translation files update
 ###############################################################################
@@ -676,4 +688,5 @@ update-po:
 ###############################################################################
 include extras/package/macosx/package.mak
 include extras/package/win32/package.mak
+include extras/package/win32/msi.mak
 

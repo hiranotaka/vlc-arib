@@ -6,19 +6,19 @@
  *
  * Authors: Laurent Aimar <fenrir _AT_ videolan _DOT_ org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -54,8 +54,8 @@ int InitSubtitleDec(decoder_t *dec, AVCodecContext *context,
 
     /* */
     switch (codec_id) {
-    case CODEC_ID_HDMV_PGS_SUBTITLE:
-    case CODEC_ID_XSUB:
+    case AV_CODEC_ID_HDMV_PGS_SUBTITLE:
+    case AV_CODEC_ID_XSUB:
         break;
     default:
         msg_Warn(dec, "refusing to decode non validated subtitle codec");
@@ -82,13 +82,22 @@ int InitSubtitleDec(decoder_t *dec, AVCodecContext *context,
 
     /* */
     int ret;
+    char *psz_opts = var_InheritString(dec, "avcodec-options");
+    AVDictionary *options = NULL;
+    if (psz_opts && *psz_opts)
+        options = vlc_av_get_options(psz_opts);
+    free(psz_opts);
+
     vlc_avcodec_lock();
-#if LIBAVCODEC_VERSION_MAJOR < 54
-    ret = avcodec_open(context, codec);
-#else
-    ret = avcodec_open2(context, codec, NULL /* options */);
-#endif
+    ret = avcodec_open2(context, codec, options ? &options : NULL);
     vlc_avcodec_unlock();
+
+    AVDictionaryEntry *t = NULL;
+    while ((t = av_dict_get(options, "", t, AV_DICT_IGNORE_SUFFIX))) {
+        msg_Err(dec, "Unknown option \"%s\"", t->key);
+    }
+    av_dict_free(&options);
+
     if (ret < 0) {
         msg_Err(dec, "cannot open codec (%s)", namecodec);
         free(context->extradata);
@@ -171,14 +180,6 @@ subpicture_t *DecodeSubtitle(decoder_t *dec, block_t **block_ptr)
     if (!spu)
         block_Release(block);
     return spu;
-}
-
-/**
- * Clean up private data
- */
-void EndSubtitleDec(decoder_t *dec)
-{
-    VLC_UNUSED(dec);
 }
 
 /**

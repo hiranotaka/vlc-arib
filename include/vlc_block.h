@@ -139,7 +139,14 @@ VLC_API void block_Init( block_t *, void *, size_t );
 VLC_API block_t *block_Alloc( size_t ) VLC_USED VLC_MALLOC;
 VLC_API block_t *block_Realloc( block_t *, ssize_t i_pre, size_t i_body ) VLC_USED;
 
-#define block_New( dummy, size ) block_Alloc(size)
+static inline void block_CopyProperties( block_t *dst, block_t *src )
+{
+    dst->i_flags   = src->i_flags;
+    dst->i_nb_samples = src->i_nb_samples;
+    dst->i_dts     = src->i_dts;
+    dst->i_pts     = src->i_pts;
+    dst->i_length  = src->i_length;
+}
 
 VLC_USED
 static inline block_t *block_Duplicate( block_t *p_block )
@@ -148,11 +155,7 @@ static inline block_t *block_Duplicate( block_t *p_block )
     if( p_dup == NULL )
         return NULL;
 
-    p_dup->i_flags   = p_block->i_flags;
-    p_dup->i_nb_samples = p_block->i_nb_samples;
-    p_dup->i_dts     = p_block->i_dts;
-    p_dup->i_pts     = p_block->i_pts;
-    p_dup->i_length  = p_block->i_length;
+    block_CopyProperties( p_dup, p_block );
     memcpy( p_dup->p_buffer, p_block->p_buffer, p_block->i_buffer );
 
     return p_dup;
@@ -165,6 +168,7 @@ static inline void block_Release( block_t *p_block )
 
 VLC_API block_t *block_heap_Alloc(void *, size_t) VLC_USED VLC_MALLOC;
 VLC_API block_t *block_mmap_Alloc(void *addr, size_t length) VLC_USED VLC_MALLOC;
+VLC_API block_t * block_shm_Alloc(void *addr, size_t length) VLC_USED VLC_MALLOC;
 VLC_API block_t *block_File(int fd) VLC_USED VLC_MALLOC;
 VLC_API block_t *block_FilePath(const char *) VLC_USED VLC_MALLOC;
 

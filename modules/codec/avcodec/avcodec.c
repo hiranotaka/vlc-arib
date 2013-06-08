@@ -1,25 +1,25 @@
 /*****************************************************************************
  * avcodec.c: video and audio decoder and encoder using libavcodec
  *****************************************************************************
- * Copyright (C) 1999-2008 the VideoLAN team
+ * Copyright (C) 1999-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -44,6 +44,8 @@
 
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT( 53, 34, 0 )
 #   error You must update libavcodec to a version >= 53.34.0
+#elif LIBAVCODEC_VERSION_INT < AV_VERSION_INT( 54, 25, 0 )
+#   warning You should update libavcodec to a version >= 54.25.0
 #endif
 
 /*****************************************************************************
@@ -119,9 +121,6 @@ vlc_module_begin ()
     add_integer ( "avcodec-vismv", 0, VISMV_TEXT, VISMV_LONGTEXT,
         true )
     add_obsolete_integer ( "ffmpeg-lowres" ) /* removed since 2.1.0 */
-    add_integer ( "avcodec-lowres", 0, LOWRES_TEXT, LOWRES_LONGTEXT,
-        true )
-        change_integer_range( 0, 2 )
     add_obsolete_bool( "ffmpeg-fast" ) /* removed since 2.1.0 */
     add_bool( "avcodec-fast", false, FAST_TEXT, FAST_LONGTEXT, false )
     add_obsolete_integer ( "ffmpeg-skiploopfilter" ) /* removed since 2.1.0 */
@@ -129,6 +128,10 @@ vlc_module_begin ()
                   SKIPLOOPF_LONGTEXT, false)
         change_safe ()
         change_integer_list( nloopf_list, nloopf_list_text )
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT( 54, 41, 0 )
+    add_bool( "avcodec-ignorecrop", false, IGNORECROP_TEXT, IGNORECROP_LONGTEXT,
+        true )
+#endif
 
     add_obsolete_integer( "ffmpeg-debug" ) /* removed since 2.1.0 */
     add_integer( "avcodec-debug", 0, DEBUG_TEXT, DEBUG_LONGTEXT,
@@ -139,8 +142,9 @@ vlc_module_begin ()
     add_module( "avcodec-hw", "hw decoder", "none", HW_TEXT, HW_LONGTEXT, false )
 #if defined(FF_THREAD_FRAME)
     add_obsolete_integer( "ffmpeg-threads" ) /* removed since 2.1.0 */
-    add_integer( "avcodec-threads", 1, THREADS_TEXT, THREADS_LONGTEXT, true );
+    add_integer( "avcodec-threads", 0, THREADS_TEXT, THREADS_LONGTEXT, true );
 #endif
+    add_string( "avcodec-options", NULL, AV_OPTIONS_TEXT, AV_OPTIONS_LONGTEXT, true )
 
 
 #ifdef ENABLE_SOUT
@@ -182,7 +186,7 @@ vlc_module_begin ()
 
 
     add_string( ENC_CFG_PREFIX "codec", NULL, CODEC_TEXT, CODEC_LONGTEXT, true )
-    add_string( ENC_CFG_PREFIX "hq", "simple", ENC_HQ_TEXT,
+    add_string( ENC_CFG_PREFIX "hq", "rd", ENC_HQ_TEXT,
                 ENC_HQ_LONGTEXT, false )
         change_string_list( enc_hq_list, enc_hq_list_text )
     add_integer( ENC_CFG_PREFIX "keyint", 0, ENC_KEYINT_TEXT,
@@ -236,14 +240,9 @@ vlc_module_begin ()
     /* Audio AAC encoder profile */
     add_string( ENC_CFG_PREFIX "aac-profile", "low",
                 ENC_PROFILE_TEXT, ENC_PROFILE_LONGTEXT, true )
-#endif /* ENABLE_SOUT */
 
-    /* video filter submodule */
-    add_submodule ()
-    set_capability( "video filter2", 0 )
-    set_callbacks( OpenDeinterlace, CloseDeinterlace )
-    set_description( N_("FFmpeg deinterlace video filter") )
-    add_shortcut( "ffmpeg-deinterlace" )
+    add_string( ENC_CFG_PREFIX "options", NULL, AV_OPTIONS_TEXT, AV_OPTIONS_LONGTEXT, true )
+#endif /* ENABLE_SOUT */
 
 #ifdef MERGE_FFMPEG
     add_submodule ()
@@ -299,18 +298,14 @@ static int OpenDecoder( vlc_object_t *p_this )
     }
 
     /* *** get a p_context *** */
-#if LIBAVCODEC_VERSION_MAJOR >= 54
     p_context = avcodec_alloc_context3(p_codec);
-#else
-    p_context = avcodec_alloc_context();
-#endif
     if( !p_context )
         return VLC_ENOMEM;
     p_context->debug = var_InheritInteger( p_dec, "avcodec-debug" );
     p_context->opaque = (void *)p_this;
 
     /* set CPU capabilities */
-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT( 51, 25, 0 )
+#if LIBAVUTIL_VERSION_CHECK(51, 25, 0, 42, 100)
     av_set_cpu_flags_mask( INT_MAX & ~GetVlcDspMask() );
 #else
     p_context->dsp_mask = GetVlcDspMask();
@@ -360,14 +355,8 @@ static void CloseDecoder( vlc_object_t *p_this )
 
     switch( p_sys->i_cat )
     {
-    case AUDIO_ES:
-         EndAudioDec ( p_dec );
-        break;
     case VIDEO_ES:
          EndVideoDec ( p_dec );
-        break;
-    case SPU_ES:
-         EndSubtitleDec( p_dec );
         break;
     }
 
@@ -398,10 +387,10 @@ int ffmpeg_OpenCodec( decoder_t *p_dec )
 
     if( p_sys->p_context->extradata_size <= 0 )
     {
-        if( p_sys->i_codec_id == CODEC_ID_VC1 ||
-            p_sys->i_codec_id == CODEC_ID_VORBIS ||
-            p_sys->i_codec_id == CODEC_ID_THEORA ||
-            ( p_sys->i_codec_id == CODEC_ID_AAC &&
+        if( p_sys->i_codec_id == AV_CODEC_ID_VC1 ||
+            p_sys->i_codec_id == AV_CODEC_ID_VORBIS ||
+            p_sys->i_codec_id == AV_CODEC_ID_THEORA ||
+            ( p_sys->i_codec_id == AV_CODEC_ID_AAC &&
               !p_dec->fmt_in.b_packetized ) )
         {
             msg_Warn( p_dec, "waiting for extra data for codec %s",
@@ -423,20 +412,29 @@ int ffmpeg_OpenCodec( decoder_t *p_dec )
         p_sys->p_context->block_align = p_dec->fmt_in.audio.i_blockalign;
         p_sys->p_context->bit_rate = p_dec->fmt_in.i_bitrate;
         p_sys->p_context->bits_per_coded_sample = p_dec->fmt_in.audio.i_bitspersample;
-        if( p_sys->i_codec_id == CODEC_ID_ADPCM_G726 &&
+        if( p_sys->i_codec_id == AV_CODEC_ID_ADPCM_G726 &&
             p_sys->p_context->bit_rate > 0 &&
             p_sys->p_context->sample_rate >  0)
             p_sys->p_context->bits_per_coded_sample = p_sys->p_context->bit_rate /
                                                       p_sys->p_context->sample_rate;
     }
     int ret;
+    char *psz_opts = var_InheritString( p_dec, "avcodec-options" );
+    AVDictionary *options = NULL;
+    if (psz_opts && *psz_opts)
+        options = vlc_av_get_options(psz_opts);
+    free(psz_opts);
+
     vlc_avcodec_lock();
-#if LIBAVCODEC_VERSION_MAJOR >= 54
-    ret = avcodec_open2( p_sys->p_context, p_sys->p_codec, NULL /* options */ );
-#else
-    ret = avcodec_open( p_sys->p_context, p_sys->p_codec );
-#endif
+    ret = avcodec_open2( p_sys->p_context, p_sys->p_codec, options ? &options : NULL );
     vlc_avcodec_unlock();
+
+    AVDictionaryEntry *t = NULL;
+    while ((t = av_dict_get(options, "", t, AV_DICT_IGNORE_SUFFIX))) {
+        msg_Err( p_dec, "Unknown option \"%s\"", t->key );
+    }
+    av_dict_free(&options);
+
     if( ret < 0 )
         return VLC_EGENERIC;
     msg_Dbg( p_dec, "avcodec codec (%s) started", p_sys->psz_namecodec );

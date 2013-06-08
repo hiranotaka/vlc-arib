@@ -1,24 +1,24 @@
 /*****************************************************************************
  * vcd.c : VCD input module for vlc
  *****************************************************************************
- * Copyright © 2000-2011 the VideoLAN team
+ * Copyright © 2000-2011 VLC authors and VideoLAN
  * $Id$
  *
  * Author: Johan Bilien <jobi@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -123,7 +123,7 @@ static int Open( vlc_object_t *p_this )
         }
     }
 
-#if defined( WIN32 ) || defined( __OS2__ )
+#if defined( _WIN32 ) || defined( __OS2__ )
     if( psz_dup[0] && psz_dup[1] == ':' &&
         psz_dup[2] == '\\' && psz_dup[3] == '\0' ) psz_dup[2] = '\0';
 #endif
@@ -273,7 +273,7 @@ static int Control( access_t *p_access, int i_query, va_list args )
             {
                 /* Update info */
                 p_access->info.i_update |=
-                  INPUT_UPDATE_TITLE|INPUT_UPDATE_SEEKPOINT|INPUT_UPDATE_SIZE;
+                                     INPUT_UPDATE_TITLE|INPUT_UPDATE_SEEKPOINT;
                 p_access->info.i_title = i;
                 p_access->info.i_seekpoint = 0;
                 p_access->info.i_size = p_sys->title[i]->i_size;
@@ -336,7 +336,7 @@ static block_t *Block( access_t *p_access )
         }
 
         p_access->info.i_update |=
-            INPUT_UPDATE_TITLE | INPUT_UPDATE_SEEKPOINT | INPUT_UPDATE_SIZE;
+                                   INPUT_UPDATE_TITLE | INPUT_UPDATE_SEEKPOINT;
         p_access->info.i_title++;
         p_access->info.i_seekpoint = 0;
         p_access->info.i_size = p_sys->title[p_access->info.i_title]->i_size;
@@ -351,7 +351,7 @@ static block_t *Block( access_t *p_access )
     }
 
     /* Do the actual reading */
-    if( i_blocks < 0 || !( p_block = block_New( p_access, i_blocks * VCD_DATA_SIZE ) ) )
+    if( i_blocks < 0 || !( p_block = block_Alloc( i_blocks * VCD_DATA_SIZE ) ) )
     {
         msg_Err( p_access, "cannot get a new block of size: %i",
                  i_blocks * VCD_DATA_SIZE );

@@ -1,26 +1,34 @@
 /*****************************************************************************
  * faad.c: AAC decoder using libfaad2
  *****************************************************************************
- * Copyright (C) 2001, 2003 the VideoLAN team
+ * Copyright (C) 2001, 2003 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
+
+/*****************************************************************************
+ * NOTA BENE: this module requires the linking against a library which is
+ * known to require licensing under the GNU General Public License version 2
+ * (or later). Therefore, the result of compiling this module will normally
+ * be subject to the terms of that later license.
+ *****************************************************************************/
+
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -138,10 +146,7 @@ static int Open( vlc_object_t *p_this )
     date_Set( &p_sys->date, 0 );
     p_dec->fmt_out.i_cat = AUDIO_ES;
 
-    if (HAVE_FPU)
-        p_dec->fmt_out.i_codec = VLC_CODEC_FL32;
-    else
-        p_dec->fmt_out.i_codec = VLC_CODEC_S16N;
+    p_dec->fmt_out.i_codec = HAVE_FPU ? VLC_CODEC_FL32 : VLC_CODEC_S16N;
     p_dec->pf_decode_audio = DecodeBlock;
 
     p_dec->fmt_out.audio.i_physical_channels =
@@ -179,10 +184,7 @@ static int Open( vlc_object_t *p_this )
 
     /* Set the faad config */
     cfg = faacDecGetCurrentConfiguration( p_sys->hfaad );
-    if (HAVE_FPU)
-        cfg->outputFormat = FAAD_FMT_FLOAT;
-    else
-        cfg->outputFormat = FAAD_FMT_16BIT;
+    cfg->outputFormat = HAVE_FPU ? FAAD_FMT_FLOAT : FAAD_FMT_16BIT;
     faacDecSetConfiguration( p_sys->hfaad, cfg );
 
     /* buffer */
@@ -323,10 +325,11 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         {
             msg_Warn( p_dec, "%s", faacDecGetErrorMessage( frame.error ) );
 
-            if( frame.error == 21 )
+            if( frame.error == 21 || frame.error == 12 )
             {
                 /*
-                 * Once an "Unexpected channel configuration change" error
+                 * Once an "Unexpected channel configuration change"
+                 * or a "Invalid number of channels" error
                  * occurs, it will occurs afterwards, and we got no sound.
                  * Reinitialization of the decoder is required.
                  */

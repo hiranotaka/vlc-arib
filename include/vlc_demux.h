@@ -121,7 +121,7 @@ enum demux_query_e
      * XXX: not mandatory (except for subtitle demux) but will help a lot
      * for multi-input
      */
-    DEMUX_SET_NEXT_DEMUX_TIME,  /* arg1= int64_t *      can fail */
+    DEMUX_SET_NEXT_DEMUX_TIME,  /* arg1= int64_t        can fail */
     /* FPS for correct subtitles handling */
     DEMUX_GET_FPS,              /* arg1= double *       res=can fail    */
 
@@ -160,7 +160,12 @@ enum demux_query_e
 
     DEMUX_CAN_SEEK,            /* arg1= bool*    can fail (assume false)*/
 
-    DEMUX_GET_SIGNAL,          /* arg1= double * arg2= double * can fail */
+    /* Navigation */
+    DEMUX_NAV_ACTIVATE,        /* res=can fail */
+    DEMUX_NAV_UP,              /* res=can fail */
+    DEMUX_NAV_DOWN,            /* res=can fail */
+    DEMUX_NAV_LEFT,            /* res=can fail */
+    DEMUX_NAV_RIGHT,           /* res=can fail */
 };
 
 VLC_API int demux_vaControlHelper( stream_t *, int64_t i_start, int64_t i_end, int64_t i_bitrate, int i_align, int i_query, va_list args );
@@ -172,10 +177,9 @@ VLC_API int demux_vaControlHelper( stream_t *, int64_t i_start, int64_t i_end, i
 VLC_USED
 static inline bool demux_IsPathExtension( demux_t *p_demux, const char *psz_extension )
 {
-    if( !p_demux->psz_file )
-        return false;
-
-    const char *psz_ext = strrchr ( p_demux->psz_file, '.' );
+    const char *name = (p_demux->psz_file != NULL) ? p_demux->psz_file
+                                                   : p_demux->psz_location;
+    const char *psz_ext = strrchr ( name, '.' );
     if( !psz_ext || strcasecmp( psz_ext, psz_extension ) )
         return false;
     return true;

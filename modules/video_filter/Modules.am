@@ -5,7 +5,6 @@ SOURCES_mirror = mirror.c
 SOURCES_adjust = adjust.c adjust_sat_hue.c adjust_sat_hue.h
 SOURCES_wall = wall.c
 SOURCES_clone = clone.c
-SOURCES_crop = crop.c
 SOURCES_motionblur = motionblur.c
 SOURCES_logo = logo.c
 SOURCES_audiobargraph_v = audiobargraph_v.c
@@ -46,19 +45,22 @@ if !HAVE_WIN32
 libvlc_LTLIBRARIES += libdynamicoverlay_plugin.la
 endif
 
-libosdmenu_plugin_la_SOURCES = osdmenu.c
-libosdmenu_plugin_la_CFLAGS = $(AM_CFLAGS) -DPKGDATADIR=\"$(vlcdatadir)\"
-libosdmenu_plugin_la_LIBADD = $(AM_LIBADD)
-if BUILD_OSDMENU
-libvlc_LTLIBRARIES += libosdmenu_plugin.la
-endif
-
 libremoteosd_plugin_la_SOURCES = remoteosd.c remoteosd_rfbproto.h
 libremoteosd_plugin_la_CFLAGS = $(AM_CFLAGS) $(GCRYPT_CFLAGS)
 libremoteosd_plugin_la_LIBADD = $(AM_LIBADD) $(GCRYPT_LIBS) $(LIBS_remoteosd)
 if HAVE_GCRYPT
 libvlc_LTLIBRARIES += libremoteosd_plugin.la
 endif
+
+libpuzzle_plugin_la_SOURCES = \
+	puzzle.c puzzle.h \
+	puzzle_bezier.c puzzle_bezier.h \
+	puzzle_lib.c puzzle_lib.h \
+	puzzle_mgt.c puzzle_mgt.h \
+	puzzle_pce.c puzzle_pce.h
+libpuzzle_plugin_la_CFLAGS = $(AM_CFLAGS)
+libpuzzle_plugin_la_LIBADD = $(AM_LIBADD)
+libvlc_LTLIBRARIES += libpuzzle_plugin.la
 
 SOURCES_magnify = magnify.c
 SOURCES_wave = wave.c
@@ -83,7 +85,6 @@ SOURCES_rotate = \
 	$(motion_extra) \
 	$(NULL)
 
-SOURCES_puzzle = puzzle.c
 SOURCES_colorthres = colorthres.c
 SOURCES_extract = extract.c
 SOURCES_sharpen = sharpen.c
@@ -157,7 +158,6 @@ libvlc_LTLIBRARIES += \
 	libmotiondetect_plugin.la \
 	libposterize_plugin.la \
 	libpsychedelic_plugin.la \
-	libpuzzle_plugin.la \
 	libripple_plugin.la \
 	librotate_plugin.la \
 	librss_plugin.la \

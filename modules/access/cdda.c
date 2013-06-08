@@ -1,25 +1,25 @@
 /*****************************************************************************
  * cdda.c : CD digital audio input module for vlc
  *****************************************************************************
- * Copyright (C) 2000, 2003-2006, 2008-2009 the VideoLAN team
+ * Copyright (C) 2000, 2003-2006, 2008-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@netcourrier.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /**
@@ -142,7 +142,7 @@ static int Open( vlc_object_t *p_this )
     }
     else psz_name = ToLocaleDup( p_access->psz_filepath );
 
-#if defined( WIN32 ) || defined( __OS2__ )
+#if defined( _WIN32 ) || defined( __OS2__ )
     if( psz_name[0] && psz_name[1] == ':' &&
         psz_name[2] == '\\' && psz_name[3] == '\0' ) psz_name[2] = '\0';
 #endif
@@ -262,7 +262,7 @@ static block_t *Block( access_t *p_access )
     if( !p_sys->b_header )
     {
         /* Return only the header */
-        p_block = block_New( p_access, sizeof( WAVEHEADER ) );
+        p_block = block_Alloc( sizeof( WAVEHEADER ) );
         memcpy( p_block->p_buffer, &p_sys->waveheader, sizeof(WAVEHEADER) );
         p_sys->b_header = true;
         return p_block;
@@ -279,7 +279,7 @@ static block_t *Block( access_t *p_access )
         i_blocks = p_sys->i_last_sector - p_sys->i_sector;
 
     /* Do the actual reading */
-    if( !( p_block = block_New( p_access, i_blocks * CDDA_DATA_SIZE ) ) )
+    if( !( p_block = block_Alloc( i_blocks * CDDA_DATA_SIZE ) ) )
     {
         msg_Err( p_access, "cannot get a new block of size: %i",
                  i_blocks * CDDA_DATA_SIZE );

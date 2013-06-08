@@ -28,7 +28,7 @@
 #define kVLCMediaDVD @"DVD"
 #define kVLCMediaVCD @"VCD"
 #define kVLCMediaSVCD @"SVCD"
-#define kVLCMediaBD @"Bluray"
+#define kVLCMediaBD @"Blu-ray"
 #define kVLCMediaVideoTSFolder @"VIDEO_TS"
 #define kVLCMediaBDMVFolder @"BDMV"
 #define kVLCMediaUnknown @"Unknown"
@@ -243,7 +243,6 @@
     NSString *o_file_slave_path;
     NSString *o_sub_path;
     NSString *o_mrl;
-    intf_thread_t * p_intf;
     NSMutableArray *o_displayInfos;
 }
 

@@ -1,5 +1,5 @@
 # gettext
-GETTEXT_VERSION=0.18.1.1
+GETTEXT_VERSION=0.18.2.1
 GETTEXT_URL=$(GNU)/gettext/gettext-$(GETTEXT_VERSION).tar.gz
 
 PKGS += gettext
@@ -15,10 +15,6 @@ $(TARBALLS)/gettext-$(GETTEXT_VERSION).tar.gz:
 
 gettext: gettext-$(GETTEXT_VERSION).tar.gz .sum-gettext
 	$(UNPACK)
-	$(APPLY) $(SRC)/gettext/alloca.patch
-ifdef HAVE_MACOSX
-	$(APPLY) $(SRC)/gettext/gettext-macosx.patch
-endif
 	$(MOVE)
 
 DEPS_gettext = iconv $(DEPS_iconv)
@@ -35,10 +31,6 @@ ifdef HAVE_WIN32
 else
 	(cd $< && $(HOSTVARS) ./configure $(HOSTCONF) --disable-java --disable-native-java --without-emacs)
 	(cd $< && $(MAKE) -C gettext-runtime install && $(MAKE) -C gettext-tools/intl && $(MAKE) -C gettext-tools/libgrep && $(MAKE) -C gettext-tools/gnulib-lib && $(MAKE) -C gettext-tools/src install && $(MAKE) -C gettext-tools/misc install && $(MAKE) -C gettext-tools/m4 install)
-endif
-# Work around another non-sense of autoconf.
-ifdef HAVE_WIN32
-	(cd $(PREFIX)/include; sed -i.orig '314 c #if 0' libintl.h)
 endif
 ifdef HAVE_MACOSX
 	# detect libintl correctly in configure for static library

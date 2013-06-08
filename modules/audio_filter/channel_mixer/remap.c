@@ -1,7 +1,7 @@
 /*****************************************************************************
  * remap.c : simple channel remapper plug-in
  *****************************************************************************
- * Copyright (C) 2011 the VideoLAN team
+ * Copyright (C) 2011 VLC authors and VideoLAN
  *
  * Authors: Cheng Sun <chengsun9@gmail.com>
  *
@@ -214,8 +214,8 @@ static void RemapAdd##name( filter_t *p_filter, \
     } \
 }
 
+DEFINE_REMAP( U8,   uint8_t  )
 DEFINE_REMAP( S16N, int16_t  )
-DEFINE_REMAP( U16N, uint16_t )
 DEFINE_REMAP( S32N, int32_t  )
 DEFINE_REMAP( FL32, float    )
 DEFINE_REMAP( FL64, double   )
@@ -228,10 +228,10 @@ static inline remap_fun_t GetRemapFun( audio_format_t *p_format, bool b_add )
     {
         switch( p_format->i_format )
         {
+            case VLC_CODEC_U8:
+                return RemapAddU8;
             case VLC_CODEC_S16N:
                 return RemapAddS16N;
-            case VLC_CODEC_U16N:
-                return RemapAddU16N;
             case VLC_CODEC_S32N:
                 return RemapAddS32N;
             case VLC_CODEC_FL32:
@@ -244,10 +244,10 @@ static inline remap_fun_t GetRemapFun( audio_format_t *p_format, bool b_add )
     {
         switch( p_format->i_format )
         {
+            case VLC_CODEC_U8:
+                return RemapCopyU8;
             case VLC_CODEC_S16N:
                 return RemapCopyS16N;
-            case VLC_CODEC_U16N:
-                return RemapCopyU16N;
             case VLC_CODEC_S32N:
                 return RemapCopyS32N;
             case VLC_CODEC_FL32:
@@ -376,7 +376,7 @@ static block_t *Remap( filter_t *p_filter, block_t *p_block )
     size_t i_out_size = p_block->i_nb_samples *
         p_filter->fmt_out.audio.i_bytes_per_frame;
 
-    block_t *p_out = filter_NewAudioBuffer( p_filter, i_out_size );
+    block_t *p_out = block_Alloc( i_out_size );
     if( !p_out )
     {
         msg_Warn( p_filter, "can't get output buffer" );

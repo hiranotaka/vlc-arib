@@ -37,6 +37,12 @@
 
 #import <math.h>
 
+@interface VLCAudioEffects (Internal)
+- (void)resetProfileSelector;
+- (void)updatePresetSelector;
+- (void)setBandSliderValuesForPreset:(NSInteger)presetID;
+@end
+
 #pragma mark -
 #pragma mark Initialization
 
@@ -51,11 +57,11 @@ static VLCAudioEffects *_o_sharedInstance = nil;
 + (void)initialize{
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
 
-    NSString * workString;
-    NSMutableArray * workValues = [[NSMutableArray alloc] initWithCapacity:NB_PRESETS];
-    NSMutableArray * workPreamp = [[NSMutableArray alloc] initWithCapacity:NB_PRESETS];
-    NSMutableArray * workTitles = [[NSMutableArray alloc] initWithCapacity:NB_PRESETS];
-    NSMutableArray * workNames = [[NSMutableArray alloc] initWithCapacity:NB_PRESETS];
+    NSString *workString;
+    NSMutableArray *workValues = [[NSMutableArray alloc] initWithCapacity:NB_PRESETS];
+    NSMutableArray *workPreamp = [[NSMutableArray alloc] initWithCapacity:NB_PRESETS];
+    NSMutableArray *workTitles = [[NSMutableArray alloc] initWithCapacity:NB_PRESETS];
+    NSMutableArray *workNames = [[NSMutableArray alloc] initWithCapacity:NB_PRESETS];
 
     for (int i = 0 ; i < NB_PRESETS ; i++) {
         workString = [NSString stringWithFormat:@"%.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f",
@@ -71,14 +77,14 @@ static VLCAudioEffects *_o_sharedInstance = nil;
                       eqz_preset_10b[i].f_amp[9]];
         [workValues addObject:workString];
         [workPreamp addObject:[NSString stringWithFormat:@"%1.f", eqz_preset_10b[i].f_preamp]];
-        [workTitles addObject:[NSString stringWithUTF8String:preset_list_text[i]]];
-        [workNames addObject:[NSString stringWithUTF8String:preset_list[i]]];
+        [workTitles addObject:@(preset_list_text[i])];
+        [workNames addObject:@(preset_list[i])];
     }
 
     NSString *defaultProfile = [NSString stringWithFormat:@"ZmxhdA==;;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%i",
-                            .0,25.,100.,-11.,8.,2.5,7.,.85,1.,.4,.5,.5,2.,0];
+                                .0,25.,100.,-11.,8.,2.5,7.,.85,1.,.4,.5,.5,2.,0];
 
-    NSDictionary *appDefaults = [NSDictionary dictionaryWithObjectsAndKeys:[NSArray arrayWithArray:workValues], @"EQValues", [NSArray arrayWithArray:workPreamp], @"EQPreampValues", [NSArray arrayWithArray:workTitles], @"EQTitles", [NSArray arrayWithArray:workNames], @"EQNames", [NSArray arrayWithObject:defaultProfile], @"AudioEffectProfiles", [NSArray arrayWithObject:_NS("Default")], @"AudioEffectProfileNames", nil];
+    NSDictionary *appDefaults = [NSDictionary dictionaryWithObjectsAndKeys:[NSArray arrayWithArray:workValues], @"EQValues", [NSArray arrayWithArray:workPreamp], @"EQPreampValues", [NSArray arrayWithArray:workTitles], @"EQTitles", [NSArray arrayWithArray:workNames], @"EQNames", @[defaultProfile], @"AudioEffectProfiles", @[_NS("Default")], @"AudioEffectProfileNames", nil];
     [defaults registerDefaults:appDefaults];
 
     [workValues release];
@@ -93,6 +99,7 @@ static VLCAudioEffects *_o_sharedInstance = nil;
         [self dealloc];
     else {
         p_intf = VLCIntf;
+        i_old_profile_index = -1;
         _o_sharedInstance = [super init];
     }
 
@@ -156,7 +163,7 @@ static VLCAudioEffects *_o_sharedInstance = nil;
 - (void)setAudioFilter: (char *)psz_name on:(BOOL)b_on
 {
     char *psz_tmp;
-    audio_output_t * p_aout = getAout();
+    audio_output_t *p_aout = getAout();
     if (p_aout)
         psz_tmp = var_GetNonEmptyString(p_aout, "audio-filter");
     else
@@ -165,15 +172,15 @@ static VLCAudioEffects *_o_sharedInstance = nil;
     if (b_on) {
         if (!psz_tmp)
             config_PutPsz(p_intf, "audio-filter", psz_name);
-        else if ((NSInteger)strstr(psz_tmp, psz_name) == NO) {
+        else if (strstr(psz_tmp, psz_name) == NULL) {
             psz_tmp = (char *)[[NSString stringWithFormat: @"%s:%s", psz_tmp, psz_name] UTF8String];
             config_PutPsz(p_intf, "audio-filter", psz_tmp);
         }
     } else {
         if (psz_tmp) {
-            psz_tmp = (char *)[[[NSString stringWithUTF8String: psz_tmp] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:[NSString stringWithFormat:@":%s",psz_name]]] UTF8String];
-            psz_tmp = (char *)[[[NSString stringWithUTF8String: psz_tmp] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:[NSString stringWithFormat:@"%s:",psz_name]]] UTF8String];
-            psz_tmp = (char *)[[[NSString stringWithUTF8String: psz_tmp] stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:[NSString stringWithUTF8String:psz_name]]] UTF8String];
+            psz_tmp = (char *)[[@(psz_tmp) stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:[NSString stringWithFormat:@":%s",psz_name]]] UTF8String];
+            psz_tmp = (char *)[[@(psz_tmp) stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:[NSString stringWithFormat:@"%s:",psz_name]]] UTF8String];
+            psz_tmp = (char *)[[@(psz_tmp) stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:@(psz_name)]] UTF8String];
             config_PutPsz(p_intf, "audio-filter", psz_tmp);
         }
     }
@@ -189,11 +196,11 @@ static VLCAudioEffects *_o_sharedInstance = nil;
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     [o_profile_pop removeAllItems];
 
-    NSArray * profileNames = [defaults objectForKey:@"AudioEffectProfileNames"];
+    NSArray *profileNames = [defaults objectForKey:@"AudioEffectProfileNames"];
     [o_profile_pop addItemsWithTitles:profileNames];
 
     [[o_profile_pop menu] addItem:[NSMenuItem separatorItem]];
-    [o_profile_pop addItemWithTitle:_NS("Save selection as new profile...")];
+    [o_profile_pop addItemWithTitle:_NS("Duplicate current profile...")];
     [[o_profile_pop lastItem] setTarget: self];
     [[o_profile_pop lastItem] setAction: @selector(addAudioEffectsProfile:)];
 
@@ -209,21 +216,79 @@ static VLCAudioEffects *_o_sharedInstance = nil;
 
 #pragma mark -
 #pragma mark generic code
+- (void)updateCocoaWindowLevel:(NSInteger)i_level
+{
+    if (o_window && [o_window isVisible] && [o_window level] != i_level)
+        [o_window setLevel: i_level];
+}
+
 - (IBAction)toggleWindow:(id)sender
 {
     if ([o_window isVisible])
         [o_window orderOut:sender];
-    else
+    else {
+        [o_window setLevel: [[[VLCMain sharedInstance] voutController] currentWindowLevel]];
         [o_window makeKeyAndOrderFront:sender];
+    }
+}
+
+- (NSString *)generateProfileString
+{
+    vlc_object_t *p_object = VLC_OBJECT(getAout());
+    if (p_object == NULL)
+        p_object = vlc_object_hold(pl_Get(p_intf));
+
+    NSString *o_str = [NSString stringWithFormat:@"%s;%s;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%lli",
+                       vlc_b64_encode(var_GetNonEmptyString(p_object, "equalizer-preset")),
+                       vlc_b64_encode(config_GetPsz(p_intf, "audio-filter")),
+                       config_GetFloat(p_intf, "compressor-rms-peak"),
+                       config_GetFloat(p_intf, "compressor-attack"),
+                       config_GetFloat(p_intf, "compressor-release"),
+                       config_GetFloat(p_intf, "compressor-threshold"),
+                       config_GetFloat(p_intf, "compressor-ratio"),
+                       config_GetFloat(p_intf, "compressor-knee"),
+                       config_GetFloat(p_intf, "compressor-makeup-gain"),
+                       config_GetFloat(p_intf, "spatializer-roomsize"),
+                       config_GetFloat(p_intf, "spatializer-width"),
+                       config_GetFloat(p_intf, "spatializer-wet"),
+                       config_GetFloat(p_intf, "spatializer-dry"),
+                       config_GetFloat(p_intf, "spatializer-damp"),
+                       config_GetFloat(p_intf, "norm-max-level"),
+                       config_GetInt(p_intf,"equalizer-2pass")];
+
+    vlc_object_release(p_object);
+    return o_str;
+}
+
+- (void)saveCurrentProfile
+{
+    if (i_old_profile_index == -1)
+        return;
+
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    /* fetch all the current settings in a uniform string */
+    NSString *newProfile = [self generateProfileString];
+
+    NSMutableArray *workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"AudioEffectProfiles"]];
+    if (i_old_profile_index >= [workArray count])
+        return;
+
+    [workArray replaceObjectAtIndex:i_old_profile_index withObject:newProfile];
+    [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"AudioEffectProfiles"];
+    [workArray release];
+    [defaults synchronize];
 }
 
 - (IBAction)profileSelectorAction:(id)sender
 {
+    [self saveCurrentProfile];
+    i_old_profile_index = [o_profile_pop indexOfSelectedItem];
+
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSUInteger selectedProfile = [o_profile_pop indexOfSelectedItem];
 
-    audio_output_t * p_aout = getAout();
-    playlist_t * p_playlist = pl_Get(p_intf);
+    audio_output_t *p_aout = getAout();
+    playlist_t *p_playlist = pl_Get(p_intf);
 
     if (p_aout) {
         /* disable existing filters */
@@ -317,8 +382,8 @@ static VLCAudioEffects *_o_sharedInstance = nil;
 - (IBAction)addAudioEffectsProfile:(id)sender
 {
     /* show panel */
-    VLCEnterTextPanel * panel = [VLCEnterTextPanel sharedInstance];
-    [panel setTitle: _NS("Save current selection as new profile")];
+    VLCEnterTextPanel *panel = [VLCEnterTextPanel sharedInstance];
+    [panel setTitle: _NS("Duplicate current profile for a new profile")];
     [panel setSubTitle: _NS("Enter a name for the new profile:")];
     [panel setCancelButtonLabel: _NS("Cancel")];
     [panel setOKButtonLabel: _NS("Save")];
@@ -331,7 +396,7 @@ static VLCAudioEffects *_o_sharedInstance = nil;
 - (IBAction)removeAudioEffectsProfile:(id)sender
 {
     /* show panel */
-    VLCSelectItemInPopupPanel * panel = [VLCSelectItemInPopupPanel sharedInstance];
+    VLCSelectItemInPopupPanel *panel = [VLCSelectItemInPopupPanel sharedInstance];
     [panel setTitle:_NS("Remove a preset")];
     [panel setSubTitle:_NS("Select the preset you would like to remove:")];
     [panel setOKButtonLabel:_NS("Remove")];
@@ -346,19 +411,19 @@ static VLCAudioEffects *_o_sharedInstance = nil;
 #pragma mark -
 #pragma mark Equalizer
 static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
-                             char *psz_name)
+                               char *psz_name)
 {
     char *psz_parser, *psz_string = NULL;
-    vlc_object_t *p_object = VLC_OBJECT(getAout());
-    if (p_object == NULL)
-        p_object = vlc_object_hold(pl_Get(p_custom_intf));
+    audio_output_t *p_aout = getAout();
+    if (!p_aout)
+        return false;
 
     psz_string = config_GetPsz(p_custom_intf, "audio-filter");
 
     if (!psz_string)
-        psz_string = var_GetNonEmptyString(p_object, "audio-filter");
+        psz_string = var_GetNonEmptyString(p_aout, "audio-filter");
 
-    vlc_object_release(p_object);
+    vlc_object_release(p_aout);
 
     if (!psz_string)
         return false;
@@ -375,106 +440,66 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 
 - (void)setupEqualizer
 {
-    vlc_object_t *p_object = VLC_OBJECT(getAout());
-    if (p_object == NULL)
-        p_object = vlc_object_hold(pl_Get(p_intf));
-
-    var_Create(p_object, "equalizer-preset", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
-
-    NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
-    NSArray * presets = [defaults objectForKey:@"EQNames"];
-    NSString * currentPreset = [NSString stringWithFormat:@"%s",var_GetNonEmptyString(p_object, "equalizer-preset")];
-    NSInteger currentPresetIndex = 0;
-    if ([currentPreset length] > 0) {
-        currentPresetIndex = [presets indexOfObjectPassingTest:^(id obj, NSUInteger idx, BOOL *stop) {
-            return [obj isEqualToString:currentPreset];
-        }];
+    audio_output_t *p_aout = getAout();
+    if (p_aout) {
+        var_Create(p_aout, "equalizer-preset", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
+        var_Create(p_aout, "equalizer-preamp", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
+        var_Create(p_aout, "equalizer-bands", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
+        vlc_object_release(p_aout);
     }
-
-    char psz_bands[100];
-    snprintf(psz_bands, sizeof(psz_bands),
-             "%.1f %.1f %.1f %.1f %.1f %.1f %.1f "
-             "%.1f %.1f %.1f",
-             eqz_preset_10b[currentPresetIndex].f_amp[0],
-             eqz_preset_10b[currentPresetIndex].f_amp[1],
-             eqz_preset_10b[currentPresetIndex].f_amp[2],
-             eqz_preset_10b[currentPresetIndex].f_amp[3],
-             eqz_preset_10b[currentPresetIndex].f_amp[4],
-             eqz_preset_10b[currentPresetIndex].f_amp[5],
-             eqz_preset_10b[currentPresetIndex].f_amp[6],
-             eqz_preset_10b[currentPresetIndex].f_amp[7],
-             eqz_preset_10b[currentPresetIndex].f_amp[8],
-             eqz_preset_10b[currentPresetIndex].f_amp[9]);
-
-    var_Create(p_object, "equalizer-preamp", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
-    var_Create(p_object, "equalizer-bands", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
-    var_SetFloat(p_object, "equalizer-preamp", eqz_preset_10b[currentPresetIndex].f_preamp);
-    var_SetString(p_object, "equalizer-bands", psz_bands);
-    vlc_object_release(p_object);
-
-    [self updatePresetSelector];
 
     [self equalizerUpdated];
 }
 
 - (void)updatePresetSelector
 {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSArray *presets = [defaults objectForKey:@"EQNames"];
+
     [o_eq_presets_popup removeAllItems];
     [o_eq_presets_popup addItemsWithTitles:[[NSUserDefaults standardUserDefaults] objectForKey:@"EQTitles"]];
     [[o_eq_presets_popup menu] addItem:[NSMenuItem separatorItem]];
     [o_eq_presets_popup addItemWithTitle:_NS("Add new Preset...")];
     [[o_eq_presets_popup lastItem] setTarget: self];
     [[o_eq_presets_popup lastItem] setAction: @selector(addPresetAction:)];
-    [o_eq_presets_popup addItemWithTitle:_NS("Organize Presets...")];
-    [[o_eq_presets_popup lastItem] setTarget: self];
-    [[o_eq_presets_popup lastItem] setAction: @selector(deletePresetAction:)];
 
-    vlc_object_t *p_object = VLC_OBJECT(getAout());
-    if (p_object == NULL)
-        p_object = vlc_object_hold(pl_Get(p_intf));
+    if ([presets count] > 1) {
+        [o_eq_presets_popup addItemWithTitle:_NS("Organize Presets...")];
+        [[o_eq_presets_popup lastItem] setTarget: self];
+        [[o_eq_presets_popup lastItem] setAction: @selector(deletePresetAction:)];
+    }
 
-    NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
-    NSArray * presets = [defaults objectForKey:@"EQNames"];
-    NSString * currentPreset = [NSString stringWithFormat:@"%s",var_GetNonEmptyString(p_object, "equalizer-preset")];
-    NSInteger currentPresetIndex = 0;
-    if ([currentPreset length] > 0) {
+    audio_output_t *p_aout = getAout();
+
+    NSString *currentPreset = nil;
+    if (p_aout) {
+        currentPreset = [NSString stringWithFormat:@"%s",var_GetNonEmptyString(p_aout, "equalizer-preset")];
+        vlc_object_release(p_aout);
+    }
+
+    NSUInteger currentPresetIndex = 0;
+    if (currentPreset && [currentPreset length] > 0) {
         currentPresetIndex = [presets indexOfObjectPassingTest:^(id obj, NSUInteger idx, BOOL *stop) {
             return [obj isEqualToString:currentPreset];
         }];
-    }
+
+        if (currentPresetIndex == NSNotFound)
+            currentPresetIndex = [presets count] - 1;
+    }    
 
     [o_eq_presets_popup selectItemAtIndex:currentPresetIndex];
+    [self eq_changePreset: o_eq_presets_popup];
+
+    
     [o_eq_preamp_sld setFloatValue:[[[defaults objectForKey:@"EQPreampValues"] objectAtIndex:currentPresetIndex] floatValue]];
     [self setBandSliderValuesForPreset:currentPresetIndex];
-
-    vlc_object_release(p_object);
 }
 
 - (void)equalizerUpdated
 {
-    float f_preamp, f_band[10];
-    char *psz_bands, *psz_bands_init, *p_next;
-    bool b_2p;
+    float f_preamp = config_GetFloat(p_intf, "equalizer-preamp");
+    bool b_2p = (BOOL)config_GetInt(p_intf, "equalizer-2pass");
     bool b_enabled = GetEqualizerStatus(p_intf, (char *)"equalizer");
-    vlc_object_t *p_object = VLC_OBJECT(getAout());
-
-    if (p_object == NULL)
-        p_object = vlc_object_hold(pl_Get(p_intf));
-
-    var_Create(p_object, "equalizer-preamp", VLC_VAR_FLOAT |
-               VLC_VAR_DOINHERIT);
-    var_Create(p_object, "equalizer-bands", VLC_VAR_STRING |
-               VLC_VAR_DOINHERIT);
-
-    psz_bands = var_GetNonEmptyString(p_object, "equalizer-bands");
-
-    if (psz_bands == NULL)
-        psz_bands = strdup("0 0 0 0 0 0 0 0 0 0");
-
-    b_2p = (BOOL)config_GetInt(p_object, "equalizer-2pass");
-    f_preamp = config_GetFloat(p_object, "equalizer-preamp");
-
-    vlc_object_release(p_object);
 
     /* Setup sliders */
     [self updatePresetSelector];
@@ -501,25 +526,13 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
     }
 }
 
-- (void)setBandSlidersValues:(float *)values
-{
-    for (int i = 0 ; i<= 9 ; i++)
-        [self setValue:values[i] forSlider:i];
-}
-
 - (void)setBandSliderValuesForPreset:(NSInteger)presetID
 {
-    NSString * preset = [[[NSUserDefaults standardUserDefaults] objectForKey:@"EQValues"] objectAtIndex:presetID];
-    NSArray * values = [preset componentsSeparatedByString:@" "];
+    NSString *preset = [[[NSUserDefaults standardUserDefaults] objectForKey:@"EQValues"] objectAtIndex:presetID];
+    NSArray *values = [preset componentsSeparatedByString:@" "];
     NSUInteger count = [values count];
     for (NSUInteger x = 0; x < count; x++)
         [self setValue:[[values objectAtIndex:x] floatValue] forSlider:x];
-}
-
-- (void)initBandSliders
-{
-    for (int i = 0 ; i< 9 ; i++)
-        [self setValue:0.0 forSlider:i];
 }
 
 - (NSString *)generatePresetString
@@ -552,33 +565,32 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 
 - (IBAction)eq_bandSliderUpdated:(id)sender
 {
-    vlc_object_t *p_object = VLC_OBJECT(getAout());
-
-    if (p_object == NULL)
-        p_object = vlc_object_hold(pl_Get(p_intf));
-
-    var_SetString(p_object, "equalizer-bands", [[self generatePresetString] UTF8String]);
+    audio_output_t *p_aout = getAout();
+    if (p_aout) {
+        var_SetString(p_aout, "equalizer-bands", [[self generatePresetString] UTF8String]);
+        vlc_object_release(p_aout);
+    }
 
     /* save changed to config */
     config_PutPsz(p_intf, "equalizer-bands", [[self generatePresetString] UTF8String]);
 
-    vlc_object_release(p_object);
 }
 
 - (IBAction)eq_changePreset:(id)sender
 {
-    vlc_object_t *p_object= VLC_OBJECT(getAout());
-    if (p_object == NULL)
-        p_object = vlc_object_hold(pl_Get(p_intf));
     NSInteger numberOfChosenPreset = [sender indexOfSelectedItem];
-    NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
 
     NSString *preset = [[defaults objectForKey:@"EQValues"] objectAtIndex:numberOfChosenPreset];
     NSString *preamp = [[defaults objectForKey:@"EQPreampValues"] objectAtIndex:numberOfChosenPreset];
 
-    var_SetString(p_object, "equalizer-bands", [preset UTF8String]);
-    var_SetFloat(p_object, "equalizer-preamp", [preamp floatValue]);
-    var_SetString(p_object , "equalizer-preset" , [[[defaults objectForKey:@"EQNames"] objectAtIndex:numberOfChosenPreset] UTF8String]);
+    audio_output_t *p_aout = getAout();
+    if (p_aout) {
+        var_SetString(p_aout, "equalizer-bands", [preset UTF8String]);
+        var_SetFloat(p_aout, "equalizer-preamp", [preamp floatValue]);
+        var_SetString(p_aout, "equalizer-preset" , [[[defaults objectForKey:@"EQNames"] objectAtIndex:numberOfChosenPreset] UTF8String]);
+        vlc_object_release(p_aout);
+    }
 
     [o_eq_preamp_sld setFloatValue: [preamp floatValue]];
     [self setBandSliderValuesForPreset:numberOfChosenPreset];
@@ -588,44 +600,41 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
     config_PutFloat(p_intf, "equalizer-preamp", [preamp floatValue]);
     config_PutPsz(p_intf, "equalizer-preset", [[[defaults objectForKey:@"EQNames"] objectAtIndex:numberOfChosenPreset] UTF8String]);
 
-    vlc_object_release(p_object);
 }
 
 - (IBAction)eq_preampSliderUpdated:(id)sender
 {
     float f_preamp = [sender floatValue] ;
 
-    vlc_object_t *p_object = VLC_OBJECT(getAout());
-    if (p_object == NULL)
-        p_object = vlc_object_hold(pl_Get(p_intf));
-
-    var_SetFloat(p_object, "equalizer-preamp", f_preamp);
-
+    audio_output_t *p_aout = getAout();
+    if (p_aout) {
+        var_SetFloat(p_aout, "equalizer-preamp", f_preamp);
+        vlc_object_release(p_aout);
+    }
+    
     /* save changed to config */
     config_PutFloat(p_intf, "equalizer-preamp", f_preamp);
 
-    vlc_object_release(p_object);
 }
 - (IBAction)eq_twopass:(id)sender
 {
     bool b_2p = [sender state] ? true : false;
-    audio_output_t *p_aout = getAout();
-    vlc_object_t *p_object= VLC_OBJECT(p_aout);
-    if (p_object == NULL)
-        p_object = vlc_object_hold(pl_Get(p_intf));
 
-    var_SetBool(p_object, "equalizer-2pass", b_2p);
+    audio_output_t *p_aout = getAout();
+    if (p_aout) {
+        var_SetBool(p_aout, "equalizer-2pass", b_2p);
+        vlc_object_release(p_aout);
+    }
 
     /* save changed to config */
     config_PutInt(p_intf, "equalizer-2pass", (int)b_2p);
 
-    vlc_object_release(p_object);
 }
 
 - (IBAction)addPresetAction:(id)sender
 {
     /* show panel */
-    VLCEnterTextPanel * panel = [VLCEnterTextPanel sharedInstance];
+    VLCEnterTextPanel *panel = [VLCEnterTextPanel sharedInstance];
     [panel setTitle: _NS("Save current selection as new preset")];
     [panel setSubTitle: _NS("Enter a name for the new preset:")];
     [panel setCancelButtonLabel: _NS("Cancel")];
@@ -638,98 +647,93 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 
 - (void)panel:(VLCEnterTextPanel *)panel returnValue:(NSUInteger)value text:(NSString *)text
 {
-    if (value == NSOKButton) {
-        if ([text length] > 0) {
-            NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
 
-            if (!b_genericAudioProfileInInteraction) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
 
-                NSMutableArray * workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQValues"]];
-                [workArray addObject:[self generatePresetString]];
-                [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQValues"];
-                [workArray release];
-                workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQTitles"]];
-                [workArray addObject:text];
-                [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQTitles"];
-                [workArray release];
-                workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQPreampValues"]];
-                [workArray addObject:[NSString stringWithFormat:@"%.1f", [o_eq_preamp_sld floatValue]]];
-                [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQPreampValues"];
-                [workArray release];
-                workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQNames"]];
-                [workArray addObject:[text decomposedStringWithCanonicalMapping]];
-                [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQNames"];
-                [workArray release];
-                [defaults synchronize];
+    // EQ settings
+    if (!b_genericAudioProfileInInteraction) {
+        if (value == NSOKButton && [text length] > 0) {
+            NSMutableArray *workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQValues"]];
+            [workArray addObject:[self generatePresetString]];
+            [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQValues"];
+            [workArray release];
+            workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQTitles"]];
+            [workArray addObject:text];
+            [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQTitles"];
+            [workArray release];
+            workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQPreampValues"]];
+            [workArray addObject:[NSString stringWithFormat:@"%.1f", [o_eq_preamp_sld floatValue]]];
+            [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQPreampValues"];
+            [workArray release];
+            workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQNames"]];
+            [workArray addObject:[text decomposedStringWithCanonicalMapping]];
+            [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQNames"];
+            [workArray release];
+            [defaults synchronize];
 
-                /* update VLC internals */
-                vlc_object_t *p_object= VLC_OBJECT(getAout());
-                if (p_object == NULL)
-                    p_object = vlc_object_hold(pl_Get(p_intf));
-
-                var_SetString(p_object , "equalizer-preset", [[text decomposedStringWithCanonicalMapping] UTF8String]);
-                config_PutPsz(p_object, "equalizer-preset", [[text decomposedStringWithCanonicalMapping] UTF8String]);
-
-                vlc_object_release(p_object);
-
-                /* update UI */
-                [self updatePresetSelector];
-            } else {
-                vlc_object_t *p_object = VLC_OBJECT(getAout());
-                if (p_object == NULL)
-                    p_object = vlc_object_hold(pl_Get(p_intf));
-
-                NSArray * presets = [defaults objectForKey:@"EQNames"];
-                NSString * currentPreset = [NSString stringWithFormat:@"%s",var_GetNonEmptyString(p_object, "equalizer-preset")];
-                NSInteger currentPresetIndex = 0;
-                if ([currentPreset length] > 0) {
-                    currentPresetIndex = [presets indexOfObjectPassingTest:^(id obj, NSUInteger idx, BOOL *stop) {
-                        return [obj isEqualToString:currentPreset];
-                    }];
-                }
-                NSString *newProfile = [NSString stringWithFormat:@"%s;%s;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%lli",
-                                        vlc_b64_encode(var_GetNonEmptyString(p_object, "equalizer-preset")),
-                                        vlc_b64_encode(config_GetPsz(p_intf, "audio-filter")),
-                                        config_GetFloat(p_intf, "compressor-rms-peak"),
-                                        config_GetFloat(p_intf, "compressor-attack"),
-                                        config_GetFloat(p_intf, "compressor-release"),
-                                        config_GetFloat(p_intf, "compressor-threshold"),
-                                        config_GetFloat(p_intf, "compressor-ratio"),
-                                        config_GetFloat(p_intf, "compressor-knee"),
-                                        config_GetFloat(p_intf, "compressor-makeup-gain"),
-                                        config_GetFloat(p_intf, "spatializer-roomsize"),
-                                        config_GetFloat(p_intf, "spatializer-width"),
-                                        config_GetFloat(p_intf, "spatializer-wet"),
-                                        config_GetFloat(p_intf, "spatializer-dry"),
-                                        config_GetFloat(p_intf, "spatializer-damp"),
-                                        config_GetFloat(p_intf, "norm-max-level"),
-                                        config_GetInt(p_intf,"equalizer-2pass")];
-
-                /* add string to user defaults as well as a label */
-                NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-                NSMutableArray *workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"AudioEffectProfiles"]];
-                [workArray addObject:newProfile];
-                [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"AudioEffectProfiles"];
-                [defaults setInteger:[workArray count] - 1 forKey:@"AudioEffectSelectedProfile"];
-                [workArray release];
-                workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"AudioEffectProfileNames"]];
-                [workArray addObject:text];
-                [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"AudioEffectProfileNames"];
-                [workArray release];
-
-                /* save defaults */
-                [defaults synchronize];
-                vlc_object_release(p_object);
+            /* update VLC internals */
+            audio_output_t *p_aout = getAout();
+            if (p_aout) {
+                var_SetString(p_aout, "equalizer-preset", [[text decomposedStringWithCanonicalMapping] UTF8String]);
+                vlc_object_release(p_aout);
             }
-        }
-    }
 
-    [self resetProfileSelector];
+            config_PutPsz(p_intf, "equalizer-preset", [[text decomposedStringWithCanonicalMapping] UTF8String]);
+
+
+            /* update UI */
+            [self updatePresetSelector];
+        }
+
+    // profile settings
+    } else {
+
+        if (value != NSOKButton) {
+            [o_profile_pop selectItemAtIndex:[defaults integerForKey:@"AudioEffectSelectedProfile"]];
+            return;
+        }
+
+        NSArray *profileNames = [defaults objectForKey:@"AudioEffectProfileNames"];
+
+        // duplicate names are not allowed in the popup control
+        if ([text length] == 0 || [profileNames containsObject:text]) {
+            [o_profile_pop selectItemAtIndex:[defaults integerForKey:@"AudioEffectSelectedProfile"]];
+
+            NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+            [alert setAlertStyle:NSCriticalAlertStyle];
+            [alert setMessageText:_NS("Please enter a unique name for the new profile.")];
+            [alert setInformativeText:_NS("Multiple profiles with the same name are not allowed.")];
+
+            [alert beginSheetModalForWindow:o_window
+                              modalDelegate:nil
+                             didEndSelector:nil
+                                contextInfo:nil];
+            return;
+        }
+        
+        NSString *newProfile = [self generateProfileString];
+
+        /* add string to user defaults as well as a label */
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        NSMutableArray *workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"AudioEffectProfiles"]];
+        [workArray addObject:newProfile];
+        [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"AudioEffectProfiles"];
+        [defaults setInteger:[workArray count] - 1 forKey:@"AudioEffectSelectedProfile"];
+        [workArray release];
+        workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"AudioEffectProfileNames"]];
+        [workArray addObject:text];
+        [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"AudioEffectProfileNames"];
+        [workArray release];
+
+        /* save defaults */
+        [defaults synchronize];
+        [self resetProfileSelector];
+    }
 }
 
 - (IBAction)deletePresetAction:(id)sender
 {
-    VLCSelectItemInPopupPanel * panel = [VLCSelectItemInPopupPanel sharedInstance];
+    VLCSelectItemInPopupPanel *panel = [VLCSelectItemInPopupPanel sharedInstance];
     [panel setTitle:_NS("Remove a preset")];
     [panel setSubTitle:_NS("Select the preset you would like to remove:")];
     [panel setOKButtonLabel:_NS("Remove")];
@@ -746,8 +750,8 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
     if (value == NSOKButton) {
         if (!b_genericAudioProfileInInteraction) {
             /* remove requested profile from the arrays */
-            NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
-            NSMutableArray * workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQValues"]];
+            NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+            NSMutableArray *workArray = [[NSMutableArray alloc] initWithArray:[defaults objectForKey:@"EQValues"]];
             [workArray removeObjectAtIndex:item];
             [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"EQValues"];
             [workArray release];
@@ -779,6 +783,9 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
             [defaults setObject:[NSArray arrayWithArray:workArray] forKey:@"AudioEffectProfileNames"];
             [workArray release];
 
+            if (i_old_profile_index >= item)
+                [defaults setInteger:i_old_profile_index - 1 forKey:@"AudioEffectSelectedProfile"];
+
             /* save defaults */
             [defaults synchronize];
             [self resetProfileSelector];
@@ -790,7 +797,7 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 #pragma mark Compressor
 - (void)resetCompressor
 {
-    char * psz_afilters;
+    char *psz_afilters;
     psz_afilters = config_GetPsz(p_intf, "audio-filter");
     if (psz_afilters) {
         [o_comp_enable_ckb setState: (NSInteger)strstr(psz_afilters, "compressor") ];
@@ -825,7 +832,7 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
     config_PutFloat(p_intf, "compressor-knee", 2.500000);
     config_PutFloat(p_intf, "compressor-makeup-gain", 7.000000);
 
-    audio_output_t * p_aout = getAout();
+    audio_output_t *p_aout = getAout();
     if (p_aout) {
         var_SetFloat(p_aout, "compressor-rms-peak", 0.000000);
         var_SetFloat(p_aout, "compressor-attack", 25.000000);
@@ -846,8 +853,8 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 
 - (IBAction)comp_sliderUpdated:(id)sender
 {
-    audio_output_t * p_aout = getAout();
-    char * value;
+    audio_output_t *p_aout = getAout();
+    char *value;
     if (sender == o_comp_band1_sld)
         value = "compressor-rms-peak";
     else if (sender == o_comp_band2_sld)
@@ -889,7 +896,7 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 #pragma mark Spatializer
 - (void)resetSpatializer
 {
-    char * psz_afilters;
+    char *psz_afilters;
     psz_afilters = config_GetPsz(p_intf, "audio-filter");
     if (psz_afilters) {
         [o_spat_enable_ckb setState: (NSInteger)strstr(psz_afilters, "spatializer") ];
@@ -899,8 +906,8 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
         [o_spat_enable_ckb setState: NSOffState];
 
 #define setSlider(bandsld, bandfld, var) \
-    [bandsld setFloatValue: config_GetFloat(p_intf, var) * 10.]; \
-    [bandfld setStringValue:[NSString localizedStringWithFormat:@"%1.1f", [bandsld floatValue]]]
+[bandsld setFloatValue: config_GetFloat(p_intf, var) * 10.]; \
+[bandfld setStringValue:[NSString localizedStringWithFormat:@"%1.1f", [bandsld floatValue]]]
 
     setSlider(o_spat_band1_sld, o_spat_band1_fld, "spatializer-roomsize");
     setSlider(o_spat_band2_sld, o_spat_band2_fld, "spatializer-width");
@@ -919,7 +926,7 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
     config_PutFloat(p_intf, "spatializer-dry", .5);
     config_PutFloat(p_intf, "spatializer-damp", .5);
 
-    audio_output_t * p_aout = getAout();
+    audio_output_t *p_aout = getAout();
     if (p_aout) {
         var_SetFloat(p_aout, "spatializer-roomsize", .85);
         var_SetFloat(p_aout, "spatializer-width", 1.);
@@ -938,8 +945,8 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 
 - (IBAction)spat_sliderUpdated:(id)sender
 {
-    audio_output_t * p_aout = getAout();
-    char * value;
+    audio_output_t *p_aout = getAout();
+    char *value;
     if (sender == o_spat_band1_sld)
         value = "spatializer-roomsize";
     else if (sender == o_spat_band2_sld)
@@ -973,12 +980,12 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 #pragma mark Filter
 - (void)resetAudioFilters
 {
-    char * psz_afilters;
+    char *psz_afilters;
     psz_afilters = config_GetPsz(p_intf, "audio-filter");
     if (psz_afilters) {
         [o_filter_headPhone_ckb setState: (NSInteger)strstr(psz_afilters, "headphone") ];
         [o_filter_normLevel_ckb setState: (NSInteger)strstr(psz_afilters, "normvol") ];
-        [o_filter_normLevel_ckb setState: (NSInteger)strstr(psz_afilters, "karaoke") ];
+        [o_filter_karaoke_ckb setState: (NSInteger)strstr(psz_afilters, "karaoke") ];
         free(psz_afilters);
     } else {
         [o_filter_headPhone_ckb setState: NSOffState];
@@ -1000,7 +1007,7 @@ static bool GetEqualizerStatus(intf_thread_t *p_custom_intf,
 
 - (IBAction)filter_volNormSliderUpdated:(id)sender
 {
-    audio_output_t * p_aout= getAout();
+    audio_output_t *p_aout = getAout();
 
     if (p_aout) {
         var_SetFloat(p_aout, "norm-max-level", [o_filter_normLevel_sld floatValue]);

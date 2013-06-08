@@ -35,6 +35,7 @@ $(TARBALLS)/lua-$(LUA_VERSION).tar.gz:
 lua: lua-$(LUA_VERSION).tar.gz .sum-lua
 	$(UNPACK)
 	$(APPLY) $(SRC)/lua/lua-noreadline.patch
+	$(APPLY) $(SRC)/lua/no-dylibs.patch
 	$(APPLY) $(SRC)/lua/luac-32bits.patch
 	$(APPLY) $(SRC)/lua/no-localeconv.patch
 ifdef HAVE_DARWIN_OS
@@ -66,5 +67,9 @@ ifdef HAVE_WIN32
 	cd $< && $(RANLIB) "$(PREFIX)/lib/liblua.a"
 	mkdir -p -- "$(PREFIX)/lib/pkgconfig"
 	cp $</etc/lua.pc "$(PREFIX)/lib/pkgconfig/"
+endif
+ifdef HAVE_CROSS_COMPILE
+	cd $</src && $(MAKE) clean && $(MAKE) liblua.a && ranlib liblua.a && $(MAKE) luac
+	cp $</src/luac $(PREFIX)/bin
 endif
 	touch $@

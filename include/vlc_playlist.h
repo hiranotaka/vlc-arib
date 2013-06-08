@@ -102,7 +102,6 @@ TYPEDEF_ARRAY(playlist_item_t*, playlist_item_array_t)
  *
  * - "item-change": It will contain the input_item_t->i_id of a changed input
  * item monitored by the playlist.
- * - "item-current": It will contain a input_item_t->i_id of the current
  * item being played.
  *
  * - "playlist-item-append": It will contain a pointer to a playlist_add_t.
@@ -252,7 +251,7 @@ enum pl_locked_state
 #define PL_UNLOCK playlist_Unlock( p_playlist )
 #define PL_ASSERT_LOCKED playlist_AssertLocked( p_playlist )
 
-VLC_API playlist_t * pl_Get( vlc_object_t * ) VLC_USED;
+VLC_API playlist_t * pl_Get( vlc_object_t * );
 #define pl_Get( a ) pl_Get( VLC_OBJECT(a) )
 
 /* Playlist control */
@@ -266,6 +265,7 @@ VLC_API playlist_t * pl_Get( vlc_object_t * ) VLC_USED;
 VLC_API void playlist_Lock( playlist_t * );
 VLC_API void playlist_Unlock( playlist_t * );
 VLC_API void playlist_AssertLocked( playlist_t * );
+VLC_API void playlist_Deactivate( playlist_t * );
 
 /**
  * Do a playlist action.
@@ -282,6 +282,10 @@ VLC_API int playlist_Control( playlist_t *p_playlist, int i_query, bool b_locked
 /** Get current playing input. The object is retained.
  */
 VLC_API input_thread_t * playlist_CurrentInput( playlist_t *p_playlist ) VLC_USED;
+
+/** Get the duration of all items in a node.
+ */
+VLC_API mtime_t playlist_GetNodeDuration( playlist_item_t * );
 
 /** Clear the playlist
  * \param b_locked TRUE if playlist is locked when entering this function

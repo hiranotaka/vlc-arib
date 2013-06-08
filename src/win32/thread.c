@@ -651,6 +651,7 @@ static mtime_t mdate_tick (void)
     static_assert ((CLOCK_FREQ % 1000) == 0, "Broken frequencies ratio");
     return ts * (CLOCK_FREQ / 1000);
 }
+#if !VLC_WINSTORE_APP
 #include <mmsystem.h>
 static mtime_t mdate_multimedia (void)
 {
@@ -660,6 +661,7 @@ static mtime_t mdate_multimedia (void)
     static_assert ((CLOCK_FREQ % 1000) == 0, "Broken frequencies ratio");
     return ts * (CLOCK_FREQ / 1000);
 }
+#endif
 
 static mtime_t mdate_perf (void)
 {
@@ -680,7 +682,7 @@ static mtime_t mdate_wall (void)
     FILETIME ts;
     ULARGE_INTEGER s;
 
-#if (_WIN32_WINNT >= 0x0602)
+#if (_WIN32_WINNT >= 0x0602) && !VLC_WINSTORE_APP
     GetSystemTimePreciseAsFileTime (&ts);
 #else
     GetSystemTimeAsFileTime (&ts);
@@ -723,7 +725,11 @@ static void SelectClockSource (vlc_object_t *obj)
         return;
     }
 
+#if VLC_WINSTORE_APP
     const char *name = "perf";
+#else
+    const char *name = "multimedia";
+#endif
     char *str = var_InheritString (obj, "clock-source");
     if (str != NULL)
         name = str;
@@ -735,7 +741,7 @@ static void SelectClockSource (vlc_object_t *obj)
         if (unlikely(h == NULL))
             abort ();
         clk.interrupt.query = (void *)GetProcAddress (h,
-                                                      _T("QueryUnbiasedInterruptTime"));
+                                                      "QueryUnbiasedInterruptTime");
         if (unlikely(clk.interrupt.query == NULL))
             abort ();
 #endif
@@ -745,16 +751,17 @@ static void SelectClockSource (vlc_object_t *obj)
     if (!strcmp (name, "tick"))
     {
         msg_Dbg (obj, "using Windows time as clock source");
-#if (_WIN32_WINNT < 0x0601)
+#if (_WIN32_WINNT < 0x0600)
         HANDLE h = GetModuleHandle (_T("kernel32.dll"));
         if (unlikely(h == NULL))
             abort ();
-        clk.tick.get = (void *)GetProcAddress (h, _T("GetTickCount64"));
+        clk.tick.get = (void *)GetProcAddress (h, "GetTickCount64");
         if (unlikely(clk.tick.get == NULL))
             abort ();
 #endif
         mdate_selected = mdate_tick;
     }
+#if !VLC_WINSTORE_APP
     else
     if (!strcmp (name, "multimedia"))
     {
@@ -767,6 +774,7 @@ static void SelectClockSource (vlc_object_t *obj)
                  caps.wPeriodMin, caps.wPeriodMax);
         mdate_selected = mdate_multimedia;
     }
+#endif
     else
     if (!strcmp (name, "perf"))
     {
@@ -825,9 +833,11 @@ size_t EnumClockSource (vlc_object_t *obj, const char *var,
         names[n] = xstrdup ("Windows time");
         n++;
     }
+#if !VLC_WINSTORE_APP
     values[n] = xstrdup ("multimedia");
     names[n] = xstrdup ("Multimedia timers");
     n++;
+#endif
     values[n] = xstrdup ("perf");
     names[n] = xstrdup ("Performance counters");
     n++;
@@ -909,12 +919,11 @@ unsigned vlc_timer_getoverrun (vlc_timer_t timer)
 /*** CPU ***/
 unsigned vlc_GetCPUCount (void)
 {
-    DWORD_PTR process;
-    DWORD_PTR system;
+    SYSTEM_INFO systemInfo;
 
-    if (GetProcessAffinityMask (GetCurrentProcess(), &process, &system))
-        return popcount (system);
-     return 1;
+    GetNativeSystemInfo(&systemInfo);
+
+    return systemInfo.dwNumberOfProcessors;
 }
 
 
@@ -924,7 +933,7 @@ void vlc_threads_setup (libvlc_int_t *p_libvlc)
     SelectClockSource (VLC_OBJECT(p_libvlc));
 }
 
-extern vlc_rwlock_t config_lock, msg_lock;
+extern vlc_rwlock_t config_lock;
 BOOL WINAPI DllMain (HINSTANCE, DWORD, LPVOID);
 
 BOOL WINAPI DllMain (HINSTANCE hinstDll, DWORD fdwReason, LPVOID lpvReserved)
@@ -940,12 +949,10 @@ BOOL WINAPI DllMain (HINSTANCE hinstDll, DWORD fdwReason, LPVOID lpvReserved)
             vlc_cond_init (&super_variable);
             vlc_threadvar_create (&thread_key, NULL);
             vlc_rwlock_init (&config_lock);
-            vlc_rwlock_init (&msg_lock);
             vlc_CPU_init ();
             break;
 
         case DLL_PROCESS_DETACH:
-            vlc_rwlock_destroy (&msg_lock);
             vlc_rwlock_destroy (&config_lock);
             vlc_threadvar_delete (&thread_key);
             vlc_cond_destroy (&super_variable);

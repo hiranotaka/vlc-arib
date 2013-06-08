@@ -1,25 +1,25 @@
 /*****************************************************************************
  * mpeg4audio.c: parse and packetize an MPEG 4 audio stream
  *****************************************************************************
- * Copyright (C) 2001, 2002, 2006 the VideoLAN team
+ * Copyright (C) 2001, 2002, 2006 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@netcourrier.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -330,6 +330,8 @@ static int ADTSSyncInfo( decoder_t * p_dec, const uint8_t * p_buf,
     *pi_sample_rate = pi_sample_rates[i_sample_rate_idx];
     //private_bit = (p_buf[2] >> 1) & 0x01;
     *pi_channels = ((p_buf[2] & 0x01) << 2) | ((p_buf[3] >> 6) & 0x03);
+    if (*pi_channels == 0) /* workaround broken streams */
+        *pi_channels = 2;
     //original_copy = (p_buf[3] >> 5) & 0x01;
     //home = (p_buf[3] >> 4) & 0x01;
 
@@ -1137,7 +1139,7 @@ static block_t *PacketizeStreamBlock( decoder_t *p_dec, block_t **pp_block )
             /* When we reach this point we already know we have enough
              * data available. */
 
-            p_out_buffer = block_New( p_dec, p_sys->i_frame_size );
+            p_out_buffer = block_Alloc( p_sys->i_frame_size );
             if( !p_out_buffer )
             {
                 //p_dec->b_error = true;

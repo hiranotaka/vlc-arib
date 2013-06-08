@@ -122,8 +122,8 @@ static const char* const nameL[BUTTON_MAX] = { N_("Play"), N_("Stop"), N_("Open"
 };
 static const char* const tooltipL[BUTTON_MAX] = { I_PLAY_TOOLTIP,
     N_("Stop playback"), N_("Open a medium"),
-    N_("Previous media in the playlist, skip backward when keep-pressed"),
-    N_("Next media in the playlist, skip forward when keep-pressed"), N_("Slower"), N_("Faster"),
+    N_("Previous media in the playlist, skip backward when held"),
+    N_("Next media in the playlist, skip forward when held"), N_("Slower"), N_("Faster"),
     N_("Toggle the video in fullscreen"), N_("Toggle the video out fullscreen"),
     N_("Show extended settings" ), N_( "Toggle playlist" ),
     N_( "Take a snapshot" ), N_( "Record" ),
@@ -131,7 +131,7 @@ static const char* const tooltipL[BUTTON_MAX] = { I_PLAY_TOOLTIP,
     N_("Reverse"), N_("Step backward"), N_("Step forward"), N_("Quit"),
     N_("Random"), N_("Change the loop and repeat modes"), N_("Information"),
     N_("Previous media in the playlist"), N_("Next media in the playlist"),
-    N_("Open subtitles file"),
+    N_("Open subtitle file"),
     N_("Dock/undock fullscreen controller to/from bottom of screen")
 };
 static const QString iconL[BUTTON_MAX] ={ ":/toolbar/play_b", ":/toolbar/stop_b",
@@ -248,8 +248,6 @@ signals:
 
 /* Used to restore the minimum width after a full-width switch */
 #define FSC_WIDTH 800
-
-#define FSC_HEIGHT 72
 
 /***********************************
  * Fullscreen controller

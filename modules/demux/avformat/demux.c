@@ -1,25 +1,25 @@
 /*****************************************************************************
  * demux.c: demuxer using libavformat
  *****************************************************************************
- * Copyright (C) 2004-2009 the VideoLAN team
+ * Copyright (C) 2004-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -286,6 +286,12 @@ int OpenDemux( vlc_object_t *p_this )
         if( !GetVlcFourcc( cc->codec_id, NULL, &fcc, NULL ) )
             fcc = VLC_FOURCC( 'u', 'n', 'd', 'f' );
 
+#if LIBAVFORMAT_VERSION_INT >= ((54<<16)+(2<<8)+0)
+        /* Do not use the cover art as a stream */
+        if( s->disposition == AV_DISPOSITION_ATTACHED_PIC )
+            continue;
+#endif
+
         switch( cc->codec_type )
         {
         case AVMEDIA_TYPE_AUDIO:
@@ -302,7 +308,7 @@ int OpenDemux( vlc_object_t *p_this )
             es_format_Init( &fmt, VIDEO_ES, fcc );
 
             /* Special case for raw video data */
-            if( cc->codec_id == CODEC_ID_RAWVIDEO )
+            if( cc->codec_id == AV_CODEC_ID_RAWVIDEO )
             {
                 msg_Dbg( p_demux, "raw video, pixel format: %i", cc->pix_fmt );
                 if( GetVlcChroma( &fmt.video, cc->pix_fmt ) != VLC_SUCCESS)
@@ -313,7 +319,7 @@ int OpenDemux( vlc_object_t *p_this )
                     fmt.i_codec = fmt.video.i_chroma;
             }
             /* We need this for the h264 packetizer */
-            else if( cc->codec_id == CODEC_ID_H264 && ( p_sys->fmt == av_find_input_format("flv") ||
+            else if( cc->codec_id == AV_CODEC_ID_H264 && ( p_sys->fmt == av_find_input_format("flv") ||
                 p_sys->fmt == av_find_input_format("matroska") || p_sys->fmt == av_find_input_format("mp4") ) )
                 fmt.i_original_fourcc = VLC_FOURCC( 'a', 'v', 'c', '1' );
 
@@ -336,7 +342,7 @@ int OpenDemux( vlc_object_t *p_this )
         case AVMEDIA_TYPE_SUBTITLE:
             es_format_Init( &fmt, SPU_ES, fcc );
             if( strncmp( p_sys->ic->iformat->name, "matroska", 8 ) == 0 &&
-                cc->codec_id == CODEC_ID_DVD_SUBTITLE &&
+                cc->codec_id == AV_CODEC_ID_DVD_SUBTITLE &&
                 cc->extradata != NULL &&
                 cc->extradata_size > 0 )
             {
@@ -388,7 +394,7 @@ int OpenDemux( vlc_object_t *p_this )
                 input_attachment_t *p_attachment;
 
                 psz_type = "attachment";
-                if( cc->codec_id == CODEC_ID_TTF )
+                if( cc->codec_id == AV_CODEC_ID_TTF )
                 {
                     AVDictionaryEntry *filename = av_dict_get( s->metadata, "filename", NULL, 0 );
                     if( filename && filename->value )
@@ -429,7 +435,7 @@ int OpenDemux( vlc_object_t *p_this )
             const uint8_t *p_extra = cc->extradata;
             unsigned      i_extra  = cc->extradata_size;
 
-            if( cc->codec_id == CODEC_ID_THEORA && b_ogg )
+            if( cc->codec_id == AV_CODEC_ID_THEORA && b_ogg )
             {
                 unsigned pi_size[3];
                 const void *pp_data[3];
@@ -453,7 +459,7 @@ int OpenDemux( vlc_object_t *p_this )
                     fmt.p_extra = NULL;
                 }
             }
-            else if( cc->codec_id == CODEC_ID_SPEEX && b_ogg )
+            else if( cc->codec_id == AV_CODEC_ID_SPEEX && b_ogg )
             {
                 const uint8_t p_dummy_comment[] = {
                     0, 0, 0, 0,
@@ -599,7 +605,7 @@ static int Demux( demux_t *p_demux )
         av_free_packet( &pkt );
         return 1;
     }
-    if( p_stream->codec->codec_id == CODEC_ID_SSA )
+    if( p_stream->codec->codec_id == AV_CODEC_ID_SSA )
     {
         p_frame = BuildSsaFrame( &pkt, p_sys->i_ssa_order++ );
         if( !p_frame )
@@ -610,7 +616,7 @@ static int Demux( demux_t *p_demux )
     }
     else
     {
-        if( ( p_frame = block_New( p_demux, pkt.size ) ) == NULL )
+        if( ( p_frame = block_Alloc( pkt.size ) ) == NULL )
         {
             av_free_packet( &pkt );
             return 0;
@@ -862,24 +868,38 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
         case DEMUX_GET_META:
         {
-            vlc_meta_t *p_meta = (vlc_meta_t*)va_arg( args, vlc_meta_t* );
+            static const char names[][10] = {
+                [vlc_meta_Title] = "title",
+                [vlc_meta_Artist] = "artist",
+                [vlc_meta_Genre] = "genre",
+                [vlc_meta_Copyright] = "copyright",
+                [vlc_meta_Album] = "album",
+                //[vlc_meta_TrackNumber] -- TODO: parse number/total value
+                [vlc_meta_Description] = "comment",
+                //[vlc_meta_Rating]
+                [vlc_meta_Date] = "date",
+                [vlc_meta_Setting] = "encoder",
+                //[vlc_meta_URL]
+                [vlc_meta_Language] = "language",
+                //[vlc_meta_NowPlaying]
+                [vlc_meta_Publisher] = "publisher",
+                [vlc_meta_EncodedBy] = "encoded_by",
+                //[vlc_meta_ArtworkURL]
+                //[vlc_meta_TrackID]
+                //[vlc_meta_TrackTotal]
+            };
+            vlc_meta_t *p_meta = va_arg( args, vlc_meta_t * );
+            AVDictionary *dict = p_sys->ic->metadata;
 
-            AVDictionaryEntry *title = av_dict_get( p_sys->ic->metadata, "language", NULL, 0 );
-            AVDictionaryEntry *artist = av_dict_get( p_sys->ic->metadata, "artist", NULL, 0 );
-            AVDictionaryEntry *copyright = av_dict_get( p_sys->ic->metadata, "copyright", NULL, 0 );
-            AVDictionaryEntry *comment = av_dict_get( p_sys->ic->metadata, "comment", NULL, 0 );
-            AVDictionaryEntry *genre = av_dict_get( p_sys->ic->metadata, "genre", NULL, 0 );
+            for( unsigned i = 0; i < sizeof(names) / sizeof(*names); i++)
+            {
+                if( !names[i][0] )
+                    continue;
 
-            if( title && title->value )
-                vlc_meta_SetTitle( p_meta, title->value );
-            if( artist && artist->value )
-                vlc_meta_SetArtist( p_meta, artist->value );
-            if( copyright && copyright->value )
-                vlc_meta_SetCopyright( p_meta, copyright->value );
-            if( comment && comment->value )
-                vlc_meta_SetDescription( p_meta, comment->value );
-            if( genre && genre->value )
-                vlc_meta_SetGenre( p_meta, genre->value );
+                AVDictionaryEntry *e = av_dict_get( dict, names[i], NULL, 0 );
+                if( e != NULL && e->value != NULL && IsUTF8(e->value) )
+                    vlc_meta_Set( p_meta, i, e->value );
+            }
             return VLC_SUCCESS;
         }
 

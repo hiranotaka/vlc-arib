@@ -55,6 +55,8 @@
 # include <dvbpsi/dr.h>
 # include <dvbpsi/psi.h>
 
+#include "dvbpsi_compat.h"
+
 /*
  * TODO:
  *  - check PCR frequency requirement
@@ -340,6 +342,9 @@ struct sout_mux_sys_t
 
     vlc_mutex_t     csa_lock;
 
+#if (DVBPSI_VERSION_INT >= DVBPSI_VERSION_WANTED(1,0,0))
+    dvbpsi_t        *p_dvbpsi;
+#endif
     bool            b_es_id_pid;
     bool            b_sdt;
     int             i_pid_video;
@@ -516,6 +521,16 @@ static int Open( vlc_object_t *p_this )
     p_mux->pf_delstream = DelStream;
     p_mux->pf_mux       = Mux;
     p_mux->p_sys        = p_sys;
+
+#if (DVBPSI_VERSION_INT >= DVBPSI_VERSION_WANTED(1,0,0))
+    p_sys->p_dvbpsi = dvbpsi_new( &dvbpsi_messages, DVBPSI_MSG_DEBUG );
+    if( !p_sys->p_dvbpsi )
+    {
+        free( p_sys );
+        return VLC_ENOMEM;
+    }
+    p_sys->p_dvbpsi->p_sys = (void *) p_mux;
+#endif
 
     p_sys->b_es_id_pid = var_GetBool( p_mux, SOUT_CFG_PREFIX "es-id-pid" );
 
@@ -724,6 +739,11 @@ static void Close( vlc_object_t * p_this )
 {
     sout_mux_t          *p_mux = (sout_mux_t*)p_this;
     sout_mux_sys_t      *p_sys = p_mux->p_sys;
+
+#if (DVBPSI_VERSION_INT >= DVBPSI_VERSION_WANTED(1,0,0))
+    if( p_sys->p_dvbpsi )
+        dvbpsi_delete( p_sys->p_dvbpsi );
+#endif
 
     if( p_sys->csa )
     {
@@ -1173,6 +1193,18 @@ static int DelStream( sout_mux_t *p_mux, sout_input_t *p_input )
     return VLC_SUCCESS;
 }
 
+static void SetHeader( sout_buffer_chain_t *c,
+                        int depth )
+{
+    block_t *p_ts = BufferChainPeek( c );
+    while( depth > 0 )
+    {
+        p_ts = p_ts->p_next;
+        depth--;
+    }
+    p_ts->i_flags |= BLOCK_FLAG_HEADER;
+}
+
 /* returns true if needs more data */
 static bool MuxStreams(sout_mux_t *p_mux )
 {
@@ -1254,6 +1286,8 @@ static bool MuxStreams(sout_mux_t *p_mux )
              || p_input->p_fmt->i_codec != VLC_CODEC_MPGA )
         {
             p_data = block_FifoGet( p_input->p_fifo );
+            if (p_data->i_pts <= VLC_TS_INVALID)
+                p_data->i_pts = p_data->i_dts;
 
             if( p_input->p_fmt->i_codec == VLC_CODEC_MP4A )
                 p_data = Add_ADTS( p_data, p_input->p_fmt );
@@ -1321,7 +1355,7 @@ static bool MuxStreams(sout_mux_t *p_mux )
             if( p_data->i_length > 0 &&
                 ( p_data->i_buffer != 1 || *p_data->p_buffer != ' ' ) )
             {
-                block_t *p_spu = block_New( p_mux, 3 );
+                block_t *p_spu = block_Alloc( 3 );
 
                 p_spu->i_dts = p_data->i_dts + p_data->i_length;
                 p_spu->i_pts = p_spu->i_dts;
@@ -1430,6 +1464,7 @@ static bool MuxStreams(sout_mux_t *p_mux )
     /* 3: mux PES into TS */
     BufferChainInit( &chain_ts );
     /* append PAT/PMT  -> FIXME with big pcr delay it won't have enough pat/pmt */
+    bool pat_was_previous = true; //This is to prevent unnecessary double PAT/PMT insertions
     GetPAT( p_mux, &chain_ts );
     GetPMT( p_mux, &chain_ts );
     int i_packet_pos = 0;
@@ -1487,6 +1522,24 @@ static bool MuxStreams(sout_mux_t *p_mux )
         }
         i_packet_pos++;
 
+        /* Write PAT/PMT before every keyframe if use-key-frames is enabled,
+         * this helps to do segmenting with livehttp-output so it can cut segment
+         * and start new one with pat,pmt,keyframe*/
+        if( ( p_sys->b_use_key_frames ) && ( p_ts->i_flags & BLOCK_FLAG_TYPE_I ) )
+        {
+            if( likely( !pat_was_previous ) )
+            {
+                int startcount = chain_ts.i_depth;
+                GetPAT( p_mux, &chain_ts );
+                GetPMT( p_mux, &chain_ts );
+                SetHeader( &chain_ts, startcount );
+                i_packet_count += (chain_ts.i_depth - startcount );
+            } else {
+                SetHeader( &chain_ts, 0); //We just inserted pat/pmt,so just flag it instead of adding new one
+            }
+        }
+        pat_was_previous = false;
+
         /* */
         BufferChainAppend( &chain_ts, p_ts );
     }
@@ -1536,7 +1589,7 @@ static block_t *FixPES( sout_mux_t *p_mux, block_fifo_t *p_fifo )
     }
     else if( i_size > STD_PES_PAYLOAD )
     {
-        block_t *p_new = block_New( p_mux, STD_PES_PAYLOAD );
+        block_t *p_new = block_Alloc( STD_PES_PAYLOAD );
         memcpy( p_new->p_buffer, p_data->p_buffer, STD_PES_PAYLOAD );
         p_new->i_pts = p_data->i_pts;
         p_new->i_dts = p_data->i_dts;
@@ -1767,7 +1820,7 @@ static block_t *TSNew( sout_mux_t *p_mux, ts_stream_t *p_stream,
         b_adaptation_field = true;
     }
 
-    block_t *p_ts = block_New( p_mux, 188 );
+    block_t *p_ts = block_Alloc( 188 );
 
     if (b_new_pes && !(p_pes->i_flags & BLOCK_FLAG_NO_KEYFRAME) && p_pes->i_flags & BLOCK_FLAG_TYPE_I)
     {
@@ -1960,6 +2013,8 @@ static block_t *WritePSISection( dvbpsi_psi_section_t* p_section )
                   (p_section->b_syntax_indicator ? 4 : 0);
 
         p_psi = block_Alloc( i_size + 1 );
+        if( !p_psi )
+            goto error;
         p_psi->i_pts = 0;
         p_psi->i_dts = 0;
         p_psi->i_length = 0;
@@ -1976,6 +2031,11 @@ static block_t *WritePSISection( dvbpsi_psi_section_t* p_section )
     }
 
     return( p_first );
+
+error:
+    if( p_first )
+        block_ChainRelease( p_first );
+    return NULL;
 }
 
 static void GetPAT( sout_mux_t *p_mux,
@@ -1993,8 +2053,11 @@ static void GetPAT( sout_mux_t *p_mux,
         dvbpsi_PATAddProgram( &pat, p_sys->i_pmt_program_number[i],
                               p_sys->pmt[i].i_pid );
 
+#if (DVBPSI_VERSION_INT >= DVBPSI_VERSION_WANTED(1,0,0))
+    p_section = dvbpsi_pat_sections_generate( p_sys->p_dvbpsi, &pat, 0 );
+#else
     p_section = dvbpsi_GenPATSections( &pat, 0 /* max program per section */ );
-
+#endif
     p_pat = WritePSISection( p_section );
 
     PEStoTS( c, p_pat, &p_sys->pat );
@@ -2201,8 +2264,14 @@ static void GetPMT( sout_mux_t *p_mux, sout_buffer_chain_t *c )
         psz_sdt_desc[ 2 + provlen ] = (char)servlen;
         memcpy( &psz_sdt_desc[3+provlen], psz_sdtserv, servlen );
 
+#if (DVBPSI_VERSION_INT >= DVBPSI_VERSION_WANTED(1,0,0))
+        dvbpsi_sdt_service_descriptor_add( p_service, 0x48,
+                                           (3 + provlen + servlen),
+                                           psz_sdt_desc );
+#else
         dvbpsi_SDTServiceAddDescriptor( p_service, 0x48,
                 3 + provlen + servlen, psz_sdt_desc );
+#endif
     }
 
     if( p_sys->i_mpeg4_streams > 0 )
@@ -2331,7 +2400,12 @@ static void GetPMT( sout_mux_t *p_mux, sout_buffer_chain_t *c )
 
     for (unsigned i = 0; i < p_sys->i_num_pmt; i++ )
     {
-        dvbpsi_psi_section_t *sect = dvbpsi_GenPMTSections( &p_sys->dvbpmt[i] );
+        dvbpsi_psi_section_t *sect;
+#if (DVBPSI_VERSION_INT >= DVBPSI_VERSION_WANTED(1,0,0))
+        sect = dvbpsi_pmt_sections_generate( p_sys->p_dvbpsi, &p_sys->dvbpmt[i] );
+#else
+        sect = dvbpsi_GenPMTSections( &p_sys->dvbpmt[i] );
+#endif
         block_t *pmt = WritePSISection( sect );
         PEStoTS( c, pmt, &p_sys->pmt[i] );
         dvbpsi_DeletePSISections(sect);
@@ -2340,7 +2414,12 @@ static void GetPMT( sout_mux_t *p_mux, sout_buffer_chain_t *c )
 
     if( p_sys->b_sdt )
     {
-        dvbpsi_psi_section_t *sect = dvbpsi_GenSDTSections( &sdt );
+        dvbpsi_psi_section_t *sect;
+#if (DVBPSI_VERSION_INT >= DVBPSI_VERSION_WANTED(1,0,0))
+        sect = dvbpsi_sdt_sections_generate( p_sys->p_dvbpsi, &sdt );
+#else
+        sect = dvbpsi_GenSDTSections( &sdt );
+#endif
         block_t *p_sdt = WritePSISection( sect );
         PEStoTS( c, p_sdt, &p_sys->sdt );
         dvbpsi_DeletePSISections( sect );

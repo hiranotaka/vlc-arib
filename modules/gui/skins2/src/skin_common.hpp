@@ -76,7 +76,7 @@ static inline string sFromLocale( const string &rLocale )
     return res;
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 /// Wrapper around FromWide, to avoid the need to call free()
 static inline string sFromWide( const wstring &rWide )
 {
@@ -107,9 +107,6 @@ struct intf_sys_t
 
     /// The playlist thread
     playlist_t *p_playlist;
-
-    /// Message bank subscription
-    msg_subscription_t *p_sub;
 
     // "Singleton" objects: MUST be initialized to NULL !
     /// Logger

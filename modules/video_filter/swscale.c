@@ -1,25 +1,25 @@
 /*****************************************************************************
  * swscale.c: scaling and chroma conversion using libswscale
  *****************************************************************************
- * Copyright (C) 1999-2008 the VideoLAN team
+ * Copyright (C) 1999-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -207,9 +207,6 @@ static int OpenScaler( vlc_object_t *p_this )
              (char *)&p_filter->fmt_out.video.i_chroma,
              ppsz_mode_descriptions[i_sws_mode] );
 
-    p_filter->fmt_out.video.i_sar_num = p_filter->fmt_in.video.i_sar_num;
-    p_filter->fmt_out.video.i_sar_den = p_filter->fmt_in.video.i_sar_den;
-
     return VLC_SUCCESS;
 }
 
@@ -296,8 +293,8 @@ static int GetParameters( ScalerConfiguration *p_cfg,
     bool b_swap_uvi = false;
     bool b_swap_uvo = false;
 
-    GetFfmpegChroma( &i_fmti, *p_fmti );
-    GetFfmpegChroma( &i_fmto, *p_fmto );
+    GetFfmpegChroma( &i_fmti, p_fmti );
+    GetFfmpegChroma( &i_fmto, p_fmto );
 
     if( p_fmti->i_chroma == p_fmto->i_chroma )
     {

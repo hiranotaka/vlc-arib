@@ -90,7 +90,7 @@ int Open_LuaSD( vlc_object_t *p_this )
     }
     p_sd->p_sys = p_sys;
     p_sd->pf_control = Control;
-    p_sys->psz_filename = vlclua_find_file( p_this, "sd", psz_name );
+    p_sys->psz_filename = vlclua_find_file( "sd", psz_name );
     if( !p_sys->psz_filename )
     {
         msg_Err( p_sd, "Couldn't find lua services discovery script \"%s\".",
@@ -120,7 +120,7 @@ int Open_LuaSD( vlc_object_t *p_this )
     luaopen_xml( L );
     lua_pop( L, 1 );
 
-    if( vlclua_add_modules_path( p_sd, L, p_sys->psz_filename ) )
+    if( vlclua_add_modules_path( L, p_sys->psz_filename ) )
     {
         msg_Warn( p_sd, "Error while setting the module search path for %s",
                   p_sys->psz_filename );

@@ -148,6 +148,7 @@ private:
 
 class IntegerRangeConfigControl : public IntegerConfigControl
 {
+    Q_OBJECT
 public:
     IntegerRangeConfigControl( vlc_object_t *, module_config_t *, QWidget * );
     IntegerRangeConfigControl( vlc_object_t *, module_config_t *,
@@ -160,6 +161,7 @@ private:
 
 class IntegerRangeSliderConfigControl : public VIntConfigControl
 {
+    Q_OBJECT
 public:
     IntegerRangeSliderConfigControl( vlc_object_t *, module_config_t *,
                                 QLabel *, QSlider * );
@@ -200,6 +202,7 @@ private:
 
 class BoolConfigControl : public VIntConfigControl
 {
+    Q_OBJECT
 public:
     BoolConfigControl( vlc_object_t *, module_config_t *, QWidget * );
     BoolConfigControl( vlc_object_t *, module_config_t *,
@@ -385,6 +388,7 @@ protected:
 
 class ModuleConfigControl : public VStringConfigControl
 {
+    Q_OBJECT
 public:
     ModuleConfigControl( vlc_object_t *, module_config_t *, QWidget * );
     ModuleConfigControl( vlc_object_t *, module_config_t *, QLabel *,
@@ -467,6 +471,7 @@ struct ModuleCheckBox {
 
 class ModuleListConfigControl : public ConfigControl
 {
+    Q_OBJECT
 public:
     StringConfigControl( vlc_object_t *, module_config_t *, QWidget *, bool
                          bycat );
@@ -486,10 +491,12 @@ private slot:
 class KeySelectorControl : public ConfigControl
 {
     Q_OBJECT
+
 public:
     KeySelectorControl( vlc_object_t *, module_config_t *, QWidget * );
     virtual int getType() const;
     virtual void doApply();
+
 protected:
     virtual bool eventFilter( QObject *, QEvent * );
     virtual void changeVisibility( bool b )
@@ -498,13 +505,26 @@ protected:
         if ( label ) label->setVisible( b );
     }
     virtual void fillGrid( QGridLayout*, int );
+
 private:
+    void buildAppHotkeysList( QWidget *rootWidget );
     void finish();
     QLabel *label;
     QLabel *searchLabel;
     SearchLineEdit *actionSearch;
+    QComboBox *searchOption;
+    QLabel *searchOptionLabel;
     QTreeWidget *table;
     QList<module_config_t *> values;
+    QSet<QString> existingkeys;
+    enum
+    {
+        ACTION_COL = 0,
+        HOTKEY_COL = 1,
+        GLOBAL_HOTKEY_COL = 2,
+        ANY_COL = 3 // == count()
+    };
+
 private slots:
     void selectKey( QTreeWidgetItem * = NULL, int column = 1 );
     void filter( const QString & );
@@ -512,19 +532,26 @@ private slots:
 
 class KeyInputDialog : public QDialog
 {
+    Q_OBJECT
+
 public:
-    KeyInputDialog( QTreeWidget *, const QString&, QWidget *, bool b_global = false);
+    KeyInputDialog( QTreeWidget *, const QString&, QWidget *, bool b_global = false );
     int keyValue;
     bool conflicts;
+    void setExistingkeysSet( const QSet<QString> *keyset = NULL );
 
 private:
     QTreeWidget *table;
     QLabel *selected, *warning;
-    QDialogButtonBox *buttonBox;
+    QPushButton *ok, *unset;
 
-    void checkForConflicts( int i_vlckey );
+    void checkForConflicts( int i_vlckey, const QString &sequence );
     void keyPressEvent( QKeyEvent *);
     void wheelEvent( QWheelEvent *);
     bool b_global;
+    const QSet<QString> *existingkeys;
+
+private slots:
+    void unsetAction();
 };
 #endif

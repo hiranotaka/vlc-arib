@@ -1,6 +1,11 @@
 SOURCES_vod_rtsp = rtsp.c
 SOURCES_audioscrobbler = audioscrobbler.c
-SOURCES_sqlite = sqlite.c
+SOURCES_fingerprinter = fingerprinter.c \
+	webservices/acoustid.c \
+	webservices/acoustid.h \
+	webservices/json.c \
+	webservices/json.h
+
 SOURCES_xml = xml/libxml.c
 
 libexport_plugin_la_SOURCES = \
@@ -21,38 +26,20 @@ endif
 EXTRA_LTLIBRARIES += libgnutls_plugin.la
 libvlc_LTLIBRARIES += $(LTLIBgnutls)
 
-libinhibit_plugin_la_SOURCES = inhibit.c
-libinhibit_plugin_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS)
-libinhibit_plugin_la_LIBADD = $(AM_LIBADD) $(DBUS_LIBS)
-if HAVE_DBUS
-libvlc_LTLIBRARIES += libinhibit_plugin.la
-endif
-
-libosd_parser_plugin_la_SOURCES = \
-	osd/parser.c osd/osd_menu.c osd/osd_menu.h osd/simple.c osd/xml.c
-libosd_parser_plugin_la_CFLAGS = $(AM_CFLAGS)
-libosd_parser_plugin_la_LIBADD = $(AM_LIBADD)
-if BUILD_OSDMENU
-libvlc_LTLIBRARIES += libosd_parser_plugin.la
-endif
-
 libxdg_screensaver_plugin_la_SOURCES = inhibit/xdg.c
 libxdg_screensaver_plugin_la_CFLAGS = $(AM_CFLAGS)
 libxdg_screensaver_plugin_la_LIBADD = $(AM_LIBADD)
-libxscreensaver_plugin_la_SOURCES = inhibit/xscreensaver.c
-libxscreensaver_plugin_la_CFLAGS = $(AM_CFLAGS)
-libxscreensaver_plugin_la_LIBADD = $(AM_LIBADD)
 if HAVE_XCB
 libvlc_LTLIBRARIES += \
-	libxdg_screensaver_plugin.la \
-	libxscreensaver_plugin.la
+	libxdg_screensaver_plugin.la
 endif
 
-libmce_plugin_la_SOURCES = inhibit/mce.c
-libmce_plugin_la_CFLAGS = $(AM_CLFAGS) $(DBUS_CFLAGS) $(MCE_CFLAGS)
-libmce_plugin_la_LIBADD = $(AM_LIBADD) $(DBUS_LIBS) $(MCE_LIBS)
-EXTRA_LTLIBRARIES += libmce_plugin.la
-libvlc_LTLIBRARIES += $(LTLIBmce)
+libdbus_screensaver_plugin_la_SOURCES = inhibit/dbus.c
+libdbus_screensaver_plugin_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS)
+libdbus_screensaver_plugin_la_LIBADD = $(AM_LIBADD) $(DBUS_LIBS)
+if HAVE_DBUS
+libvlc_LTLIBRARIES += libdbus_screensaver_plugin.la
+endif
 
 liblogger_plugin_la_SOURCES = logger.c
 liblogger_plugin_la_CFLAGS = $(AM_CFLAGS)
@@ -61,11 +48,7 @@ if HAVE_ANDROID
 liblogger_plugin_la_LIBADD += -llog
 endif
 
-libstats_plugin_la_SOURCES = \
-	stats/demux.c \
-	stats/decoder.c \
-	stats/encoder.c \
-	stats/stats.c stats/stats.h
+libstats_plugin_la_SOURCES = stats.c
 libstats_plugin_la_CFLAGS = $(AM_CFLAGS)
 libstats_plugin_la_LIBADD = $(AM_LIBADD)
 

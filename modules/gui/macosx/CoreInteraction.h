@@ -27,6 +27,7 @@
 
 @interface VLCCoreInteraction : NSObject {
     int i_currentPlaybackRate;
+    mtime_t timeA, timeB;
 }
 + (VLCCoreInteraction *)sharedInstance;
 @property (readwrite) int volume;
@@ -37,7 +38,7 @@
 @property (readonly) NSString * nameOfCurrentPlaylistItem;
 @property (nonatomic, readwrite) BOOL mute;
 
-- (void)play;
+- (void)playOrPause;
 - (void)pause;
 - (void)stop;
 - (void)faster;
@@ -61,6 +62,9 @@
 - (void)repeatAll;
 - (void)repeatOff;
 - (void)shuffle;
+- (void)setAtoB;
+- (void)resetAtoB;
+- (void)updateAtoB;
 
 - (void)volumeUp;
 - (void)volumeDown;

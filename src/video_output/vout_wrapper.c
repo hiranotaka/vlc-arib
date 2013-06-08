@@ -39,7 +39,7 @@
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
-#ifdef WIN32
+#ifdef _WIN32
 static int  Forward(vlc_object_t *, char const *,
                     vlc_value_t, vlc_value_t, void *);
 #endif
@@ -54,7 +54,7 @@ int vout_OpenWrapper(vout_thread_t *vout,
     msg_Dbg(vout, "Opening vout display wrapper");
 
     /* */
-    sys->display.title = var_CreateGetNonEmptyString(vout, "video-title");
+    sys->display.title = var_InheritString(vout, "video-title");
 
     /* */
     const mtime_t double_click_timeout = 300000;
@@ -73,7 +73,7 @@ int vout_OpenWrapper(vout_thread_t *vout,
     }
 
     /* */
-#ifdef WIN32
+#ifdef _WIN32
     var_Create(vout, "video-wallpaper", VLC_VAR_BOOL|VLC_VAR_DOINHERIT);
     var_AddCallback(vout, "video-wallpaper", Forward, NULL);
 #endif
@@ -91,7 +91,7 @@ void vout_CloseWrapper(vout_thread_t *vout, vout_display_state_t *state)
 {
     vout_thread_sys_t *sys = vout->p;
 
-#ifdef WIN32
+#ifdef _WIN32
     var_DelCallback(vout, "video-wallpaper", Forward, NULL);
 #endif
     sys->decoder_pool = NULL; /* FIXME remove */
@@ -150,6 +150,8 @@ int vout_InitWrapper(vout_thread_t *vout)
             picture_pool_NewFromFormat(&source,
                                        __MAX(VOUT_MAX_PICTURES,
                                              reserved_picture + decoder_picture - DISPLAY_PICTURE_COUNT));
+        if (!sys->decoder_pool)
+            return VLC_EGENERIC;
         if (allow_dr) {
             msg_Warn(vout, "Not enough direct buffers, using system memory");
             sys->dpb_size = 0;
@@ -199,7 +201,7 @@ void vout_ManageWrapper(vout_thread_t *vout)
     }
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 static int Forward(vlc_object_t *object, char const *var,
                    vlc_value_t oldval, vlc_value_t newval, void *data)
 {

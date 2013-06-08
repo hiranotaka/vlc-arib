@@ -31,7 +31,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
-#if defined (WIN32)
+#if defined (_WIN32)
 #  include <direct.h>
 #endif
 #include <sys/stat.h>
@@ -41,7 +41,7 @@
 
 #include <vlc_common.h>
 #include <vlc_fs.h>
-#ifdef WIN32
+#ifdef _WIN32
 #  include <vlc_charset.h>
 #endif
 #include <vlc_input.h>
@@ -1371,7 +1371,8 @@ static int CmdInitControl( ts_cmd_t *p_cmd, int i_query, va_list args, bool b_co
                 vlc_epg_AddEvent( p_cmd->u.control.u.int_epg.p_epg,
                                   p_evt->i_start, p_evt->i_duration,
                                   p_evt->psz_name,
-                                  p_evt->psz_short_description, p_evt->psz_description );
+                                  p_evt->psz_short_description,
+                                  p_evt->psz_description, 0 );
             }
             vlc_epg_SetCurrent( p_cmd->u.control.u.int_epg.p_epg,
                                 p_epg->p_current ? p_epg->p_current->i_start : -1 );
@@ -1552,7 +1553,7 @@ static char *GetTmpPath( char *psz_path )
     free( psz_path );
 
     /* Create a suitable path */
-#if defined (WIN32)
+#if defined (_WIN32) && !VLC_WINSTORE_APP
     const DWORD dwCount = GetTempPathW( 0, NULL );
     wchar_t *psw_path = calloc( dwCount + 1, sizeof(wchar_t) );
     if( psw_path )

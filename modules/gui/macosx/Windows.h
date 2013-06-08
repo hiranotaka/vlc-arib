@@ -1,7 +1,7 @@
 /*****************************************************************************
  * Windows.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2012 VLC authors and VideoLAN
+ * Copyright (C) 2012-2013 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -25,7 +25,6 @@
 #import <Cocoa/Cocoa.h>
 #import "CompatibilityFixes.h"
 
-
 /*****************************************************************************
  * VLCWindow
  *
@@ -41,9 +40,20 @@
     BOOL b_canBecomeMainWindow;
     BOOL b_isset_canBecomeMainWindow;
     NSViewAnimation *o_current_animation;
+
+    BOOL              b_has_active_video;
+
+    /* 
+     * YES when all animations are over
+     * for fullscreen window: always YES
+     */
+    BOOL              b_fullscreen;
 }
 @property (readwrite) BOOL canBecomeKeyWindow;
 @property (readwrite) BOOL canBecomeMainWindow;
+
+@property (nonatomic, readwrite) BOOL hasActiveVideo;
+@property (nonatomic, readwrite) BOOL fullscreen;
 
 /* animate mode is only supported in >=10.4 */
 - (void)orderFront: (id)sender animate: (BOOL)animate;
@@ -93,14 +103,19 @@ static const float f_min_video_height = 70.0;
     NSView          * o_temp_view;
 
     BOOL              b_window_is_invisible;
-    NSRecursiveLock * o_animation_lock;
     NSInteger i_originalLevel;
 
+    NSTimer *t_hide_mouse_timer;
 
+    // true when the window is in transition for entering lion fullscreen
+    BOOL b_entering_fullscreen_transition;
 }
 
 @property (nonatomic, assign) VLCVoutView* videoView;
 @property (readonly) VLCControlsBarCommon* controlsBar;
+@property (readonly) BOOL enteringFullscreenTransition;
+
+- (void)setWindowLevel:(NSInteger)i_state;
 
 - (void)resizeWindow;
 - (void)setNativeVideoSize:(NSSize)size;
@@ -112,5 +127,10 @@ static const float f_min_video_height = 70.0;
 /* fullscreen handling */
 - (void)enterFullscreen;
 - (void)leaveFullscreen;
+
+/* lion fullscreen handling */
+- (void)windowWillEnterFullScreen:(NSNotification *)notification;
+- (void)windowDidEnterFullScreen:(NSNotification *)notification;
+- (void)windowWillExitFullScreen:(NSNotification *)notification;
 
 @end

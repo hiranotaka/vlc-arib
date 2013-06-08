@@ -76,7 +76,7 @@ pluginsinclude_HEADERS = \
 	../include/vlc_probe.h \
 	../include/vlc_rand.h \
 	../include/vlc_services_discovery.h \
-	../include/vlc_sql.h \
+	../include/vlc_fingerprinter.h \
 	../include/vlc_sout.h \
 	../include/vlc_spu.h \
 	../include/vlc_stream.h \
@@ -107,7 +107,6 @@ noinst_HEADERS = \
 	../include/vlc_intf_strings.h \
 	../include/vlc_iso_lang.h \
 	../include/vlc_memory.h \
-	../include/vlc_osd.h \
 	../include/vlc_pgpkey.h \
 	../include/vlc_update.h \
 	../include/vlc_vod.h \
@@ -179,7 +178,6 @@ endif
 
 libvlccore_la_SOURCES = $(SOURCES_libvlc)
 libvlccore_la_LDFLAGS = \
-	-no-undefined \
 	$(LDFLAGS_libvlccore) \
 	-no-undefined \
 	-export-symbols $(srcdir)/libvlccore.sym \
@@ -245,25 +243,23 @@ if ENABLE_VLM
 libvlccore_la_SOURCES += $(SOURCES_libvlc_vlm)
 endif
 endif
-if BUILD_OSDMENU
-libvlccore_la_SOURCES += osd/osd.c
-AM_CPPFLAGS += -DOSDMENU
-endif
 
 SOURCES_libvlc_darwin = \
-	posix/darwin_dirs.c \
+	darwin/dirs.c \
 	posix/filesystem.c \
 	posix/plugin.c \
 	posix/thread.c \
 	posix/timer.c \
-	posix/darwin_specific.c \
+	darwin/specific.c \
 	posix/rand.c \
+	darwin/netconf.c \
 	$(NULL)
 
 SOURCES_libvlc_android = \
 	android/dirs.c \
 	android/thread.c \
 	posix/filesystem.c \
+	android/netconf.c \
 	posix/plugin.c \
 	posix/timer.c \
 	posix/linux_cpu.c \
@@ -275,6 +271,7 @@ SOURCES_libvlc_android = \
 SOURCES_libvlc_linux = \
 	posix/dirs.c \
 	posix/filesystem.c \
+	posix/netconf.c \
 	posix/plugin.c \
 	posix/thread.c \
 	posix/timer.c \
@@ -287,6 +284,7 @@ SOURCES_libvlc_linux = \
 SOURCES_libvlc_win32 = \
 	win32/dirs.c \
 	win32/filesystem.c \
+	win32/netconf.c \
 	win32/plugin.c \
 	win32/thread.c \
 	win32/specific.c \
@@ -305,6 +303,7 @@ SOURCES_libvlc_os2 = \
 	os2/getaddrinfo.c \
 	os2/dirs.c \
 	os2/filesystem.c \
+	os2/netconf.c \
 	os2/plugin.c \
 	os2/thread.c \
 	os2/specific.c \
@@ -314,6 +313,7 @@ SOURCES_libvlc_os2 = \
 SOURCES_libvlc_other = \
 	posix/dirs.c \
 	posix/filesystem.c \
+	posix/netconf.c \
 	posix/thread.c \
 	posix/timer.c \
 	posix/plugin.c \
@@ -395,8 +395,6 @@ SOURCES_libvlc_common = \
 	video_output/snapshot.c \
 	video_output/snapshot.h \
 	video_output/statistic.h \
-	video_output/postprocessing.c \
-	video_output/postprocessing.h \
 	video_output/video_output.c \
 	video_output/video_text.c \
 	video_output/video_epg.c \
@@ -404,7 +402,6 @@ SOURCES_libvlc_common = \
 	video_output/vout_subpictures.c \
 	video_output/window.c \
 	video_output/opengl.c \
-	video_output/osd_text.c \
 	video_output/vout_intf.c \
 	video_output/vout_internal.h \
 	video_output/vout_control.h \
@@ -413,7 +410,6 @@ SOURCES_libvlc_common = \
 	audio_output/common.c \
 	audio_output/dec.c \
 	audio_output/filters.c \
-	audio_output/input.c \
 	audio_output/output.c \
 	audio_output/volume.c \
 	network/getaddrinfo.c \
@@ -471,13 +467,12 @@ SOURCES_libvlc_common = \
 	misc/update.c \
 	misc/update_crypto.c \
 	misc/xml.c \
-	misc/media_library.c \
 	extras/libc.c \
 	extras/tdestroy.c \
 	misc/filter.c \
 	misc/filter_chain.c \
 	misc/http_auth.c \
-	misc/sql.c \
+	misc/fingerprinter.c \
 	misc/text_style.c \
 	misc/subpicture.c \
 	misc/subpicture.h \

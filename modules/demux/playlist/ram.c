@@ -1,24 +1,24 @@
 /*****************************************************************************
  * ram.c : RAM playlist format import
  *****************************************************************************
- * Copyright (C) 2009 the VideoLAN team
+ * Copyright (C) 2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Srikanth Raju <srikiraju@gmail.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*
@@ -343,7 +343,7 @@ static int Demux( demux_t *p_demux )
             if( !EMPTY_STR( psz_copyright ) ) input_item_SetCopyright( p_input, psz_copyright );
             if( !EMPTY_STR( psz_album ) ) input_item_SetAlbum( p_input, psz_album );
             if( !EMPTY_STR( psz_genre ) ) input_item_SetGenre( p_input, psz_genre );
-            if( !EMPTY_STR( psz_year ) ) input_item_SetDate( p_input, psz_copyright );
+            if( !EMPTY_STR( psz_year ) ) input_item_SetDate( p_input, psz_year );
             if( !EMPTY_STR( psz_cdnum ) ) input_item_SetTrackNum( p_input, psz_cdnum );
             if( !EMPTY_STR( psz_comments ) ) input_item_SetDescription( p_input, psz_comments );
 

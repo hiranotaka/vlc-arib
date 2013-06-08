@@ -1,24 +1,24 @@
 /*****************************************************************************
  * utils.c: helper functions
  *****************************************************************************
- * Copyright (C) 2010 the VideoLAN team
+ * Copyright (C) 2010 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -40,10 +40,22 @@
 /*****************************************************************************
  * Events utility functions
  *****************************************************************************/
-OMX_ERRORTYPE PostOmxEvent(decoder_t *p_dec, OMX_EVENTTYPE event,
+void InitOmxEventQueue(OmxEventQueue *queue)
+{
+    queue->pp_last_event = &queue->p_events;
+    vlc_mutex_init(&queue->mutex);
+    vlc_cond_init(&queue->cond);
+}
+
+void DeinitOmxEventQueue(OmxEventQueue *queue)
+{
+    vlc_mutex_destroy(&queue->mutex);
+    vlc_cond_destroy(&queue->cond);
+}
+
+OMX_ERRORTYPE PostOmxEvent(OmxEventQueue *queue, OMX_EVENTTYPE event,
     OMX_U32 data_1, OMX_U32 data_2, OMX_PTR event_data)
 {
-    decoder_sys_t *p_sys = p_dec->p_sys;
     OmxEvent *p_event;
 
     p_event = malloc(sizeof(OmxEvent));
@@ -55,33 +67,32 @@ OMX_ERRORTYPE PostOmxEvent(decoder_t *p_dec, OMX_EVENTTYPE event,
     p_event->event_data = event_data;
     p_event->next = 0;
 
-    vlc_mutex_lock(&p_sys->mutex);
-    *p_sys->pp_last_event = p_event;
-    p_sys->pp_last_event = &p_event->next;
-    vlc_cond_signal(&p_sys->cond);
-    vlc_mutex_unlock(&p_sys->mutex);
+    vlc_mutex_lock(&queue->mutex);
+    *queue->pp_last_event = p_event;
+    queue->pp_last_event = &p_event->next;
+    vlc_cond_signal(&queue->cond);
+    vlc_mutex_unlock(&queue->mutex);
     return OMX_ErrorNone;
 }
 
-OMX_ERRORTYPE WaitForOmxEvent(decoder_t *p_dec, OMX_EVENTTYPE *event,
+OMX_ERRORTYPE WaitForOmxEvent(OmxEventQueue *queue, OMX_EVENTTYPE *event,
     OMX_U32 *data_1, OMX_U32 *data_2, OMX_PTR *event_data)
 {
-    decoder_sys_t *p_sys = p_dec->p_sys;
     OmxEvent *p_event;
 
-    vlc_mutex_lock(&p_sys->mutex);
+    vlc_mutex_lock(&queue->mutex);
 
-    if(!p_sys->p_events)
-        vlc_cond_timedwait(&p_sys->cond, &p_sys->mutex, mdate()+CLOCK_FREQ);
+    if(!queue->p_events)
+        vlc_cond_timedwait(&queue->cond, &queue->mutex, mdate()+CLOCK_FREQ);
 
-    p_event = p_sys->p_events;
+    p_event = queue->p_events;
     if(p_event)
     {
-        p_sys->p_events = p_event->next;
-        if(!p_sys->p_events) p_sys->pp_last_event = &p_sys->p_events;
+        queue->p_events = p_event->next;
+        if(!queue->p_events) queue->pp_last_event = &queue->p_events;
     }
 
-    vlc_mutex_unlock(&p_sys->mutex);
+    vlc_mutex_unlock(&queue->mutex);
 
     if(p_event)
     {
@@ -96,7 +107,7 @@ OMX_ERRORTYPE WaitForOmxEvent(decoder_t *p_dec, OMX_EVENTTYPE *event,
     return OMX_ErrorTimeout;
 }
 
-OMX_ERRORTYPE WaitForSpecificOmxEvent(decoder_t *p_dec,
+OMX_ERRORTYPE WaitForSpecificOmxEvent(OmxEventQueue *queue,
     OMX_EVENTTYPE specific_event, OMX_U32 *data_1, OMX_U32 *data_2,
     OMX_PTR *event_data)
 {
@@ -106,7 +117,7 @@ OMX_ERRORTYPE WaitForSpecificOmxEvent(decoder_t *p_dec,
 
     while(1)
     {
-        status = WaitForOmxEvent(p_dec, &event, data_1, data_2, event_data);
+        status = WaitForOmxEvent(queue, &event, data_1, data_2, event_data);
         if(status != OMX_ErrorNone) return status;
 
         if(event == specific_event) break;
@@ -114,6 +125,39 @@ OMX_ERRORTYPE WaitForSpecificOmxEvent(decoder_t *p_dec,
     }
 
     return OMX_ErrorNone;
+}
+
+void PrintOmxEvent(vlc_object_t *p_this, OMX_EVENTTYPE event, OMX_U32 data_1,
+    OMX_U32 data_2, OMX_PTR event_data)
+{
+    switch (event)
+    {
+    case OMX_EventCmdComplete:
+        switch ((OMX_STATETYPE)data_1)
+        {
+        case OMX_CommandStateSet:
+            msg_Dbg( p_this, "OmxEventHandler (%s, %s, %s)", EventToString(event),
+                     CommandToString(data_1), StateToString(data_2) );
+            break;
+
+        default:
+            msg_Dbg( p_this, "OmxEventHandler (%s, %s, %u)", EventToString(event),
+                     CommandToString(data_1), (unsigned int)data_2 );
+            break;
+        }
+        break;
+
+    case OMX_EventError:
+        msg_Dbg( p_this, "OmxEventHandler (%s, %s, %u, %s)", EventToString(event),
+                 ErrorToString((OMX_ERRORTYPE)data_1), (unsigned int)data_2,
+                 (const char *)event_data);
+        break;
+
+    default:
+        msg_Dbg( p_this, "OmxEventHandler (%s, %u, %u)", EventToString(event),
+                 (unsigned int)data_1, (unsigned int)data_2 );
+        break;
+    }
 }
 
 /*****************************************************************************
@@ -180,6 +224,35 @@ void CopyVlcPicture( decoder_t *p_dec, OMX_BUFFERHEADERTYPE *p_header,
             p_dst += i_dst_stride;
         }
     }
+}
+
+int IgnoreOmxDecoderPadding(const char *name)
+{
+    // The list of decoders that signal padding properly is not necessary,
+    // since that is the default, but keep it here for reference. (This is
+    // only relevant for manufacturers that are known to have decoders with
+    // this kind of bug.)
+/*
+    static const char *padding_decoders[] = {
+        "OMX.SEC.AVC.Decoder",
+        "OMX.SEC.wmv7.dec",
+        "OMX.SEC.wmv8.dec",
+        NULL
+    };
+*/
+    static const char *nopadding_decoders[] = {
+        "OMX.SEC.avc.dec",
+        "OMX.SEC.avcdec",
+        "OMX.SEC.MPEG4.Decoder",
+        "OMX.SEC.mpeg4.dec",
+        "OMX.SEC.vc1.dec",
+        NULL
+    };
+    for (const char **ptr = nopadding_decoders; *ptr; ptr++) {
+        if (!strcmp(*ptr, name))
+            return 1;
+    }
+    return 0;
 }
 
 /*****************************************************************************
@@ -274,8 +347,8 @@ static const struct
     { VLC_CODEC_MP4V, OMX_VIDEO_CodingMPEG4, "video_decoder.mpeg4" },
     { VLC_CODEC_H264, OMX_VIDEO_CodingAVC,   "video_decoder.avc"   },
     { VLC_CODEC_H263, OMX_VIDEO_CodingH263,  "video_decoder.h263"  },
-    { VLC_CODEC_WMV1, OMX_VIDEO_CodingWMV,   "video_decoder.wmv"   },
-    { VLC_CODEC_WMV2, OMX_VIDEO_CodingWMV,   "video_decoder.wmv"   },
+    { VLC_CODEC_WMV1, OMX_VIDEO_CodingWMV,   "video_decoder.wmv1"  },
+    { VLC_CODEC_WMV2, OMX_VIDEO_CodingWMV,   "video_decoder.wmv2"  },
     { VLC_CODEC_WMV3, OMX_VIDEO_CodingWMV,   "video_decoder.wmv"   },
     { VLC_CODEC_VC1,  OMX_VIDEO_CodingWMV,   "video_decoder.wmv"   },
     { VLC_CODEC_MJPG, OMX_VIDEO_CodingMJPEG, "video_decoder.jpeg"  },
@@ -295,10 +368,11 @@ static const struct
 
 } audio_format_table[] =
 {
-    { VLC_CODEC_AMR_NB, OMX_AUDIO_CodingAMR, "audio_decoder.amr" },
-    { VLC_CODEC_AMR_WB, OMX_AUDIO_CodingAMR, "audio_decoder.amr" },
+    { VLC_CODEC_AMR_NB, OMX_AUDIO_CodingAMR, "audio_decoder.amrnb" },
+    { VLC_CODEC_AMR_WB, OMX_AUDIO_CodingAMR, "audio_decoder.amrwb" },
     { VLC_CODEC_MP4A,   OMX_AUDIO_CodingAAC, "audio_decoder.aac" },
     { VLC_CODEC_S16N,   OMX_AUDIO_CodingPCM, "audio_decoder.pcm" },
+    { VLC_CODEC_MP3,    OMX_AUDIO_CodingMP3, "audio_decoder.mp3" },
     { 0, 0, 0 }
 };
 
@@ -333,8 +407,8 @@ static const struct
 
 } audio_enc_format_table[] =
 {
-    { VLC_CODEC_AMR_NB, OMX_AUDIO_CodingAMR, "audio_encoder.amr" },
-    { VLC_CODEC_AMR_WB, OMX_AUDIO_CodingAMR, "audio_encoder.amr" },
+    { VLC_CODEC_AMR_NB, OMX_AUDIO_CodingAMR, "audio_encoder.amrnb" },
+    { VLC_CODEC_AMR_WB, OMX_AUDIO_CodingAMR, "audio_encoder.amrwb" },
     { VLC_CODEC_MP4A,   OMX_AUDIO_CodingAAC, "audio_encoder.aac" },
     { VLC_CODEC_S16N,   OMX_AUDIO_CodingPCM, "audio_encoder.pcm" },
     { 0, 0, 0 }
@@ -593,8 +667,8 @@ unsigned int GetAudioParamSize(OMX_INDEXTYPE index)
 
 OMX_ERRORTYPE SetAudioParameters(OMX_HANDLETYPE handle,
     OmxFormatParam *param, OMX_U32 i_port, OMX_AUDIO_CODINGTYPE encoding,
-    uint8_t i_channels, unsigned int i_samplerate, unsigned int i_bitrate,
-    unsigned int i_bps, unsigned int i_blocksize)
+    vlc_fourcc_t i_codec, uint8_t i_channels, unsigned int i_samplerate,
+    unsigned int i_bitrate, unsigned int i_bps, unsigned int i_blocksize)
 {
     OMX_INDEXTYPE index;
 
@@ -627,9 +701,12 @@ OMX_ERRORTYPE SetAudioParameters(OMX_HANDLETYPE handle,
         OMX_INIT_STRUCTURE(param->amr);
         param->amr.nChannels = i_channels;
         param->amr.nBitRate = i_bitrate;
-        param->amr.eAMRBandMode = OMX_AUDIO_AMRBandModeUnused;
+        if (i_codec == VLC_CODEC_AMR_WB)
+            param->amr.eAMRBandMode = OMX_AUDIO_AMRBandModeWB0;
+        else
+            param->amr.eAMRBandMode = OMX_AUDIO_AMRBandModeNB0;
         param->amr.eAMRDTXMode = OMX_AUDIO_AMRDTXModeOff;
-        param->amr.eAMRFrameFormat = OMX_AUDIO_AMRFrameFormatConformance;
+        param->amr.eAMRFrameFormat = OMX_AUDIO_AMRFrameFormatFSF;
         break;
     case OMX_AUDIO_CodingG723:
         OMX_INIT_STRUCTURE(param->g723);
@@ -660,8 +737,8 @@ OMX_ERRORTYPE SetAudioParameters(OMX_HANDLETYPE handle,
         param->aac.nAACtools = OMX_AUDIO_AACToolAll;
         param->aac.nAACERtools = OMX_AUDIO_AACERAll;
         param->aac.eAACProfile = OMX_AUDIO_AACObjectLC;
-        param->aac.eAACStreamFormat = OMX_AUDIO_AACStreamFormatRAW;
-        param->aac.eChannelMode = i_channels ?
+        param->aac.eAACStreamFormat = OMX_AUDIO_AACStreamFormatMP4FF;
+        param->aac.eChannelMode = i_channels > 1 ?
             OMX_AUDIO_ChannelModeStereo : OMX_AUDIO_ChannelModeMono;
         break;
     case OMX_AUDIO_CodingMP3:
@@ -669,7 +746,7 @@ OMX_ERRORTYPE SetAudioParameters(OMX_HANDLETYPE handle,
         param->mp3.nChannels = i_channels;
         param->mp3.nSampleRate = i_samplerate;
         param->mp3.nBitRate = i_bitrate;
-        param->mp3.eChannelMode = i_channels ?
+        param->mp3.eChannelMode = i_channels > 1 ?
             OMX_AUDIO_ChannelModeStereo : OMX_AUDIO_ChannelModeMono;
         param->mp3.eFormat = OMX_AUDIO_MP3StreamFormatMP1Layer3;
         break;

@@ -7,20 +7,21 @@
  * Authors: Derk-Jan Hartman <djhartman at m2x dot nl>
  *          Jean-Paul Saman <jpsaman at m2x dot nl>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
+
 /*****************************************************************************
  *
  * information on teletext format can be found here :
@@ -103,18 +104,20 @@ vlc_module_end ()
 
 //Guessing table for missing "default region triplet"
 static const int pi_default_triplet[] = {
- 0, 0,           // slo cze
+ 0, 0, 0, 0,     // slo slk cze ces
  8,              // pol
- 24,24,24,24,    //ssc scr slv rum
+ 24,24,24,24,24, //scc scr srp hrv slv
+ 24,24,          //rum ron
  32,32,32,32,32, //est lit rus bul ukr
  48,48,          //gre ell
  64,             //ara
  88,             //heb
  16 };           //default
 static const char *const ppsz_default_triplet[] = {
- "slo", "cze",
+ "slo", "slk", "cze", "ces",
  "pol",
- "ssc", "scr", "slv", "rum",
+ "scc", "scr", "srp", "hrv", "slv",
+ "rum", "ron",
  "est", "lit", "rus", "bul", "ukr",
  "gre", "ell",
  "ara",

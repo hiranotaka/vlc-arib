@@ -1,7 +1,7 @@
 /*****************************************************************************
  * misc.m: code not specific to vlc
  *****************************************************************************
- * Copyright (C) 2003-2012 VLC authors and VideoLAN
+ * Copyright (C) 2003-2013 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
@@ -176,16 +176,31 @@ static NSMutableArray *blackoutWindows = NULL;
     NSUInteger count = [[NSScreen screens] count];
 
     for ( NSUInteger i = 0; i < count; i++ ) {
-        NSScreen *screen = [[NSScreen screens] objectAtIndex: i];
+        NSScreen *screen = [[NSScreen screens] objectAtIndex:i];
         if ([screen displayID] == displayID)
             return screen;
     }
     return nil;
 }
 
-- (BOOL)mainScreen
+- (BOOL)hasMenuBar
 {
     return ([self displayID] == [[[NSScreen screens] objectAtIndex:0] displayID]);
+}
+
+- (BOOL)hasDock
+{
+    NSRect screen_frame = [self frame];
+    NSRect screen_visible_frame = [self visibleFrame];
+    CGFloat f_menu_bar_thickness = [self hasMenuBar] ? [[NSStatusBar systemStatusBar] thickness] : 0.0;
+
+    BOOL b_found_dock = NO;
+    if (screen_visible_frame.size.width < screen_frame.size.width)
+        b_found_dock = YES;
+    else if (screen_visible_frame.size.height + f_menu_bar_thickness < screen_frame.size.height)
+        b_found_dock = YES;
+
+    return b_found_dock;
 }
 
 - (BOOL)isScreen: (NSScreen*)screen
@@ -206,7 +221,7 @@ static NSMutableArray *blackoutWindows = NULL;
 
     NSUInteger screenCount = [[NSScreen screens] count];
     for (NSUInteger i = 0; i < screenCount; i++) {
-        NSScreen *screen = [[NSScreen screens] objectAtIndex: i];
+        NSScreen *screen = [[NSScreen screens] objectAtIndex:i];
         VLCWindow *blackoutWindow;
         NSRect screen_rect;
 
@@ -231,8 +246,7 @@ static NSMutableArray *blackoutWindows = NULL;
         [blackoutWindows addObject: blackoutWindow];
         [blackoutWindow release];
 
-        if ( [screen mainScreen] )
-            [NSApp setPresentationOptions:(NSApplicationPresentationAutoHideDock | NSApplicationPresentationAutoHideMenuBar)];
+        [screen setFullscreenPresentationOptions];
     }
 }
 
@@ -241,11 +255,30 @@ static NSMutableArray *blackoutWindows = NULL;
     NSUInteger blackoutWindowCount = [blackoutWindows count];
 
     for (NSUInteger i = 0; i < blackoutWindowCount; i++) {
-        VLCWindow *blackoutWindow = [blackoutWindows objectAtIndex: i];
+        VLCWindow *blackoutWindow = [blackoutWindows objectAtIndex:i];
+        [[blackoutWindow screen] setNonFullscreenPresentationOptions];
         [blackoutWindow closeAndAnimate: YES];
     }
+}
 
-    [NSApp setPresentationOptions:(NSApplicationPresentationDefault)];
+- (void)setFullscreenPresentationOptions
+{
+    NSApplicationPresentationOptions presentationOpts = [NSApp presentationOptions];
+    if ([self hasMenuBar])
+        presentationOpts |= NSApplicationPresentationAutoHideMenuBar;
+    if ([self hasMenuBar] || [self hasDock])
+        presentationOpts |= NSApplicationPresentationAutoHideDock;
+    [NSApp setPresentationOptions:presentationOpts];
+}
+
+- (void)setNonFullscreenPresentationOptions
+{
+    NSApplicationPresentationOptions presentationOpts = [NSApp presentationOptions];
+    if ([self hasMenuBar])
+        presentationOpts &= (~NSApplicationPresentationAutoHideMenuBar);
+    if ([self hasMenuBar] || [self hasDock])
+        presentationOpts &= (~NSApplicationPresentationAutoHideDock);
+    [NSApp setPresentationOptions:presentationOpts];
 }
 
 @end
@@ -269,7 +302,7 @@ static NSMutableArray *blackoutWindows = NULL;
 
 - (void)awakeFromNib
 {
-    [self registerForDraggedTypes:[NSArray arrayWithObject: NSFilenamesPboardType]];
+    [self registerForDraggedTypes:@[NSFilenamesPboardType]];
     [self setImageScaling: NSScaleToFit];
     [self setImageFrameStyle: NSImageFrameNone];
     [self setImageAlignment: NSImageAlignCenter];
@@ -378,6 +411,7 @@ void _drawFrameInRect(NSRect frameRect)
 - (void)scrollWheel:(NSEvent *)o_event
 {
     intf_thread_t * p_intf = VLCIntf;
+    BOOL b_forward = NO;
     CGFloat f_deltaY = [o_event deltaY];
     CGFloat f_deltaX = [o_event deltaX];
 
@@ -391,17 +425,19 @@ void _drawFrameInRect(NSRect frameRect)
     CGFloat f_abs;
     int i_vlckey;
 
-    if (f_delta > 0.0f) {
-        i_vlckey = ACTIONID_JUMP_BACKWARD_EXTRASHORT;
+    if (f_delta > 0.0f)
         f_abs = f_delta;
-    }
     else {
-        i_vlckey = ACTIONID_JUMP_FORWARD_EXTRASHORT;
+        b_forward = YES;
         f_abs = -f_delta;
     }
 
-    for (NSUInteger i = 0; i < (int)(f_abs/4.+1.) && f_abs > 0.05 ; i++)
-        var_SetInteger( p_intf->p_libvlc, "key-action", i_vlckey );
+    for (NSUInteger i = 0; i < (int)(f_abs/4.+1.) && f_abs > 0.05 ; i++) {
+        if (b_forward)
+            [[VLCCoreInteraction sharedInstance] forwardExtraShort];
+        else
+            [[VLCCoreInteraction sharedInstance] backwardExtraShort];
+    }
 }
 
 - (BOOL)acceptsFirstResponder
@@ -453,8 +489,8 @@ void _drawFrameInRect(NSRect frameRect)
 
 - (void)drawRect:(NSRect)rect
 {
-    [[[[VLCMain sharedInstance] mainWindow] controlsBar] drawFancyGradientEffectForTimeSlider];
-    msleep( 10000 ); //wait for the gradient to draw completely
+    [[(VLCVideoWindowCommon *)[self window] controlsBar] drawFancyGradientEffectForTimeSlider];
+    msleep(10000); //wait for the gradient to draw completely
 
     /* Draw default to make sure the slider behaves correctly */
     [[NSGraphicsContext currentContext] saveGraphicsState];
@@ -463,10 +499,7 @@ void _drawFrameInRect(NSRect frameRect)
     [[NSGraphicsContext currentContext] restoreGraphicsState];
 
     NSRect knobRect = [[self cell] knobRectFlipped:NO];
-    if (b_dark)
-        knobRect.origin.y+=2;
-    else
-        knobRect.origin.y+=1;
+    knobRect.origin.y+=1;
     [self drawKnobInRect: knobRect];
 }
 
@@ -481,6 +514,7 @@ void _drawFrameInRect(NSRect frameRect)
 - (void)scrollWheel:(NSEvent *)o_event
 {
     intf_thread_t * p_intf = VLCIntf;
+    BOOL b_up = NO;
     CGFloat f_deltaY = [o_event deltaY];
     CGFloat f_deltaX = [o_event deltaX];
 
@@ -494,17 +528,19 @@ void _drawFrameInRect(NSRect frameRect)
     CGFloat f_abs;
     int i_vlckey;
 
-    if (f_delta > 0.0f) {
-        i_vlckey = ACTIONID_VOL_DOWN;
+    if (f_delta > 0.0f)
         f_abs = f_delta;
-    }
     else {
-        i_vlckey = ACTIONID_VOL_UP;
+        b_up = YES;
         f_abs = -f_delta;
     }
 
-    for (NSUInteger i = 0; i < (int)(f_abs/4.+1.) && f_abs > 0.05 ; i++)
-        var_SetInteger(p_intf->p_libvlc, "key-action", i_vlckey);
+    for (NSUInteger i = 0; i < (int)(f_abs/4.+1.) && f_abs > 0.05 ; i++) {
+        if (b_up)
+            [[VLCCoreInteraction sharedInstance] volumeUp];
+        else
+            [[VLCCoreInteraction sharedInstance] volumeDown];
+    }
 }
 
 @end
@@ -564,21 +600,28 @@ void _drawFrameInRect(NSRect frameRect)
 @implementation VLCTimeField
 + (void)initialize{
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSDictionary *appDefaults = [NSDictionary dictionaryWithObject:@"NO" forKey:@"DisplayTimeAsTimeRemaining"];
-
+    NSDictionary *appDefaults = [NSDictionary dictionaryWithObjectsAndKeys:
+                                 @"NO", @"DisplayTimeAsTimeRemaining",
+                                 @"YES", @"DisplayFullscreenTimeAsTimeRemaining",
+                                 nil];
+    
     [defaults registerDefaults:appDefaults];
 }
 
-- (void)awakeFromNib
+- (id)initWithFrame:(NSRect)frameRect
 {
-    NSColor *o_string_color;
-    if (!config_GetInt( VLCIntf, "macosx-interfacestyle"))
-        o_string_color = [NSColor colorWithCalibratedRed:0.229 green:0.229 blue:0.229 alpha:100.0];
-    else
-        o_string_color = [NSColor colorWithCalibratedRed:0.64 green:0.64 blue:0.64 alpha:100.0];
+    if (self = [super initWithFrame:frameRect]) {
+        textAlignment = NSCenterTextAlignment;
+        o_remaining_identifier = @"";
+    }
+    
+    return self;
+}
 
-    textAlignment = NSCenterTextAlignment;
-    o_string_attributes_dict = [[NSDictionary dictionaryWithObjectsAndKeys: o_string_color, NSForegroundColorAttributeName, [NSFont titleBarFontOfSize:10.0], NSFontAttributeName, nil] retain];
+- (void)setRemainingIdentifier:(NSString *)o_string
+{
+    o_remaining_identifier = o_string;
+    b_time_remaining = [[NSUserDefaults standardUserDefaults] boolForKey:o_remaining_identifier];
 }
 
 - (void)setAlignment:(NSTextAlignment)alignment
@@ -590,7 +633,6 @@ void _drawFrameInRect(NSRect frameRect)
 - (void)dealloc
 {
     [o_string_shadow release];
-    [o_string_attributes_dict release];
     [super dealloc];
 }
 
@@ -599,11 +641,11 @@ void _drawFrameInRect(NSRect frameRect)
     if (!o_string_shadow) {
         o_string_shadow = [[NSShadow alloc] init];
         [o_string_shadow setShadowColor: [NSColor colorWithCalibratedWhite:1.0 alpha:0.5]];
-        [o_string_shadow setShadowOffset:NSMakeSize(0.0, -1.5)];
+        [o_string_shadow setShadowOffset:NSMakeSize(0.0, -1.0)];
         [o_string_shadow setShadowBlurRadius:0.0];
     }
 
-    NSMutableAttributedString *o_attributed_string = [[NSMutableAttributedString alloc] initWithString:string attributes: o_string_attributes_dict];
+    NSMutableAttributedString *o_attributed_string = [[NSMutableAttributedString alloc] initWithString:string attributes: nil];
     NSUInteger i_stringLength = [string length];
 
     [o_attributed_string addAttribute: NSShadowAttributeName value: o_string_shadow range: NSMakeRange(0, i_stringLength)];
@@ -618,17 +660,29 @@ void _drawFrameInRect(NSRect frameRect)
         [[[VLCMain sharedInstance] controls] goToSpecificTime: nil];
     else
     {
-        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DisplayTimeAsTimeRemaining"])
-            [[NSUserDefaults standardUserDefaults] setObject:@"NO" forKey:@"DisplayTimeAsTimeRemaining"];
-        else
-            [[NSUserDefaults standardUserDefaults] setObject:@"YES" forKey:@"DisplayTimeAsTimeRemaining"];
+        if (![o_remaining_identifier isEqualToString: @""]) {
+            if ([[NSUserDefaults standardUserDefaults] boolForKey:o_remaining_identifier]) {
+                [[NSUserDefaults standardUserDefaults] setObject:@"NO" forKey:o_remaining_identifier];
+                b_time_remaining = NO;
+            } else {
+                [[NSUserDefaults standardUserDefaults] setObject:@"YES" forKey:o_remaining_identifier];
+                b_time_remaining = YES;
+            }
+        } else {
+            b_time_remaining = !b_time_remaining;
+            [[NSUserDefaults standardUserDefaults] setObject:(b_time_remaining ? @"YES" : @"NO") forKey:o_remaining_identifier];
+        }
     }
 }
 
 - (BOOL)timeRemaining
 {
-    return [[NSUserDefaults standardUserDefaults] boolForKey:@"DisplayTimeAsTimeRemaining"];
+    if (![o_remaining_identifier isEqualToString: @""])
+        return [[NSUserDefaults standardUserDefaults] boolForKey:o_remaining_identifier];
+    else
+        return b_time_remaining;
 }
+
 @end
 
 /*****************************************************************************
@@ -702,7 +756,7 @@ void _drawFrameInRect(NSRect frameRect)
 
 - (void)awakeFromNib
 {
-    [self registerForDraggedTypes:[NSArray arrayWithObject: NSFilenamesPboardType]];
+    [self registerForDraggedTypes:@[NSFilenamesPboardType]];
 }
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
@@ -731,5 +785,47 @@ void _drawFrameInRect(NSRect frameRect)
 {
     [self setNeedsDisplay:YES];
 }
+
+@end
+
+@implementation PositionFormatter
+
+- (id)init
+{
+    self = [super init];
+    NSMutableCharacterSet *nonNumbers = [[[NSCharacterSet decimalDigitCharacterSet] invertedSet] mutableCopy];
+    [nonNumbers removeCharactersInString:@":"];
+    o_forbidden_characters = [nonNumbers copy];
+    [nonNumbers release];
+
+    return self;
+}
+
+- (void)dealloc
+{
+    [o_forbidden_characters release];
+    [super dealloc];
+}
+
+- (NSString*)stringForObjectValue:(id)obj
+{
+    return obj;
+}
+
+- (BOOL)getObjectValue:(id*)obj forString:(NSString*)string errorDescription:(NSString**)error
+{
+    *obj = [[string copy] autorelease];
+    return YES;
+}
+
+- (bool)isPartialStringValid:(NSString*)partialString newEditingString:(NSString**)newString errorDescription:(NSString**)error
+{
+    if ([partialString rangeOfCharacterFromSet:o_forbidden_characters options:NSLiteralSearch].location != NSNotFound) {
+        return NO;
+    } else {
+        return YES;
+    }
+}
+
 
 @end

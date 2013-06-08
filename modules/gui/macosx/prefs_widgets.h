@@ -72,9 +72,9 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface StringListConfigControl : VLCConfigControl <NSComboBoxDataSource>
+@interface StringListConfigControl : VLCConfigControl
 {
-    NSComboBox      *o_combo;
+    NSPopUpButton      *o_popup;
 }
 
 - (id) initWithItem: (module_config_t *)_p_item
@@ -120,9 +120,9 @@ static NSMenu   *o_keys_menu = nil;
 
 @end
 
-@interface IntegerListConfigControl : VLCConfigControl <NSComboBoxDataSource>
+@interface IntegerListConfigControl : VLCConfigControl
 {
-    NSComboBox      *o_combo;
+    NSPopUpButton      *o_popup;
 }
 
 - (id) initWithItem: (module_config_t *)_p_item
@@ -201,6 +201,15 @@ static NSMenu   *o_keys_menu = nil;
     NSTextField     *o_textfield;
     NSScrollView    *o_scrollview;
     NSMutableArray  *o_modulearray;
+}
+
+- (id) initWithItem: (module_config_t *)_p_item
+           withView: (NSView *)o_parent_view;
+
+@end
+
+@interface SectionControl : VLCConfigControl
+{
 }
 
 - (id) initWithItem: (module_config_t *)_p_item

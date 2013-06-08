@@ -44,15 +44,17 @@ public:
     virtual void paint( QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = 0 );
 
     const QDateTime& start() const;
-    QDateTime end();
+    QDateTime end() const;
 
     int duration() const;
-    const QString& name() { return m_name; };
-    QString description();
+    const QString& name() const { return m_name; }
+    QString description() const;
+    int rating() const { return m_rating; }
     bool setData( vlc_epg_event_t * );
     void setRow( unsigned int );
     void setCurrent( bool );
     void setDuration( int duration );
+    void setRating( uint8_t i_rating );
     void updatePos();
     bool endsBefore( const QDateTime & ) const;
     bool playsAt( const QDateTime & ) const;
@@ -73,6 +75,7 @@ private:
     QString     m_description;
     QString     m_shortDescription;
     bool        m_current;
+    uint8_t     m_rating;
 };
 
 #endif // EPGITEM_H

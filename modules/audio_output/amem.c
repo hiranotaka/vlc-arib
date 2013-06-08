@@ -10,7 +10,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -58,7 +58,11 @@ struct aout_sys_t
     int (*setup) (void **, char *, unsigned *, unsigned *);
     union
     {
-        void (*cleanup) (void *opaque);
+        struct
+        {
+            void *setup_opaque;
+            void (*cleanup) (void *opaque);
+        };
         struct
         {
              unsigned rate:18;
@@ -73,17 +77,16 @@ struct aout_sys_t
     int (*set_volume) (void *opaque, float vol, bool mute);
     float volume;
     bool mute;
+    bool ready;
 };
 
-static void Play (audio_output_t *aout, block_t *block,
-                  mtime_t *restrict drift)
+static void Play (audio_output_t *aout, block_t *block)
 {
     aout_sys_t *sys = aout->sys;
 
     sys->play (sys->opaque, block->p_buffer, block->i_nb_samples,
                block->i_pts);
     block_Release (block);
-    (void) drift;
 }
 
 static void Pause (audio_output_t *aout, bool paused, mtime_t date)
@@ -109,6 +112,8 @@ static int VolumeSet (audio_output_t *aout, float vol)
     aout_sys_t *sys = aout->sys;
 
     sys->volume = vol;
+    if (sys->ready)
+        return 0; /* sys->opaque is not yet defined... */
     return sys->set_volume (sys->opaque, vol, sys->mute) ? -1 : 0;
 }
 
@@ -117,6 +122,8 @@ static int MuteSet (audio_output_t *aout, bool mute)
     aout_sys_t *sys = aout->sys;
 
     sys->mute = mute;
+    if (!sys->ready)
+        return 0; /* sys->opaque is not yet defined... */
     return sys->set_volume (sys->opaque, sys->volume, mute) ? -1 : 0;
 }
 
@@ -141,6 +148,15 @@ static int SoftMuteSet (audio_output_t *aout, bool mute)
     return 0;
 }
 
+static void Stop (audio_output_t *aout)
+{
+    aout_sys_t *sys = aout->sys;
+
+    if (sys->cleanup != NULL)
+        sys->cleanup (sys->opaque);
+    sys->ready = false;
+}
+
 static int Start (audio_output_t *aout, audio_sample_format_t *fmt)
 {
     aout_sys_t *sys = aout->sys;
@@ -151,6 +167,7 @@ static int Start (audio_output_t *aout, audio_sample_format_t *fmt)
     {
         channels = aout_FormatNbChannels(fmt);
 
+        sys->opaque = sys->setup_opaque;
         if (sys->setup (&sys->opaque, format, &fmt->i_rate, &channels))
             return VLC_EGENERIC;
     }
@@ -160,14 +177,19 @@ static int Start (audio_output_t *aout, audio_sample_format_t *fmt)
         channels = sys->channels;
     }
 
-    if (fmt->i_rate == 0 || fmt->i_rate > 192000
-     || channels == 0 || channels > AOUT_CHAN_MAX)
-        return VLC_EGENERIC;
+    /* Initialize volume (in case the UI changed volume before setup) */
+    sys->ready = true;
+    if (sys->set_volume != NULL)
+        sys->set_volume(sys->opaque, sys->volume, sys->mute);
 
-    /* TODO: amem-format */
-    if (strcmp(format, "S16N"))
+    /* Ensure that format is supported */
+    if (fmt->i_rate == 0 || fmt->i_rate > 192000
+     || channels == 0 || channels > AOUT_CHAN_MAX
+     || strcmp(format, "S16N") /* TODO: amem-format */)
     {
-        msg_Err (aout, "format not supported");
+        msg_Err (aout, "format not supported: %s, %u channel(s), %u Hz",
+                 format, channels, fmt->i_rate);
+        Stop (aout);
         return VLC_EGENERIC;
     }
 
@@ -210,14 +232,6 @@ static int Start (audio_output_t *aout, audio_sample_format_t *fmt)
     return VLC_SUCCESS;
 }
 
-static void Stop (audio_output_t *aout)
-{
-    aout_sys_t *sys = aout->sys;
-
-    if (sys->cleanup != NULL)
-        sys->cleanup (sys->opaque);
-}
-
 static int Open (vlc_object_t *obj)
 {
     audio_output_t *aout = (audio_output_t *)obj;
@@ -225,13 +239,16 @@ static int Open (vlc_object_t *obj)
     if (unlikely(sys == NULL))
         return VLC_ENOMEM;
 
-    aout->sys = sys;
-    sys->opaque = var_InheritAddress (obj, "amem-data");
+    void *opaque = var_InheritAddress (obj, "amem-data");
     sys->setup = var_InheritAddress (obj, "amem-setup");
     if (sys->setup != NULL)
+    {
+        sys->setup_opaque = opaque;
         sys->cleanup = var_InheritAddress (obj, "amem-cleanup");
+    }
     else
     {
+        sys->opaque = opaque;
         sys->rate = var_InheritInteger (obj, "amem-rate");
         sys->channels = var_InheritInteger (obj, "amem-channels");
     }
@@ -243,14 +260,17 @@ static int Open (vlc_object_t *obj)
     sys->set_volume = var_InheritAddress (obj, "amem-set-volume");
     sys->volume = 1.;
     sys->mute = false;
+    sys->ready = false;
     if (sys->play == NULL)
     {
         free (sys);
         return VLC_EGENERIC;
     }
 
+    aout->sys = sys;
     aout->start = Start;
     aout->stop = Stop;
+    aout->time_get = NULL;
     aout->play = Play;
     aout->pause = Pause;
     aout->flush = Flush;

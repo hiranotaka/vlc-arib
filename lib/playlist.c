@@ -41,7 +41,7 @@
 void libvlc_playlist_play( libvlc_instance_t *p_instance, int i_id,
                            int i_options, char **ppsz_options )
 {
-    playlist_t *pl = libvlc_priv (p_instance->p_libvlc_int)->p_playlist;
+    playlist_t *pl = pl_Get (p_instance->p_libvlc_int);
     VLC_UNUSED(i_id); VLC_UNUSED(i_options); VLC_UNUSED(ppsz_options);
 
     assert( pl );
@@ -49,4 +49,19 @@ void libvlc_playlist_play( libvlc_instance_t *p_instance, int i_id,
      || pl->items.i_size == 0 )
         return;
     playlist_Control( pl, PLAYLIST_PLAY, false );
+}
+
+int libvlc_add_intf( libvlc_instance_t *p_instance, const char *name )
+{
+    pl_Get (p_instance->p_libvlc_int);
+
+    if( libvlc_InternalAddIntf( p_instance->p_libvlc_int, name ))
+    {
+        if( name != NULL )
+            libvlc_printerr("interface \"%s\" initialization failed", name );
+        else
+            libvlc_printerr("default interface initialization failed");
+        return -1;
+    }
+    return 0;
 }

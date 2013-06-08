@@ -1,25 +1,25 @@
 /*****************************************************************************
  * mkv.cpp : matroska demuxer
  *****************************************************************************
- * Copyright (C) 2003-2005, 2008, 2010 the VideoLAN team
+ * Copyright (C) 2003-2005, 2008, 2010 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Steve Lhomme <steve.lhomme@free.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #include "mkv.hpp"
@@ -173,7 +173,7 @@ static int Open( vlc_object_t * p_this )
                     {
                         s_filename = s_path + DIR_SEP_CHAR + psz_file;
 
-#if defined(WIN32) || defined(__OS2__)
+#if defined(_WIN32) || defined(__OS2__)
                         if (!strcasecmp(s_filename.c_str(), p_demux->psz_file))
 #else
                         if (!s_filename.compare(p_demux->psz_file))
@@ -246,6 +246,8 @@ static int Open( vlc_object_t * p_this )
         msg_Err( p_demux, "cannot use the segment" );
         goto error;
     }
+
+    p_sys->FreeUnused();
 
     p_sys->InitUi();
 
@@ -561,7 +563,9 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
             break;
         }
 
-        if( tk->i_compression_type == MATROSKA_COMPRESSION_HEADER && tk->p_compression_data != NULL )
+        if( tk->i_compression_type == MATROSKA_COMPRESSION_HEADER &&
+            tk->p_compression_data != NULL &&
+            tk->i_encoding_scope & MATROSKA_ENCODING_SCOPE_ALL_FRAMES )
             p_block = MemToBlock( data->Buffer(), data->Size(), tk->p_compression_data->GetSize() );
         else
             p_block = MemToBlock( data->Buffer(), data->Size(), 0 );
@@ -572,7 +576,8 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
         }
 
 #if defined(HAVE_ZLIB_H)
-        if( tk->i_compression_type == MATROSKA_COMPRESSION_ZLIB )
+        if( tk->i_compression_type == MATROSKA_COMPRESSION_ZLIB &&
+            tk->i_encoding_scope & MATROSKA_ENCODING_SCOPE_ALL_FRAMES )
         {
             p_block = block_zlib_decompress( VLC_OBJECT(p_demux), p_block );
             if( p_block == NULL )
@@ -580,7 +585,8 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
         }
         else
 #endif
-        if( tk->i_compression_type == MATROSKA_COMPRESSION_HEADER )
+        if( tk->i_compression_type == MATROSKA_COMPRESSION_HEADER &&
+            tk->i_encoding_scope & MATROSKA_ENCODING_SCOPE_ALL_FRAMES )
         {
             memcpy( p_block->p_buffer, tk->p_compression_data->GetBuffer(), tk->p_compression_data->GetSize() );
         }
@@ -637,7 +643,7 @@ msg_Dbg( p_demux, "block i_dts: %"PRId64" / i_pts: %"PRId64, p_block->i_dts, p_b
 #endif
         if( strcmp( tk->psz_codec, "S_VOBSUB" ) )
         {
-            p_block->i_length = i_duration * 1000;
+            p_block->i_length = i_duration * tk-> f_timecodescale * (double) p_segment->i_timescale / 1000.0;
         }
 
         /* FIXME remove when VLC_TS_INVALID work is done */
@@ -718,9 +724,9 @@ static int Demux( demux_t *p_demux)
         }
 
         if( simpleblock != NULL )
-            p_sys->i_pts = p_sys->i_chapter_time + ( simpleblock->GlobalTimecode() / (mtime_t) 1000 );
+            p_sys->i_pts = p_sys->i_chapter_time + ( (mtime_t)simpleblock->GlobalTimecode() / INT64_C(1000) );
         else
-            p_sys->i_pts = p_sys->i_chapter_time + ( block->GlobalTimecode() / (mtime_t) 1000 );
+            p_sys->i_pts = p_sys->i_chapter_time + ( (mtime_t)block->GlobalTimecode() / INT64_C(1000) );
 
         mtime_t i_pcr = VLC_TS_INVALID;
         for( size_t i = 0; i < p_segment->tracks.size(); i++)

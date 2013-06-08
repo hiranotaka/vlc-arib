@@ -1,11 +1,5 @@
 AM_LIBTOOLFLAGS=--tag=CC
 
-libaudio_format_neon_plugin_la_SOURCES = \
-	s32_s16.S \
-	audio_format.c
-libaudio_format_neon_plugin_la_CFLAGS = $(AM_CFLAGS)
-libaudio_format_neon_plugin_la_LIBADD = $(AM_LIBADD)
-
 libsimple_channel_mixer_neon_plugin_la_SOURCES = \
 	simple_channel_mixer.S \
 	simple_channel_mixer.c
@@ -27,6 +21,7 @@ libvolume_neon_plugin_la_LIBADD = $(AM_LIBADD)
 
 libyuv_rgb_neon_plugin_la_SOURCES = \
 	i420_rgb.S \
+	i420_rv16.S \
 	nv21_rgb.S \
 	nv12_rgb.S \
 	yuv_rgb.c
@@ -34,7 +29,6 @@ libyuv_rgb_neon_plugin_la_CFLAGS = $(AM_CFLAGS)
 libyuv_rgb_neon_plugin_la_LIBADD = $(AM_LIBADD)
 
 libvlc_LTLIBRARIES += \
-	libaudio_format_neon_plugin.la \
 	libsimple_channel_mixer_neon_plugin.la \
 	libchroma_yuv_neon_plugin.la \
 	libvolume_neon_plugin.la \

@@ -12,7 +12,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -195,6 +195,7 @@ static int OpenDecoder(vlc_object_t *p_this)
     case VLC_CODEC_H264: mime = "video/avc"; break;
     case VLC_CODEC_H263: mime = "video/3gpp"; break;
     case VLC_CODEC_MP4V: mime = "video/mp4v-es"; break;
+    case VLC_CODEC_VC1:  mime = "video/wvc1"; break;
     default:
         msg_Dbg(p_dec, "codec %d not supported", p_dec->fmt_in.i_codec);
         return VLC_EGENERIC;
@@ -260,7 +261,7 @@ static int OpenDecoder(vlc_object_t *p_this)
 
     int num_codecs = (*env)->CallStaticIntMethod(env, p_sys->media_codec_list_class,
                                                  p_sys->get_codec_count);
-    jobject codec_info = NULL, codec_name = NULL;
+    jobject codec_name = NULL;
 
     for (int i = 0; i < num_codecs; i++) {
         jobject info = (*env)->CallStaticObjectMethod(env, p_sys->media_codec_list_class,
@@ -287,21 +288,20 @@ static int OpenDecoder(vlc_object_t *p_this)
             memcpy(p_sys->name, name_ptr, name_len);
             p_sys->name[name_len] = '\0';
             (*env)->ReleaseStringUTFChars(env, name, name_ptr);
-            codec_info = info;
             codec_name = name;
             break;
         }
         (*env)->DeleteLocalRef(env, info);
     }
 
-    if (!codec_info) {
+    if (!codec_name) {
         msg_Dbg(p_dec, "No suitable codec matching %s was found", mime);
         goto error;
     }
 
     // This method doesn't handle errors nicely, it crashes if the codec isn't found.
-    // (The same goes for createDecoderByType.) This is fixed in latest AOSP, but not
-    // in current 4.1 devices.
+    // (The same goes for createDecoderByType.) This is fixed in latest AOSP and in 4.2,
+    // but not in 4.1 devices.
     p_sys->codec = (*env)->CallStaticObjectMethod(env, p_sys->media_codec_class,
                                                   p_sys->create_by_codec_name, codec_name);
     p_sys->codec = (*env)->NewGlobalRef(env, p_sys->codec);
@@ -419,6 +419,15 @@ static void GetOutput(decoder_t *p_dec, JNIEnv *env, picture_t **pp_pic, int loo
                                ptr, chroma_div);
             }
             (*env)->CallVoidMethod(env, p_sys->codec, p_sys->release_output_buffer, index, false);
+            jthrowable exception = (*env)->ExceptionOccurred(env);
+            if(exception != NULL) {
+                jclass illegalStateException = (*env)->FindClass(env, "java/lang/IllegalStateException");
+                if((*env)->IsInstanceOf(env, exception, illegalStateException)) {
+                    msg_Err(p_dec, "Codec error (IllegalStateException) in MediaCodec.releaseOutputBuffer");
+                    (*env)->ExceptionClear(env);
+                    (*env)->DeleteLocalRef(env, illegalStateException);
+                }
+            }
             (*env)->DeleteLocalRef(env, buf);
         } else if (index == INFO_OUTPUT_BUFFERS_CHANGED) {
             msg_Dbg(p_dec, "output buffers changed");
@@ -469,14 +478,9 @@ static void GetOutput(decoder_t *p_dec, JNIEnv *env, picture_t **pp_pic, int loo
                 p_sys->crop_top = 0;
                 p_sys->crop_left = 0;
             }
-            /* Workaround for some Samsung decoders, the ones named e.g.
-             * OMX.SEC.avc.dec don't have any padding between planes (while
-             * the slice height signals that they would have). The ones
-             * named OMX.SEC.AVC.Decoder have proper slice height as the
-             * parameter indicates. */
-            if (!strncmp(p_sys->name, "OMX.SEC.", strlen("OMX.SEC.")) &&
-                !strstr(p_sys->name, ".Decoder")) {
+            if (IgnoreOmxDecoderPadding(p_sys->name)) {
                 p_sys->slice_height = 0;
+                p_sys->stride = p_dec->fmt_out.video.i_width;
             }
 
             continue;
@@ -491,6 +495,7 @@ static picture_t *DecodeVideo(decoder_t *p_dec, block_t **pp_block)
     decoder_sys_t *p_sys = p_dec->p_sys;
     picture_t *p_pic = NULL;
     JNIEnv *env = NULL;
+    struct H264ConvertState convert_state = { 0, 0 };
 
     if (!pp_block || !*pp_block)
         return NULL;
@@ -501,8 +506,13 @@ static picture_t *DecodeVideo(decoder_t *p_dec, block_t **pp_block)
 
     if (p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED)) {
         block_Release(p_block);
-        if (p_sys->decoded)
+        if (p_sys->decoded) {
             (*env)->CallVoidMethod(env, p_sys->codec, p_sys->flush);
+            if ((*env)->ExceptionOccurred(env)) {
+                msg_Warn(p_dec, "Exception occurred in MediaCodec.flush");
+                (*env)->ExceptionClear(env);
+            }
+        }
         p_sys->decoded = 0;
         (*myVm)->DetachCurrentThread(myVm);
         return NULL;
@@ -523,7 +533,7 @@ static picture_t *DecodeVideo(decoder_t *p_dec, block_t **pp_block)
             size = p_block->i_buffer;
         memcpy(bufptr, p_block->p_buffer, size);
 
-        convert_h264_to_annexb(bufptr, size, p_sys->nal_size);
+        convert_h264_to_annexb(bufptr, size, p_sys->nal_size, &convert_state);
 
         int64_t ts = p_block->i_pts;
         if (!ts && p_block->i_dts)

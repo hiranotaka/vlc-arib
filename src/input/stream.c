@@ -200,7 +200,6 @@ static int  AReadStream( stream_t *s, void *p_read, unsigned int i_read );
 /* Common */
 static int AStreamControl( stream_t *s, int i_query, va_list );
 static void AStreamDestroy( stream_t *s );
-static void UStreamDestroy( stream_t *s );
 static int  ASeek( stream_t *s, uint64_t i_pos );
 
 /****************************************************************************
@@ -249,7 +248,6 @@ stream_t *stream_UrlNew( vlc_object_t *p_parent, const char *psz_url )
 {
     const char *psz_access, *psz_demux, *psz_path, *psz_anchor;
     access_t *p_access;
-    stream_t *p_res;
 
     if( !psz_url )
         return NULL;
@@ -266,14 +264,7 @@ stream_t *stream_UrlNew( vlc_object_t *p_parent, const char *psz_url )
         return NULL;
     }
 
-    if( !( p_res = stream_AccessNew( p_access, NULL ) ) )
-    {
-        access_Delete( p_access );
-        return NULL;
-    }
-
-    p_res->pf_destroy = UStreamDestroy;
-    return p_res;
+    return stream_AccessNew( p_access, NULL );
 }
 
 stream_t *stream_AccessNew( access_t *p_access, char **ppsz_list )
@@ -450,6 +441,7 @@ error:
     free( p_sys->list );
     free( s->p_sys );
     stream_CommonDelete( s );
+    access_Delete( p_access );
     return NULL;
 }
 
@@ -475,18 +467,11 @@ static void AStreamDestroy( stream_t *s )
         free( p_sys->list[p_sys->i_list]->psz_path );
         free( p_sys->list[p_sys->i_list] );
     }
-
     free( p_sys->list );
-    free( p_sys );
 
     stream_CommonDelete( s );
-}
-
-static void UStreamDestroy( stream_t *s )
-{
-    access_t *p_access = (access_t *)s->p_parent;
-    AStreamDestroy( s );
-    access_Delete( p_access );
+    access_Delete( p_sys->p_access );
+    free( p_sys );
 }
 
 /****************************************************************************
@@ -563,9 +548,7 @@ static int AStreamControl( stream_t *s, int i_query, va_list args )
     stream_sys_t *p_sys = s->p_sys;
     access_t     *p_access = p_sys->p_access;
 
-    bool     *p_bool;
     uint64_t *pi_64, i_64;
-    int      i_int;
 
     switch( i_query )
     {
@@ -583,14 +566,13 @@ static int AStreamControl( stream_t *s, int i_query, va_list args )
             break;
 
         case STREAM_CAN_SEEK:
-            p_bool = (bool*)va_arg( args, bool * );
-            access_Control( p_access, ACCESS_CAN_SEEK, p_bool );
-            break;
-
+            return access_vaControl( p_access, ACCESS_CAN_SEEK, args );
         case STREAM_CAN_FASTSEEK:
-            p_bool = (bool*)va_arg( args, bool * );
-            access_Control( p_access, ACCESS_CAN_FASTSEEK, p_bool );
-            break;
+            return access_vaControl( p_access, ACCESS_CAN_FASTSEEK, args );
+        case STREAM_CAN_PAUSE:
+            return access_vaControl( p_access, ACCESS_CAN_PAUSE, args );
+        case STREAM_CAN_CONTROL_PACE:
+            return access_vaControl( p_access, ACCESS_CAN_CONTROL_PACE, args );
 
         case STREAM_GET_POSITION:
             pi_64 = va_arg( args, uint64_t * );
@@ -612,30 +594,48 @@ static int AStreamControl( stream_t *s, int i_query, va_list args )
 
         case STREAM_CONTROL_ACCESS:
         {
-            i_int = (int) va_arg( args, int );
+            int i_int = (int) va_arg( args, int );
             if( i_int != ACCESS_SET_PRIVATE_ID_STATE &&
                 i_int != ACCESS_SET_PRIVATE_ID_CA &&
-                i_int != ACCESS_GET_PRIVATE_ID_STATE &&
-                i_int != ACCESS_SET_TITLE &&
-                i_int != ACCESS_SET_SEEKPOINT )
+                i_int != ACCESS_GET_PRIVATE_ID_STATE )
             {
                 msg_Err( s, "Hey, what are you thinking ?"
                             "DON'T USE STREAM_CONTROL_ACCESS !!!" );
                 return VLC_EGENERIC;
             }
-            int i_ret = access_vaControl( p_access, i_int, args );
-            if( i_int == ACCESS_SET_TITLE || i_int == ACCESS_SET_SEEKPOINT )
-                AStreamControlReset( s );
-            return i_ret;
+            return access_vaControl( p_access, i_int, args );
         }
 
         case STREAM_UPDATE_SIZE:
             AStreamControlUpdate( s );
             return VLC_SUCCESS;
 
+        case STREAM_GET_TITLE_INFO:
+            return access_vaControl( p_access, ACCESS_GET_TITLE_INFO, args );
+        case STREAM_GET_META:
+            return access_vaControl( p_access, ACCESS_GET_META, args );
         case STREAM_GET_CONTENT_TYPE:
-            return access_Control( p_access, ACCESS_GET_CONTENT_TYPE,
-                                    va_arg( args, char ** ) );
+            return access_vaControl( p_access, ACCESS_GET_CONTENT_TYPE, args );
+        case STREAM_GET_SIGNAL:
+            return access_vaControl( p_access, ACCESS_GET_SIGNAL, args );
+
+        case STREAM_SET_PAUSE_STATE:
+            return access_vaControl( p_access, ACCESS_SET_PAUSE_STATE, args );
+        case STREAM_SET_TITLE:
+        {
+            int ret = access_vaControl( p_access, ACCESS_SET_TITLE, args );
+            if( ret == VLC_SUCCESS )
+                AStreamControlReset( s );
+            return ret;
+        }
+        case STREAM_SET_SEEKPOINT:
+        {
+            int ret = access_vaControl( p_access, ACCESS_SET_SEEKPOINT, args );
+            if( ret == VLC_SUCCESS )
+                AStreamControlReset( s );
+            return ret;
+        }
+
         case STREAM_SET_RECORD_STATE:
         default:
             msg_Err( s, "invalid stream_vaControl query=0x%x", i_query );
@@ -1260,7 +1260,7 @@ static int AStreamSeekStream( stream_t *s, uint64_t i_pos )
         if( p_sys->stream.i_used < STREAM_READ_ATONCE / 2 )
             p_sys->stream.i_used = STREAM_READ_ATONCE / 2;
 
-        if( AStreamRefillStream( s ) && i_pos == tk->i_end )
+        if( AStreamRefillStream( s ) && i_pos >= tk->i_end )
             return VLC_EGENERIC;
     }
     return VLC_SUCCESS;
@@ -1472,7 +1472,7 @@ char *stream_ReadLine( stream_t *s )
     char *p_line = NULL;
     int i_line = 0, i_read = 0;
 
-    while( i_read < STREAM_LINE_MAX )
+    for( ;; )
     {
         char *psz_eol;
         const uint8_t *p_data;
@@ -1585,6 +1585,9 @@ char *stream_ReadLine( stream_t *s )
         if( i_data <= 0 ) break; /* Hmmm */
         i_line += i_data;
         i_read += i_data;
+
+        if( i_read >= STREAM_LINE_MAX )
+            goto error; /* line too long */
     }
 
     if( i_read > 0 )
@@ -1900,7 +1903,7 @@ block_t *stream_Block( stream_t *s, int i_size )
     if( i_size <= 0 ) return NULL;
 
     /* emulate block read */
-    block_t *p_bk = block_New( s, i_size );
+    block_t *p_bk = block_Alloc( i_size );
     if( p_bk )
     {
         int i_read = stream_Read( s, p_bk->p_buffer, i_size );
@@ -1938,7 +1941,7 @@ block_t *stream_BlockRemaining( stream_t *s, int i_max_size )
     if( i_allocate <= 0 )
         return NULL;
 
-    block_t *p_block = block_New( s, i_allocate );
+    block_t *p_block = block_Alloc( i_allocate );
     int i_index = 0;
     while( p_block )
     {

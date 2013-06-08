@@ -50,7 +50,7 @@ VLC_API unsigned vlc_CPU(void);
 #  define VLC_MMX
 # else
 #  define vlc_CPU_MMX() ((vlc_CPU() & VLC_CPU_MMX) != 0)
-#  if VLC_GCC_VERSION(4, 4)
+#  if VLC_GCC_VERSION(4, 4) || defined(__clang__)
 #   define VLC_MMX __attribute__ ((__target__ ("mmx")))
 #  else
 #   define VLC_MMX VLC_MMX_is_not_implemented_on_this_compiler
@@ -64,7 +64,7 @@ VLC_API unsigned vlc_CPU(void);
 # else
 #  define vlc_CPU_MMXEXT() ((vlc_CPU() & VLC_CPU_MMXEXT) != 0)
 #  define vlc_CPU_SSE() ((vlc_CPU() & VLC_CPU_SSE) != 0)
-#  if VLC_GCC_VERSION(4, 4)
+#  if VLC_GCC_VERSION(4, 4) || defined(__clang__)
 #   define VLC_SSE __attribute__ ((__target__ ("sse")))
 #  else
 #   define VLC_SSE VLC_SSE_is_not_implemented_on_this_compiler
@@ -176,7 +176,13 @@ VLC_API unsigned vlc_CPU(void);
 #   define vlc_CPU_ARM_NEON() ((vlc_CPU() & VLC_CPU_ARM_NEON) != 0)
 #  endif
 
+# elif defined (__aarch64__)
+#  define HAVE_FPU 1
+
 # elif defined (__sparc__)
+#  define HAVE_FPU 1
+
+# elif defined (__mips_hard_float)
 #  define HAVE_FPU 1
 
 # else

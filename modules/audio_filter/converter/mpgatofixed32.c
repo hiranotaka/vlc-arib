@@ -2,26 +2,34 @@
  * mpgatofixed32.c: MPEG-1 & 2 audio layer I, II, III + MPEG 2.5 decoder,
  * using MAD (MPEG Audio Decoder)
  *****************************************************************************
- * Copyright (C) 2001-2005 the VideoLAN team
+ * Copyright (C) 2001-2005 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
  *          Jean-Paul Saman <jpsaman _at_ videolan _dot_ org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
+
+/*****************************************************************************
+ * NOTA BENE: this module requires the linking against a library which is
+ * known to require licensing under the GNU General Public License version 2
+ * (or later). Therefore, the result of compiling this module will normally
+ * be subject to the terms of that later license.
+ *****************************************************************************/
+
 
 /*****************************************************************************
  * Preamble
@@ -79,7 +87,7 @@ static void DoWork( filter_t * p_filter,
     filter_sys_t *p_sys = p_filter->p_sys;
 
     p_out_buf->i_nb_samples = p_in_buf->i_nb_samples;
-    p_out_buf->i_buffer = p_in_buf->i_nb_samples * sizeof(vlc_fixed_t) *
+    p_out_buf->i_buffer = p_in_buf->i_nb_samples * sizeof(float) *
                                aout_FormatNbChannels( &p_filter->fmt_out.audio );
 
     /* Do the actual decoding now. */
@@ -110,7 +118,7 @@ static void DoWork( filter_t * p_filter,
     unsigned int i_samples = p_pcm->length;
     mad_fixed_t const * p_left = p_pcm->samples[0];
     mad_fixed_t const * p_right = p_pcm->samples[1];
-    mad_fixed_t * p_samples = (mad_fixed_t *)p_out_buf->p_buffer;
+    float *p_samples = (float *)p_out_buf->p_buffer;
 
     assert( i_samples == p_out_buf->i_nb_samples );
     /* Interleave and keep buffers in mad_fixed_t format */
@@ -118,14 +126,23 @@ static void DoWork( filter_t * p_filter,
     {
         while ( i_samples-- )
         {
-            *p_samples++ = *p_left++;
-            *p_samples++ = *p_right++;
+            //assert( *p_left < MAD_F_ONE );
+            //assert( *p_left >= -MAD_F_ONE );
+            //assert( *p_right < MAD_F_ONE );
+            //assert( *p_right >= -MAD_F_ONE );
+            *p_samples++ = (float)*p_left++ / (float)MAD_F_ONE;
+            *p_samples++ = (float)*p_right++ / (float)MAD_F_ONE;
         }
     }
     else
     {
         assert( p_pcm->channels == 1 );
-        memcpy( p_samples, p_left, i_samples * sizeof(mad_fixed_t) );
+        while ( i_samples-- )
+        {
+            //assert( *p_left < MAD_F_ONE );
+            //assert( *p_left >= -MAD_F_ONE );
+            *p_samples++ = (float)*p_left++ / (float)MAD_F_ONE;
+        }
     }
 }
 
@@ -141,7 +158,7 @@ static int OpenFilter( vlc_object_t *p_this )
         p_filter->fmt_in.audio.i_format != VLC_FOURCC('m','p','g','3') )
         return VLC_EGENERIC;
 
-    if( p_filter->fmt_out.audio.i_format != VLC_CODEC_FI32 )
+    if( p_filter->fmt_out.audio.i_format != VLC_CODEC_FL32 )
         return VLC_EGENERIC;
 
     if( !AOUT_FMTS_SIMILAR( &p_filter->fmt_in.audio, &p_filter->fmt_out.audio ) )
@@ -150,10 +167,9 @@ static int OpenFilter( vlc_object_t *p_this )
     /* Allocate the memory needed to store the module's structure */
     p_sys = p_filter->p_sys = malloc( sizeof(filter_sys_t) );
     if( p_sys == NULL )
-        return -1;
+        return VLC_ENOMEM;
     p_sys->i_reject_count = 0;
 
-    p_filter->pf_audio_filter = Convert;
 
     /* Initialize libmad */
     mad_stream_init( &p_sys->mad_stream );
@@ -166,7 +182,9 @@ static int OpenFilter( vlc_object_t *p_this )
              (char *)&p_filter->fmt_out.audio.i_format,
              p_filter->fmt_out.audio.i_bitspersample );
 
-    return 0;
+    p_filter->pf_audio_filter = Convert;
+
+    return VLC_SUCCESS;
 }
 
 /*****************************************************************************
@@ -197,7 +215,7 @@ static block_t *Convert( filter_t *p_filter, block_t *p_block )
         p_filter->fmt_out.audio.i_channels / 8;
 
     block_t *p_out = block_Alloc( i_out_size );
-    if( !p_out )
+    if( unlikely( !p_out ) )
     {
         msg_Warn( p_filter, "can't get output buffer" );
         block_Release( p_block );

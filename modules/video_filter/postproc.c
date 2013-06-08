@@ -1,27 +1,35 @@
 /*****************************************************************************
  * postproc.c: video postprocessing using libpostproc
  *****************************************************************************
- * Copyright (C) 1999-2009 the VideoLAN team
+ * Copyright (C) 1999-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@netcourrier.com>
  *          Antoine Cellerier <dionoea at videolan dot org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
+
+/*****************************************************************************
+ * NOTA BENE: this module requires the linking against a library which is
+ * known to require licensing under the GNU General Public License version 2
+ * (or later). Therefore, the result of compiling this module will normally
+ * be subject to the terms of that later license.
+ *****************************************************************************/
+
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -104,10 +112,6 @@ struct filter_sys_t
 
     /* Set to NULL if post processing is disabled */
     pp_mode *pp_mode;
-
-    /* Set to true if previous pic had a quant matrix
-       (used to prevent spamming warning messages) */
-    bool b_had_matrix;
 
     /* Lock when using or changing pp_mode */
     vlc_mutex_t lock;
@@ -250,8 +254,9 @@ static int OpenPostproc( vlc_object_t *p_this )
     var_AddCallback( p_filter, FILTER_PREFIX "name", PPNameCallback, NULL );
 
     p_filter->pf_video_filter = PostprocPict;
-    p_sys->b_had_matrix = true;
 
+    msg_Warn( p_filter, "Quantification table was not set by video decoder. "
+                        "Postprocessing won't look good." );
     return VLC_SUCCESS;
 }
 
@@ -314,22 +319,10 @@ static picture_t *PostprocPict( filter_t *p_filter, picture_t *p_pic )
         i_dst_stride[i_plane] = p_outpic->p[i_plane].i_pitch;
     }
 
-    if( !p_pic->p_q && p_sys->b_had_matrix )
-    {
-        msg_Warn( p_filter, "Quantification table was not set by video decoder. Postprocessing won't look good." );
-        p_sys->b_had_matrix = false;
-    }
-    else if( p_pic->p_q )
-    {
-        p_sys->b_had_matrix = true;
-    }
-
     pp_postprocess( src, i_src_stride, dst, i_dst_stride,
                     p_filter->fmt_in.video.i_width,
-                    p_filter->fmt_in.video.i_height,
-                    p_pic->p_q, p_pic->i_qstride,
-                    p_sys->pp_mode, p_sys->pp_context,
-                    p_pic->i_qtype == QTYPE_MPEG2 ? PP_PICT_TYPE_QP2 : 0 );
+                    p_filter->fmt_in.video.i_height, NULL, 0,
+                    p_sys->pp_mode, p_sys->pp_context, 0 );
     vlc_mutex_unlock( &p_sys->lock );
 
     return CopyInfoAndRelease( p_outpic, p_pic );

@@ -63,9 +63,8 @@
     [o_menu addItem: o_mi];                                                 \
 /*  Ctrl */                                                                 \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UP_ARROWHEAD                                                    \
-        ] stringByAppendingString: string]                                  \
+        [@(UP_ARROWHEAD)                                                    \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSControlKeyMask];                                                  \
@@ -75,9 +74,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Ctrl+Alt */                                                              \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UP_ARROWHEAD OPTION_KEY                                         \
-        ] stringByAppendingString: string]                                  \
+        [@(UP_ARROWHEAD OPTION_KEY)                                         \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSControlKeyMask | NSAlternateKeyMask];                             \
@@ -87,9 +85,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Ctrl+Shift */                                                            \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UP_ARROWHEAD UPWARDS_WHITE_ARROW                                \
-        ] stringByAppendingString: string]                                  \
+        [@(UP_ARROWHEAD UPWARDS_WHITE_ARROW)                                \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
        NSControlKeyMask | NSShiftKeyMask];                                  \
@@ -99,9 +96,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Ctrl+Apple */                                                            \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UP_ARROWHEAD PLACE_OF_INTEREST_SIGN                             \
-        ] stringByAppendingString: string]                                  \
+        [@(UP_ARROWHEAD PLACE_OF_INTEREST_SIGN)                             \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSControlKeyMask | NSCommandKeyMask];                               \
@@ -111,9 +107,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Ctrl+Alt+Shift */                                                        \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UP_ARROWHEAD OPTION_KEY UPWARDS_WHITE_ARROW                     \
-        ] stringByAppendingString: string]                                  \
+        [@(UP_ARROWHEAD OPTION_KEY UPWARDS_WHITE_ARROW)                     \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSControlKeyMask | NSAlternateKeyMask | NSShiftKeyMask];            \
@@ -124,9 +119,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Ctrl+Alt+Apple */                                                        \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UP_ARROWHEAD OPTION_KEY PLACE_OF_INTEREST_SIGN                  \
-        ] stringByAppendingString: string]                                  \
+        [@(UP_ARROWHEAD OPTION_KEY PLACE_OF_INTEREST_SIGN)                  \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSControlKeyMask | NSAlternateKeyMask | NSCommandKeyMask];          \
@@ -137,9 +131,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Ctrl+Shift+Apple */                                                      \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UP_ARROWHEAD UPWARDS_WHITE_ARROW PLACE_OF_INTEREST_SIGN         \
-        ] stringByAppendingString: string]                                  \
+        [@(UP_ARROWHEAD UPWARDS_WHITE_ARROW PLACE_OF_INTEREST_SIGN)         \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSControlKeyMask | NSShiftKeyMask | NSCommandKeyMask];              \
@@ -150,10 +143,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Ctrl+Alt+Shift+Apple */                                                  \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UP_ARROWHEAD OPTION_KEY UPWARDS_WHITE_ARROW                     \
-                PLACE_OF_INTEREST_SIGN                                      \
-        ] stringByAppendingString: string]                                  \
+        [@(UP_ARROWHEAD OPTION_KEY UPWARDS_WHITE_ARROW PLACE_OF_INTEREST_SIGN ) \
+         stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSControlKeyMask | NSAlternateKeyMask | NSShiftKeyMask |            \
@@ -165,9 +156,7 @@
     [o_menu addItem: o_mi];                                                 \
 /* Alt */                                                                   \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            OPTION_KEY                                                      \
-        ] stringByAppendingString: string]                                  \
+        [@(OPTION_KEY) stringByAppendingString: string]                     \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSAlternateKeyMask];                                                \
@@ -177,9 +166,7 @@
     [o_menu addItem: o_mi];                                                 \
 /* Alt+Shift */                                                             \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            OPTION_KEY UPWARDS_WHITE_ARROW                                  \
-        ] stringByAppendingString: string]                                  \
+        [@(OPTION_KEY UPWARDS_WHITE_ARROW) stringByAppendingString: string] \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSAlternateKeyMask | NSShiftKeyMask];                               \
@@ -189,10 +176,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Alt+Apple */                                                             \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            OPTION_KEY PLACE_OF_INTEREST_SIGN                               \
-        ] stringByAppendingString: string]                                  \
-        action:nil keyEquivalent:@""];                                      \
+        [@(OPTION_KEY PLACE_OF_INTEREST_SIGN)                               \
+         stringByAppendingString: string] action:nil keyEquivalent:@""];    \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSAlternateKeyMask | NSCommandKeyMask];                             \
     [o_mi setAlternate: YES];                                               \
@@ -201,9 +186,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Alt+Shift+Apple */                                                       \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            OPTION_KEY UPWARDS_WHITE_ARROW PLACE_OF_INTEREST_SIGN           \
-        ] stringByAppendingString: string]                                  \
+        [@(OPTION_KEY UPWARDS_WHITE_ARROW PLACE_OF_INTEREST_SIGN)           \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSAlternateKeyMask | NSShiftKeyMask | NSCommandKeyMask];            \
@@ -214,9 +198,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Shift */                                                                 \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UPWARDS_WHITE_ARROW                                             \
-        ] stringByAppendingString: string]                                  \
+        [@(UPWARDS_WHITE_ARROW)                                             \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSShiftKeyMask];                                                    \
@@ -226,9 +209,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Shift+Apple */                                                           \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-            UPWARDS_WHITE_ARROW PLACE_OF_INTEREST_SIGN                      \
-        ] stringByAppendingString: string]                                  \
+        [@(UPWARDS_WHITE_ARROW PLACE_OF_INTEREST_SIGN)                      \
+         stringByAppendingString: string]                                   \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSShiftKeyMask | NSCommandKeyMask];                                 \
@@ -238,9 +220,8 @@
     [o_menu addItem: o_mi];                                                 \
 /* Apple */                                                                 \
     o_mi = [[NSMenuItem alloc] initWithTitle:                               \
-        [[NSString stringWithUTF8String:                                    \
-        PLACE_OF_INTEREST_SIGN                                              \
-        ] stringByAppendingString: string]                                  \
+        [@(PLACE_OF_INTEREST_SIGN)                                          \
+          stringByAppendingString: string]                                  \
         action:nil keyEquivalent:@""];                                      \
     [o_mi setKeyEquivalentModifierMask:                                     \
         NSCommandKeyMask];                                                  \
@@ -838,6 +819,9 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
     case CONFIG_ITEM_MODULE_LIST_CAT:
         p_control = [[ModuleListConfigControl alloc] initWithItem: _p_item withView: o_parent_view];
         break;
+    case CONFIG_SECTION:
+        p_control = [[SectionControl alloc] initWithItem: _p_item withView: o_parent_view];
+        break;
     default:
         break;
     }
@@ -938,7 +922,7 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
 
         /* build the textfield */
         if (p_item->value.psz)
-            o_textfieldString = _NS((char *)p_item->value.psz);
+            o_textfieldString = [NSString stringWithCString:p_item->value.psz encoding:NSUTF8StringEncoding];
         else
             o_textfieldString = @"";
         if (p_item->i_type == CONFIG_ITEM_PASSWORD) {
@@ -979,8 +963,7 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
 
 - (char *)stringValue
 {
-    return [[VLCStringUtility sharedInstance] delocalizeString:
-                        [o_textfield stringValue]];
+    return strdup([[o_textfield stringValue] UTF8String]);
 }
 
 - (void)resetValues
@@ -1022,17 +1005,28 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
         [self addSubview: o_label];
 
         /* build the textfield */
-        ADD_COMBO(o_combo, mainFrame, [o_label frame].size.width,
+        ADD_POPUP(o_popup, mainFrame, [o_label frame].size.width,
             -2, 0, o_textfieldTooltip)
-        [o_combo setAutoresizingMask:NSViewWidthSizable ];
+        [o_popup setAutoresizingMask:NSViewWidthSizable];
+
+        /* add items */
         for (int i_index = 0; i_index < p_item->list_count; i_index++) {
+            NSString *o_text;
+            if (p_item->list_text && p_item->list_text[i_index])
+                o_text = _NS((char *)p_item->list_text[i_index]);
+            else
+                o_text = _NS((char *)p_item->list.psz[i_index]);
+            [o_popup addItemWithTitle: o_text];
+
+            /* select default item */
             if (!p_item->value.psz && !p_item->list.psz[i_index])
-                [o_combo selectItemAtIndex: i_index];
+                [o_popup selectItemAtIndex: i_index];
             else if (p_item->value.psz && p_item->list.psz[i_index] &&
-                !strcmp(p_item->value.psz, p_item->list.psz[i_index]))
-                [o_combo selectItemAtIndex: i_index];
-       }
-        [self addSubview: o_combo];
+                     !strcmp(p_item->value.psz, p_item->list.psz[i_index]))
+                [o_popup selectItemAtIndex: i_index];
+        }
+
+        [self addSubview: o_popup];
     }
     return self;
 }
@@ -1045,60 +1039,42 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
     frame.origin.x = i_xPos - frame.size.width - 3;
     [o_label setFrame:frame];
 
-    frame = [o_combo frame];
+    frame = [o_popup frame];
     frame.origin.x = i_xPos + 2;
     frame.size.width = superFrame.size.width - frame.origin.x + 2;
-    [o_combo setFrame:frame];
+    [o_popup setFrame:frame];
 }
 
 - (void)dealloc
 {
-    [o_combo release];
+    [o_popup release];
     [super dealloc];
 }
 
 - (char *)stringValue
 {
-    if ([o_combo indexOfSelectedItem] >= 0) {
-        if (p_item->list.psz[[o_combo indexOfSelectedItem]] != NULL)
-            return strdup(p_item->list.psz[[o_combo indexOfSelectedItem]]);
-    } else {
-        if ([[VLCStringUtility sharedInstance] delocalizeString: [o_combo stringValue]] != NULL)
-            return strdup([[VLCStringUtility sharedInstance] delocalizeString: [o_combo stringValue]]);
+    if ([o_popup indexOfSelectedItem] >= 0) {
+        if (p_item->list.psz[[o_popup indexOfSelectedItem]] != NULL)
+            return strdup(p_item->list.psz[[o_popup indexOfSelectedItem]]);
     }
+
     return NULL;
 }
 
 - (void)resetValues
 {
-    [o_combo reloadData];
     char *psz_value = config_GetPsz(VLCIntf, p_item->psz_name);
 
     for (int i_index = 0; i_index < p_item->list_count; i_index++) {
         if (!psz_value && !p_item->list.psz[i_index])
-            [o_combo selectItemAtIndex: i_index];
+            [o_popup selectItemAtIndex: i_index];
         else if (psz_value && p_item->list.psz[i_index] &&
             !strcmp(psz_value, p_item->list.psz[i_index]))
-            [o_combo selectItemAtIndex: i_index];
+            [o_popup selectItemAtIndex: i_index];
     }
 
     free(psz_value);
     [super resetValues];
-}
-@end
-
-@implementation StringListConfigControl (NSComboBoxDataSource)
-- (NSInteger)numberOfItemsInComboBox:(NSComboBox *)aComboBox
-{
-        return p_item->list_count;
-}
-
-- (id)comboBox:(NSComboBox *)aComboBox objectValueForItemAtIndex:(NSInteger)i_index
-{
-    if (p_item->list_text && p_item->list_text[i_index]) {
-        return _NS((char *)p_item->list_text[i_index]);
-    } else
-        return _NS((char *)p_item->list.psz[i_index]);
 }
 @end
 
@@ -1174,7 +1150,7 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
     [o_open_panel setCanChooseDirectories: b_directory];
     [o_open_panel beginSheetModalForWindow:[sender window] completionHandler:^(NSInteger returnCode) {
         if (returnCode == NSOKButton) {
-            NSString *o_path = [[[o_open_panel URLs] objectAtIndex: 0] path];
+            NSString *o_path = [[[o_open_panel URLs] objectAtIndex:0] path];
             [o_textfield setStringValue: o_path];
         }        
     }];
@@ -1475,14 +1451,24 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
         [self addSubview: o_label];
 
         /* build the textfield */
-        ADD_COMBO(o_combo, mainFrame, [o_label frame].size.width,
+        ADD_POPUP(o_popup, mainFrame, [o_label frame].size.width,
             -2, 0, o_textfieldTooltip)
-        [o_combo setAutoresizingMask:NSViewWidthSizable ];
+        [o_popup setAutoresizingMask:NSViewWidthSizable ];
+
+        /* add items */
         for (int i_index = 0; i_index < p_item->list_count; i_index++) {
+            NSString *o_text;
+            if (p_item->list_text && p_item->list_text[i_index])
+                o_text = _NS((char *)p_item->list_text[i_index]);
+            else
+                o_text = [NSString stringWithFormat: @"%i", p_item->list.i[i_index]];
+            [o_popup addItemWithTitle: o_text];
+
             if (p_item->value.i == p_item->list.i[i_index])
-                [o_combo selectItemAtIndex: i_index];
+                [o_popup selectItemAtIndex: i_index];
         }
-        [self addSubview: o_combo];
+        
+        [self addSubview: o_popup];
     }
     return self;
 }
@@ -1495,49 +1481,33 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
     frame.origin.x = i_xPos - frame.size.width - 3;
     [o_label setFrame:frame];
 
-    frame = [o_combo frame];
+    frame = [o_popup frame];
     frame.origin.x = i_xPos + 2;
     frame.size.width = superFrame.size.width - frame.origin.x + 2;
-    [o_combo setFrame:frame];
+    [o_popup setFrame:frame];
 }
 
 - (void)dealloc
 {
-    [o_combo release];
+    [o_popup release];
     [super dealloc];
 }
 
 - (int)intValue
 {
-    if ([o_combo indexOfSelectedItem] >= 0)
-        return p_item->list.i[[o_combo indexOfSelectedItem]];
+    if ([o_popup indexOfSelectedItem] >= 0)
+        return p_item->list.i[[o_popup indexOfSelectedItem]];
     else
-        return [o_combo intValue];
+        return [o_popup intValue];
 }
 
 -(void)resetValues
 {
-    [o_combo reloadData];
     for (int i_index = 0; i_index < p_item->list_count; i_index++) {
         if (config_GetInt(VLCIntf, p_item->psz_name) == p_item->list.i[i_index])
-            [o_combo selectItemAtIndex: i_index];
+            [o_popup selectItemAtIndex: i_index];
     }
 
-}
-@end
-
-@implementation IntegerListConfigControl (NSComboBoxDataSource)
-- (NSInteger)numberOfItemsInComboBox:(NSComboBox *)aComboBox
-{
-    return p_item->list_count;
-}
-
-- (id)comboBox:(NSComboBox *)aComboBox objectValueForItemAtIndex:(NSInteger)i_index
-{
-    if (p_item->list_text && p_item->list_text[i_index])
-        return _NS((char *)p_item->list_text[i_index]);
-    else
-        return [NSString stringWithFormat: @"%i", p_item->list.i[i_index]];
 }
 @end
 
@@ -1877,20 +1847,18 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
     if ([super initWithFrame: mainFrame item: _p_item] != nil) {
         i_view_type = CONFIG_ITEM_BOOL;
 
-        /* add the checkbox */
-        o_tooltip = [[VLCStringUtility sharedInstance] wrapString: _NS((char *)p_item->psz_longtext) toWidth: PREFS_WRAP];
-        ADD_CHECKBOX(o_checkbox, mainFrame, 0,
-                        0, @"", o_tooltip, p_item->value.i, NSImageLeft)
-        [o_checkbox setAutoresizingMask:NSViewNotSizable ];
-        [self addSubview: o_checkbox];
-        /* add the label */
         if (p_item->psz_text)
             o_labelString = _NS((char *)p_item->psz_text);
         else
             o_labelString = @"";
-        ADD_LABEL(o_label, mainFrame, [o_checkbox frame].size.width, 0, o_labelString, o_tooltip)
-        [o_label setAutoresizingMask:NSViewNotSizable ];
-        [self addSubview: o_label];
+
+        o_tooltip = [[VLCStringUtility sharedInstance] wrapString: _NS((char *)p_item->psz_longtext) toWidth: PREFS_WRAP];
+
+        /* add the checkbox */
+        ADD_CHECKBOX(o_checkbox, mainFrame, 0,
+                        0, o_labelString, o_tooltip, p_item->value.i, NSImageLeft)
+        [o_checkbox setAutoresizingMask:NSViewNotSizable ];
+        [self addSubview: o_checkbox];
     }
     return self;
 }
@@ -1952,8 +1920,8 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
             for (i = 0; i < sizeof(vlc_key) / sizeof(key_descriptor_t); i++)
                 if (vlc_key[i].psz_key_string)
                     POPULATE_A_KEY(o_keys_menu,
-                        [NSString stringWithUTF8String:vlc_key[i].psz_key_string]
-                        , vlc_key[i].i_key_code)
+                        @(vlc_key[i].psz_key_string),
+                                   vlc_key[i].i_key_code)
 #endif
         }
         [o_popup setMenu:[o_keys_menu copyWithZone:nil]];
@@ -2033,20 +2001,40 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
             /* Hack: required subcategory is stored in i_min */
             if (p_config->i_type == CONFIG_SUBCATEGORY &&
                p_config->value.i == _p_item->min.i) {
-                o_modulelongname = [NSString stringWithUTF8String:
-                                    module_get_name(p_parser, TRUE)];
-                o_modulename = [NSString stringWithUTF8String:
-                                module_get_object(p_parser)];
+                o_modulelongname = @(module_get_name(p_parser, TRUE));
+                o_modulename = @(module_get_object(p_parser));
 
                 if (_p_item->value.psz &&
                    strstr(_p_item->value.psz, module_get_object(p_parser)))
-                    o_moduleenabled = [NSNumber numberWithBool:YES];
+                    o_moduleenabled = @YES;
                 else
-                    o_moduleenabled = [NSNumber numberWithBool:NO];
+                    o_moduleenabled = @NO;
 
                 [o_modulearray addObject:[NSMutableArray
                                           arrayWithObjects: o_modulename, o_modulelongname,
                                           o_moduleenabled, nil]];
+            }
+
+            /* Parental Advisory HACK:
+             * Selecting HTTP, RC and Telnet interfaces is difficult now
+             * since they are just the lua interface module */
+            if (p_config->i_type == CONFIG_SUBCATEGORY &&
+               !strcmp(module_get_object(p_parser), "lua") &&
+               !strcmp(_p_item->psz_name, "extraintf") &&
+               p_config->value.i == _p_item->min.i) {
+
+#define addLuaIntf(shortname, longname) \
+                if (_p_item->value.psz && strstr(_p_item->value.psz, shortname))\
+                    o_moduleenabled = @YES;\
+                else\
+                    o_moduleenabled = @NO;\
+                [o_modulearray addObject:[NSMutableArray arrayWithObjects: @shortname, _NS(longname), o_moduleenabled, nil]]
+
+                addLuaIntf("http", "Web");
+                addLuaIntf("telnet", "Telnet");
+                addLuaIntf("cli", "Console");
+
+#undef addLuaIntf
             }
         }
         module_config_free(p_configlist);
@@ -2123,8 +2111,7 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
             [o_tableColumn setDataCell: o_dataCell];
             [o_tableColumn setWidth:s_rc.size.width - 34];
             [o_tableview addTableColumn: o_tableColumn];
-            [o_tableview registerForDraggedTypes:[NSArray arrayWithObjects:
-                                                  @"VLC media player module", nil]];
+            [o_tableview registerForDraggedTypes:@[@"VLC media player module"]];
 
             [o_tableview setDataSource:self];
             [o_tableview setTarget: self];
@@ -2196,8 +2183,7 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
             return NO;
     }
 
-    [pb declareTypes:[NSArray
-        arrayWithObject:@"VLC media player module"] owner:nil];
+    [pb declareTypes:@[@"VLC media player module"] owner:nil];
     [pb setPropertyList:rows forType:@"VLC media player module"];
     return YES;
 }
@@ -2295,3 +2281,44 @@ o_textfield = [[[NSSecureTextField alloc] initWithFrame: s_rc] retain];     \
         withObject: anObject];
 }
 @end
+
+@implementation SectionControl
+
+- (id) initWithItem: (module_config_t *)_p_item
+           withView: (NSView *)o_parent_view
+{
+    NSRect mainFrame = [o_parent_view frame];
+    NSString *o_labelString, *o_tooltip;
+    mainFrame.size.height = 17;
+    mainFrame.size.width = mainFrame.size.width - LEFTMARGIN - RIGHTMARGIN;
+    mainFrame.origin.x = LEFTMARGIN;
+    mainFrame.origin.y = 0;
+
+    if ([super initWithFrame: mainFrame item: _p_item] != nil) {
+        
+        /* add the label */
+        if (p_item->psz_text)
+            o_labelString = _NS((char *)p_item->psz_text);
+        else
+            o_labelString = @"";
+
+        NSDictionary *boldAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
+                        [NSFont boldSystemFontOfSize:[NSFont systemFontSize]],
+                        NSFontAttributeName,
+                        nil];
+        NSAttributedString *o_bold_string = [[NSAttributedString alloc] initWithString: o_labelString attributes: boldAttributes];
+
+        ADD_LABEL(o_label, mainFrame, 1, 0, @"", @"")
+        [o_label setAttributedStringValue: o_bold_string];
+        [o_label sizeToFit];
+
+        [o_bold_string release];
+        
+        [o_label setAutoresizingMask:NSViewNotSizable];
+        [self addSubview: o_label];
+    }
+    return self;
+}
+
+@end
+

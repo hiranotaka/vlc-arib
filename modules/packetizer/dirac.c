@@ -1,24 +1,24 @@
 /*****************************************************************************
  * dirac.c
  *****************************************************************************
- * Copyright (C) 2008 the VideoLAN team
+ * Copyright (C) 2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: David Flynn <davidf@rd.bbc.co.uk>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either version 2 of the License
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /* Dirac packetizer, formed of three parts:
@@ -571,13 +571,13 @@ static bool dirac_UnpackSeqHdr( struct seq_hdr_t *p_sh, block_t *p_block )
     if( dirac_bool( &bs ) )
     {
         uint32_t frame_rate_index = dirac_uint( &bs );
-        p_sh->u_fps_num = dirac_frate_tbl[frame_rate_index].u_n;
-        p_sh->u_fps_den = dirac_frate_tbl[frame_rate_index].u_d;
         if( frame_rate_index >= dirac_frate_tbl_size )
         {
             /* invalid header */
             return false;
         }
+        p_sh->u_fps_num = dirac_frate_tbl[frame_rate_index].u_n;
+        p_sh->u_fps_den = dirac_frate_tbl[frame_rate_index].u_d;
         if( frame_rate_index == 0 )
         {
             p_sh->u_fps_num = dirac_uint( &bs ); /* frame_rate_numerator */
@@ -651,7 +651,7 @@ static bool dirac_UnpackSeqHdr( struct seq_hdr_t *p_sh, block_t *p_block )
 static block_t *dirac_EmitEOS( decoder_t *p_dec, uint32_t i_prev_parse_offset )
 {
     const uint8_t p_eos[] = { 'B','B','C','D',0x10,0,0,0,13,0,0,0,0 };
-    block_t *p_block = block_New( p_dec, 13 );
+    block_t *p_block = block_Alloc( 13 );
     if( !p_block )
         return NULL;
     memcpy( p_block->p_buffer, p_eos, 13 );
@@ -735,7 +735,7 @@ static block_t *dirac_DoSync( decoder_t *p_dec )
             {
                 return NULL; /* retry later */
             }
-            /* attempt to syncronise backwards from pu.u_next_offset */
+            /* attempt to synchronise backwards from pu.u_next_offset */
             p_sys->i_offset = pu.u_next_offset;
             /* fall through */
         case TRY_SYNC: /* -> SYNCED | NOT_SYNCED */
@@ -797,7 +797,7 @@ sync_fail:
     p_sys->i_offset = 0;
 
     /* setup the data unit buffer */
-    block_t *p_block = block_New( p_dec, pu.u_next_offset );
+    block_t *p_block = block_Alloc( pu.u_next_offset );
     if( !p_block )
         return NULL;
 
@@ -851,7 +851,7 @@ static int dirac_InspectDataUnit( decoder_t *p_dec, block_t **pp_block, block_t 
         Actually, this is a bad idea:
          - It sets the discontinuity for every dirac EOS packet
            which doesnt imply a time discontinuity.
-         - When the syncronizer detects a real discontinuity, it
+         - When the synchronizer detects a real discontinuity, it
            should copy the flags through.
         p_eu->i_flags |= BLOCK_FLAG_DISCONTINUITY;
         */
@@ -1227,7 +1227,7 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
             if( p_block )
             {
                 p_block->p_next = dirac_EmitEOS( p_dec, 13 );
-                /* need two EOS to ensure it gets detected by syncro
+                /* need two EOS to ensure it gets detected by synchro
                  * duplicates get discarded in forming encapsulation unit */
             }
         }
@@ -1245,7 +1245,7 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
     }
 
     /* form as many encapsulation units as possible, give up
-     * when the syncronizer runs out of input data */
+     * when the synchronizer runs out of input data */
     while( ( p_block = dirac_DoSync( p_dec ) ) )
     {
         p_block = dirac_BuildEncapsulationUnit( p_dec, p_block );
@@ -1383,7 +1383,7 @@ static int Open( vlc_object_t *p_this )
         /* handle hacky systems like ogg that dump some headers
          * in p_extra. and packetizers that expect it to be filled
          * in before real startup */
-        block_t *p_init = block_New( p_dec, p_dec->fmt_in.i_extra );
+        block_t *p_init = block_Alloc( p_dec->fmt_in.i_extra );
         if( !p_init )
         {
             /* memory might be avaliable soon.  it isn't the end of

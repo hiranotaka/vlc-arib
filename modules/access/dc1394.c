@@ -16,7 +16,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -443,8 +443,7 @@ static block_t *GrabVideo( demux_t *p_demux )
         return NULL;
     }
 
-    p_block = block_New( p_demux, p_sys->frame->size[0] *
-                                  p_sys->frame->size[1] * 2 );
+    p_block = block_Alloc( p_sys->frame->size[0] * p_sys->frame->size[1] * 2 );
     if( !p_block )
     {
         msg_Err( p_demux, "Can not get block" );

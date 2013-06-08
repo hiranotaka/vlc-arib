@@ -107,7 +107,8 @@ function callback_error(path,url,msg)
 <title>Error loading ]]..url..[[</title>
 </head>
 <body>
-<h1>Error loading ]]..url..[[</h1><pre>]]..(config.no_error_detail and "Remove configuration option `no_error_detail' on the server to get more information." or tostring(msg))..[[</pre>
+<h1>Error loading ]]..url..[[</h1><pre>]]..(config.no_error_detail and "Remove configuration option `no_error_detail' on the server to get more information."
+or vlc.strings.convert_xml_special_chars(tostring(msg)))..[[</pre>
 <p>
 <a href="http://www.videolan.org/">VideoLAN</a><br/>
 <a href="http://www.lua.org/manual/5.1/">Lua 5.1 Reference Manual</a>
@@ -319,6 +320,7 @@ if config.host then
 end
 
 password = vlc.var.inherit(nil,"http-password")
+
 h = vlc.httpd()
 load_dir( http_dir )
 a = h:handler("/art",nil,password,callback_art,nil)

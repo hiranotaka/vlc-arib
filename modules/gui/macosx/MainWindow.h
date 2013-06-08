@@ -1,13 +1,14 @@
 /*****************************************************************************
  * MainWindow.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2002-2012 VLC authors and VideoLAN
+ * Copyright (C) 2002-2013 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
  *          Jon Lech Johansen <jon-vl@nanocrew.net>
  *          Christophe Massiot <massiot@via.ecp.fr>
  *          Derk-Jan Hartman <hartman at videolan.org>
+ *          David Fuhrmann <david dot fuhrmann at googlemail dot com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,7 +45,7 @@
 @interface VLCMainWindow : VLCVideoWindowCommon <PXSourceListDataSource, PXSourceListDelegate, NSWindowDelegate, NSAnimationDelegate, NSSplitViewDelegate> {
 
     IBOutlet id o_search_fld;
-    
+
     IBOutlet id o_playlist_table;
     IBOutlet id o_split_view;
     IBOutlet id o_left_split_view;
@@ -82,26 +83,21 @@
     BOOL b_splitview_removed;
     BOOL b_minimized_view;
 
-    int i_lastSplitViewHeight;
+    NSUInteger i_lastSplitViewHeight;
+    NSUInteger i_lastLeftSplitViewWidth;
 
     NSMutableArray *o_sidebaritems;
 
     /* this is only true, when we have NO video playing inside the main window */
-    BOOL              b_nonembedded;
+    BOOL b_nonembedded;
 
-    BOOL              b_podcastView_displayed;
-
-    /* set to yes if we are fullscreen and all animations are over */
-    BOOL              b_fullscreen;
-
-    NSTimer *t_hide_mouse_timer;
+    BOOL b_podcastView_displayed;
 
     VLCColorView * o_color_backdrop;
 
     NSRect frameBeforePlayback;
 }
 + (VLCMainWindow *)sharedInstance;
-@property (readwrite) BOOL fullscreen;
 @property (readonly) BOOL nativeFullscreenMode;
 @property (readwrite) BOOL nonembedded;
 
@@ -120,6 +116,7 @@
 
 - (void)windowResizedOrMoved:(NSNotification *)notification;
 
+- (void)toggleLeftSubSplitView;
 - (void)showDropZone;
 - (void)hideDropZone;
 - (void)showSplitView;
@@ -134,14 +131,6 @@
 - (void)showFullscreenController;
 
 - (void)setVideoplayEnabled;
-
-- (void)hideMouseCursor:(NSTimer *)timer;
-- (void)recreateHideMouseTimer;
-
-/* lion's native fullscreen handling */
-- (void)windowWillEnterFullScreen:(NSNotification *)notification;
-- (void)windowDidEnterFullScreen:(NSNotification *)notification;
-- (void)windowWillExitFullScreen:(NSNotification *)notification;
 
 @end
 

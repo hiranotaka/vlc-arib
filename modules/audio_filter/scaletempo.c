@@ -1,24 +1,24 @@
 /*****************************************************************************
  * scaletempo.c: Scale audio tempo while maintaining pitch
  *****************************************************************************
- * Copyright © 2008 the VideoLAN team
+ * Copyright © 2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Rov Juvano <rovjuvano@users.sourceforge.net>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -468,7 +468,7 @@ static block_t *DoWork( filter_t * p_filter, block_t * p_in_buf )
     }
 
     size_t i_outsize = calculate_output_buffer_size ( p_filter, p_in_buf->i_buffer );
-    block_t *p_out_buf = filter_NewAudioBuffer( p_filter, i_outsize );
+    block_t *p_out_buf = block_Alloc( i_outsize );
     if( p_out_buf == NULL )
         return NULL;
 

@@ -234,18 +234,18 @@ int main( int i_argc, const char *ppsz_argv[] )
     /* Initialize libvlc */
     libvlc_instance_t *vlc = libvlc_new (argc, argv);
     if (vlc == NULL)
-        goto out;
+        return 1;
 
+    int ret = 1;
     libvlc_set_exit_handler (vlc, vlc_kill, &self);
     libvlc_set_user_agent (vlc, "VLC media player", "VLC/"PACKAGE_VERSION);
 
     libvlc_add_intf (vlc, "hotkeys,none");
-#if !defined (HAVE_MAEMO) && !defined __APPLE__ && !defined (__OS2__)
+#if !defined __APPLE__ && !defined (__OS2__)
     libvlc_add_intf (vlc, "globalhotkeys,none");
 #endif
 #ifdef HAVE_DBUS
     libvlc_add_intf (vlc, "dbus,none");
-    libvlc_add_intf (vlc, "inhibit,none");
 #endif
     if (libvlc_add_intf (vlc, NULL))
         goto out;
@@ -275,15 +275,13 @@ int main( int i_argc, const char *ppsz_argv[] )
     pthread_sigmask (SIG_UNBLOCK, &set, NULL);
     alarm (3);
 
+    ret = 0;
     /* Cleanup */
 out:
-    if (vlc != NULL)
-        libvlc_release (vlc);
-
+    libvlc_release (vlc);
 #ifdef __OS2__
     for (int i = 2; i < argc; i++)
         free (argv[i]);
 #endif
-
-    return 0;
+    return ret;
 }

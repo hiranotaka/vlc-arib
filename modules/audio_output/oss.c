@@ -1,26 +1,26 @@
 /*****************************************************************************
  * oss.c: Open Sound System audio output plugin for VLC
  *****************************************************************************
- * Copyright (C) 2000-2002 the VideoLAN team
+ * Copyright (C) 2000-2002 VLC authors and VideoLAN
  * Copyright (C) 2007-2012 Rémi Denis-Courmont
  *
  * Authors: Michel Kaempf <maxx@via.ecp.fr>
  *          Sam Hocevar <sam@zoy.org>
  *          Christophe Massiot <massiot@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -53,13 +53,16 @@
 struct aout_sys_t
 {
     int fd;
-    uint8_t level;
-    bool mute;
-    bool starting;
     audio_sample_format_t format;
+    bool starting;
+
+    bool mute;
+    uint8_t level;
+    char *device;
 };
 
 static int Open (vlc_object_t *);
+static void Close (vlc_object_t *);
 
 #define AUDIO_DEV_TEXT N_("Audio output device")
 #define AUDIO_DEV_LONGTEXT N_("OSS device node path.")
@@ -72,50 +75,34 @@ vlc_module_begin ()
     add_string ("oss-audio-device", "",
                 AUDIO_DEV_TEXT, AUDIO_DEV_LONGTEXT, false)
     set_capability( "audio output", 100 )
-    set_callbacks (Open, NULL)
+    set_callbacks (Open, Close)
 vlc_module_end ()
 
-static void Play (audio_output_t *, block_t *, mtime_t *);
+static int TimeGet (audio_output_t *, mtime_t *);
+static void Play (audio_output_t *, block_t *);
 static void Pause (audio_output_t *, bool, mtime_t);
 static void Flush (audio_output_t *, bool);
 static int VolumeSync (audio_output_t *);
-static int VolumeSet (audio_output_t *, float);
-static int MuteSet (audio_output_t *, bool);
-
-static int DeviceChanged (vlc_object_t *obj, const char *varname,
-                          vlc_value_t prev, vlc_value_t cur, void *data)
-{
-    aout_ChannelsRestart (obj, varname, prev, cur, data);
-
-    if (!var_Type (obj, "oss-audio-device"))
-        var_Create (obj, "oss-audio-device", VLC_VAR_STRING);
-    var_SetString (obj, "oss-audio-device", cur.psz_string);
-    return VLC_SUCCESS;
-}
 
 static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
 {
     aout_sys_t* sys = aout->sys;
 
     /* Open the device */
-    const char *device;
-    char *devicebuf = var_InheritString (aout, "oss-audio-device");
-    device = devicebuf;
+    const char *device = sys->device;
     if (device == NULL)
         device = getenv ("OSS_AUDIODEV");
     if (device == NULL)
         device = "/dev/dsp";
 
-    msg_Dbg (aout, "using OSS device: %s", device);
-
     int fd = vlc_open (device, O_WRONLY);
     if (fd == -1)
     {
         msg_Err (aout, "cannot open OSS device %s: %m", device);
-        free (devicebuf);
         return VLC_EGENERIC;
     }
     sys->fd = fd;
+    msg_Dbg (aout, "using OSS device: %s", device);
 
     /* Select audio format */
     int format;
@@ -124,26 +111,17 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
     switch (fmt->i_format)
     {
 #ifdef AFMT_FLOAT
-        case VLC_CODEC_F64B:
-        case VLC_CODEC_F64L:
-        case VLC_CODEC_F32B:
-        case VLC_CODEC_F32L:
+        case VLC_CODEC_FL64:
+        case VLC_CODEC_FL32:
             format = AFMT_FLOAT;
             break;
 #endif
-        case VLC_CODEC_S32B:
-            format = AFMT_S32_BE;
+        case VLC_CODEC_S32N:
+            format = AFMT_S32_NE;
             break;
-        case VLC_CODEC_S32L:
-            format = AFMT_S32_LE;
+        case VLC_CODEC_S16N:
+            format = AFMT_S16_NE;
             break;
-        case VLC_CODEC_S16B:
-            format = AFMT_S16_BE;
-            break;
-        case VLC_CODEC_S16L:
-            format = AFMT_S16_LE;
-            break;
-        case VLC_CODEC_S8:
         case VLC_CODEC_U8:
             format = AFMT_U8;
             break;
@@ -168,14 +146,9 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
 
     switch (format)
     {
-        case AFMT_S8:     fmt->i_format = VLC_CODEC_S8;   break;
         case AFMT_U8:     fmt->i_format = VLC_CODEC_U8;   break;
-        case AFMT_S16_BE: fmt->i_format = VLC_CODEC_S16B; break;
-        case AFMT_S16_LE: fmt->i_format = VLC_CODEC_S16L; break;
-        //case AFMT_S24_BE:
-        //case AFMT_S24_LE:
-        case AFMT_S32_BE: fmt->i_format = VLC_CODEC_S32B; break;
-        case AFMT_S32_LE: fmt->i_format = VLC_CODEC_S32L; break;
+        case AFMT_S16_NE: fmt->i_format = VLC_CODEC_S16N; break;
+        case AFMT_S32_NE: fmt->i_format = VLC_CODEC_S32N; break;
 #ifdef AFMT_FLOAT
         case AFMT_FLOAT:  fmt->i_format = VLC_CODEC_FL32; break;
 #endif
@@ -219,11 +192,10 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
     }
 
     /* Setup audio_output_t */
+    aout->time_get = TimeGet;
     aout->play = Play;
     aout->pause = Pause;
     aout->flush = Flush;
-    aout->volume_set = NULL;
-    aout->mute_set = NULL;
 
     if (spdif)
     {
@@ -235,113 +207,40 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
         fmt->i_rate = rate;
         fmt->i_original_channels =
         fmt->i_physical_channels = channels;
-
-        sys->level = 100;
-        sys->mute = false;
-        if (VolumeSync (aout) == 0)
-        {
-            aout->volume_set = VolumeSet;
-            aout->mute_set = MuteSet;
-        }
     }
+
+    VolumeSync (aout);
     sys->starting = true;
-
-    /* Build the devices list */
-    var_Create (aout, "audio-device", VLC_VAR_STRING | VLC_VAR_HASCHOICE);
-    var_SetString (aout, "audio-device", device);
-    var_AddCallback (aout, "audio-device", DeviceChanged, NULL);
-
-    oss_sysinfo si;
-    if (ioctl (fd, SNDCTL_SYSINFO, &si) >= 0)
-    {
-        vlc_value_t val, text;
-
-        text.psz_string = _("Audio Device");
-        var_Change (aout, "audio-device", VLC_VAR_SETTEXT, &text, NULL);
-
-        msg_Dbg (aout, "using %s version %s (0x%06X) under %s", si.product,
-                 si.version, si.versionnum, si.license);
-
-        for (int i = 0; i < si.numaudios; i++)
-        {
-            oss_audioinfo ai = { .dev = i };
-
-            if (ioctl (fd, SNDCTL_AUDIOINFO, &ai) < 0)
-            {
-                msg_Warn (aout, "cannot get device %d infos: %m", i);
-                continue;
-            }
-            if (ai.caps & (PCM_CAP_HIDDEN|PCM_CAP_MODEM))
-                continue;
-            if (!(ai.caps & PCM_CAP_OUTPUT))
-                continue;
-            if (!ai.enabled)
-                continue;
-
-            val.psz_string = ai.devnode;
-            text.psz_string = ai.name;
-            var_Change (aout, "audio-device", VLC_VAR_ADDCHOICE, &val, &text);
-        }
-    }
-
     sys->format = *fmt;
-
-    free (devicebuf);
     return VLC_SUCCESS;
 error:
-    free (sys);
     close (fd);
-    free (devicebuf);
     return VLC_EGENERIC;
 }
 
-/**
- * Releases the audio output.
- */
-static void Stop (audio_output_t *aout)
+static int TimeGet (audio_output_t *aout, mtime_t *restrict pts)
 {
     aout_sys_t *sys = aout->sys;
-    int fd = sys->fd;
+    int delay;
 
-    var_DelCallback (aout, "audio-device", DeviceChanged, NULL);
-    var_Destroy (aout, "audio-device");
+    if (ioctl (sys->fd, SNDCTL_DSP_GETODELAY, &delay) < 0)
+    {
+        msg_Warn (aout, "cannot get delay: %m");
+        return -1;
+    }
 
-    ioctl (fd, SNDCTL_DSP_HALT, NULL);
-    close (fd);
-    free (sys);
+    *pts = (delay * CLOCK_FREQ * sys->format.i_frame_length)
+                        / (sys->format.i_rate * sys->format.i_bytes_per_frame);
+    return 0;
 }
 
 /**
  * Queues one audio buffer to the hardware.
  */
-static void Play (audio_output_t *aout, block_t *block,
-                  mtime_t *restrict drift)
+static void Play (audio_output_t *aout, block_t *block)
 {
     aout_sys_t *sys = aout->sys;
     int fd = sys->fd;
-
-    int delay;
-    if (ioctl (sys->fd, SNDCTL_DSP_GETODELAY, &delay) >= 0)
-    {
-        mtime_t latency = (delay * CLOCK_FREQ * sys->format.i_frame_length)
-                      / (sys->format.i_rate * sys->format.i_bytes_per_frame);
-        *drift = mdate () + latency - block->i_pts;
-    }
-    else
-        msg_Warn (aout, "cannot get delay: %m");
-
-    if (sys->starting)
-    {   /* Start on time */
-        /* TODO: resync on pause resumption and underflow recovery */
-        mtime_t delta = -*drift;
-        if (delta > 0) {
-            msg_Dbg(aout, "deferring start (%"PRId64" us)", delta);
-            msleep(delta);
-            *drift = 0;
-        } else
-            msg_Warn(aout, "starting late (%"PRId64" us)", delta);
-        sys->starting = false;
-    }
 
     while (block->i_buffer > 0)
     {
@@ -402,10 +301,25 @@ static int VolumeSync (audio_output_t *aout)
     return 0;
 }
 
+/**
+ * Releases the audio output device.
+ */
+static void Stop (audio_output_t *aout)
+{
+    aout_sys_t *sys = aout->sys;
+    int fd = sys->fd;
+
+    ioctl (fd, SNDCTL_DSP_HALT, NULL);
+    close (fd);
+    sys->fd = -1;
+}
+
 static int VolumeSet (audio_output_t *aout, float vol)
 {
     aout_sys_t *sys = aout->sys;
     int fd = sys->fd;
+    if (fd == -1)
+        return -1;
 
     int level = lroundf (vol * 100.f);
     if (level > 0xFF)
@@ -427,6 +341,8 @@ static int MuteSet (audio_output_t *aout, bool mute)
 {
     aout_sys_t *sys = aout->sys;
     int fd = sys->fd;
+    if (fd == -1)
+        return -1;
 
     int level = mute ? 0 : (sys->level | (sys->level << 8));
     if (ioctl (fd, SNDCTL_DSP_SETPLAYVOL, &level) < 0)
@@ -440,6 +356,67 @@ static int MuteSet (audio_output_t *aout, bool mute)
     return 0;
 }
 
+static int DevicesEnum (audio_output_t *aout)
+{
+    int fd = vlc_open ("/dev/dsp", O_WRONLY);
+    if (fd == -1)
+        return -1;
+
+    oss_sysinfo si;
+    int n = -1;
+
+    if (ioctl (fd, SNDCTL_SYSINFO, &si) < 0)
+    {
+        msg_Err (aout, "cannot get system infos: %m");
+        goto out;
+    }
+
+    msg_Dbg (aout, "using %s version %s (0x%06X) under %s", si.product,
+             si.version, si.versionnum, si.license);
+
+    for (int i = 0; i < si.numaudios; i++)
+    {
+        oss_audioinfo ai = { .dev = i };
+
+        if (ioctl (fd, SNDCTL_AUDIOINFO, &ai) < 0)
+        {
+            msg_Warn (aout, "cannot get device %d infos: %m", i);
+            continue;
+        }
+        if (ai.caps & (PCM_CAP_HIDDEN|PCM_CAP_MODEM))
+            continue;
+        if (!(ai.caps & PCM_CAP_OUTPUT))
+            continue;
+        if (!ai.enabled)
+            continue;
+
+        aout_HotplugReport (aout, ai.devnode, ai.name);
+        n++;
+    }
+out:
+    close (fd);
+    return n;
+}
+
+static int DeviceSelect (audio_output_t *aout, const char *id)
+{
+    aout_sys_t *sys = aout->sys;
+    char *path = NULL;
+
+    if (id != NULL)
+    {
+        path = strdup (id);
+        if (unlikely(path == NULL))
+            return -1;
+    }
+
+    free (sys->device);
+    sys->device = path;
+    aout_DeviceReport (aout, path);
+    aout_RestartRequest (aout, AOUT_RESTART_OUTPUT);
+    return 0;
+}
+
 static int Open (vlc_object_t *obj)
 {
     audio_output_t *aout = (audio_output_t *)obj;
@@ -448,9 +425,28 @@ static int Open (vlc_object_t *obj)
     if(unlikely( sys == NULL ))
         return VLC_ENOMEM;
 
-    /* FIXME: set volume/mute here */
+    sys->fd = -1;
+
+    sys->level = 100;
+    sys->mute = false;
+    sys->device = var_InheritString (aout, "oss-audio-device");
+
     aout->sys = sys;
     aout->start = Start;
     aout->stop = Stop;
+    aout->volume_set = VolumeSet;
+    aout->mute_set = MuteSet;
+    aout->device_select = DeviceSelect;
+
+    DevicesEnum (aout);
     return VLC_SUCCESS;
+}
+
+static void Close (vlc_object_t *obj)
+{
+    audio_output_t *aout = (audio_output_t *)obj;
+    aout_sys_t *sys = aout->sys;
+
+    free (sys->device);
+    free (sys);
 }

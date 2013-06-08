@@ -91,7 +91,6 @@ struct vout_thread_sys_t
     struct {
         mtime_t     date;
         mtime_t     timestamp;
-        int         qtype;
         bool        is_interlaced;
         picture_t   *decoded;
         picture_t   *current;
@@ -155,6 +154,7 @@ void vout_ControlChangeSubMargin(vout_thread_t *, int);
 
 /* */
 void vout_IntfInit( vout_thread_t * );
+void vout_IntfReinit( vout_thread_t * );
 
 /* */
 int  vout_OpenWrapper (vout_thread_t *, const char *, const vout_display_state_t *);

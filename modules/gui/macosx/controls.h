@@ -5,7 +5,6 @@
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
- *          Christophe Massiot <massiot@via.ecp.fr>
  *          Derk-Jan Hartman <thedj@users.sourceforge.net>
  *          Felix Paul Kühne <fkuehne at videolan org>
  *
@@ -41,6 +40,8 @@
     IBOutlet id o_specificTime_mi;
 }
 
+@property (nonatomic) int jumpTimeValue;
+
 - (IBAction)play:(id)sender;
 - (IBAction)stop:(id)sender;
 
@@ -61,10 +62,7 @@
 
 - (IBAction)showPosition: (id)sender;
 
-- (IBAction)telxTransparent:(id)sender;
-- (IBAction)telxNavLink:(id)sender;
 - (IBAction)lockVideosAspectRatio:(id)sender;
-- (IBAction)addSubtitleFile:(id)sender;
 
 - (BOOL)keyEvent:(NSEvent *)o_event;
 

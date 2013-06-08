@@ -1,24 +1,24 @@
 /*****************************************************************************
  * equalizer.c:
  *****************************************************************************
- * Copyright (C) 2004-2012 the VideoLAN team
+ * Copyright (C) 2004-2012 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -92,7 +92,7 @@ vlc_module_begin ()
               TWOPASS_LONGTEXT, true )
     add_bool( "equalizer-vlcfreqs", true, VLC_BANDS_TEXT,
               VLC_BANDS_LONGTEXT, true )
-    add_float( "equalizer-preamp", 12.0, PREAMP_TEXT,
+    add_float( "equalizer-preamp", 12.0f, PREAMP_TEXT,
                PREAMP_LONGTEXT, true )
     set_callbacks( Open, Close )
     add_shortcut( "equalizer" )
@@ -131,7 +131,7 @@ struct filter_sys_t
 
 static block_t *DoWork( filter_t *, block_t * );
 
-#define EQZ_IN_FACTOR (0.25)
+#define EQZ_IN_FACTOR (0.25f)
 static int  EqzInit( filter_t *, int );
 static void EqzFilter( filter_t *, float *, float *, int, int );
 static void EqzClean( filter_t * );
@@ -220,12 +220,14 @@ typedef struct
 /* The frequency tables */
 static const float f_vlc_frequency_table_10b[EQZ_BANDS_MAX] =
 {
-    60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000,
+    60.0f, 170.0f, 310.0f, 600.0f, 1000.0f, 3000.0f, 6000.0f, 12000.0f,
+    14000.0f, 16000.0f,
 };
 
 static const float f_iso_frequency_table_10b[EQZ_BANDS_MAX] =
 {
-    31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000,
+    31.25f, 62.5f, 125.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f,
+    8000.0f, 16000.0f,
 };
 
 /* Equalizer coefficient calculation function based on equ-xmms */
@@ -237,10 +239,10 @@ static void EqzCoeffs( int i_rate, float f_octave_percent,
                                   ? f_vlc_frequency_table_10b
                                   : f_iso_frequency_table_10b;
     float f_rate = (float) i_rate;
-    float f_nyquist_freq = 0.5 * f_rate;
-    float f_octave_factor = pow( 2.0, 0.5 * f_octave_percent );
-    float f_octave_factor_1 = 0.5 * ( f_octave_factor + 1.0 );
-    float f_octave_factor_2 = 0.5 * ( f_octave_factor - 1.0 );
+    float f_nyquist_freq = 0.5f * f_rate;
+    float f_octave_factor = powf( 2.0f, 0.5f * f_octave_percent );
+    float f_octave_factor_1 = 0.5f * ( f_octave_factor + 1.0f );
+    float f_octave_factor_2 = 0.5f * ( f_octave_factor - 1.0f );
 
     p_eqz_config->i_band = EQZ_BANDS_MAX;
 
@@ -252,29 +254,24 @@ static void EqzCoeffs( int i_rate, float f_octave_percent,
 
         if( f_freq <= f_nyquist_freq )
         {
-            float f_theta_1 = ( 2.0 * M_PI * f_freq ) / f_rate;
+            float f_theta_1 = ( 2.0f * (float) M_PI * f_freq ) / f_rate;
             float f_theta_2 = f_theta_1 / f_octave_factor;
-            float f_sin     = sin( f_theta_2 ) * 0.5;
-            float f_sin_prd = sin( f_theta_2 * f_octave_factor_1 )
-                            * sin( f_theta_2 * f_octave_factor_2 );
-            /* The equation from equ-xmms simplifies to something similar to
-             * this when you restrict the domain to all valid frequencies at or
-             * below the Nyquist frequency (the interval 0 <= f_theta_1 <= Pi).
-             * (This result for the root is twice that returned by equ-xmms,
-             * but the more efficient calculations for alpha, beta, and gamma
-             * below compensate for this.) */
-            float f_root    = ( f_sin - f_sin_prd ) / ( f_sin + f_sin_prd );
+            float f_sin     = sinf( f_theta_2 );
+            float f_sin_prd = sinf( f_theta_2 * f_octave_factor_1 )
+                            * sinf( f_theta_2 * f_octave_factor_2 );
+            float f_sin_hlf = f_sin * 0.5f;
+            float f_den     = f_sin_hlf + f_sin_prd;
 
-            p_eqz_config->band[i].f_alpha = ( 1.0 - f_root ) * 0.5;
-            p_eqz_config->band[i].f_beta  = f_root;
-            p_eqz_config->band[i].f_gamma = ( 1.0 + f_root ) * cos( f_theta_1 );
+            p_eqz_config->band[i].f_alpha = f_sin_prd / f_den;
+            p_eqz_config->band[i].f_beta  = ( f_sin_hlf - f_sin_prd ) / f_den;
+            p_eqz_config->band[i].f_gamma = f_sin * cosf( f_theta_1 ) / f_den;
         }
         else
         {
             /* Any frequency beyond the Nyquist frequency is no good... */
             p_eqz_config->band[i].f_alpha =
             p_eqz_config->band[i].f_beta  =
-            p_eqz_config->band[i].f_gamma = 0.0;
+            p_eqz_config->band[i].f_gamma = 0.0f;
         }
     }
 }
@@ -289,11 +286,11 @@ static inline float EqzConvertdB( float db )
      * -> amp = EQZ_IN_FACTOR*(10^(db/20) - 1)
      **/
 
-    if( db < -20.0 )
-        db = -20.0;
-    else if(  db > 20.0 )
-        db = 20.0;
-    return EQZ_IN_FACTOR * ( pow( 10, db / 20.0 ) - 1.0 );
+    if( db < -20.0f )
+        db = -20.0f;
+    else if(  db > 20.0f )
+        db = 20.0f;
+    return EQZ_IN_FACTOR * ( powf( 10.0f, db / 20.0f ) - 1.0f );
 }
 
 static int EqzInit( filter_t *p_filter, int i_rate )
@@ -306,7 +303,7 @@ static int EqzInit( filter_t *p_filter, int i_rate )
     int i_ret = VLC_ENOMEM;
 
     bool b_vlcFreqs = var_InheritBool( p_aout, "equalizer-vlcfreqs" );
-    EqzCoeffs( i_rate, 1.0, b_vlcFreqs, &cfg );
+    EqzCoeffs( i_rate, 1.0f, b_vlcFreqs, &cfg );
 
     /* Create the static filter config */
     p_sys->i_band = cfg.i_band;
@@ -325,14 +322,14 @@ static int EqzInit( filter_t *p_filter, int i_rate )
 
     /* Filter dyn config */
     p_sys->b_2eqz = false;
-    p_sys->f_gamp = 1.0;
+    p_sys->f_gamp = 1.0f;
     p_sys->f_amp  = malloc( p_sys->i_band * sizeof(float) );
     if( !p_sys->f_amp )
         goto error;
 
     for( i = 0; i < p_sys->i_band; i++ )
     {
-        p_sys->f_amp[i] = 0.0;
+        p_sys->f_amp[i] = 0.0f;
     }
 
     /* Filter state */
@@ -341,16 +338,18 @@ static int EqzInit( filter_t *p_filter, int i_rate )
         p_sys->x[ch][0]  =
         p_sys->x[ch][1]  =
         p_sys->x2[ch][0] =
-        p_sys->x2[ch][1] = 0.0;
+        p_sys->x2[ch][1] = 0.0f;
 
         for( i = 0; i < p_sys->i_band; i++ )
         {
             p_sys->y[ch][i][0]  =
             p_sys->y[ch][i][1]  =
             p_sys->y2[ch][i][0] =
-            p_sys->y2[ch][i][1] = 0.0;
+            p_sys->y2[ch][i][1] = 0.0f;
         }
     }
+
+    p_sys->psz_newbands = NULL;
 
     var_Create( p_aout, "equalizer-bands", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
     var_Create( p_aout, "equalizer-preset", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
@@ -372,10 +371,8 @@ static int EqzInit( filter_t *p_filter, int i_rate )
 
     free( val1.psz_string );
 
-    /* Register preset bands (for intf) if : */
-    /* We have no bands info --> the preset info must be given to the intf */
-    /* or The bands info matches the preset */
-    if (p_sys->psz_newbands == NULL)
+    /* Exit if we have no preset and no bands value */
+    if (p_sys->psz_newbands == NULL && (!val2.psz_string || !*val2.psz_string))
     {
         msg_Err(p_filter, "No preset selected");
         free( val2.psz_string );
@@ -383,8 +380,11 @@ static int EqzInit( filter_t *p_filter, int i_rate )
         i_ret = VLC_EGENERIC;
         goto error;
     }
-    if( ( *(val2.psz_string) &&
-        strstr( p_sys->psz_newbands, val2.psz_string ) ) || !*val2.psz_string )
+    /* Register preset bands (for intf) if : */
+    /* We have no bands info --> the preset info must be given to the intf */
+    /* or The bands info matches the preset */
+    if( ( p_sys->psz_newbands && *(val2.psz_string) &&
+         strstr( p_sys->psz_newbands, val2.psz_string ) ) || !*val2.psz_string )
     {
         var_SetString( p_aout, "equalizer-bands", p_sys->psz_newbands );
         if( p_sys->f_newpreamp == p_sys->f_gamp )
@@ -402,8 +402,8 @@ static int EqzInit( filter_t *p_filter, int i_rate )
                         i_rate, p_sys->i_band, p_sys->b_2eqz ? 2 : 1 );
     for( i = 0; i < p_sys->i_band; i++ )
     {
-        msg_Dbg( p_filter, "   %d Hz -> factor:%f alpha:%f beta:%f gamma:%f",
-                 (int)cfg.band[i].f_frequency, p_sys->f_amp[i],
+        msg_Dbg( p_filter, "   %.2f Hz -> factor:%f alpha:%f beta:%f gamma:%f",
+                 cfg.band[i].f_frequency, p_sys->f_amp[i],
                  p_sys->f_alpha[i], p_sys->f_beta[i], p_sys->f_gamma[i]);
     }
     return VLC_SUCCESS;
@@ -427,7 +427,7 @@ static void EqzFilter( filter_t *p_filter, float *out, float *in,
         for( ch = 0; ch < i_channels; ch++ )
         {
             const float x = in[ch];
-            float o = 0.0;
+            float o = 0.0f;
 
             for( j = 0; j < p_sys->i_band; j++ )
             {
@@ -447,7 +447,7 @@ static void EqzFilter( filter_t *p_filter, float *out, float *in,
             if( p_sys->b_2eqz )
             {
                 const float x2 = EQZ_IN_FACTOR * x + o;
-                o = 0.0;
+                o = 0.0f;
                 for( j = 0; j < p_sys->i_band; j++ )
                 {
                     float y = p_sys->f_alpha[j] * ( x2 - p_sys->x2[ch][1] ) +
@@ -518,7 +518,7 @@ static int PresetCallback( vlc_object_t *p_aout, char const *psz_cmd,
         {
             char *psz_newbands = NULL;
 
-            p_sys->f_gamp *= pow( 10, eqz_preset_10b[i].f_preamp / 20.0 );
+            p_sys->f_gamp *= powf( 10.0f, eqz_preset_10b[i].f_preamp / 20.0f );
             for( int j = 0; j < p_sys->i_band; j++ )
             {
                 lldiv_t d;
@@ -568,13 +568,13 @@ static int PreampCallback( vlc_object_t *p_this, char const *psz_cmd,
     VLC_UNUSED(p_this); VLC_UNUSED(psz_cmd); VLC_UNUSED(oldval);
     filter_sys_t *p_sys = p_data;
 
-    if( newval.f_float < -20.0 )
-        newval.f_float = -20.0;
-    else if( newval.f_float > 20.0 )
-        newval.f_float = 20.0;
+    if( newval.f_float < -20.0f )
+        newval.f_float = -20.0f;
+    else if( newval.f_float > 20.0f )
+        newval.f_float = 20.0f;
 
     vlc_mutex_lock( &p_sys->lock );
-    p_sys->f_gamp = pow( 10, newval.f_float /20.0);
+    p_sys->f_gamp = powf( 10.0f, newval.f_float / 20.0f );
     vlc_mutex_unlock( &p_sys->lock );
 
     return VLC_SUCCESS;

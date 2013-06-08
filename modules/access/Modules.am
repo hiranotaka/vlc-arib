@@ -20,6 +20,10 @@ libsdp_plugin_la_SOURCES = sdp.c
 libsdp_plugin_la_CFLAGS = $(AM_CFLAGS)
 libsdp_plugin_la_LIBADD = $(AM_LIBADD)
 
+libtimecode_plugin_la_SOURCES = timecode.c
+libtimecode_plugin_la_CFLAGS = $(AM_CFLAGS)
+libtimecode_plugin_la_LIBADD = $(AM_LIBADD)
+
 libzip_plugin_la_SOURCES = zip/zip.h zip/zipstream.c zip/zipaccess.c
 libzip_plugin_la_CFLAGS = $(AM_CFLAGS) $(MINIZIP_CFLAGS)
 libzip_plugin_la_LIBADD = $(AM_LIBADD) $(MINIZIP_LIBS)
@@ -54,10 +58,16 @@ SOURCES_access_avio = avio.c avio.h ../codec/avcodec/cpu.c
 SOURCES_access_attachment = attachment.c
 SOURCES_access_vdr = vdr.c
 SOURCES_libbluray = bluray.c
-SOURCES_decklink = decklink.cpp
 
 SOURCES_access_rar = rar/rar.c rar/rar.h rar/access.c
 SOURCES_stream_filter_rar = rar/rar.c rar/rar.h rar/stream.c
+
+if HAVE_DECKLINK
+libdecklink_plugin_la_SOURCES = decklink.cpp
+libdecklink_plugin_la_CXXFLAGS = $(AM_CFLAGS) $(CPPFLAGS_decklink)
+libdecklink_plugin_la_LIBADD = $(AM_LIBADD) $(LIBS_decklink) -ldl
+libvlc_LTLIBRARIES += libdecklink_plugin.la
+endif
 
 if HAVE_QTKIT
 libqtcapture_plugin_la_SOURCES = qtcapture.m
@@ -74,6 +84,16 @@ libvlc_LTLIBRARIES += \
         $(NULL)
 endif
 
+if HAVE_AVFOUNDATION
+libavcapture_plugin_la_SOURCES = avcapture.m
+libavcapture_plugin_la_LIBADD = $(AM_LIBADD)
+libavcapture_plugin_la_LDFLAGS = -Wl,-framework,Cocoa -Wl,-framework,AVFoundation -Wl,-framework,CoreMedia
+
+libvlc_LTLIBRARIES += \
+        libavcapture_plugin.la \
+        $(NULL)
+endif
+
 libvlc_LTLIBRARIES += \
 	libfilesystem_plugin.la \
 	libidummy_plugin.la \
@@ -84,6 +104,7 @@ libvlc_LTLIBRARIES += \
 	libaccess_imem_plugin.la \
 	libaccess_attachment_plugin.la \
         libsdp_plugin.la \
+	libtimecode_plugin.la \
 	libaccess_rar_plugin.la \
 	libstream_filter_rar_plugin.la \
 	libaccess_vdr_plugin.la \
@@ -121,25 +142,25 @@ endif
 
 libshm_plugin_la_SOURCES = shm.c
 libshm_plugin_la_CFLAGS = $(AM_CFLAGS)
-libshm_plugin_la_LIBADD = $(AM_LIBADD)
-if !HAVE_WIN32
-if !HAVE_OS2
+libshm_plugin_la_LIBADD = $(AM_LIBADD) $(LIBM)
 libvlc_LTLIBRARIES += libshm_plugin.la
-endif
-endif
 
 libv4l2_plugin_la_SOURCES = \
-	v4l2/videodev2.h \
+	v4l2/linux/videodev2.h \
+	v4l2/linux/v4l2-common.h \
+	v4l2/linux/v4l2-controls.h \
 	v4l2/v4l2.c \
 	v4l2/video.c \
+	v4l2/vbi.c \
 	v4l2/demux.c \
 	v4l2/access.c \
 	v4l2/radio.c \
 	v4l2/controls.c \
 	v4l2/lib.c \
 	v4l2/v4l2.h
-libv4l2_plugin_la_CFLAGS = $(AM_CFLAGS)
-libv4l2_plugin_la_LIBADD = $(AM_LIBADD) $(LIBDL) $(LIBM)
+libv4l2_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/v4l2
+libv4l2_plugin_la_CFLAGS = $(AM_CFLAGS) $(ZVBI_CFLAGS)
+libv4l2_plugin_la_LIBADD = $(AM_LIBADD) $(LIBDL) $(LIBM) $(ZVBI_LIBS)
 if HAVE_V4L2
 libvlc_LTLIBRARIES += libv4l2_plugin.la
 endif
@@ -157,9 +178,9 @@ endif
 
 libxcb_screen_plugin_la_SOURCES = screen/xcb.c
 libxcb_screen_plugin_la_CFLAGS = $(AM_CFLAGS) \
-	$(XCB_CFLAGS) $(XCB_COMPOSITE_CFLAGS)
+	$(XCB_CFLAGS) $(XCB_COMPOSITE_CFLAGS) $(XCB_SHM_CFLAGS)
 libxcb_screen_plugin_la_LIBADD = $(AM_LIBADD) \
-	$(XCB_LIBS) $(XCB_COMPOSITE_LIBS)
+	$(XCB_LIBS) $(XCB_COMPOSITE_LIBS) $(XCB_SHM_LIBS)
 if HAVE_XCB
 libvlc_LTLIBRARIES += libxcb_screen_plugin.la
 endif
@@ -172,12 +193,18 @@ libscreen_plugin_la_SOURCES += screen/win32.c
 libscreen_plugin_la_LIBADD += -lgdi32
 libvlc_LTLIBRARIES += libscreen_plugin.la
 endif
-if HAVE_DARWIN
+if HAVE_MAC_SCREEN
 libscreen_plugin_la_SOURCES += screen/mac.c
 libscreen_plugin_la_LDFLAGS = $(AM_LDFLAGS)
 libscreen_plugin_la_LDFLAGS += "-Wl,-framework,OpenGL,-framework,ApplicationServices"
+libvlc_LTLIBRARIES += libscreen_plugin.la
 endif
 
+### VNC ###
+SOURCES_libvnc = vnc.c
+
+### RDP / Remote Desktop ###
+SOURCES_rdp = rdp.c
 
 ### Optical media ###
 
@@ -218,7 +245,7 @@ if HAVE_LINUX_DVB
 libdtv_plugin_la_SOURCES += dtv/linux.c
 libdtv_plugin_la_CFLAGS += -DHAVE_LINUX_DVB
 if HAVE_DVBPSI
-libdtv_plugin_la_SOURCES += dtv/en50221.c dtv/en50221.h
+libdtv_plugin_la_SOURCES += dtv/en50221.c dtv/en50221.h ../mux/mpeg/dvbpsi_compat.h
 libdtv_plugin_la_CFLAGS += -DHAVE_DVBPSI $(DVBPSI_CFLAGS)
 libdtv_plugin_la_LIBADD += $(DVBPSI_LIBS)
 endif
@@ -248,8 +275,9 @@ libdvb_plugin_la_SOURCES = \
 libdvb_plugin_la_CFLAGS = $(AM_CFLAGS)
 libdvb_plugin_la_LIBADD = $(AM_LIBADD)
 if HAVE_LINUX_DVB
-libvlc_LTLIBRARIES += libdvb_plugin.la
 if HAVE_DVBPSI
+libdvb_plugin_la_SOURCES += ../mux/mpeg/dvbpsi_compat.h
+libvlc_LTLIBRARIES += libdvb_plugin.la
 libdvb_plugin_la_CFLAGS += $(DVBPSI_CFLAGS)
 libdvb_plugin_la_LIBADD += $(DVBPSI_LIBS)
 endif
@@ -258,8 +286,8 @@ endif
 ### Network streams ###
 
 libaccess_smb_plugin_la_SOURCES = smb.c
-libaccess_smb_plugin_la_CFLAGS = $(AM_CFLAGS)
-libaccess_smb_plugin_la_LIBADD = $(AM_LIBADD) $(LIBS_access_smb)
+libaccess_smb_plugin_la_CFLAGS = $(AM_CFLAGS) $(SMBCLIENT_CFLAGS)
+libaccess_smb_plugin_la_LIBADD = $(AM_LIBADD) $(SMBCLIENT_LIBS)
 if HAVE_WIN32
 libaccess_smb_plugin_la_LIBADD += -lmpr
 endif
@@ -269,9 +297,9 @@ EXTRA_LTLIBRARIES += libaccess_smb_plugin.la
 SOURCES_access_udp = udp.c
 SOURCES_access_tcp = tcp.c
 SOURCES_access_http = http.c
-SOURCES_htcpcp = htcpcp.c
 SOURCES_access_ftp = ftp.c
 SOURCES_access_sftp = sftp.c
+SOURCES_live555 = live555.cpp mms/asf.c mms/buffer.c
 
 libaccess_mms_plugin_la_SOURCES = \
 	mms/mms.c mms/mms.h \

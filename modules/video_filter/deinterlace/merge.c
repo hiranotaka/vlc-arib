@@ -1,37 +1,37 @@
 /*****************************************************************************
  * merge.c : Merge (line blending) routines for the VLC deinterlacer
  *****************************************************************************
- * Copyright (C) 2011 the VideoLAN team
+ * Copyright (C) 2011 VLC authors and VideoLAN
  * $Id$
  *
  * Author: Sam Hocevar <sam@zoy.org>                      (generic C routine)
  *         Sigmund Augdal Helberg <sigmunau@videolan.org> (MMXEXT, 3DNow, SSE2)
  *         Eric Petit <eric.petit@lapsus.org>             (Altivec)
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
 #   include "config.h"
 #endif
 
-#include <vlc_common.h>
-
 #include <stdlib.h>
 #include <stdint.h>
 
+#include <vlc_common.h>
+#include <vlc_cpu.h>
 #include "merge.h"
 
 #ifdef CAN_COMPILE_MMXEXT
@@ -69,6 +69,7 @@ void Merge16BitGeneric( void *_p_dest, const void *_p_s1,
 }
 
 #if defined(CAN_COMPILE_MMXEXT)
+VLC_MMX
 void MergeMMXEXT( void *_p_dest, const void *_p_s1, const void *_p_s2,
                   size_t i_bytes )
 {
@@ -82,7 +83,7 @@ void MergeMMXEXT( void *_p_dest, const void *_p_s1, const void *_p_s2,
                                "pavgb %1, %%mm1;"
                                "movq %%mm1, %0" :"=m" (*p_dest):
                                                  "m" (*p_s1),
-                                                 "m" (*p_s2) );
+                                                 "m" (*p_s2) : "mm1" );
         p_dest += 8;
         p_s1 += 8;
         p_s2 += 8;
@@ -94,6 +95,7 @@ void MergeMMXEXT( void *_p_dest, const void *_p_s1, const void *_p_s2,
 #endif
 
 #if defined(CAN_COMPILE_3DNOW)
+VLC_MMX
 void Merge3DNow( void *_p_dest, const void *_p_s1, const void *_p_s2,
                  size_t i_bytes )
 {
@@ -107,7 +109,7 @@ void Merge3DNow( void *_p_dest, const void *_p_s1, const void *_p_s2,
                                "pavgusb %1, %%mm1;"
                                "movq %%mm1, %0" :"=m" (*p_dest):
                                                  "m" (*p_s1),
-                                                 "m" (*p_s2) );
+                                                 "m" (*p_s2) : "mm1" );
         p_dest += 8;
         p_s1 += 8;
         p_s2 += 8;
@@ -119,6 +121,7 @@ void Merge3DNow( void *_p_dest, const void *_p_s1, const void *_p_s2,
 #endif
 
 #if defined(CAN_COMPILE_SSE)
+VLC_SSE
 void Merge8BitSSE2( void *_p_dest, const void *_p_s1, const void *_p_s2,
                     size_t i_bytes )
 {
@@ -135,7 +138,7 @@ void Merge8BitSSE2( void *_p_dest, const void *_p_s1, const void *_p_s2,
                                "pavgb %1, %%xmm1;"
                                "movdqu %%xmm1, %0" :"=m" (*p_dest):
                                                  "m" (*p_s1),
-                                                 "m" (*p_s2) );
+                                                 "m" (*p_s2) : "xmm1" );
         p_dest += 16;
         p_s1 += 16;
         p_s2 += 16;
@@ -145,6 +148,7 @@ void Merge8BitSSE2( void *_p_dest, const void *_p_s1, const void *_p_s2,
         *p_dest++ = ( *p_s1++ + *p_s2++ ) >> 1;
 }
 
+VLC_SSE
 void Merge16BitSSE2( void *_p_dest, const void *_p_s1, const void *_p_s2,
                      size_t i_bytes )
 {
@@ -162,7 +166,7 @@ void Merge16BitSSE2( void *_p_dest, const void *_p_s1, const void *_p_s2,
                                "pavgw %1, %%xmm1;"
                                "movdqu %%xmm1, %0" :"=m" (*p_dest):
                                                  "m" (*p_s1),
-                                                 "m" (*p_s2) );
+                                                 "m" (*p_s2) : "xmm1" );
         p_dest += 8;
         p_s1 += 8;
         p_s2 += 8;

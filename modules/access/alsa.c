@@ -3,17 +3,17 @@
  *****************************************************************************
  * Copyright (C) 2012 Rémi Denis-Courmont
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the Lesser GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
@@ -257,8 +257,8 @@ static const vlc_fourcc_t formats[] = {
     [SND_PCM_FORMAT_S16_BE]             = VLC_CODEC_S16B,
     [SND_PCM_FORMAT_U16_LE]             = VLC_CODEC_U16L,
     [SND_PCM_FORMAT_U16_BE]             = VLC_CODEC_U16B,
-  //[SND_PCM_FORMAT_S24_LE]             = VLC_CODEC_?,
-  //[SND_PCM_FORMAT_S24_BE]             = VLC_CODEC_?,
+    [SND_PCM_FORMAT_S24_LE]             = VLC_CODEC_S24L32,
+    [SND_PCM_FORMAT_S24_BE]             = VLC_CODEC_S24B32,
     [SND_PCM_FORMAT_U24_LE]             = VLC_CODEC_U32L, // TODO: replay gain
     [SND_PCM_FORMAT_U24_BE]             = VLC_CODEC_U32B, // ^
     [SND_PCM_FORMAT_S32_LE]             = VLC_CODEC_S32L,
@@ -325,9 +325,6 @@ static int Open (vlc_object_t *obj)
 {
     demux_t *demux = (demux_t *)obj;
     demux_sys_t *sys = malloc (sizeof (*sys));
-
-    static_assert (sizeof (formats) / sizeof (formats[0]) ==
-                   SND_PCM_FORMAT_LAST + 1, "unknown formats");
 
     if (unlikely(sys == NULL))
         return VLC_ENOMEM;

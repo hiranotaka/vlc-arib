@@ -43,6 +43,7 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPropertyAnimation>
+#include <QLinkedList>
 
 class ResizeEvent;
 class QPixmap;
@@ -60,7 +61,6 @@ public:
 
     WId request( int *, int *, unsigned int *, unsigned int *, bool );
     void  release( void );
-    int   control( void *, int, va_list );
     void  sync( void );
 
 protected:
@@ -95,14 +95,50 @@ private:
     bool b_expandPixmap;
     bool b_withart;
     QPropertyAnimation *fadeAnimation;
-    virtual void contextMenuEvent( QContextMenuEvent *event );
+    virtual void contextMenuEvent( QContextMenuEvent *event ); 
 protected:
     void paintEvent( QPaintEvent *e );
     virtual void showEvent( QShowEvent * e );
     static const int MARGIN = 5;
+    QString defaultArt;
 public slots:
     void toggle(){ TOGGLEV( this ); }
     void updateArt( const QString& );
+};
+
+class EasterEggBackgroundWidget : public BackgroundWidget
+{
+    Q_OBJECT
+
+public:
+    EasterEggBackgroundWidget( intf_thread_t * );
+    virtual ~EasterEggBackgroundWidget();
+
+public slots:
+    void animate();
+
+protected:
+    void paintEvent( QPaintEvent *e );
+    void showEvent( QShowEvent *e );
+    void hideEvent( QHideEvent * );
+    void resizeEvent( QResizeEvent * );
+
+private slots:
+    void spawnFlakes();
+    void reset();
+
+private:
+    struct flake
+    {
+        QPoint point;
+        bool b_fat;
+    };
+    QTimer *timer;
+    QLinkedList<flake *> *flakes;
+    int i_rate;
+    int i_speed;
+    bool b_enabled;
+    static const int MAX_FLAKES = 1000;
 };
 
 #if 0
@@ -252,6 +288,7 @@ public slots:
     void showArtUpdate( input_item_t * );
     void askForUpdate();
     void setArtFromFile();
+    void clear();
 };
 
 #endif

@@ -39,6 +39,10 @@
 #import <vlc_interface.h>
 #import "CompatibilityFixes.h"
 
+@interface VLCBookmarks (Internal)
+- (void)initStrings;
+@end
+
 @implementation VLCBookmarks
 
 static VLCBookmarks *_o_sharedInstance = nil;
@@ -104,10 +108,17 @@ static VLCBookmarks *_o_sharedInstance = nil;
     [o_edit_lbl_bytes setStringValue: _NS("Position")];
 }
 
+- (void)updateCocoaWindowLevel:(NSInteger)i_level
+{
+    if (o_bookmarks_window && [o_bookmarks_window isVisible] && [o_bookmarks_window level] != i_level)
+        [o_bookmarks_window setLevel: i_level];
+}
+
 - (void)showBookmarks
 {
     /* show the window, called from intf.m */
     [o_bookmarks_window displayIfNeeded];
+    [o_bookmarks_window setLevel: [[[VLCMain sharedInstance] voutController] currentWindowLevel]];
     [o_bookmarks_window makeKeyAndOrderFront:nil];
 }
 
@@ -207,11 +218,11 @@ static VLCBookmarks *_o_sharedInstance = nil;
     input_thread_t * p_input = pl_CurrentInput(VLCIntf);
 
     if (!p_input) {
-        NSBeginCriticalAlertSheet(_NS("No input"), _NS("OK"), @"", @"", o_bookmarks_window, nil, nil, nil, nil, _NS("No input found. A stream must be playing or paused for bookmarks to work."));
+        NSBeginCriticalAlertSheet(_NS("No input"), _NS("OK"), @"", @"", o_bookmarks_window, nil, nil, nil, nil, @"%@",_NS("No input found. A stream must be playing or paused for bookmarks to work."));
         return;
     }
     if (p_old_input != p_input) {
-        NSBeginCriticalAlertSheet(_NS("Input has changed"), _NS("OK"), @"", @"", o_bookmarks_window, nil, nil, nil, nil, _NS("Input has changed, unable to save bookmark. Suspending playback with \"Pause\" while editing bookmarks to ensure to keep the same input."));
+        NSBeginCriticalAlertSheet(_NS("Input has changed"), _NS("OK"), @"", @"", o_bookmarks_window, nil, nil, nil, nil, @"%@",_NS("Input has changed, unable to save bookmark. Suspending playback with \"Pause\" while editing bookmarks to ensure to keep the same input."));
         vlc_object_release(p_input);
         return;
     }
@@ -262,12 +273,12 @@ clear:
 - (IBAction)extract:(id)sender
 {
     if ([o_tbl_dataTable numberOfSelectedRows] < 2) {
-        NSBeginAlertSheet(_NS("Invalid selection"), _NS("OK"), @"", @"", o_bookmarks_window, nil, nil, nil, nil, _NS("Two bookmarks have to be selected."));
+        NSBeginAlertSheet(_NS("Invalid selection"), _NS("OK"), @"", @"", o_bookmarks_window, nil, nil, nil, nil, @"%@",_NS("Two bookmarks have to be selected."));
         return;
     }
     input_thread_t * p_input = pl_CurrentInput(VLCIntf);
     if (!p_input) {
-        NSBeginCriticalAlertSheet(_NS("No input found"), _NS("OK"), @"", @"", o_bookmarks_window, nil, nil, nil, nil, _NS("The stream must be playing or paused for bookmarks to work."));
+        NSBeginCriticalAlertSheet(_NS("No input found"), _NS("OK"), @"", @"", o_bookmarks_window, nil, nil, nil, nil, @"%@",_NS("The stream must be playing or paused for bookmarks to work."));
         return;
     }
 

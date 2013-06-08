@@ -29,7 +29,7 @@
 
 #include "util/qvlcframe.hpp"
 
-#ifdef WIN32
+#ifdef _WIN32
  #include <vlc_windows_interfaces.h>
 #endif
 
@@ -56,12 +56,6 @@ class QMenu;
 class QSize;
 class StandardPLPanel;
 
-enum {
-    CONTROLS_VISIBLE  = 0x1,
-    CONTROLS_HIDDEN   = 0x2,
-    CONTROLS_ADVANCED = 0x4,
-};
-
 class MainInterface : public QVLCMW
 {
     Q_OBJECT
@@ -85,6 +79,12 @@ public:
     QSystemTrayIcon *getSysTray() { return sysTray; }
     QMenu *getSysTrayMenu() { return systrayMenu; }
     FullscreenControllerWidget* getFullscreenControllerWidget() { return fullscreenControls; }
+    enum
+    {
+        CONTROLS_VISIBLE  = 0x1,
+        CONTROLS_HIDDEN   = 0x2,
+        CONTROLS_ADVANCED = 0x4,
+    };
     int getControlsVisibilityStatus();
     bool isPlDocked() { return ( b_plDocked != false ); }
     bool isInterfaceFullScreen() { return b_interfaceFullScreen; }
@@ -93,7 +93,7 @@ public:
 protected:
     void dropEventPlay( QDropEvent* event, bool b_play ) { dropEventPlay(event, b_play, true); }
     void dropEventPlay( QDropEvent *, bool, bool );
-#ifdef WIN32
+#ifdef _WIN32
     virtual bool winEvent( MSG *, long * );
 #endif
     virtual void changeEvent( QEvent * );
@@ -174,12 +174,15 @@ private:
     bool                 b_hasPausedWhenMinimized;
     bool                 b_statusbarVisible;
 
-#ifdef WIN32
+#ifdef _WIN32
     HIMAGELIST himl;
     ITaskbarList3 *p_taskbl;
     UINT taskbar_wmsg;
     void createTaskBarButtons();
 #endif
+
+    static const Qt::Key kc[10]; /* easter eggs */
+    int i_kc_offset;
 
 public slots:
     void dockPlaylist( bool b_docked = true );
@@ -196,7 +199,7 @@ public slots:
     void setPlaylistVisibility(bool b_visible);
 
     void popupMenu( const QPoint& );
-#ifdef WIN32
+#ifdef _WIN32
     void changeThumbbarButtons( int );
 #endif
 
@@ -262,7 +265,7 @@ signals:
     void askToQuit();
     void askBoss();
     void askRaise();
-
+    void kc_pressed(); /* easter eggs */
 };
 
 #endif

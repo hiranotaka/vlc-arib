@@ -1,24 +1,24 @@
 /*****************************************************************************
  * avi.c : AVI file Stream input module for vlc
  *****************************************************************************
- * Copyright (C) 2001-2009 the VideoLAN team
+ * Copyright (C) 2001-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -1405,25 +1405,8 @@ static double ControlGetPosition( demux_t *p_demux )
     }
     else if( stream_Size( p_demux->s ) > 0 )
     {
-        unsigned int i;
-        int64_t i_tmp;
-        int64_t i64 = 0;
-
-        /* search the more advanced selected es */
-        for( i = 0; i < p_sys->i_track; i++ )
-        {
-            avi_track_t *tk = p_sys->track[i];
-            if( tk->b_activated && tk->i_idxposc < tk->idx.i_size )
-            {
-                i_tmp = tk->idx.p_entry[tk->i_idxposc].i_pos +
-                        tk->idx.p_entry[tk->i_idxposc].i_length + 8;
-                if( i_tmp > i64 )
-                {
-                    i64 = i_tmp;
-                }
-            }
-        }
-        return (double)i64 / stream_Size( p_demux->s );
+        double i64 = (uint64_t)stream_Tell( p_demux->s );
+        return i64 / stream_Size( p_demux->s );
     }
     return 0.0;
 }
@@ -2668,8 +2651,11 @@ static void AVI_ExtractSubtitle( demux_t *p_demux,
     }
 
     /* */
-    if( i_size > 1000000 )
+    if( i_size > 10000000 )
+    {
+        msg_Dbg( p_demux, "Attached subtitle too big: %u", i_size );
         goto exit;
+    }
 
     if( stream_Seek( p_demux->s, i_position ) )
         goto exit;

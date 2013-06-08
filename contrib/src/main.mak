@@ -24,7 +24,7 @@ VPATH := $(TARBALLS)
 GNU := http://ftp.gnu.org/gnu
 SF := http://heanet.dl.sourceforge.net/sourceforge
 VIDEOLAN := http://downloads.videolan.org/pub/videolan
-CONTRIB_VIDEOLAN := $(VIDEOLAN)/testing/contrib
+CONTRIB_VIDEOLAN := http://downloads.videolan.org/pub/contrib
 
 #
 # Machine-dependent variables
@@ -36,16 +36,7 @@ ifneq ($(HOST),$(BUILD))
 HAVE_CROSS_COMPILE = 1
 endif
 ARCH := $(shell $(SRC)/get-arch.sh $(HOST))
-ifneq ($(findstring $(ARCH),i386 sparc sparc64 ppc ppc64 x86_64),)
-# This should be consistent with include/vlc_cpu.h
-HAVE_FPU = 1
-else ifneq ($(findstring $(ARCH),arm),)
-ifneq ($(call cppcheck, __VFP_FP__)),)
-ifeq ($(call cppcheck, __SOFTFP__),)
-HAVE_FPU = 1
-endif
-endif
-endif
+
 ifeq ($(ARCH)-$(HAVE_WIN32),x86_64-1)
 HAVE_WIN64 := 1
 endif
@@ -106,8 +97,8 @@ endif
 
 ifdef HAVE_MACOSX
 MIN_OSX_VERSION=10.6
-CC=xcrun gcc
-CXX=xcrun g++
+CC=xcrun llvm-gcc-4.2
+CXX=xcrun llvm-g++-4.2
 AR=xcrun ar
 LD=xcrun ld
 STRIP=xcrun strip
@@ -144,13 +135,6 @@ AR=xcrun ar
 LD=xcrun ld
 STRIP=xcrun strip
 RANLIB=xcrun ranlib
-ifeq ($(ARCH), arm)
-EXTRA_CFLAGS += -arch armv7 -mcpu=cortex-a8
-EXTRA_LDFLAGS += -arch armv7
-else
-EXTRA_CFLAGS += -m32
-EXTRA_LDFLAGS += -m32
-endif
 EXTRA_CFLAGS += -isysroot $(SDKROOT)  -miphoneos-version-min=5.0
 EXTRA_LDFLAGS += -Wl,-syslibroot,$(SDKROOT) -isysroot $(SDKROOT) -miphoneos-version-min=5.0
 endif
@@ -170,6 +154,20 @@ CXXFLAGS := $(CXXFLAGS) $(EXTRA_CFLAGS) -g
 EXTRA_LDFLAGS += -L$(PREFIX)/lib
 LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
 # Do not export those! Use HOSTVARS.
+
+# Do the FPU detection, after we have figured out our compilers and flags.
+ifneq ($(findstring $(ARCH),aarch64 i386 ppc ppc64 sparc sparc64 x86_64),)
+# This should be consistent with include/vlc_cpu.h
+HAVE_FPU = 1
+else ifneq ($(findstring $(ARCH),arm),)
+ifneq ($(call cppcheck, __VFP_FP__)),)
+ifeq ($(call cppcheck, __SOFTFP__),)
+HAVE_FPU = 1
+endif
+endif
+else ifneq ($(call cppcheck, __mips_hard_float),)
+HAVE_FPU = 1
+endif
 
 ACLOCAL_AMFLAGS += -I$(PREFIX)/share/aclocal
 export ACLOCAL_AMFLAGS
@@ -285,7 +283,7 @@ UNPACK = $(RM) -R $@ \
 	$(foreach f,$(filter %.tar.xz,$^), && tar xvJf $(f)) \
 	$(foreach f,$(filter %.zip,$^), && unzip $(f))
 UNPACK_DIR = $(basename $(basename $(notdir $<)))
-APPLY = (cd $(UNPACK_DIR) && patch -p1) <
+APPLY = (cd $(UNPACK_DIR) && patch -fp1) <
 pkg_static = (cd $(UNPACK_DIR) && ../../../contrib/src/pkg-static.sh $(1))
 MOVE = mv $(UNPACK_DIR) $@ && touch $@
 
@@ -393,6 +391,9 @@ ifdef HAVE_DARWIN_OS
 	echo "set(CMAKE_C_FLAGS $(CFLAGS))" >> $@
 	echo "set(CMAKE_CXX_FLAGS $(CFLAGS))" >> $@
 	echo "set(CMAKE_LD_FLAGS $(LDFLAGS))" >> $@
+endif
+ifdef HAVE_CROSS_COMPILE
+	echo "set(_CMAKE_TOOLCHAIN_PREFIX $(HOST)-)" >> $@
 endif
 	echo "set(CMAKE_C_COMPILER $(CC))" >> $@
 	echo "set(CMAKE_CXX_COMPILER $(CXX))" >> $@

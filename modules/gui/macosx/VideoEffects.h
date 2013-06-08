@@ -78,9 +78,21 @@
     IBOutlet id o_puzzle_ckb;
     IBOutlet id o_puzzle_rows_lbl;
     IBOutlet id o_puzzle_rows_fld;
+    IBOutlet id o_puzzle_rows_stp;
     IBOutlet id o_puzzle_columns_lbl;
     IBOutlet id o_puzzle_columns_fld;
-    IBOutlet id o_puzzle_blackslot_ckb;
+    IBOutlet id o_puzzle_columns_stp;
+    IBOutlet id o_clone_ckb;
+    IBOutlet id o_clone_number_fld;
+    IBOutlet id o_clone_number_stp;
+    IBOutlet id o_clone_number_lbl;
+    IBOutlet id o_wall_ckb;
+    IBOutlet id o_wall_numofrows_fld;
+    IBOutlet id o_wall_numofrows_stp;
+    IBOutlet id o_wall_numofrows_lbl;
+    IBOutlet id o_wall_numofcols_fld;
+    IBOutlet id o_wall_numofcols_stp;
+    IBOutlet id o_wall_numofcols_lbl;
 
     /* color */
     IBOutlet id o_threshold_ckb;
@@ -93,6 +105,7 @@
     IBOutlet id o_sepia_ckb;
     IBOutlet id o_sepia_lbl;
     IBOutlet id o_sepia_fld;
+    IBOutlet id o_sepia_stp;
     IBOutlet id o_noise_ckb;
     IBOutlet id o_gradient_ckb;
     IBOutlet id o_gradient_mode_lbl;
@@ -106,6 +119,7 @@
     IBOutlet id o_posterize_ckb;
     IBOutlet id o_posterize_lbl;
     IBOutlet id o_posterize_fld;
+    IBOutlet id o_posterize_stp;
     IBOutlet id o_blur_ckb;
     IBOutlet id o_blur_sld;
     IBOutlet id o_blur_lbl;
@@ -128,16 +142,22 @@
     IBOutlet id o_addlogo_transparency_lbl;
     IBOutlet id o_addlogo_transparency_sld;
     IBOutlet id o_anaglyph_ckb;
+
+    NSInteger i_old_profile_index;
 }
 
 /* generic */
 + (VLCVideoEffects *)sharedInstance;
+- (void)updateCocoaWindowLevel:(NSInteger)i_level;
+
 - (void)resetValues;
 - (void)setVideoFilter: (char *)psz_name on:(BOOL)b_on;
 - (void)setVideoFilterProperty: (char *)psz_name forFilter: (char*)psz_filter integer: (int)i_value;
 - (void)setVideoFilterProperty: (char *)psz_name forFilter: (char*)psz_filter float: (float)f_value;
 - (void)setVideoFilterProperty: (char *)psz_name forFilter: (char *)psz_filter string: (char *)psz_value;
 - (void)setVideoFilterProperty: (char *)psz_name forFilter: (char *)psz_filter boolean: (BOOL)b_value;
+
+- (void)saveCurrentProfile;
 
 - (IBAction)toggleWindow:(id)sender;
 - (IBAction)profileSelectorAction:(id)sender;
@@ -165,6 +185,10 @@
 - (IBAction)enableZoom:(id)sender;
 - (IBAction)enablePuzzle:(id)sender;
 - (IBAction)puzzleModifierChanged:(id)sender;
+- (IBAction)enableClone:(id)sender;
+- (IBAction)cloneModifierChanged:(id)sender;
+- (IBAction)enableWall:(id)sender;
+- (IBAction)wallModifierChanged:(id)sender;
 
 /* color */
 - (IBAction)enableThreshold:(id)sender;
@@ -192,4 +216,24 @@
 - (IBAction)enableAddLogo:(id)sender;
 - (IBAction)addLogoModifierChanged:(id)sender;
 - (IBAction)enableAnaglyph:(id)sender;
+
+/* text field / stepper binding values */
+/* use setter to modify gui elements */
+@property (nonatomic) int cropLeftValue;
+@property (nonatomic) int cropTopValue;
+@property (nonatomic) int cropRightValue;
+@property (nonatomic) int cropBottomValue;
+
+@property (nonatomic) int puzzleRowsValue;
+@property (nonatomic) int puzzleColumnsValue;
+
+@property (nonatomic) int wallRowsValue;
+@property (nonatomic) int wallColumnsValue;
+
+@property (nonatomic) int cloneValue;
+
+@property (nonatomic) int sepiaValue;
+
+@property (nonatomic) int posterizeValue;
+
 @end

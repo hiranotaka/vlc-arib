@@ -1,25 +1,25 @@
 /*****************************************************************************
  * file.c : audio output which writes the samples to a file
  *****************************************************************************
- * Copyright (C) 2002 the VideoLAN team
+ * Copyright (C) 2002 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Christophe Massiot <massiot@via.ecp.fr>
  *          Gildas Bazin <gbazin@netcourrier.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -71,7 +71,8 @@ static const int pi_channels_maps[CHANNELS_MAX+1] =
  * Local prototypes.
  *****************************************************************************/
 static int     Open        ( vlc_object_t * );
-static void    Play        ( audio_output_t *, block_t *, mtime_t * );
+static void    Play        ( audio_output_t *, block_t * );
+static void    Flush       ( audio_output_t *, bool );
 
 /*****************************************************************************
  * Module descriptor
@@ -86,18 +87,20 @@ static void    Play        ( audio_output_t *, block_t *, mtime_t * );
 #define WAV_LONGTEXT N_("Instead of writing a raw file, you can add a WAV " \
                         "header to the file.")
 
-static const char *const format_list[] = { "u8", "s8", "u16", "s16", "u16_le",
-                                     "s16_le", "u16_be", "s16_be",
-                                     "float32", "spdif" };
-static const int format_int[] = { VLC_CODEC_U8,
-                                  VLC_CODEC_S8,
-                                  VLC_CODEC_U16N, VLC_CODEC_S16N,
-                                  VLC_CODEC_U16L,
-                                  VLC_CODEC_S16L,
-                                  VLC_CODEC_U16B,
-                                  VLC_CODEC_S16B,
-                                  VLC_CODEC_F32L,
-                                  VLC_CODEC_SPDIFL };
+static const char *const format_list[] = {
+    "u8", "s16",
+#ifndef WORDS_BIGENDIAN
+    "float32",
+#endif
+    "spdif",
+};
+static const int format_int[] = {
+    VLC_CODEC_U8, VLC_CODEC_S16N,
+#ifndef WORDS_BIGENDIAN
+    VLC_CODEC_FL32,
+#endif
+    VLC_CODEC_SPDIFL,
+};
 
 #define FILE_TEXT N_("Output file")
 #define FILE_LONGTEXT N_("File to which the audio samples will be written to. (\"-\" for stdout")
@@ -154,9 +157,10 @@ static int Start( audio_output_t *p_aout, audio_sample_format_t *restrict fmt )
         return VLC_EGENERIC;
     }
 
+    p_aout->time_get = NULL;
     p_aout->play = Play;
     p_aout->pause = NULL;
-    p_aout->flush = NULL;
+    p_aout->flush = Flush;
 
     /* Audio format */
     psz_format = var_InheritString( p_aout, "audiofile-format" );
@@ -208,15 +212,16 @@ static int Start( audio_output_t *p_aout, audio_sample_format_t *restrict fmt )
 
         switch( fmt->i_format )
         {
-        case VLC_CODEC_F32L:
+#ifndef WORDS_BIGENDIAN
+        case VLC_CODEC_FL32:
             wh->Format     = WAVE_FORMAT_IEEE_FLOAT;
             wh->BitsPerSample = sizeof(float) * 8;
             break;
+#endif
         case VLC_CODEC_U8:
             wh->Format     = WAVE_FORMAT_PCM;
             wh->BitsPerSample = 8;
             break;
-        case VLC_CODEC_S16L:
         default:
             wh->Format     = WAVE_FORMAT_PCM;
             wh->BitsPerSample = 16;
@@ -296,8 +301,7 @@ static void Stop( audio_output_t *p_aout )
 /*****************************************************************************
  * Play: pretend to play a sound
  *****************************************************************************/
-static void Play( audio_output_t * p_aout, block_t *p_buffer,
-                  mtime_t *restrict drift )
+static void Play( audio_output_t * p_aout, block_t *p_buffer )
 {
     if( fwrite( p_buffer->p_buffer, p_buffer->i_buffer, 1,
                 p_aout->sys->p_file ) != 1 )
@@ -312,7 +316,13 @@ static void Play( audio_output_t * p_aout, block_t *p_buffer,
     }
 
     block_Release( p_buffer );
-    (void) drift;
+}
+
+static void Flush( audio_output_t *aout, bool wait )
+{
+    if( fflush( aout->sys->p_file ) )
+        msg_Err( aout, "flush error (%m)" );
+    (void) wait;
 }
 
 static int Open(vlc_object_t *obj)

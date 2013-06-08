@@ -128,6 +128,7 @@ sout_instance_t *sout_NewInstance( vlc_object_t *p_parent, const char *psz_dest 
 
     FREENULL( p_sout->psz_sout );
 
+    vlc_mutex_destroy( &p_sout->lock );
     vlc_object_release( p_sout );
     return NULL;
 }
@@ -608,7 +609,7 @@ static int mrl_Parse( mrl_t *p_mrl, const char *psz_mrl )
             psz_parser++;
         }
     }
-#if defined( WIN32 ) || defined( __OS2__ )
+#if defined( _WIN32 ) || defined( __OS2__ )
     if( psz_parser - psz_dup == 1 )
     {
         /* msg_Warn( p_sout, "drive letter %c: found in source string",

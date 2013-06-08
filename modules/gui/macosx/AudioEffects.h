@@ -99,21 +99,25 @@
     IBOutlet id o_filter_normLevel_sld;
     IBOutlet id o_filter_normLevel_lbl;
     IBOutlet id o_filter_karaoke_ckb;
+
+    NSInteger i_old_profile_index;
 }
 
 /* generic */
 + (VLCAudioEffects *)sharedInstance;
+
+- (void)updateCocoaWindowLevel:(NSInteger)i_level;
 - (IBAction)toggleWindow:(id)sender;
 - (void)setAudioFilter: (char *)psz_name on:(BOOL)b_on;
 - (IBAction)profileSelectorAction:(id)sender;
 - (IBAction)addAudioEffectsProfile:(id)sender;
 - (IBAction)removeAudioEffectsProfile:(id)sender;
 
+- (void)saveCurrentProfile;
+
 /* Equalizer */
 - (void)setupEqualizer;
 - (void)equalizerUpdated;
-- (void)setBandSlidersValues:(float *)values;
-- (void)initBandSliders;
 - (void)setValue:(float)value forSlider:(int)index;
 - (IBAction)eq_bandSliderUpdated:(id)sender;
 - (IBAction)eq_changePreset:(id)sender;

@@ -1,12 +1,10 @@
 /*****************************************************************************
  * controls.m: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2002-2012 VLC authors and VideoLAN
+ * Copyright (C) 2002-2013 VLC authors and VideoLAN
  * $Id$
  *
- * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
- *          Christophe Massiot <massiot@via.ecp.fr>
- *          Derk-Jan Hartman <hartman at videolan dot org>
+ * Authors: Derk-Jan Hartman <hartman at videolan dot org>
  *          Benjamin Pracht <bigben at videolan doit org>
  *          Felix Paul Kühne <fkuehne at videolan dot org>
  *
@@ -39,6 +37,7 @@
 #import "playlist.h"
 #import "MainMenu.h"
 #import "CoreInteraction.h"
+#import "misc.h"
 #import <vlc_keys.h>
 
 #pragma mark -
@@ -47,6 +46,8 @@
  *****************************************************************************/
 @implementation VLCControls
 
+@synthesize jumpTimeValue;
+
 - (void)awakeFromNib
 {
     [o_specificTime_mi setTitle: _NS("Jump To Time")];
@@ -54,8 +55,9 @@
     [o_specificTime_ok_btn setTitle: _NS("OK")];
     [o_specificTime_sec_lbl setStringValue: _NS("sec.")];
     [o_specificTime_goTo_lbl setStringValue: _NS("Jump to time")];
-}
 
+    [o_specificTime_enter_fld setFormatter:[[[PositionFormatter alloc] init] autorelease]];
+}
 
 - (void)dealloc
 {
@@ -66,7 +68,7 @@
 
 - (IBAction)play:(id)sender
 {
-    [[VLCCoreInteraction sharedInstance] play];
+    [[VLCCoreInteraction sharedInstance] playOrPause];
 }
 
 - (IBAction)stop:(id)sender
@@ -165,89 +167,10 @@
     }
 }
 
-- (IBAction)telxTransparent:(id)sender
-{
-    vlc_object_t *p_vbi;
-    p_vbi = (vlc_object_t *) vlc_object_find_name(pl_Get(VLCIntf), "zvbi");
-    if (p_vbi) {
-        var_SetBool(p_vbi, "vbi-opaque", [sender state]);
-        [sender setState: ![sender state]];
-        vlc_object_release(p_vbi);
-    }
-}
-
-- (IBAction)telxNavLink:(id)sender
-{
-    intf_thread_t * p_intf = VLCIntf;
-    vlc_object_t *p_vbi;
-    int i_page = 0;
-
-    if ([[sender title] isEqualToString: _NS("Index")])
-        i_page = 'i' << 16;
-    else if ([[sender title] isEqualToString: _NS("Red")])
-        i_page = 'r' << 16;
-    else if ([[sender title] isEqualToString: _NS("Green")])
-        i_page = 'g' << 16;
-    else if ([[sender title] isEqualToString: _NS("Yellow")])
-        i_page = 'y' << 16;
-    else if ([[sender title] isEqualToString: _NS("Blue")])
-        i_page = 'b' << 16;
-    if (i_page == 0) return;
-
-    p_vbi = (vlc_object_t *) vlc_object_find_name(pl_Get(VLCIntf), "zvbi");
-    if (p_vbi) {
-        var_SetInteger(p_vbi, "vbi-page", i_page);
-        vlc_object_release(p_vbi);
-    }
-}
-
 - (IBAction)lockVideosAspectRatio:(id)sender
 {
     [[VLCCoreInteraction sharedInstance] setAspectRatioIsLocked: ![sender state]];
     [sender setState: [[VLCCoreInteraction sharedInstance] aspectRatioIsLocked]];
-}
-
-- (IBAction)addSubtitleFile:(id)sender
-{
-    NSInteger i_returnValue = 0;
-    input_thread_t * p_input = pl_CurrentInput(VLCIntf);
-    if (!p_input)
-        return;
-
-    input_item_t *p_item = input_GetItem(p_input);
-    if (!p_item) {
-        vlc_object_release(p_input);
-        return;
-    }
-
-    char *path = input_item_GetURI(p_item);
-    if (!path)
-        path = strdup("");
-
-    NSOpenPanel * openPanel = [NSOpenPanel openPanel];
-    [openPanel setCanChooseFiles: YES];
-    [openPanel setCanChooseDirectories: NO];
-    [openPanel setAllowsMultipleSelection: YES];
-    [openPanel setAllowedFileTypes: [NSArray arrayWithObjects: @"cdg",@"@idx",@"srt",@"sub",@"utf",@"ass",@"ssa",@"aqt",@"jss",@"psb",@"rt",@"smi",@"txt",@"smil", nil]];
-    [openPanel setDirectoryURL:[NSURL fileURLWithPath:[[NSString stringWithUTF8String:path] stringByExpandingTildeInPath]]];
-    i_returnValue = [openPanel runModal];
-    free(path);
-
-    if (i_returnValue == NSOKButton) {
-        NSUInteger c = 0;
-        if (!p_input)
-            return;
-
-        c = [[openPanel URLs] count];
-
-        for (int i = 0; i < c ; i++) {
-            msg_Dbg(VLCIntf, "loading subs from %s", [[[[openPanel URLs] objectAtIndex: i] path] UTF8String]);
-            if (input_AddSubtitle(p_input, [[[[openPanel URLs] objectAtIndex: i] path] UTF8String], TRUE))
-                msg_Warn(VLCIntf, "unable to load subtitles from '%s'",
-                         [[[[openPanel URLs] objectAtIndex: i] path] UTF8String]);
-        }
-    }
-    vlc_object_release(p_input);
 }
 
 - (BOOL)keyEvent:(NSEvent *)o_event
@@ -300,12 +223,12 @@
                     [fieldContent componentsSeparatedByString: @":"];
 
                 if ([[fieldContent componentsSeparatedByString: @":"] count] == 3) {
-                    timeInSec += ([[ourTempArray objectAtIndex: 0] intValue] * 3600); //h
-                    timeInSec += ([[ourTempArray objectAtIndex: 1] intValue] * 60); //m
-                    timeInSec += [[ourTempArray objectAtIndex: 2] intValue];        //s
+                    timeInSec += ([[ourTempArray objectAtIndex:0] intValue] * 3600); //h
+                    timeInSec += ([[ourTempArray objectAtIndex:1] intValue] * 60); //m
+                    timeInSec += [[ourTempArray objectAtIndex:2] intValue];        //s
                 } else {
-                    timeInSec += ([[ourTempArray objectAtIndex: 0] intValue] * 60); //m
-                    timeInSec += [[ourTempArray objectAtIndex: 1] intValue]; //s
+                    timeInSec += ([[ourTempArray objectAtIndex:0] intValue] * 60); //m
+                    timeInSec += [[ourTempArray objectAtIndex:1] intValue]; //s
                 }
             }
             else
@@ -322,11 +245,10 @@
         if (p_input) {
             /* we can obviously only do that if an input is available */
             vlc_value_t pos, length;
-            var_Get(p_input, "time", &pos);
-            [o_specificTime_enter_fld setIntValue: (pos.i_time / 1000000)];
             var_Get(p_input, "length", &length);
             [o_specificTime_stepper setMaxValue: (length.i_time / 1000000)];
-
+            var_Get(p_input, "time", &pos);
+            [self setJumpTimeValue: (pos.i_time / 1000000)];
             [NSApp beginSheet: o_specificTime_win modalForWindow: \
                 [NSApp mainWindow] modalDelegate: self didEndSelector: nil \
                 contextInfo: nil];

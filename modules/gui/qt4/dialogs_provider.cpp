@@ -596,20 +596,48 @@ void DialogsProvider::saveAPlaylist()
 
     QString selected;
     QString file = QFileDialog::getSaveFileName( NULL,
-                                  qtr( "Save playlist as..." ),
-                                  p_intf->p_sys->filepath, filters.join( ";;" ),
-                                  &selected );
+                                                 qtr( "Save playlist as..." ),
+                                                 p_intf->p_sys->filepath, filters.join( ";;" ),
+                                                 &selected );
+    const char *psz_selected_module = NULL;
+    const char *psz_last_playlist_ext = NULL;
+
     if( file.isEmpty() )
         return;
 
+    /* First test if the file extension is set, and different to selected filter */
     for( size_t i = 0; i < sizeof (types) / sizeof (types[0]); i++)
-        if( selected == qfu( vlc_gettext( types[i].filter_name ) ) + " (*." + qfu( types[i].filter_patterns ) + ")" )
+    {
+        if ( file.endsWith( QString( "." ) + qfu( types[i].filter_patterns ) ) )
         {
-            playlist_Export( THEPL, qtu( toNativeSeparators( file ) ),
-                             THEPL->p_playing, types[i].module );
-            getSettings()->setValue( "last-playlist-ext", types[i].filter_patterns );
+            psz_selected_module = types[i].module;
+            psz_last_playlist_ext = types[i].filter_patterns;
             break;
         }
+    }
+
+    /* otherwise apply the selected extension */
+    if ( !psz_last_playlist_ext )
+    {
+        for( size_t i = 0; i < sizeof (types) / sizeof (types[0]); i++)
+        {
+            if ( selected.startsWith( qfu( vlc_gettext( types[i].filter_name ) ) ) )
+            {
+                psz_selected_module = types[i].module;
+                psz_last_playlist_ext = types[i].filter_patterns;
+                /* Fix file extension */
+                file = file.append( QString( "." ) + qfu( psz_last_playlist_ext ) );
+                break;
+            }
+        }
+    }
+
+    if ( psz_selected_module )
+    {
+        playlist_Export( THEPL, qtu( toNativeSeparators( file ) ),
+                         THEPL->p_playing, psz_selected_module );
+        getSettings()->setValue( "last-playlist-ext", psz_last_playlist_ext );
+    }
 }
 
 /****************************************************************************

@@ -27,23 +27,41 @@
 #include <QDateTime>
 #include <QMatrix>
 #include <QPaintEvent>
-#include <QScrollBar>
-#include <QtDebug>
-#include <QGraphicsTextItem>
+#include <QRectF>
 
 EPGGraphicsScene::EPGGraphicsScene( QObject *parent ) : QGraphicsScene( parent )
 {}
 
 void EPGGraphicsScene::drawBackground( QPainter *painter, const QRectF &rect)
 {
-    EPGView *epgView;
+    EPGView *epgView = qobject_cast<EPGView *>(parent());
+
+    /* day change */
+    QDateTime rectstarttime = epgView->startTime().addSecs( rect.left() );
+    QDateTime nextdaylimit = QDateTime( rectstarttime.date() );
+    QRectF area( rect );
+    while( area.left() < width() )
+    {
+        nextdaylimit = nextdaylimit.addDays( 1 );
+        area.setRight( epgView->startTime().secsTo( nextdaylimit ) );
+
+        if ( epgView->startTime().date().daysTo( nextdaylimit.date() ) % 2 != 0 )
+            painter->fillRect( area, palette().color( QPalette::Base ) );
+        else
+            painter->fillRect( area, palette().color( QPalette::AlternateBase ) );
+
+        area.setLeft( area.right() + 1 );
+    }
+
+    /* channels lines */
     painter->setPen( QPen( QColor( 224, 224, 224 ) ) );
     for( int y = rect.top() + TRACKS_HEIGHT ; y < rect.bottom() ; y += TRACKS_HEIGHT )
        painter->drawLine( QLineF( rect.left(), y, rect.right(), y ) );
-    epgView = qobject_cast<EPGView *>(parent());
+
+    /* current hour line */
     int x = epgView->startTime().secsTo( epgView->baseTime() );
     painter->setPen( QPen( QColor( 255, 192, 192 ) ) );
-        painter->drawLine( QLineF( x, rect.top(), x, rect.bottom() ) );
+    painter->drawLine( QLineF( x, rect.top(), x, rect.bottom() ) );
 }
 
 EPGView::EPGView( QWidget *parent ) : QGraphicsView( parent )
@@ -94,12 +112,12 @@ void EPGView::updateChannels()
     mutex.unlock();
 }
 
-const QDateTime& EPGView::startTime()
+const QDateTime& EPGView::startTime() const
 {
     return m_startTime;
 }
 
-const QDateTime& EPGView::baseTime()
+const QDateTime& EPGView::baseTime() const
 {
     return m_baseTime;
 }
@@ -178,6 +196,11 @@ bool EPGView::addEPGEvent( vlc_epg_event_t *eventdata, QString channelName, bool
         scene()->addItem( epgItem );
         /* update only our row (without calling the updatechannels()) */
         epgItem->setRow( epgitemsByChannel.keys().indexOf( channelName ) );
+
+        /* First Insert, needs to focus by default then */
+        if ( epgitemsByChannel.keys().count() == 1 &&
+             epgItemByTime->count() == 1 )
+            focusItem( epgItem );
     }
     mutex.unlock();
 

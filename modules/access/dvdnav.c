@@ -1,25 +1,33 @@
 /*****************************************************************************
  * dvdnav.c: DVD module using the dvdnav library.
  *****************************************************************************
- * Copyright (C) 2004-2009 the VideoLAN team
+ * Copyright (C) 2004-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
+
+/*****************************************************************************
+ * NOTA BENE: this module requires the linking against a library which is
+ * known to require licensing under the GNU General Public License version 2
+ * (or later). Therefore, the result of compiling this module will normally
+ * be subject to the terms of that later license.
+ *****************************************************************************/
+
 
 /*****************************************************************************
  * Preamble
@@ -48,7 +56,6 @@
 #include <vlc_url.h>
 #include <vlc_vout.h>
 #include <vlc_dialog.h>
-#include <vlc_keys.h>
 #include <vlc_iso_lang.h>
 
 /* FIXME we should find a better way than including that */
@@ -164,8 +171,6 @@ static int ControlInternal( demux_t *, int, ... );
 
 static void StillTimer( void * );
 
-static int EventKey( vlc_object_t *, char const *,
-                     vlc_value_t, vlc_value_t, void * );
 static int EventMouse( vlc_object_t *, char const *,
                        vlc_value_t, vlc_value_t, void * );
 static int EventIntf( vlc_object_t *, char const *,
@@ -199,7 +204,7 @@ static int Open( vlc_object_t *p_this )
     else
         psz_file = strdup( p_demux->psz_file );
 
-#if defined( WIN32 ) || defined( __OS2__ )
+#if defined( _WIN32 ) || defined( __OS2__ )
     if( psz_file != NULL )
     {
         /* Remove trailing backslash, otherwise dvdnav_open will fail */
@@ -358,8 +363,6 @@ static int Open( vlc_object_t *p_this )
     var_Create( p_sys->p_input, "menu-palette", VLC_VAR_ADDRESS );
     var_Create( p_sys->p_input, "highlight", VLC_VAR_BOOL );
 
-    /* catch all key event */
-    var_AddCallback( p_demux->p_libvlc, "key-action", EventKey, p_demux );
     /* catch vout creation event */
     var_AddCallback( p_sys->p_input, "intf-event", EventIntf, p_demux );
 
@@ -387,9 +390,6 @@ static void Close( vlc_object_t *p_this )
         var_DelCallback( p_sys->p_vout, "mouse-moved", EventMouse, p_demux );
         var_DelCallback( p_sys->p_vout, "mouse-clicked", EventMouse, p_demux );
     }
-
-    /* Stop key event handler (FIXME: should really be per-vout too) */
-    var_DelCallback( p_demux->p_libvlc, "key-action", EventKey, p_demux );
 
     /* Stop still image handler */
     if( p_sys->still.b_created )
@@ -570,10 +570,53 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             return VLC_EGENERIC;
         }
 
+        case DEMUX_NAV_ACTIVATE:
+        {
+            pci_t *pci = dvdnav_get_current_nav_pci( p_sys->dvdnav );
+
+            ButtonUpdate( p_demux, true );
+            dvdnav_button_activate( p_sys->dvdnav, pci );
+            break;
+        }
+
+        case DEMUX_NAV_UP:
+        {
+            pci_t *pci = dvdnav_get_current_nav_pci( p_sys->dvdnav );
+
+            dvdnav_upper_button_select( p_sys->dvdnav, pci );
+            break;
+        }
+
+        case DEMUX_NAV_DOWN:
+        {
+            pci_t *pci = dvdnav_get_current_nav_pci( p_sys->dvdnav );
+
+            dvdnav_lower_button_select( p_sys->dvdnav, pci );
+            break;
+        }
+
+        case DEMUX_NAV_LEFT:
+        {
+            pci_t *pci = dvdnav_get_current_nav_pci( p_sys->dvdnav );
+
+            dvdnav_left_button_select( p_sys->dvdnav, pci );
+            break;
+        }
+
+        case DEMUX_NAV_RIGHT:
+        {
+            pci_t *pci = dvdnav_get_current_nav_pci( p_sys->dvdnav );
+
+            dvdnav_right_button_select( p_sys->dvdnav, pci );
+            break;
+        }
+
         /* TODO implement others */
         default:
             return VLC_EGENERIC;
     }
+
+    return VLC_SUCCESS;
 }
 
 static int ControlInternal( demux_t *p_demux, int i_query, ... )
@@ -1154,7 +1197,7 @@ static int DemuxBlock( demux_t *p_demux, const uint8_t *p, int len )
         }
 
         /* Create a block */
-        block_t *p_pkt = block_New( p_demux, i_size );
+        block_t *p_pkt = block_Alloc( i_size );
         memcpy( p_pkt->p_buffer, p, i_size);
 
         /* Parse it and send it */
@@ -1374,39 +1417,6 @@ static int EventMouse( vlc_object_t *p_vout, char const *psz_var,
     }
     (void)p_vout;
     (void)oldval;
-    return VLC_SUCCESS;
-}
-
-static int EventKey( vlc_object_t *p_this, char const *psz_var,
-                     vlc_value_t oldval, vlc_value_t newval, void *p_data )
-{
-    demux_t *p_demux = p_data;
-    demux_sys_t *p_sys = p_demux->p_sys;
-
-    /* FIXME: thread-safe ? */
-    pci_t *pci = dvdnav_get_current_nav_pci( p_sys->dvdnav );
-
-    switch( newval.i_int )
-    {
-    case ACTIONID_NAV_LEFT:
-        dvdnav_left_button_select( p_sys->dvdnav, pci );
-        break;
-    case ACTIONID_NAV_RIGHT:
-        dvdnav_right_button_select( p_sys->dvdnav, pci );
-        break;
-    case ACTIONID_NAV_UP:
-        dvdnav_upper_button_select( p_sys->dvdnav, pci );
-        break;
-    case ACTIONID_NAV_DOWN:
-        dvdnav_lower_button_select( p_sys->dvdnav, pci );
-        break;
-    case ACTIONID_NAV_ACTIVATE:
-        ButtonUpdate( p_demux, true );
-        dvdnav_button_activate( p_sys->dvdnav, pci );
-        break;
-    }
-
-    (void)p_this;    (void)psz_var;    (void)oldval;
     return VLC_SUCCESS;
 }
 

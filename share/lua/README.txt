@@ -155,7 +155,6 @@ misc.action_id( name ): get the id of the given action.
 misc.mdate(): Get the current date (in microseconds).
 misc.mwait(): Wait for the given date (in microseconds).
 
-misc.should_die(): Returns true if the interface should quit.
 misc.quit(): Quit VLC.
 
 Net
@@ -220,13 +219,6 @@ osd.slider( position, type, [id] ): Display slider. Position is an integer
   from 0 to 100. Type can be "horizontal" or "vertical".
 osd.channel_register(): Register a new OSD channel. Returns the channel id.
 osd.channel_clear( id ): Clear OSD channel.
-osd.menu.show(): Show the OSD menu.
-osd.menu.hide(): Hide the OSD menu.
-osd.menu.prev(): Select previous/left item.
-osd.menu.next(): Select next/right item.
-osd.menu.up(): Move selection up.
-osd.menu.down(): Move selection down.
-osd.menu.activate(): Activate/validate current selection.
 
 Playlist
 --------
@@ -299,12 +291,15 @@ playlist.get( [what, [tree]] ): Get the playlist.
       .nb_played:
       .children: A table of children playlist items.
 playlist.search( name ): filter the playlist items with the given string
-playlist.current(): return the current input item
+playlist.current(): return the current input item id
 playlist.sort( key ): sort the playlist according to the key.
   Key must be one of the followings values: 'id', 'title', 'title nodes first',
                                             'artist', 'genre', 'random', 'duration',
                                             'title numeric' or 'album'.
 playlist.status(): return the playlist status: 'stopped', 'playing', 'paused' or 'unknown'.
+playlist.delete( id ): check if item of id is in playlist and delete it. returns -1 when invalid id.
+playlist.move( id_item, id_where ): take id_item and if id_where has children, it put it as first children, 
+   if id_where don't have children, id_item is put after id_where in same playlist. returns -1 when invalid ids.
 
 FIXME: add methods to get an item's meta, options, es ...
 
@@ -392,8 +387,6 @@ var.create( object, name, value ): Create and set the object's variable "name"
 var.trigger_callback( object, name ): Trigger the callbacks associated with the
   object's "name" variable.
 
-var.command( object name, name, argument ): Issue "object name"'s "name"
-  command with argument "argument".
 var.libvlc_command( name, argument ): Issue libvlc's "name" command with
   argument "argument".
 

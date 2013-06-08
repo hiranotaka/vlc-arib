@@ -8,19 +8,19 @@
  * Authors: Geoffroy Couprie <geal@videolan.org>
  *          Laurent Aimar <fenrir _AT_ videolan _DOT_ org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -145,19 +145,19 @@ typedef struct {
 /* XXX Prefered modes must come first */
 static const dxva2_mode_t dxva2_modes[] = {
     /* MPEG-1/2 */
-    { "MPEG-2 variable-length decoder",                                               &DXVA2_ModeMPEG2_VLD,                   CODEC_ID_MPEG2VIDEO },
-    { "MPEG-2 & MPEG-1 variable-length decoder",                                      &DXVA2_ModeMPEG2and1_VLD,               CODEC_ID_MPEG2VIDEO },
+    { "MPEG-2 variable-length decoder",                                               &DXVA2_ModeMPEG2_VLD,                   AV_CODEC_ID_MPEG2VIDEO },
+    { "MPEG-2 & MPEG-1 variable-length decoder",                                      &DXVA2_ModeMPEG2and1_VLD,               AV_CODEC_ID_MPEG2VIDEO },
     { "MPEG-2 motion compensation",                                                   &DXVA2_ModeMPEG2_MoComp,                0 },
     { "MPEG-2 inverse discrete cosine transform",                                     &DXVA2_ModeMPEG2_IDCT,                  0 },
 
     { "MPEG-1 variable-length decoder",                                               &DXVA2_ModeMPEG1_VLD,                   0 },
 
     /* H.264 */
-    { "H.264 variable-length decoder, film grain technology",                         &DXVA2_ModeH264_F,                      CODEC_ID_H264 },
-    { "H.264 variable-length decoder, no film grain technology",                      &DXVA2_ModeH264_E,                      CODEC_ID_H264 },
-    { "H.264 variable-length decoder, no film grain technology (Intel ClearVideo)",   &DXVADDI_Intel_ModeH264_E,              CODEC_ID_H264 },
-    { "H.264 variable-length decoder, no film grain technology, FMO/ASO",             &DXVA_ModeH264_VLD_WithFMOASO_NoFGT,    CODEC_ID_H264 },
-    { "H.264 variable-length decoder, no film grain technology, Flash",               &DXVA_ModeH264_VLD_NoFGT_Flash,         CODEC_ID_H264 },
+    { "H.264 variable-length decoder, film grain technology",                         &DXVA2_ModeH264_F,                      AV_CODEC_ID_H264 },
+    { "H.264 variable-length decoder, no film grain technology (Intel ClearVideo)",   &DXVADDI_Intel_ModeH264_E,              AV_CODEC_ID_H264 },
+    { "H.264 variable-length decoder, no film grain technology",                      &DXVA2_ModeH264_E,                      AV_CODEC_ID_H264 },
+    { "H.264 variable-length decoder, no film grain technology, FMO/ASO",             &DXVA_ModeH264_VLD_WithFMOASO_NoFGT,    AV_CODEC_ID_H264 },
+    { "H.264 variable-length decoder, no film grain technology, Flash",               &DXVA_ModeH264_VLD_NoFGT_Flash,         AV_CODEC_ID_H264 },
 
     { "H.264 inverse discrete cosine transform, film grain technology",               &DXVA2_ModeH264_D,                      0 },
     { "H.264 inverse discrete cosine transform, no film grain technology",            &DXVA2_ModeH264_C,                      0 },
@@ -176,10 +176,10 @@ static const dxva2_mode_t dxva2_modes[] = {
     { "Windows Media Video 9 post processing",                                        &DXVA2_ModeWMV9_A,                      0 },
 
     /* VC-1 */
-    { "VC-1 variable-length decoder",                                                 &DXVA2_ModeVC1_D,                       CODEC_ID_VC1 },
-    { "VC-1 variable-length decoder",                                                 &DXVA2_ModeVC1_D,                       CODEC_ID_WMV3 },
-    { "VC-1 variable-length decoder",                                                 &DXVA2_ModeVC1_D2010,                   CODEC_ID_VC1 },
-    { "VC-1 variable-length decoder",                                                 &DXVA2_ModeVC1_D2010,                   CODEC_ID_WMV3 },
+    { "VC-1 variable-length decoder",                                                 &DXVA2_ModeVC1_D,                       AV_CODEC_ID_VC1 },
+    { "VC-1 variable-length decoder",                                                 &DXVA2_ModeVC1_D,                       AV_CODEC_ID_WMV3 },
+    { "VC-1 variable-length decoder",                                                 &DXVA2_ModeVC1_D2010,                   AV_CODEC_ID_VC1 },
+    { "VC-1 variable-length decoder",                                                 &DXVA2_ModeVC1_D2010,                   AV_CODEC_ID_WMV3 },
     { "VC-1 variable-length decoder 2 (Intel)",                                       &DXVA_Intel_VC1_ClearVideo_2,           0 },
     { "VC-1 variable-length decoder (Intel)",                                         &DXVA_Intel_VC1_ClearVideo,             0 },
 
@@ -572,7 +572,7 @@ static int D3dCreateDevice(vlc_va_dxva2_t *va)
     /* */
     LPDIRECT3D9 (WINAPI *Create9)(UINT SDKVersion);
     Create9 = (void *)GetProcAddress(va->hd3d9_dll,
-                                     TEXT("Direct3DCreate9"));
+                                     "Direct3DCreate9");
     if (!Create9) {
         msg_Err(va->log, "Cannot locate reference to Direct3DCreate9 ABI in DLL");
         return VLC_EGENERIC;
@@ -679,7 +679,7 @@ static int D3dCreateDeviceManager(vlc_va_dxva2_t *va)
                                            IDirect3DDeviceManager9 **);
     CreateDeviceManager9 =
       (void *)GetProcAddress(va->hdxva2_dll,
-                             TEXT("DXVA2CreateDirect3DDeviceManager9"));
+                             "DXVA2CreateDirect3DDeviceManager9");
 
     if (!CreateDeviceManager9) {
         msg_Err(va->log, "cannot load function");
@@ -723,7 +723,7 @@ static int DxCreateVideoService(vlc_va_dxva2_t *va)
                                          void **ppService);
     CreateVideoService =
       (void *)GetProcAddress(va->hdxva2_dll,
-                             TEXT("DXVA2CreateVideoService"));
+                             "DXVA2CreateVideoService");
 
     if (!CreateVideoService) {
         msg_Err(va->log, "cannot load function");
@@ -865,7 +865,7 @@ static int DxCreateVideoDecoder(vlc_va_dxva2_t *va,
     va->surface_width  = (fmt->i_width  + 15) & ~15;
     va->surface_height = (fmt->i_height + 15) & ~15;
     switch (codec_id) {
-    case CODEC_ID_H264:
+    case AV_CODEC_ID_H264:
         va->surface_count = 16 + 1;
         break;
     default:
@@ -950,7 +950,7 @@ static int DxCreateVideoDecoder(vlc_va_dxva2_t *va,
         int score;
         if (cfg->ConfigBitstreamRaw == 1)
             score = 1;
-        else if (codec_id == CODEC_ID_H264 && cfg->ConfigBitstreamRaw == 2)
+        else if (codec_id == AV_CODEC_ID_H264 && cfg->ConfigBitstreamRaw == 2)
             score = 2;
         else
             continue;

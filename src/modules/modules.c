@@ -261,6 +261,9 @@ module_t *vlc_module_load(vlc_object_t *obj, const char *capability,
         const char *shortcut = buf;
         assert (shortcut != NULL);
 
+        if (!strcasecmp ("none", shortcut))
+            goto done;
+
         obj->b_force = strict && strcasecmp ("any", shortcut);
         for (ssize_t i = 0; i < total; i++)
         {
@@ -400,7 +403,7 @@ module_t *module_find (const char *name)
 }
 
 /**
- * Tell if a module exists and release it in thic case
+ * Tell if a module exists
  *
  * \param psz_name th name of the module
  * \return TRUE if the module exists

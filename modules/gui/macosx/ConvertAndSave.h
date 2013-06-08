@@ -106,11 +106,10 @@
     IBOutlet id _stream_port_lbl;
     IBOutlet id _stream_port_fld;
     IBOutlet id _stream_sap_ckb;
-    IBOutlet id _stream_http_ckb;
-    IBOutlet id _stream_rtsp_ckb;
-    IBOutlet id _stream_sdp_ckb;
     IBOutlet id _stream_channel_fld;
+    IBOutlet id _stream_sdp_matrix;
     IBOutlet id _stream_sdp_fld;
+    IBOutlet id _stream_sdp_browsefile_btn;
 
     NSString * _MRL;
     NSString * _outputDestination;
@@ -128,6 +127,13 @@
 @property (readwrite, retain) NSArray * profileNames;
 @property (readwrite, retain) NSArray * profileValueList;
 @property (readwrite, retain) NSMutableArray * currentProfile;
+
+/* Bindings for field / stepper combis */
+@property (nonatomic) int vidBitrate;
+@property (nonatomic) int vidFramerate;
+@property (nonatomic) int audBitrate;
+@property (nonatomic) int audChannels;
+
 
 + (VLCConvertAndSave *)sharedInstance;
 
@@ -147,6 +153,7 @@
 - (IBAction)closeStreamPanel:(id)sender;
 - (IBAction)streamTypeToggle:(id)sender;
 - (IBAction)streamAnnouncementToggle:(id)sender;
+- (IBAction)sdpFileLocationSelector:(id)sender;
 
 - (void)panel:(VLCEnterTextPanel *)panel returnValue:(NSUInteger)value text:(NSString *)text;
 - (void)panel:(VLCSelectItemInPopupPanel *)panel returnValue:(NSUInteger)value item:(NSUInteger)item;

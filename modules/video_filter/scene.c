@@ -1,25 +1,25 @@
 /*****************************************************************************
  * scene.c : scene video filter (based on modules/video_output/image.c)
  *****************************************************************************
- * Copyright (C) 2004-2008 the VideoLAN team
+ * Copyright (C) 2004-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jean-Paul Saman <jpsaman@videolan.org>
  *          Clément Stenac <zorglub@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -94,7 +94,7 @@ vlc_module_begin ()
     set_description( N_( "Scene video filter" ) )
     set_help(SCENE_HELP)
     set_category( CAT_VIDEO )
-    set_subcategory( SUBCAT_VIDEO_VOUT )
+    set_subcategory( SUBCAT_VIDEO_VFILTER )
     set_capability( "video filter2", 0 )
 
     /* General options */
@@ -319,7 +319,7 @@ static void SavePicture( filter_t *p_filter, picture_t *p_pic )
     else
     {
         /* switch to the final destination */
-#if defined (WIN32) || defined(__OS2__)
+#if defined (_WIN32) || defined(__OS2__)
         vlc_unlink( psz_filename );
 #endif
         i_ret = vlc_rename( psz_temp, psz_filename );

@@ -61,7 +61,7 @@ static void Close        ( vlc_object_t * );
 vlc_module_begin ()
     set_shortname( N_("vsxu"))
     set_description( N_("vsxu") )
-    set_capability( "visualization2", 0 )
+    set_capability( "visualization", 0 )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_VISUAL )
     add_integer( "vsxu-width", 1280, WIDTH_TEXT, WIDTH_LONGTEXT,
@@ -112,19 +112,6 @@ static int Open( vlc_object_t * p_this )
     filter_t     *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys;
 
-    /* Test the audio format */
-    if( p_filter->fmt_in.audio.i_format != VLC_CODEC_FL32 ||
-        p_filter->fmt_out.audio.i_format != VLC_CODEC_FL32 )
-    {
-        msg_Warn( p_filter, "bad input or output format" );
-        return VLC_EGENERIC;
-    }
-    if( !AOUT_FMTS_SIMILAR( &p_filter->fmt_in.audio, &p_filter->fmt_out.audio ) )
-    {
-        msg_Warn( p_filter, "input and outut are not similar" );
-        return VLC_EGENERIC;
-    }
-
     p_sys = p_filter->p_sys = (filter_sys_t*)malloc( sizeof( *p_sys ) );
     if( unlikely( !p_sys ) )
     {
@@ -155,6 +142,8 @@ static int Open( vlc_object_t * p_this )
         goto error;
     }
 
+    p_filter->fmt_in.audio.i_format = VLC_CODEC_FL32;
+    p_filter->fmt_out.audio = p_filter->fmt_in.audio;
     p_filter->pf_audio_filter = DoWork;
 
     return VLC_SUCCESS;

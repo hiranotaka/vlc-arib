@@ -52,6 +52,9 @@
 # include <stdbool.h>
 #endif
 
+/*****************************************************************************
+ * Compilers definitions
+ *****************************************************************************/
 /* Helper for GCC version checks */
 #ifdef __GNUC__
 # define VLC_GCC_VERSION(maj,min) \
@@ -74,6 +77,7 @@
  #define PRIx64 "llx"
  #define snprintf __mingw_snprintf
  #define vsnprintf __mingw_vsnprintf
+ #define swprintf _snwprintf
 #endif
 
 /* Function attributes for compiler warnings */
@@ -122,7 +126,7 @@
 # define VLC_EXTERN
 #endif
 
-#if defined (WIN32) && defined (DLL_EXPORT)
+#if defined (_WIN32) && defined (DLL_EXPORT)
 # define VLC_EXPORT __declspec(dllexport)
 #elif VLC_GCC_VERSION(4,0)
 # define VLC_EXPORT __attribute__((visibility("default")))
@@ -136,17 +140,6 @@
 /*****************************************************************************
  * Basic types definitions
  *****************************************************************************/
-#if defined( WIN32 )
-#   include <malloc.h>
-#   ifndef PATH_MAX
-#       define PATH_MAX MAX_PATH
-#   endif
-#endif
-
-#ifdef __SYMBIAN32__
- #include <sys/syslimits.h>
-#endif
-
 /**
  * High precision date or time interval
  *
@@ -225,7 +218,6 @@ typedef enum {
 
 typedef struct playlist_t playlist_t;
 typedef struct playlist_item_t playlist_item_t;
-typedef struct playlist_view_t playlist_view_t;
 typedef struct services_discovery_t services_discovery_t;
 typedef struct services_discovery_sys_t services_discovery_sys_t;
 typedef struct playlist_add_t playlist_add_t;
@@ -264,8 +256,6 @@ typedef struct video_palette_t video_palette_t;
 /* Audio */
 typedef struct audio_output audio_output_t;
 typedef struct aout_sys_t aout_sys_t;
-typedef struct aout_fifo_t aout_fifo_t;
-typedef struct aout_input_t aout_input_t;
 typedef audio_format_t audio_sample_format_t;
 
 /* Video */
@@ -278,14 +268,12 @@ typedef struct picture_sys_t picture_sys_t;
 /* Subpictures */
 typedef struct spu_t spu_t;
 typedef struct subpicture_t subpicture_t;
-typedef struct subpicture_sys_t subpicture_sys_t;
 typedef struct subpicture_region_t subpicture_region_t;
 
 typedef struct image_handler_t image_handler_t;
 
 /* Stream output */
 typedef struct sout_instance_t sout_instance_t;
-typedef struct sout_instance_sys_t sout_instance_sys_t;
 
 typedef struct sout_input_t sout_input_t;
 typedef struct sout_packetizer_input_t sout_packetizer_input_t;
@@ -340,13 +328,6 @@ typedef struct vod_t     vod_t;
 typedef struct vod_sys_t vod_sys_t;
 typedef struct vod_media_t vod_media_t;
 
-/* osdmenu */
-typedef struct osd_menu_t   osd_menu_t;
-typedef struct osd_state_t  osd_state_t;
-typedef struct osd_event_t  osd_event_t;
-typedef struct osd_button_t osd_button_t;
-typedef struct osd_menu_state_t osd_menu_state_t;
-
 /* VLM */
 typedef struct vlm_t         vlm_t;
 typedef struct vlm_message_t vlm_message_t;
@@ -357,10 +338,6 @@ typedef struct input_stats_t input_stats_t;
 
 /* Update */
 typedef struct update_t update_t;
-typedef struct update_iterator_t update_iterator_t;
-
-/* Meta engine */
-typedef struct meta_engine_t meta_engine_t;
 
 /**
  * VLC value structure
@@ -393,22 +370,15 @@ struct vlc_list_t
 /*****************************************************************************
  * Error values (shouldn't be exposed)
  *****************************************************************************/
-#define VLC_SUCCESS         -0                                   /* No error */
-#define VLC_ENOMEM          -1                          /* Not enough memory */
-#define VLC_ETIMEOUT        -3                                    /* Timeout */
-
-#define VLC_ENOMOD         -10                           /* Module not found */
-
-#define VLC_ENOOBJ         -20                           /* Object not found */
-
-#define VLC_ENOVAR         -30                         /* Variable not found */
-#define VLC_EBADVAR        -31                         /* Bad variable value */
-
-#define VLC_ENOITEM        -40                           /**< Item not found */
-
-#define VLC_EEXIT         -255                             /* Program exited */
-#define VLC_EEXITSUCCESS  -999                /* Program exited successfully */
-#define VLC_EGENERIC      -666                              /* Generic error */
+#define VLC_SUCCESS        (-0) /**< No error */
+#define VLC_EGENERIC       (-1) /**< Unspecified error */
+#define VLC_ENOMEM         (-2) /**< Not enough memory */
+#define VLC_ETIMEOUT       (-3) /**< Timeout */
+#define VLC_ENOMOD         (-4) /**< Module not found */
+#define VLC_ENOOBJ         (-5) /**< Object not found */
+#define VLC_ENOVAR         (-6) /**< Variable not found */
+#define VLC_EBADVAR        (-7) /**< Bad variable value */
+#define VLC_ENOITEM        (-8) /**< Item not found */
 
 /*****************************************************************************
  * Variable callbacks
@@ -422,8 +392,16 @@ typedef int ( * vlc_callback_t ) ( vlc_object_t *,      /* variable's object */
 /*****************************************************************************
  * OS-specific headers and thread types
  *****************************************************************************/
-#if defined( WIN32 )
-# include <windows.h>
+#if defined( _WIN32 )
+#   include <malloc.h>
+#   ifndef PATH_MAX
+#       define PATH_MAX MAX_PATH
+#   endif
+#   include <windows.h>
+#endif
+
+#ifdef __SYMBIAN32__
+ #include <sys/syslimits.h>
 #endif
 
 #ifdef __OS2__
@@ -531,7 +509,7 @@ static inline unsigned clz (unsigned x)
 
     while (x)
     {
-        x = x >> 1;
+        x >>= 1;
         i--;
     }
     return i;
@@ -542,6 +520,24 @@ static inline unsigned clz (unsigned x)
 #define clz16( x ) (clz(x) - ((sizeof(unsigned) - sizeof (uint16_t)) * 8))
 /* XXX: this assumes that int is 32-bits or more */
 #define clz32( x ) (clz(x) - ((sizeof(unsigned) - sizeof (uint32_t)) * 8))
+
+/** Count trailing zeroes */
+VLC_USED
+static inline unsigned ctz (unsigned x)
+{
+#if VLC_GCC_VERSION(3,4)
+    return __builtin_ctz (x);
+#else
+    unsigned i = sizeof (x) * 8;
+
+    while (x)
+    {
+        x <<= 1;
+        i--;
+    }
+    return i;
+#endif
+}
 
 /** Bit weight */
 VLC_USED
@@ -589,7 +585,7 @@ static inline uint16_t bswap16 (uint16_t x)
 VLC_USED
 static inline uint32_t bswap32 (uint32_t x)
 {
-#if VLC_GCC_VERSION(4,3)
+#if VLC_GCC_VERSION(4,3) || defined(__clang__)
     return __builtin_bswap32 (x);
 #else
     return ((x & 0x000000FF) << 24)
@@ -603,7 +599,7 @@ static inline uint32_t bswap32 (uint32_t x)
 VLC_USED
 static inline uint64_t bswap64 (uint64_t x)
 {
-#if VLC_GCC_VERSION(4,3)
+#if VLC_GCC_VERSION(4,3) || defined(__clang__)
     return __builtin_bswap64 (x);
 #elif !defined (__cplusplus)
     return ((x & 0x00000000000000FF) << 56)
@@ -615,14 +611,14 @@ static inline uint64_t bswap64 (uint64_t x)
          | ((x & 0x00FF000000000000) >> 40)
          | ((x & 0xFF00000000000000) >> 56);
 #else
-    return ((x & 0x00000000000000FFLLU) << 56)
-         | ((x & 0x000000000000FF00LLU) << 40)
-         | ((x & 0x0000000000FF0000LLU) << 24)
-         | ((x & 0x00000000FF000000LLU) <<  8)
-         | ((x & 0x000000FF00000000LLU) >>  8)
-         | ((x & 0x0000FF0000000000LLU) >> 24)
-         | ((x & 0x00FF000000000000LLU) >> 40)
-         | ((x & 0xFF00000000000000LLU) >> 56);
+    return ((x & 0x00000000000000FFULL) << 56)
+         | ((x & 0x000000000000FF00ULL) << 40)
+         | ((x & 0x0000000000FF0000ULL) << 24)
+         | ((x & 0x00000000FF000000ULL) <<  8)
+         | ((x & 0x000000FF00000000ULL) >>  8)
+         | ((x & 0x0000FF0000000000ULL) >> 24)
+         | ((x & 0x00FF000000000000ULL) >> 40)
+         | ((x & 0xFF00000000000000ULL) >> 56);
 #endif
 }
 
@@ -778,8 +774,7 @@ static inline void SetQWLE (void *p, uint64_t qw)
 
 /* Stuff defined in src/extras/libc.c */
 
-#if defined(WIN32)
-
+#if defined(_WIN32)
 /* several type definitions */
 #   if defined( __MINGW32__ )
 #       if !defined( _OFF_T_ )
@@ -799,7 +794,7 @@ static inline void SetQWLE (void *p, uint64_t qw)
 #   endif
 
 #   include <tchar.h>
-#endif
+#endif /* _WIN32 */
 
 VLC_API bool vlc_ureduce( unsigned *, unsigned *, uint64_t, uint64_t, uint64_t );
 
@@ -808,8 +803,7 @@ VLC_API bool vlc_ureduce( unsigned *, unsigned *, uint64_t, uint64_t, uint64_t )
 #include <AvailabilityMacros.h>
 #endif
 
-#ifdef WIN32
-# include <malloc.h>
+#ifdef _WIN32
 # define vlc_memalign(align, size) (__mingw_aligned_malloc(size, align))
 # define vlc_free(base)            (__mingw_aligned_free(base))
 #elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
@@ -912,7 +906,7 @@ VLC_API const char * VLC_Compiler( void ) VLC_USED;
 #include "vlc_main.h"
 #include "vlc_configuration.h"
 
-#if defined( WIN32 ) || defined( __SYMBIAN32__ ) || defined( __OS2__ )
+#if defined( _WIN32 ) || defined( __SYMBIAN32__ ) || defined( __OS2__ )
 #   define DIR_SEP_CHAR '\\'
 #   define DIR_SEP "\\"
 #   define PATH_SEP_CHAR ';'

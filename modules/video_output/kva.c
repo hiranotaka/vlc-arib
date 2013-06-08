@@ -1,23 +1,23 @@
 /*****************************************************************************
  * kva.c: KVA video output plugin for vlc
  *****************************************************************************
- * Copyright (C) 2010, 2011, 2012 the VideoLAN team
+ * Copyright (C) 2010, 2011, 2012 VLC authors and VideoLAN
  *
  * Authors: KO Myung-Hun <komh@chollian.net>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -193,13 +193,6 @@ static void PMThread( void *arg )
     if( sys->parent_window )
     {
         sys->parent = ( HWND )sys->parent_window->handle.hwnd;
-
-        /* Workaround :
-         * When an embedded window opened first, it is not positioned
-         * correctly. So reposition it here, again.
-         */
-        WinSetWindowPos( WinQueryWindow( sys->parent, QW_PARENT ),
-                         HWND_TOP, 0, 0, 0, 0, SWP_MOVE );
 
         ULONG i_style = WinQueryWindowULong( sys->parent, QWL_STYLE );
         WinSetWindowULong( sys->parent, QWL_STYLE,
@@ -496,15 +489,6 @@ static int Control( vout_display_t *vd, int query, va_list args )
             {
                 vout_window_SetSize(sys->parent_window,
                                     cfg->display.width, cfg->display.height);
-
-                /* Workaround :
-                 * If changing aspect ratio after resizing a main window,
-                 * an embedded window is misplaced. So reposition it, here.
-                 */
-                WinSetWindowPos( WinQueryWindow( sys->parent, QW_PARENT ),
-                                 HWND_TOP, 0, 1, 0, 0, SWP_MOVE );
-                WinSetWindowPos( WinQueryWindow( sys->parent, QW_PARENT ),
-                                 HWND_TOP, 0, 0, 0, 0, SWP_MOVE );
             }
             else
                 WinPostMsg( sys->client, WM_VLC_SIZE_CHANGE,

@@ -33,10 +33,11 @@
 
 #include "qt4.hpp"
 #include "util/singleton.hpp"
-#include "variables.hpp"
+#include "adapters/variables.hpp"
 
 #include <QObject>
 #include <QEvent>
+class QSignalMapper;
 
 enum { NORMAL,    /* loop: 0, repeat: 0 */
        REPEAT_ONE,/* loop: 0, repeat: 1 */
@@ -133,8 +134,7 @@ public:
     {
         return p_input /* We have an input */
             && !p_input->b_dead /* not dead yet, */
-            && !p_input->b_eof  /* not EOF either, */
-            && vlc_object_alive (p_input); /* and the VLC object is alive */
+            && !p_input->b_eof  /* not EOF either */;
     }
 
     int playingStatus();
@@ -254,6 +254,7 @@ class MainInputManager : public QObject, public Singleton<MainInputManager>
 {
     Q_OBJECT
     friend class Singleton<MainInputManager>;
+    friend class VLCMenuBar;
 
 public:
     input_thread_t *getInput() { return p_input; }
@@ -270,6 +271,9 @@ public:
     bool hasEmptyPlaylist();
 
     void requestVoutUpdate() { return im->UpdateVout(); }
+
+protected:
+    QSignalMapper *menusAudioMapper;
 
 private:
     MainInputManager( intf_thread_t * );
@@ -302,6 +306,7 @@ private slots:
     void notifyRepeatLoop( bool );
     void notifyVolume( float );
     void notifyMute( bool );
+    void menusUpdateAudio( const QString& );
 
 signals:
     void inputChanged( input_thread_t * );

@@ -1,7 +1,9 @@
 # FFmpeg
 
-#FFMPEG_SNAPURL := http://git.videolan.org/?p=ffmpeg.git;a=snapshot;h=HEAD;sf=tgz
-FFMPEG_SNAPURL := http://git.libav.org/?p=libav.git;a=snapshot;h=HEAD;sf=tgz
+HASH=HEAD
+
+#FFMPEG_SNAPURL := http://git.videolan.org/?p=ffmpeg.git;a=snapshot;h=$(HASH);sf=tgz
+FFMPEG_SNAPURL := http://git.libav.org/?p=libav.git;a=snapshot;h=$(HASH);sf=tgz
 
 FFMPEGCONF = \
 	--cc="$(CC)" \
@@ -26,7 +28,7 @@ DEPS_ffmpeg = zlib gsm openjpeg
 
 # Optional dependencies
 ifdef BUILD_ENCODERS
-FFMPEGCONF += --enable-libmp3lame --enable-libvpx --disable-decoder=libvpx
+FFMPEGCONF += --enable-libmp3lame --enable-libvpx --disable-decoder=libvpx --disable-decoder=libvpx_vp8 --disable-decoder=libvpx_vp9
 DEPS_ffmpeg += lame $(DEPS_lame) vpx $(DEPS_vpx)
 else
 FFMPEGCONF += --disable-encoders --disable-muxers
@@ -37,7 +39,6 @@ ifdef ENABLE_SMALL
 FFMPEGCONF += --enable-small
 ifeq ($(ARCH),arm)
 ifdef HAVE_ARMV7A
-# XXX: assumes > ARMv7-A, and thus thumb2-able
 FFMPEGCONF += --enable-thumb
 endif
 endif
@@ -45,7 +46,7 @@ endif
 
 ifdef HAVE_CROSS_COMPILE
 FFMPEGCONF += --enable-cross-compile
-ifndef HAVE_IOS
+ifndef HAVE_DARWIN_OS
 FFMPEGCONF += --cross-prefix=$(HOST)-
 endif
 endif
@@ -54,9 +55,19 @@ endif
 ifeq ($(ARCH),arm)
 FFMPEGCONF += --arch=arm
 ifdef HAVE_NEON
-FFMPEGCONF += --cpu=cortex-a8 --enable-neon
-FFMPEG_CFLAGS += -mfpu=neon
+FFMPEGCONF += --enable-neon
 endif
+ifdef HAVE_ARMV7A
+FFMPEGCONF += --cpu=cortex-a8
+endif
+ifdef HAVE_ARMV6
+FFMPEGCONF += --cpu=armv6 --disable-neon
+endif
+endif
+
+# MIPS stuff
+ifeq ($(ARCH),mipsel)
+FFMPEGCONF += --arch=mips
 endif
 
 # x86 stuff
@@ -81,22 +92,13 @@ ifeq ($(ARCH),arm)
 FFMPEGCONF += --enable-pic --as="$(AS)"
 endif
 endif
+ifdef HAVE_MACOSX
+FFMPEGCONF += --enable-vda
+endif
 
 # Linux
 ifdef HAVE_LINUX
 FFMPEGCONF += --target-os=linux --enable-pic
-
-# Android x86
-ifeq ($(ANDROID_ABI), x86)
-ifdef HAVE_ANDROID
-# Android-x86 gcc doesn't guarantee an aligned stack, but this is
-# handled by __attribute__((force_align_arg_pointer)) in libavcodec
-# already, so we tell gcc to assume this alignment, so we don't need
-# to waste a precious register in assembly functions to realign it.
-FFMPEG_CFLAGS += -mincoming-stack-boundary=4
-endif # HAVE_ANDROID
-endif # x86
-
 endif
 
 # Windows
@@ -118,25 +120,29 @@ else # !Windows
 FFMPEGCONF += --enable-pthreads
 endif
 
+# Disable mpegvideo-based hwaccel - known broken
+FFMPEGCONF += \
+	$(foreach codec,h263 mpeg1 mpeg2 mpeg4 vc1 wmv3,\
+		$(foreach api,dxva2 vaapi vdpau,\
+			--disable-hwaccel=$(codec)_$(api)))
+
 # Build
 PKGS += ffmpeg
-ifeq ($(call need_pkg,"libavcodec >= 52.25.0 libavformat >= 52.30.0 libswscale"),)
+ifeq ($(call need_pkg,"libavcodec >= 54.25.0 libavformat >= 53.21.0 libswscale"),)
 PKGS_FOUND += ffmpeg
 endif
 
-$(TARBALLS)/ffmpeg-git.tar.gz:
+$(TARBALLS)/ffmpeg-$(HASH).tar.gz:
 	$(call download,$(FFMPEG_SNAPURL))
 
-FFMPEG_VERSION := git
-
-.sum-ffmpeg: $(TARBALLS)/ffmpeg-$(FFMPEG_VERSION).tar.gz
+.sum-ffmpeg: $(TARBALLS)/ffmpeg-$(HASH).tar.gz
 	$(warning Not implemented.)
 	touch $@
 
-ffmpeg: ffmpeg-$(FFMPEG_VERSION).tar.gz .sum-ffmpeg
-	rm -Rf $@ $@-git
-	mkdir -p $@-git
-	$(ZCAT) "$<" | (cd $@-git && tar xv --strip-components=1)
+ffmpeg: ffmpeg-$(HASH).tar.gz .sum-ffmpeg
+	rm -Rf $@ $@-$(HASH)
+	mkdir -p $@-$(HASH)
+	$(ZCAT) "$<" | (cd $@-$(HASH) && tar xv --strip-components=1)
 	$(MOVE)
 
 .ffmpeg: ffmpeg

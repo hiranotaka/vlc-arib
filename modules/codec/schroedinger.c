@@ -3,25 +3,25 @@
  *          (http://www.bbc.co.uk/rd/projects/dirac/index.shtml)
  *          (http://diracvideo.org)
  *****************************************************************************
- * Copyright (C) 2008-2011 the VideoLAN team
+ * Copyright (C) 2008-2011 VLC authors and VideoLAN
  *
  * Authors: Jonathan Rosser <jonathan.rosser@gmail.com>
  *          David Flynn <davidf at rd dot bbc.co.uk>
  *          Anuradha Suraparaju <asuraparaju at gmail dot com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -1483,7 +1483,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
 
         /* store dts in a queue, so that they appear in order in
          * coded order */
-        p_block = block_New( p_enc, 1 );
+        p_block = block_Alloc( 1 );
         if( !p_block )
             return NULL;
         p_block->i_dts = p_pic->date - p_sys->i_pts_offset;
@@ -1497,7 +1497,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
             StorePicturePTS( p_enc, p_sys->i_input_picnum, p_pic->date + p_sys->i_field_time );
             p_sys->i_input_picnum++;
 
-            p_block = block_New( p_enc, 1 );
+            p_block = block_Alloc( 1 );
             if( !p_block )
                 return NULL;
             p_block->i_dts = p_pic->date - p_sys->i_pts_offset + p_sys->i_field_time;
@@ -1527,7 +1527,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
             uint32_t u_pic_num;
             int i_presentation_frame;
             p_enc_buf = schro_encoder_pull( p_sys->p_schro, &i_presentation_frame );
-            p_block = block_New( p_enc, p_enc_buf->length );
+            p_block = block_Alloc( p_enc_buf->length );
             if( !p_block )
                 return NULL;
 

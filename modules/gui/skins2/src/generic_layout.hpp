@@ -107,6 +107,12 @@ public:
     /// Resize the layout
     virtual void resize( int width, int height );
 
+    /// determine whether layouts should be kept the same size
+    virtual bool isTightlyCoupledWith( const GenericLayout& otherLayout ) const;
+
+    // getter for layout visibility
+    virtual bool isVisible( ) const { return m_visible; }
+
     /**
      * Add a control in the layout at the given position, and
      * the optional given layer
@@ -147,10 +153,13 @@ public:
 private:
     /// Parent window of the layout
     TopWindow *m_pWindow;
+    /// Layout original size
+    const int m_original_width;
+    const int m_original_height;
     /// Layout size
     SkinsRect m_rect;
-    int m_minWidth, m_maxWidth;
-    int m_minHeight, m_maxHeight;
+    const int m_minWidth, m_maxWidth;
+    const int m_minHeight, m_maxHeight;
     /// Image of the layout
     OSGraphics *m_pImage;
     /// List of the controls in the layout

@@ -41,9 +41,11 @@ size_t vlc_towc (const char *str, uint32_t *restrict pwc);
  */
 void system_Init      ( void );
 void system_Configure ( libvlc_int_t *, int, const char *const [] );
-#ifdef WIN32
+#if defined(_WIN32) || defined(__OS2__)
 void system_End(void);
+#ifndef __OS2__
 size_t EnumClockSource( vlc_object_t *, const char *, char ***, char *** );
+#endif
 #endif
 void vlc_CPU_init(void);
 void vlc_CPU_dump(vlc_object_t *);
@@ -56,8 +58,7 @@ void vlc_CPU_dump(vlc_object_t *);
 int vlc_clone_detach (vlc_thread_t *, void *(*)(void *), void *, int);
 
 int vlc_object_waitpipe (vlc_object_t *obj);
-void vlc_object_kill (vlc_object_t *) VLC_DEPRECATED;
-#define vlc_object_kill(o) vlc_object_kill(VLC_OBJECT(o))
+void ObjectKillChildrens (vlc_object_t *);
 
 int vlc_set_priority( vlc_thread_t, int );
 
@@ -71,6 +72,12 @@ void vlc_assert_locked (vlc_mutex_t *);
 #else
 # define vlc_assert_locked( m ) (void)m
 #endif
+
+/*
+ * Logging
+ */
+void vlc_LogInit(libvlc_int_t *);
+void vlc_LogDeinit(libvlc_int_t *);
 
 /*
  * LibVLC exit event handling
@@ -139,17 +146,18 @@ typedef struct libvlc_priv_t
 {
     libvlc_int_t       public_data;
 
-    bool               playlist_active;
-
-    /* Messages */
-    signed char        i_verbose;   ///< info messages
-    bool               b_color;     ///< color messages?
+    /* Logging */
+    struct
+    {
+        void (*cb) (void *, int, const vlc_log_t *, const char *, va_list);
+        void *opaque;
+        signed char verbose;
+        vlc_rwlock_t lock;
+    } log;
     bool               b_stats;     ///< Whether to collect stats
 
     /* Singleton objects */
     playlist_t        *p_playlist; ///< the playlist singleton
-    struct media_library_t *p_ml;    ///< the ML singleton
-    vlc_mutex_t       ml_lock; ///< Mutex for ML creation
     vlm_t             *p_vlm;  ///< the VLM singleton (or NULL)
     vlc_object_t      *p_dialog_provider; ///< dialog provider
 #ifdef ENABLE_SOUT

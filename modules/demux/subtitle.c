@@ -1,26 +1,26 @@
 /*****************************************************************************
  * subtitle.c: Demux for subtitle text files.
  *****************************************************************************
- * Copyright (C) 1999-2007 the VideoLAN team
+ * Copyright (C) 1999-2007 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Derk-Jan Hartman <hartman at videolan dot org>
  *          Jean-Baptiste Kempf <jb@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -67,20 +67,20 @@ static const char *const ppsz_sub_type[] =
 
 vlc_module_begin ()
     set_shortname( N_("Subtitles"))
-    set_description( N_("Text subtitles parser") )
+    set_description( N_("Text subtitle parser") )
     set_capability( "demux", 0 )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_DEMUX )
     add_float( "sub-fps", 0.0,
-               N_("Frames per second"),
+               N_("Frames per Second"),
                SUB_FPS_LONGTEXT, true )
     add_integer( "sub-delay", 0,
-               N_("Subtitles delay"),
+               N_("Subtitle delay"),
                SUB_DELAY_LONGTEXT, true )
-    add_string( "sub-type", "auto", N_("Subtitles format"),
+    add_string( "sub-type", "auto", N_("Subtitle format"),
                 SUB_TYPE_LONGTEXT, true )
         change_string_list( ppsz_sub_type, ppsz_sub_type )
-    add_string( "sub-description", NULL, N_("Subtitles description"),
+    add_string( "sub-description", NULL, N_("Subtitle description"),
                 SUB_DESCRIPTION_LONGTEXT, true )
     set_callbacks( Open, Close )
 
@@ -689,7 +689,7 @@ static int Demux( demux_t *p_demux )
             continue;
         }
 
-        if( ( p_block = block_New( p_demux, i_len ) ) == NULL )
+        if( ( p_block = block_Alloc( i_len ) ) == NULL )
         {
             p_sys->i_subtitle++;
             continue;

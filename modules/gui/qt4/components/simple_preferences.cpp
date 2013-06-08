@@ -37,7 +37,7 @@
 #include <QString>
 #include <QFont>
 #include <QToolButton>
-#include <QButtonGroup>
+#include <QSignalMapper>
 #include <QVBoxLayout>
 #include <QScrollArea>
 
@@ -48,7 +48,7 @@
 
 #define ICON_HEIGHT 64
 
-#ifdef WIN32
+#ifdef _WIN32
 # include <vlc_windows_interfaces.h>
 #endif
 #include <vlc_modules.h>
@@ -61,10 +61,11 @@ SPrefsCatList::SPrefsCatList( intf_thread_t *_p_intf, QWidget *_parent, bool sma
 {
     QVBoxLayout *layout = new QVBoxLayout();
 
-    QButtonGroup *buttonGroup = new QButtonGroup( this );
-    buttonGroup->setExclusive ( true );
-    CONNECT( buttonGroup, buttonClicked ( int ),
-            this, switchPanel( int ) );
+    /* Use autoExclusive buttons and a mapper as QButtonGroup can't
+       set focus (keys) when it manages the buttons's exclusivity.
+       See QT bugs 131 & 816 and QAbstractButton's source code. */
+    QSignalMapper *mapper = new QSignalMapper( layout );
+    CONNECT( mapper, mapped(int), this, switchPanel(int) );
 
     short icon_height = small ? ICON_HEIGHT /2 : ICON_HEIGHT;
 
@@ -79,7 +80,9 @@ SPrefsCatList::SPrefsCatList( intf_thread_t *_p_intf, QWidget *_parent, bool sma
     button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding) ;  \
     button->setAutoRaise( true );                                           \
     button->setCheckable( true );                                           \
-    buttonGroup->addButton( button, numb );                                 \
+    button->setAutoExclusive( true );                                       \
+    CONNECT( button, clicked(), mapper, map() );                            \
+    mapper->setMapping( button, numb );                                     \
     layout->addWidget( button );
 
     ADD_CATEGORY( SPrefsInterface, qtr("Interface"), qtr("Interface Settings"),
@@ -88,7 +91,7 @@ SPrefsCatList::SPrefsCatList( intf_thread_t *_p_intf, QWidget *_parent, bool sma
                   cone_audio_64, 1 );
     ADD_CATEGORY( SPrefsVideo, qtr("Video"), qtr("Video Settings"),
                   cone_video_64, 2 );
-    ADD_CATEGORY( SPrefsSubtitles, SUBPIC_TITLE, qtr("Subtitles & On Screen Display Settings"),
+    ADD_CATEGORY( SPrefsSubtitles, SUBPIC_TITLE, qtr("Subtitle & On Screen Display Settings"),
                   cone_subtitles_64, 3 );
     ADD_CATEGORY( SPrefsInputAndCodecs, INPUT_TITLE, qtr("Input & Codecs Settings"),
                   cone_input_64, 4 );
@@ -215,6 +218,9 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
          ******************************/
         START_SPREFS_CAT( Video , qtr("Video Settings") );
             CONFIG_BOOL( "video", enableVideo );
+            ui.videoZone->setEnabled( ui.enableVideo->isChecked() );
+            CONNECT( ui.enableVideo, toggled( bool ),
+                     ui.videoZone, setEnabled( bool ) );
 
             CONFIG_BOOL( "fullscreen", fullscreen );
             CONFIG_BOOL( "overlay", overlay );
@@ -222,7 +228,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             CONFIG_BOOL( "video-deco", windowDecorations );
             CONFIG_GENERIC( "vout", StringList, ui.voutLabel, outputModule );
 
-#ifdef WIN32
+#ifdef _WIN32
             CONFIG_GENERIC( "directx-device", StringList, ui.dxDeviceLabel,
                             dXdisplayDevice );
             CONFIG_BOOL( "directx-hw-yuv", hwYUVBox );
@@ -259,67 +265,61 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
         START_SPREFS_CAT( Audio, qtr("Audio Settings") );
 
             CONFIG_BOOL( "audio", enableAudio );
-            ui.SPrefsAudio_zone->setEnabled( ui.enableAudio->isChecked() );
+            ui.audioZone->setEnabled( ui.enableAudio->isChecked() );
             CONNECT( ui.enableAudio, toggled( bool ),
-                     ui.SPrefsAudio_zone, setEnabled( bool ) );
+                     ui.audioZone, setEnabled( bool ) );
 
 #define audioCommon( name ) \
-            QWidget * name ## Control = new QWidget( ui.outputAudioBox ); \
-            QHBoxLayout * name ## Layout = new QHBoxLayout( name ## Control); \
-            name ## Layout->setMargin( 0 ); \
-            name ## Layout->setSpacing( 0 ); \
-            QLabel * name ## Label = new QLabel( qtr( "Device:" ), name ## Control ); \
+            QLabel * name ## Label = new QLabel( qtr( "Device:" ) ); \
             name ## Label->setMinimumSize(QSize(250, 0)); \
-            name ## Layout->addWidget( name ## Label ); \
+            outputAudioLayout->addWidget( name ## Label, outputAudioLayout->rowCount(), 0, 1, 1 ); \
 
 #define audioControl( name) \
             audioCommon( name ) \
-            QComboBox * name ## Device = new QComboBox( name ## Control ); \
-            name ## Layout->addWidget( name ## Device ); \
+            QComboBox * name ## Device = new QComboBox; \
             name ## Label->setBuddy( name ## Device ); \
             name ## Device->setSizePolicy( QSizePolicy::Ignored, QSizePolicy::Preferred  );\
-            outputAudioLayout->addWidget( name ## Control, outputAudioLayout->rowCount(), 0, 1, -1 );
+            outputAudioLayout->addWidget( name ## Device, outputAudioLayout->rowCount() - 1, 1, 1, -1 );
 
 #define audioControl2( name) \
             audioCommon( name ) \
-            QLineEdit * name ## Device = new QLineEdit( name ## Control ); \
-            name ## Layout->addWidget( name ## Device ); \
+            QLineEdit * name ## Device = new QLineEdit; \
             name ## Label->setBuddy( name ## Device ); \
-            QPushButton * name ## Browse = new QPushButton( qtr( "Browse..." ), name ## Control); \
-            name ## Layout->addWidget( name ## Browse ); \
-            outputAudioLayout->addWidget( name ## Control, outputAudioLayout->rowCount(), 0, 1, -1 );
+            QPushButton * name ## Browse = new QPushButton( qtr( "Browse..." ) ); \
+            outputAudioLayout->addWidget( name ## Device, outputAudioLayout->rowCount() - 1, 0, 1, -1, Qt::AlignLeft );
 
             /* Build if necessary */
             QGridLayout * outputAudioLayout = qobject_cast<QGridLayout *>(ui.outputAudioBox->layout());
-#ifdef WIN32
+#ifdef _WIN32
             audioControl( DirectX );
-            optionWidgets.append( DirectXControl );
+            optionWidgets["directxL" ] = DirectXLabel;
+            optionWidgets["directxW" ] = DirectXDevice;
             CONFIG_GENERIC_NO_UI( "directx-audio-device", StringList,
                     DirectXLabel, DirectXDevice );
 #elif defined( __OS2__ )
             audioControl( kai );
-            optionWidgets.append( kaiControl );
+            optionWidgets["kaiL"] = kaiLabel;
+            optionWidgets["kaiW"] = kaiDevice;
             CONFIG_GENERIC_NO_UI( "kai-audio-device", StringList, kaiLabel,
                     kaiDevice );
 #else
             if( module_exists( "alsa" ) )
             {
                 audioControl( alsa );
-                optionWidgets.append( alsaControl );
+                optionWidgets["alsaL"] = alsaLabel;
+                optionWidgets["alsaW"] = alsaDevice;
                 CONFIG_GENERIC_NO_UI( "alsa-audio-device" , StringList, alsaLabel,
                                 alsaDevice );
             }
-            else
-                optionWidgets.append( NULL );
             if( module_exists( "oss" ) )
             {
                 audioControl2( OSS );
-                optionWidgets.append( OSSControl );
+                optionWidgets["ossL"] = OSSLabel;
+                optionWidgets["ossW"] = OSSDevice;
+                optionWidgets["ossB"] = OSSBrowse;
                 CONFIG_GENERIC_FILE( "oss-audio-device" , File, NULL, OSSDevice,
                                  OSSBrowse );
             }
-            else
-                optionWidgets.append( NULL );
 #endif
 
 #undef audioControl2
@@ -363,14 +363,14 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             CONFIG_GENERIC_FILE( "audiofile-file", File, ui.fileLabel,
                                  ui.fileName, ui.fileBrowseButton );
 
-            optionWidgets.append( ui.fileControl );
-            optionWidgets.append( ui.outputModule );
-            optionWidgets.append( ui.volNormBox );
+            optionWidgets["fileW"] = ui.fileControl;
+            optionWidgets["audioOutCoB"] = ui.outputModule;
+            optionWidgets["normalizerChB"] = ui.volNormBox;
             /*Little mofification of ui.volumeValue to compile with Qt < 4.3 */
             ui.volumeValue->setButtonSymbols(QAbstractSpinBox::NoButtons);
-            optionWidgets.append( ui.volumeValue );
-            optionWidgets.append( ui.headphoneEffect );
-            optionWidgets.append( ui.spdifBox );
+            optionWidgets["volLW"] = ui.volumeValue;
+            optionWidgets["headphoneB"] = ui.headphoneEffect;
+            optionWidgets["spdifChB"] = ui.spdifBox;
             updateAudioOptions( ui.outputModule->currentIndex() );
 
             /* LastFM */
@@ -442,7 +442,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
                 free( psz_dvddiscpath );
                 free( psz_vcddiscpath );
             }
-#ifndef WIN32
+#ifndef _WIN32
             QStringList DVDDeviceComboBoxStringList = QStringList();
             DVDDeviceComboBoxStringList
                     << "dvd*" << "scd*" << "sr*" << "sg*" << "cd*";
@@ -471,15 +471,15 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
                 ui.live555TransportLabel->hide();
             }
             CONFIG_GENERIC( "avcodec-hw", StringList, ui.hwAccelLabel, hwAccelModule );
-#ifdef WIN32
+#ifdef _WIN32
             HINSTANCE hdxva2_dll = LoadLibrary(TEXT("DXVA2.DLL") );
             if( !hdxva2_dll )
                 ui.hwAccelModule->setEnabled( false );
             else
                 FreeLibrary( hdxva2_dll );
 #endif
-            optionWidgets.append( ui.DVDDeviceComboBox );
-            optionWidgets.append( ui.cachingCombo );
+            optionWidgets["inputLE"] = ui.DVDDeviceComboBox;
+            optionWidgets["cachingCoB"] = ui.cachingCombo;
             CONFIG_GENERIC( "avcodec-skiploopfilter", IntegerList, ui.filterLabel, loopFilterBox );
             CONFIG_GENERIC( "sout-x264-tune", StringList, ui.x264Label, tuneBox );
             CONFIG_GENERIC( "sout-x264-preset", StringList, ui.x264Label, presetBox );
@@ -526,11 +526,9 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
                     + qtr( "VLC skins website" )+ QString( "</a>." ) );
             ui.skinsLabel->setFont( italicFont );
 
-#if defined( WIN32 )
-            CONFIG_GENERIC( "language", StringList, ui.languageLabel, language );
+#ifdef _WIN32
             BUTTONACT( ui.assoButton, assoDialog() );
 #else
-            ui.languageBox->hide();
             ui.assoButton->hide();
             ui.assocLabel->hide();
 #endif
@@ -552,9 +550,9 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             }
             free( psz_intf );
 
-            optionWidgets.append( ui.skins );
-            optionWidgets.append( ui.qt );
-#if !defined( WIN32)
+            optionWidgets["skinRB"] = ui.skins;
+            optionWidgets["qtRB"] = ui.qt;
+#if !defined( _WIN32)
             ui.stylesCombo->addItem( qtr("System's default") );
             ui.stylesCombo->addItems( QStyleFactory::keys() );
             ui.stylesCombo->setCurrentIndex( ui.stylesCombo->findText(
@@ -564,11 +562,10 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
                 ui.stylesCombo->setCurrentIndex( 0 ); /* default */
 
             CONNECT( ui.stylesCombo, currentIndexChanged( QString ), this, changeStyle( QString ) );
-            optionWidgets.append( ui.stylesCombo );
+            optionWidgets["styleCB"] = ui.stylesCombo;
 #else
             ui.stylesCombo->hide();
             ui.stylesLabel->hide();
-            optionWidgets.append( NULL );
 #endif
             radioGroup = new QButtonGroup(this);
             radioGroup->addButton( ui.qt, 0 );
@@ -593,6 +590,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             CONFIG_GENERIC( "qt-notification", IntegerList, ui.notificationComboLabel,
                                                       notificationCombo );
             CONNECT( ui.systrayBox, toggled( bool ), ui.notificationCombo, setEnabled( bool ) );
+            CONNECT( ui.systrayBox, toggled( bool ), ui.notificationComboLabel, setEnabled( bool ) );
             ui.notificationCombo->setEnabled( ui.systrayBox->isChecked() );
 
             CONFIG_BOOL( "qt-pause-minimized", pauseMinimizedBox );
@@ -617,7 +615,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             ui.updatesDays->hide();
 #endif
             /* ONE INSTANCE options */
-#if !defined( WIN32 ) && !defined(__APPLE__)
+#if !defined( _WIN32 ) && !defined(__APPLE__) && !defined(__OS2__)
             if( !module_exists( "dbus" ) )
                 ui.OneInterfaceBox->hide();
             else
@@ -629,6 +627,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
                                                        ui.OneInterfaceMode->isChecked() );
                 CONNECT( ui.OneInterfaceMode, toggled( bool ),
                          ui.EnqueueOneInterfaceMode, setEnabled( bool ) );
+                CONFIG_BOOL( "one-instance-when-started-from-file", oneInstanceFromFile );
             }
 
             /* RECENTLY PLAYED options */
@@ -642,11 +641,16 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
         END_SPREFS_CAT;
 
         START_SPREFS_CAT( Subtitles,
-                            qtr("Subtitles & On Screen Display Settings") );
+                            qtr("Subtitle & On Screen Display Settings") );
             CONFIG_BOOL( "osd", OSDBox);
             CONFIG_BOOL( "video-title-show", OSDTitleBox);
             CONFIG_GENERIC( "video-title-position", IntegerList,
                             ui.OSDTitlePosLabel, OSDTitlePos );
+
+            CONFIG_BOOL( "spu", spuActiveBox);
+            ui.spuZone->setEnabled( ui.spuActiveBox->isChecked() );
+            CONNECT( ui.spuActiveBox, toggled( bool ),
+                     ui.spuZone, setEnabled( bool ) );
 
             CONFIG_GENERIC( "subsdec-encoding", StringList, ui.encodLabel,
                             encoding );
@@ -668,8 +672,8 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 
             ui.shadowCheck->setChecked( config_GetInt( p_intf, "freetype-shadow-opacity" ) > 0 );
             ui.backgroundCheck->setChecked( config_GetInt( p_intf, "freetype-background-opacity" ) > 0 );
-            optionWidgets.append( ui.shadowCheck );
-            optionWidgets.append( ui.backgroundCheck );
+            optionWidgets["shadowCB"] = ui.shadowCheck;
+            optionWidgets["backgroundCB"] = ui.backgroundCheck;
 
         END_SPREFS_CAT;
 
@@ -700,7 +704,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             control->insertIntoExistingGrid( gLayout, line );
             controls.append( control );
 
-#ifdef WIN32
+#ifdef _WIN32
             line++;
 
             p_config = config_FindConfig( VLC_OBJECT(p_intf), "qt-disable-volume-keys" );
@@ -744,22 +748,29 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 
 void SPrefsPanel::updateAudioOptions( int number)
 {
-    QString value = qobject_cast<QComboBox *>(optionWidgets[audioOutCoB])
+    QString value = qobject_cast<QComboBox *>(optionWidgets["audioOutCoB"])
                                             ->itemData( number ).toString();
-#ifdef WIN32
-    optionWidgets[directxW]->setVisible( ( value == "directsound" ) );
+#ifdef _WIN32
+    optionWidgets["directxW"]->setVisible( ( value == "directsound" ) );
+    optionWidgets["directxL"]->setVisible( ( value == "directsound" ) );
 #elif defined( __OS2__ )
-    optionWidgets[kaiW]->setVisible( ( value == "kai" ) );
+    optionWidgets["kaiL"]->setVisible( ( value == "kai" ) );
+    optionWidgets["kaiW"]->setVisible( ( value == "kai" ) );
 #else
-    /* optionWidgets[ossW] can be NULL */
-    if( optionWidgets[ossW] )
-        optionWidgets[ossW]->setVisible( ( value == "oss" ) );
-    /* optionWidgets[alsaW] can be NULL */
-    if( optionWidgets[alsaW] )
-        optionWidgets[alsaW]->setVisible( ( value == "alsa" ) );
+    /* optionWidgets["ossW] can be NULL */
+    if( optionWidgets["ossW"] ) {
+        optionWidgets["ossW"]->setVisible( ( value == "oss" ) );
+        optionWidgets["ossL"]->setVisible( ( value == "oss" ) );
+        optionWidgets["ossB"]->setVisible( ( value == "oss" ) );
+    }
+    /* optionWidgets["alsaW] can be NULL */
+    if( optionWidgets["alsaW"] ) {
+        optionWidgets["alsaW"]->setVisible( ( value == "alsa" ) );
+        optionWidgets["alsaL"]->setVisible( ( value == "alsa" ) );
+    }
 #endif
-    optionWidgets[fileW]->setVisible( ( value == "aout_file" ) );
-    optionWidgets[spdifChB]->setVisible( ( value == "alsa" || value == "oss" || value == "auhal" ||
+    optionWidgets["fileW"]->setVisible( ( value == "aout_file" ) );
+    optionWidgets["spdifChB"]->setVisible( ( value == "alsa" || value == "oss" || value == "auhal" ||
                                            value == "directsound" || value == "waveout" ) );
 }
 
@@ -771,7 +782,7 @@ SPrefsPanel::~SPrefsPanel()
 
 void SPrefsPanel::updateAudioVolume( int volume )
 {
-    qobject_cast<QSpinBox *>(optionWidgets[volLW])
+    qobject_cast<QSpinBox *>(optionWidgets["volLW"])
         ->setValue( volume * 100 / AOUT_VOLUME_DEFAULT );
 }
 
@@ -793,7 +804,7 @@ void SPrefsPanel::apply()
     {
         /* Device default selection */
         QByteArray devicepath =
-            qobject_cast<QComboBox *>(optionWidgets[inputLE])->currentText().toUtf8();
+            qobject_cast<QComboBox *>(optionWidgets["inputLE"])->currentText().toUtf8();
         if( devicepath.size() > 0 )
         {
             config_PutPsz( p_intf, "dvd", devicepath );
@@ -803,7 +814,7 @@ void SPrefsPanel::apply()
 
 #define CaC( name, factor ) config_PutInt( p_intf, name, i_comboValue * factor )
         /* Caching */
-        QComboBox *cachingCombo = qobject_cast<QComboBox *>(optionWidgets[cachingCoB]);
+        QComboBox *cachingCombo = qobject_cast<QComboBox *>(optionWidgets["cachingCoB"]);
         int i_comboValue = cachingCombo->itemData( cachingCombo->currentIndex() ).toInt();
         if( i_comboValue )
         {
@@ -819,14 +830,14 @@ void SPrefsPanel::apply()
     /* Interfaces */
     case SPrefsInterface:
     {
-        if( qobject_cast<QRadioButton *>(optionWidgets[skinRB])->isChecked() )
+        if( qobject_cast<QRadioButton *>(optionWidgets["skinRB"])->isChecked() )
             config_PutPsz( p_intf, "intf", "skins2,any" );
         else
         //if( qobject_cast<QRadioButton *>(optionWidgets[qtRB])->isChecked() )
             config_PutPsz( p_intf, "intf", "" );
-        if( qobject_cast<QComboBox *>(optionWidgets[styleCB]) )
+        if( qobject_cast<QComboBox *>(optionWidgets["styleCB"]) )
             getSettings()->setValue( "MainWindow/QtStyle",
-                qobject_cast<QComboBox *>(optionWidgets[styleCB])->currentText() );
+                qobject_cast<QComboBox *>(optionWidgets["styleCB"])->currentText() );
 
         break;
     }
@@ -834,14 +845,14 @@ void SPrefsPanel::apply()
     case SPrefsAudio:
     {
         bool b_checked =
-            qobject_cast<QCheckBox *>(optionWidgets[normalizerChB])->isChecked();
+            qobject_cast<QCheckBox *>(optionWidgets["normalizerChB"])->isChecked();
         if( b_checked && !qs_filter.contains( "normvol" ) )
             qs_filter.append( "normvol" );
         if( !b_checked && qs_filter.contains( "normvol" ) )
             qs_filter.removeAll( "normvol" );
 
         b_checked =
-            qobject_cast<QCheckBox *>(optionWidgets[headphoneB])->isChecked();
+            qobject_cast<QCheckBox *>(optionWidgets["headphoneB"])->isChecked();
 
         if( b_checked && !qs_filter.contains( "headphone" ) )
             qs_filter.append( "headphone" );
@@ -853,7 +864,7 @@ void SPrefsPanel::apply()
     }
     case SPrefsSubtitles:
     {
-        bool b_checked = qobject_cast<QCheckBox *>(optionWidgets[shadowCB])->isChecked();
+        bool b_checked = qobject_cast<QCheckBox *>(optionWidgets["shadowCB"])->isChecked();
         if( b_checked && config_GetInt( p_intf, "freetype-shadow-opacity" ) == 0 ) {
             config_PutInt( p_intf, "freetype-shadow-opacity", 128 );
         }
@@ -861,7 +872,7 @@ void SPrefsPanel::apply()
             config_PutInt( p_intf, "freetype-shadow-opacity", 0 );
         }
 
-        b_checked = qobject_cast<QCheckBox *>(optionWidgets[backgroundCB])->isChecked();
+        b_checked = qobject_cast<QCheckBox *>(optionWidgets["backgroundCB"])->isChecked();
         if( b_checked && config_GetInt( p_intf, "freetype-background-opacity" ) == 0 ) {
             config_PutInt( p_intf, "freetype-background-opacity", 128 );
         }
@@ -906,7 +917,7 @@ void SPrefsPanel::configML()
 #endif
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <QDialogButtonBox>
 #include "util/registry.hpp"
 
@@ -1104,5 +1115,5 @@ void SPrefsPanel::saveAsso()
     delete qvReg;
 }
 
-#endif /* WIN32 */
+#endif /* _WIN32 */
 

@@ -23,7 +23,8 @@ nodist_SOURCES_qt4 = \
 		extensions_manager.moc.cpp \
 		recents.moc.cpp \
 		adapters/seekpoints.moc.cpp \
-		variables.moc.cpp \
+		adapters/chromaprint.moc.cpp \
+		adapters/variables.moc.cpp \
 		dialogs/playlist.moc.cpp \
 		dialogs/bookmarks.moc.cpp \
 		dialogs/mediainfo.moc.cpp \
@@ -45,8 +46,10 @@ nodist_SOURCES_qt4 = \
 		dialogs/vlm.moc.cpp \
 		dialogs/firstrun.moc.cpp \
 		dialogs/extensions.moc.cpp \
+		dialogs/fingerprintdialog.moc.cpp \
 		components/extended_panels.moc.cpp \
 		components/info_panels.moc.cpp \
+		components/info_widgets.moc.cpp \
 		components/preferences_widgets.moc.cpp \
 		components/complete_preferences.moc.cpp \
 		components/simple_preferences.moc.cpp \
@@ -96,6 +99,7 @@ nodist_SOURCES_qt4 = \
 		ui/messages_panel.h \
 		ui/about.h \
 		ui/update.h \
+		ui/fingerprintdialog.h \
 		styles/seekstyle.moc.cpp \
 		dialogs/ml_configuration.moc.cpp \
 		components/playlist/ml_model.moc.cpp \
@@ -108,6 +112,7 @@ DEPS_res = \
 	pixmaps/faster.png \
 	pixmaps/faster2.png \
 	pixmaps/go-next.png \
+	pixmaps/menus/exit_16px.png \
 	pixmaps/menus/help_16px.png \
 	pixmaps/menus/info_16px.png \
 	pixmaps/menus/messages_16px.png \
@@ -134,6 +139,26 @@ DEPS_res = \
 	pixmaps/playlist/shuffle_off.png \
 	pixmaps/playlist/shuffle_on.png \
 	pixmaps/playlist/dropzone.png \
+	pixmaps/playlist/sidebar-icons/capture.png \
+	pixmaps/playlist/sidebar-icons/pictures.png \
+	pixmaps/playlist/sidebar-icons/disc.png \
+	pixmaps/playlist/sidebar-icons/playlist.png \
+	pixmaps/playlist/sidebar-icons/lan.png \
+	pixmaps/playlist/sidebar-icons/podcast.png \
+	pixmaps/playlist/sidebar-icons/library.png \
+	pixmaps/playlist/sidebar-icons/screen.png \
+	pixmaps/playlist/sidebar-icons/movie.png \
+	pixmaps/playlist/sidebar-icons/mtp.png \
+	pixmaps/playlist/sidebar-icons/music.png \
+	pixmaps/playlist/sidebar-icons/network.png \
+	pixmaps/playlist/sidebar-icons/sd/appletrailers.png \
+	pixmaps/playlist/sidebar-icons/sd/icecast.png \
+	pixmaps/playlist/sidebar-icons/sd/metachannels.png \
+	pixmaps/playlist/sidebar-icons/sd/katsomo.png \
+	pixmaps/playlist/sidebar-icons/sd/fmc.png \
+	pixmaps/playlist/sidebar-icons/sd/frenchtv.png \
+	pixmaps/playlist/sidebar-icons/sd/jamendo.png \
+	pixmaps/playlist/sidebar-icons/sd/assembleenationale.png \
 	pixmaps/prefs/advprefs_audio.png \
 	pixmaps/prefs/advprefs_codec.png \
 	pixmaps/prefs/advprefs_extended.png \
@@ -240,6 +265,9 @@ else
 endif
 endif
 
+# These MOC files depend on the configure settings:
+dialogs_provider.moc.cpp dialogs/vlm.moc.cpp: $(top_builddir)/config.h
+
 .ui.h:
 	$(AM_V_at)mkdir -p -- ui
 	$(AM_V_at)rm -f $@ $@.tmp
@@ -257,7 +285,8 @@ SOURCES_qt4 = 	qt4.cpp \
 		extensions_manager.cpp \
 		recents.cpp \
 		adapters/seekpoints.cpp \
-		variables.cpp \
+		adapters/chromaprint.cpp \
+		adapters/variables.cpp \
 		dialogs/playlist.cpp \
 		dialogs/bookmarks.cpp \
 		dialogs/preferences.cpp \
@@ -280,8 +309,10 @@ SOURCES_qt4 = 	qt4.cpp \
 		dialogs/firstrun.cpp \
 		dialogs/podcast_configuration.cpp \
 		dialogs/extensions.cpp \
+		dialogs/fingerprintdialog.cpp \
 		components/extended_panels.cpp \
 		components/info_panels.cpp \
+		components/info_widgets.cpp \
 		components/preferences_widgets.cpp \
 		components/complete_preferences.cpp \
 		components/simple_preferences.cpp \
@@ -332,7 +363,8 @@ noinst_HEADERS = \
 	extensions_manager.hpp \
 	recents.hpp \
 	adapters/seekpoints.hpp \
-	variables.hpp \
+	adapters/chromaprint.hpp \
+	adapters/variables.hpp \
 	dialogs/playlist.hpp \
 	dialogs/bookmarks.hpp \
 	dialogs/mediainfo.hpp \
@@ -355,8 +387,10 @@ noinst_HEADERS = \
 	dialogs/firstrun.hpp \
 	dialogs/podcast_configuration.hpp \
 	dialogs/extensions.hpp \
+	dialogs/fingerprintdialog.hpp \
 	components/extended_panels.hpp \
 	components/info_panels.hpp \
+	components/info_widgets.hpp \
 	components/preferences_widgets.hpp \
 	components/complete_preferences.hpp \
 	components/simple_preferences.hpp \
@@ -421,5 +455,5 @@ EXTRA_DIST += \
 	ui/update.ui \
 	ui/sout.ui \
 	ui/vlm.ui \
+	ui/fingerprintdialog.ui \
 	$(DEPS_res)
-

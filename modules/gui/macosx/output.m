@@ -1,13 +1,14 @@
 /*****************************************************************************
  * output.m: MacOS X Output Dialog
  *****************************************************************************
- * Copyright (C) 2002-2007 VLC authors and VideoLAN
+ * Copyright (C) 2002-2013 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
  *          Christophe Massiot <massiot@via.ecp.fr>
  *          Derk-Jan Hartman <thedj@users.sourceforge.net>
  *          Benjamin Pracht <bigben AT videolan DOT org>
+ *          Felix Paul Kühne <fkuehne -at- videolan -dot- org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -111,17 +112,17 @@
 
 - (void)initStrings
 {
-    NSArray *o_muxers = [NSArray arrayWithObjects: @"MPEG TS", @"MPEG PS", @"MPEG 1",
-        @"Ogg", @"AVI", @"ASF", @"MPEG 4", @"Quicktime", @"Raw", nil];
-    NSArray *o_a_channels = [NSArray arrayWithObjects: @"1", @"2", @"4", @"6", nil];
-    NSArray *o_a_bitrates = [NSArray arrayWithObjects: @"16", @"32", @"64", @"96",
-        @"128", @"192", @"256", @"512", nil];
-    NSArray *o_v_bitrates = [NSArray arrayWithObjects: @"16", @"32", @"64", @"96",
-        @"128", @"192", @"256", @"384", @"512", @"768", @"1024", @"2048", @"3072", nil];
-    NSArray *o_v_scales = [NSArray arrayWithObjects: @"0.25",@"0.5",@"0.75",@"1",@"1.25",@"1.5",@"1.75",@"2",nil];
-    NSArray *o_a_codecs = [NSArray arrayWithObjects: @"mpga", @"mp3 ", @"mp4a", @"a52 ", @"vorb", @"flac", @"spx ", nil];
-    NSArray *o_v_codecs = [NSArray arrayWithObjects: @"mp1v", @"mp2v", @"mp4v", @"DIV1",
-        @"DIV2", @"DIV3", @"h263", @"h264", @"WMV1", @"WMV2", @"MJPG", @"theo", nil];
+    NSArray *o_muxers = @[@"MPEG TS", @"MPEG PS", @"MPEG 1",
+        @"Ogg", @"AVI", @"ASF", @"MPEG 4", @"Quicktime", @"Raw"];
+    NSArray *o_a_channels = @[@"1", @"2", @"4", @"6"];
+    NSArray *o_a_bitrates = @[@"16", @"32", @"64", @"96",
+        @"128", @"192", @"256", @"512"];
+    NSArray *o_v_bitrates = @[@"16", @"32", @"64", @"96",
+        @"128", @"192", @"256", @"384", @"512", @"768", @"1024", @"2048", @"3072"];
+    NSArray *o_v_scales = @[@"0.25",@"0.5",@"0.75",@"1",@"1.25",@"1.5",@"1.75",@"2"];
+    NSArray *o_a_codecs = @[@"mpga", @"mp3 ", @"mp4a", @"a52 ", @"vorb", @"flac", @"spx "];
+    NSArray *o_v_codecs = @[@"mp1v", @"mp2v", @"mp4v", @"DIV1",
+        @"DIV2", @"DIV3", @"h263", @"h264", @"WMV1", @"WMV2", @"MJPG", @"theo"];
 
     [o_output_ckbox setTitle: _NS("Streaming/Saving:")];
     [o_output_settings setTitle: _NS("Settings...")];
@@ -168,9 +169,9 @@
     [o_transcode_audio_channels addItemsWithObjectValues: o_a_channels];
 
     [o_misc_lbl setTitle: _NS("Stream Announcing")];
-    [o_sap_chkbox setTitle: _NS("SAP announce")];
-    [o_rtsp_chkbox setTitle: _NS("RTSP announce")];
-    [o_http_chkbox setTitle:_NS("HTTP announce")];
+    [o_sap_chkbox setTitle: _NS("SAP Announcement")];
+    [o_rtsp_chkbox setTitle: _NS("RTSP Announcement")];
+    [o_http_chkbox setTitle:_NS("HTTP Announcement")];
     [o_file_chkbox setTitle:_NS("Export SDP as file")];
 
     [o_channel_name_lbl setStringValue: _NS("Channel Name")];
@@ -339,17 +340,14 @@
 
     if ([o_mode isEqualToString: _NS("File")]) {
         if ([o_dump_chkbox state] == NSOnState) {
-            NSMutableArray * o_sout_options;
-            o_sout_options = [NSArray arrayWithObjects:
-                                    @":demux=dump",
-                                    [NSString stringWithFormat:
-                                    @":demuxdump-file=%@",
-                                    [o_file_field stringValue]],
-                                    nil];
+            o_sout_options = @[@":demux=dump",
+                               [NSString stringWithFormat:
+                               @":demuxdump-file=%@",
+                               [o_file_field stringValue]]];
             [self setSoutMRL:o_sout_options];
             return;
         } else
-                [o_mrl_string appendFormat: @"std{access=file,mux=%@,dst=\"%@\"}", o_mux_string, [o_file_field stringValue]];
+                [o_mrl_string appendFormat: @"standard{mux=%@,access=file{no-overwrite},dst=\"%@\"}", o_mux_string, [o_file_field stringValue]];
     }
     else if ([o_mode isEqualToString: _NS("Stream")]) {
         o_mode = [o_stream_type titleOfSelectedItem];
@@ -380,15 +378,15 @@
             if ([o_urlItems count] == 1)
                 [o_finalStreamAddress appendFormat: @"\"%@:%@\"", [o_stream_address stringValue],[o_stream_port stringValue]];
             else {
-                [o_finalStreamAddress appendFormat: @"\"%@:%@", [o_urlItems objectAtIndex: 0], [o_stream_port stringValue]];
+                [o_finalStreamAddress appendFormat: @"\"%@:%@", [o_urlItems objectAtIndex:0], [o_stream_port stringValue]];
                 NSUInteger itemCount = [o_urlItems count];
                 for (NSUInteger x = 0; x < itemCount; x++)
-                    [o_finalStreamAddress appendFormat: @"/%@", [o_urlItems objectAtIndex: x]];
+                    [o_finalStreamAddress appendFormat: @"/%@", [o_urlItems objectAtIndex:x]];
                 [o_finalStreamAddress appendString: @"\""];
             }
 
             [o_mrl_string appendFormat:
-                        @"std{access=%@,mux=%@,dst=%@%@}",
+                        @"standard{mux=%@,access=%@,dst=%@%@}",
                         o_mode, o_mux_string, o_finalStreamAddress, o_announce];
         } else {
             NSString * o_stream_name;
@@ -411,7 +409,7 @@
                 [o_announce appendFormat:@",sdp=\"file://%@\"",[o_sdp_url stringValue]];
 
             [o_mrl_string appendFormat:
-                        @"rtp{dst=\"%@\",port=%@%@%@}",[o_stream_address stringValue],
+                        @"rtp{mux=ts,dst=\"%@\",port=%@%@%@}",[o_stream_address stringValue],
                         [o_stream_port stringValue], o_stream_name, o_announce];
         }
 
@@ -419,7 +417,7 @@
     if ([o_display state] == NSOnState)
         [o_mrl_string appendString: @"}"];
 
-    o_sout_options = [NSArray arrayWithObjects: o_mrl_string,nil];
+    o_sout_options = @[o_mrl_string];
     [self setSoutMRL:o_sout_options];
 }
 
@@ -460,8 +458,7 @@
     [o_save_panel setNameFieldStringValue: o_name];
 
     if ([o_save_panel runModal] == NSFileHandlingPanelOKButton) {
-        NSString *o_filename = [[o_save_panel URL] path];
-        [o_file_field setStringValue: o_filename];
+        [o_file_field setStringValue: [[o_save_panel URL] path]];
         [self outputInfoChanged: nil];
     }
 }
@@ -542,15 +539,15 @@
                 [o_mode isEqualToString: @"RTP"]];
 
     if ([o_mode isEqualToString: @"RTP"]) {
-/*        if ([[sender title] isEqualToString: _NS("SAP announce")]) {
+/*        if ([[sender title] isEqualToString: _NS("SAP Announcement")]) {
             [o_rtsp_chkbox setState:NSOffState];
             [o_http_chkbox setState:NSOffState];
         }*/
-        if ([[sender title] isEqualToString:_NS("RTSP announce")]) {
+        if ([[sender title] isEqualToString:_NS("RTSP Announcement")]) {
 //            [o_sap_chkbox setState:NSOffState];
             [o_http_chkbox setState:NSOffState];
             [o_file_chkbox setState:NSOffState];
-        } else if ([[sender title] isEqualToString:_NS("HTTP announce")]) {
+        } else if ([[sender title] isEqualToString:_NS("HTTP Announcement")]) {
 //            [o_sap_chkbox setState:NSOffState];
             [o_rtsp_chkbox setState:NSOffState];
             [o_file_chkbox setState:NSOffState];

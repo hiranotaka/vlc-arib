@@ -1,7 +1,7 @@
 /*****************************************************************************
  * video.c : Video4Linux2 input module for vlc
  *****************************************************************************
- * Copyright (C) 2002-2009 the VideoLAN team
+ * Copyright (C) 2002-2009 VLC authors and VideoLAN
  * Copyright (C) 2011-2012 Rémi Denis-Courmont
  *
  * Authors: Benjamin Pracht <bigben at videolan dot org>
@@ -9,14 +9,14 @@
  *          Antoine Cellerier <dionoea at videolan d.t org>
  *          Dennis Lou <dlou99 at yahoo dot com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -28,10 +28,10 @@
 # include "config.h"
 #endif
 
+#include <assert.h>
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <poll.h>
 
 #include <vlc_common.h>
 #include <vlc_block.h>
@@ -39,7 +39,8 @@
 #include "v4l2.h"
 
 static int SetupStandard (vlc_object_t *obj, int fd,
-                          const struct v4l2_input *restrict input)
+                          const struct v4l2_input *restrict input,
+                          v4l2_std_id *restrict std)
 {
     if (!(input->capabilities & V4L2_IN_CAP_STD))
     {
@@ -47,18 +48,22 @@ static int SetupStandard (vlc_object_t *obj, int fd,
         return 0;
     }
 
-    v4l2_std_id std = var_InheritStandard (obj, CFG_PREFIX"standard");
-    if (std == V4L2_STD_UNKNOWN)
+    *std = var_InheritStandard (obj, CFG_PREFIX"standard");
+    if (*std == V4L2_STD_UNKNOWN)
     {
         msg_Warn (obj, "video standard not set");
+
+        /* Grab the currently selected standard */
+        if (v4l2_ioctl (fd, VIDIOC_G_STD, std) < 0)
+            msg_Err (obj, "cannot get video standard");
         return 0;
     }
-    if (v4l2_ioctl (fd, VIDIOC_S_STD, &std) < 0)
+    if (v4l2_ioctl (fd, VIDIOC_S_STD, std) < 0)
     {
-        msg_Err (obj, "cannot set video standard 0x%"PRIx64": %m", std);
+        msg_Err (obj, "cannot set video standard 0x%"PRIx64": %m", *std);
         return -1;
     }
-    msg_Dbg (obj, "video standard set to 0x%"PRIx64":", std);
+    msg_Dbg (obj, "video standard set to 0x%"PRIx64":", *std);
     return 0;
 }
 
@@ -230,7 +235,7 @@ static int ResetCrop (vlc_object_t *obj, int fd)
     return 0;
 }
 
-int SetupInput (vlc_object_t *obj, int fd)
+int SetupInput (vlc_object_t *obj, int fd, v4l2_std_id *std)
 {
     struct v4l2_input input;
 
@@ -263,7 +268,7 @@ int SetupInput (vlc_object_t *obj, int fd)
     }
     msg_Dbg (obj, "selected input %"PRIu32, input.index);
 
-    SetupStandard (obj, fd, &input);
+    SetupStandard (obj, fd, &input, std);
 
     switch (input.type)
     {
@@ -508,6 +513,24 @@ int SetupFormat (vlc_object_t *obj, int fd, uint32_t fourcc,
     return 0;
 }
 
+mtime_t GetBufferPTS (const struct v4l2_buffer *buf)
+{
+    mtime_t pts;
+
+    switch (buf->flags & V4L2_BUF_FLAG_TIMESTAMP_MASK)
+    {
+        case V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC:
+            pts = (buf->timestamp.tv_sec * CLOCK_FREQ)
+                 + buf->timestamp.tv_usec;
+            static_assert (CLOCK_FREQ == 1000000, "Clock unit mismatch");
+            break;
+        case V4L2_BUF_FLAG_TIMESTAMP_UNKNOWN:
+        default:
+            pts = mdate ();
+            break;
+    }
+    return pts;
+}
 
 /*****************************************************************************
  * GrabVideo: Grab a video frame
@@ -540,6 +563,7 @@ block_t *GrabVideo (vlc_object_t *demux, int fd,
     block_t *block = block_Alloc (buf.bytesused);
     if (unlikely(block == NULL))
         return NULL;
+    block->i_pts = block->i_dts = GetBufferPTS (&buf);
     memcpy (block->p_buffer, bufv[buf.index].start, buf.bytesused);
 
     /* Unlock */

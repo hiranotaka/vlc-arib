@@ -7,8 +7,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>734</width>
-    <height>687</height>
+    <width>733</width>
+    <height>548</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -31,41 +31,6 @@
     <number>0</number>
    </property>
    <item row="2" column="0" colspan="2">
-    <widget class="QGroupBox" name="OneInterfaceBox">
-     <property name="title">
-      <string>Instances</string>
-     </property>
-     <layout class="QGridLayout" name="gridLayout_2">
-      <property name="leftMargin">
-       <number>9</number>
-      </property>
-      <property name="rightMargin">
-       <number>9</number>
-      </property>
-      <property name="bottomMargin">
-       <number>9</number>
-      </property>
-      <property name="verticalSpacing">
-       <number>0</number>
-      </property>
-      <item row="0" column="0">
-       <widget class="QCheckBox" name="OneInterfaceMode">
-        <property name="text">
-         <string>Allow only one instance</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1" colspan="2">
-       <widget class="QCheckBox" name="EnqueueOneInterfaceMode">
-        <property name="text">
-         <string>Enqueue files when in one instance mode</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item row="3" column="0" colspan="2">
     <widget class="QGroupBox" name="groupBox_2">
      <property name="title">
       <string>Privacy / Network Interaction</string>
@@ -105,9 +70,6 @@
          <string>Every </string>
         </property>
        </widget>
-      </item>
-      <item row="0" column="3" colspan="2">
-       <widget class="QComboBox" name="artFetcher"/>
       </item>
       <item row="2" column="2">
        <widget class="QLabel" name="filterLabel">
@@ -151,22 +113,6 @@
         </property>
        </widget>
       </item>
-      <item row="0" column="0">
-       <widget class="QLabel" name="artFetchLabel">
-        <property name="minimumSize">
-         <size>
-          <width>220</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="text">
-         <string>Album art download policy:</string>
-        </property>
-        <property name="buddy">
-         <cstring>artFetcher</cstring>
-        </property>
-       </widget>
-      </item>
       <item row="1" column="0">
        <widget class="QCheckBox" name="updatesBox">
         <property name="minimumSize">
@@ -184,131 +130,6 @@
     </widget>
    </item>
    <item row="0" column="0" colspan="2">
-    <widget class="QGroupBox" name="languageBox">
-     <property name="title">
-      <string>Language</string>
-     </property>
-     <layout class="QHBoxLayout" name="horizontalLayout_3">
-      <property name="bottomMargin">
-       <number>0</number>
-      </property>
-      <item>
-       <widget class="QLabel" name="languageLabel">
-        <property name="maximumSize">
-         <size>
-          <width>220</width>
-          <height>16777215</height>
-         </size>
-        </property>
-        <property name="text">
-         <string>Menus language:</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
-        </property>
-        <property name="buddy">
-         <cstring>language</cstring>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="language"/>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item row="4" column="0" colspan="2">
-    <widget class="QGroupBox" name="playlistGroupBox">
-     <property name="title">
-      <string>Playlist</string>
-     </property>
-     <layout class="QGridLayout" name="gridLayout_4">
-      <item row="0" column="0">
-       <widget class="QCheckBox" name="treePlaylist">
-        <property name="text">
-         <string>Display playlist tree</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="2" colspan="2">
-       <widget class="QCheckBox" name="playPauseBox">
-        <property name="text">
-         <string>Pause on the last frame of a video</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="0">
-       <widget class="QLabel" name="assocLabel">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="text">
-         <string>File extensions association</string>
-        </property>
-        <property name="buddy">
-         <cstring>assoButton</cstring>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="1">
-       <spacer name="horizontalSpacer_6">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>40</width>
-          <height>20</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item row="2" column="2">
-       <widget class="QPushButton" name="assoButton">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>220</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="text">
-         <string>Set up associations...</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="3">
-       <spacer name="horizontalSpacer_8">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>135</width>
-          <height>20</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item row="1" column="0">
-       <widget class="QPushButton" name="sqlMLbtn">
-        <property name="text">
-         <string>Configure Media Library</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item row="1" column="0" colspan="2">
     <widget class="QGroupBox" name="LooknfeelBox">
      <property name="title">
       <string>Look and feel</string>
@@ -436,42 +257,51 @@
              <property name="topMargin">
               <number>0</number>
              </property>
-             <item row="0" column="0" colspan="3">
+             <item row="1" column="2" colspan="2">
+              <widget class="QCheckBox" name="resizingBox">
+               <property name="text">
+                <string>Resize interface to video size</string>
+               </property>
+              </widget>
+             </item>
+             <item row="5" column="2" colspan="2">
+              <widget class="QComboBox" name="notificationCombo"/>
+             </item>
+             <item row="9" column="2" colspan="2">
+              <widget class="QComboBox" name="stylesCombo"/>
+             </item>
+             <item row="0" column="0" colspan="5">
               <widget class="QCheckBox" name="fsController">
                <property name="text">
                 <string>Show controls in full screen mode</string>
                </property>
               </widget>
              </item>
-             <item row="1" column="0">
-              <widget class="QCheckBox" name="minimalviewBox">
-               <property name="text">
-                <string>Start in minimal view mode</string>
-               </property>
-              </widget>
-             </item>
-             <item row="1" column="2" colspan="2">
+             <item row="3" column="2" colspan="2">
               <widget class="QCheckBox" name="pauseMinimizedBox">
                <property name="text">
                 <string>Pause playback when minimized</string>
                </property>
               </widget>
              </item>
-             <item row="2" column="0">
-              <widget class="QCheckBox" name="embedVideo">
+             <item row="5" column="0">
+              <widget class="QLabel" name="notificationComboLabel">
                <property name="text">
-                <string>Integrate video in interface</string>
+                <string>Show media change popup:</string>
+               </property>
+               <property name="buddy">
+                <cstring>notificationCombo</cstring>
                </property>
               </widget>
              </item>
-             <item row="3" column="0" rowspan="2">
-              <widget class="QCheckBox" name="systrayBox">
+             <item row="3" column="0">
+              <widget class="QCheckBox" name="minimalviewBox">
                <property name="text">
-                <string>Show systray icon</string>
+                <string>Start in minimal view mode</string>
                </property>
               </widget>
              </item>
-             <item row="6" column="0">
+             <item row="9" column="0">
               <widget class="QLabel" name="stylesLabel">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
@@ -487,8 +317,12 @@
                </property>
               </widget>
              </item>
-             <item row="6" column="2" colspan="2">
-              <widget class="QComboBox" name="stylesCombo"/>
+             <item row="1" column="0">
+              <widget class="QCheckBox" name="embedVideo">
+               <property name="text">
+                <string>Integrate video in interface</string>
+               </property>
+              </widget>
              </item>
              <item row="1" column="1">
               <spacer name="horizontalSpacer_3">
@@ -510,28 +344,18 @@
                </property>
                <property name="sizeHint" stdset="0">
                 <size>
-                 <width>40</width>
+                 <width>20</width>
                  <height>20</height>
                 </size>
                </property>
               </spacer>
              </item>
-             <item row="2" column="2" colspan="2">
-              <widget class="QCheckBox" name="resizingBox">
+             <item row="4" column="0" colspan="2">
+              <widget class="QCheckBox" name="systrayBox">
                <property name="text">
-                <string>Resize interface to video size</string>
+                <string>Show systray icon</string>
                </property>
               </widget>
-             </item>
-             <item row="5" column="0" colspan="2">
-              <widget class="QLabel" name="notificationComboLabel">
-               <property name="text">
-                <string>Show media change popup:</string>
-               </property>
-              </widget>
-             </item>
-             <item row="5" column="2" colspan="2">
-              <widget class="QComboBox" name="notificationCombo"/>
              </item>
             </layout>
            </widget>
@@ -663,6 +487,149 @@
      </layout>
     </widget>
    </item>
+   <item row="3" column="0" colspan="2">
+    <widget class="QGroupBox" name="osGroupBox">
+     <property name="title">
+      <string>Operating System Integration</string>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_4">
+      <item row="2" column="0">
+       <widget class="QLabel" name="assocLabel">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="text">
+         <string>File extensions association</string>
+        </property>
+        <property name="buddy">
+         <cstring>assoButton</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <spacer name="horizontalSpacer_6">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item row="2" column="2">
+       <widget class="QPushButton" name="assoButton">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>220</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Set up associations...</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="3">
+       <spacer name="horizontalSpacer_8">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeType">
+         <enum>QSizePolicy::Minimum</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>135</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item row="1" column="0" colspan="2">
+    <widget class="QGroupBox" name="OneInterfaceBox">
+     <property name="title">
+      <string>Playlist and Instances</string>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_2">
+      <item row="4" column="0">
+       <widget class="QLabel" name="artFetchLabel">
+        <property name="minimumSize">
+         <size>
+          <width>220</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Album art download policy:</string>
+        </property>
+        <property name="buddy">
+         <cstring>artFetcher</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QCheckBox" name="treePlaylist">
+        <property name="text">
+         <string>Display playlist tree</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QCheckBox" name="EnqueueOneInterfaceMode">
+        <property name="text">
+         <string>Enqueue items into playlist in one instance mode</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QCheckBox" name="playPauseBox">
+        <property name="text">
+         <string>Pause on the last frame of a video</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0">
+       <widget class="QCheckBox" name="OneInterfaceMode">
+        <property name="text">
+         <string>Allow only one instance</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QComboBox" name="artFetcher"/>
+      </item>
+      <item row="5" column="0">
+       <widget class="QPushButton" name="sqlMLbtn">
+        <property name="text">
+         <string>Configure Media Library</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0" colspan="2">
+       <widget class="QCheckBox" name="oneInstanceFromFile">
+        <property name="text">
+         <string>Use only one instance when started from file manager</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
   </layout>
  </widget>
  <customwidgets>
@@ -673,27 +640,30 @@
   </customwidget>
  </customwidgets>
  <tabstops>
-  <tabstop>language</tabstop>
   <tabstop>qt</tabstop>
   <tabstop>skins</tabstop>
   <tabstop>fsController</tabstop>
-  <tabstop>minimalviewBox</tabstop>
-  <tabstop>pauseMinimizedBox</tabstop>
   <tabstop>embedVideo</tabstop>
   <tabstop>resizingBox</tabstop>
+  <tabstop>minimalviewBox</tabstop>
+  <tabstop>pauseMinimizedBox</tabstop>
   <tabstop>systrayBox</tabstop>
+  <tabstop>notificationCombo</tabstop>
   <tabstop>stylesCombo</tabstop>
   <tabstop>OneInterfaceMode</tabstop>
   <tabstop>EnqueueOneInterfaceMode</tabstop>
+  <tabstop>oneInstanceFromFile</tabstop>
+  <tabstop>treePlaylist</tabstop>
+  <tabstop>playPauseBox</tabstop>
   <tabstop>artFetcher</tabstop>
+  <tabstop>sqlMLbtn</tabstop>
   <tabstop>updatesBox</tabstop>
   <tabstop>updatesDays</tabstop>
   <tabstop>saveRecentlyPlayed</tabstop>
   <tabstop>recentlyPlayedFilters</tabstop>
-  <tabstop>treePlaylist</tabstop>
   <tabstop>assoButton</tabstop>
-  <tabstop>fileSkin</tabstop>
   <tabstop>skinBrowse</tabstop>
+  <tabstop>fileSkin</tabstop>
  </tabstops>
  <resources/>
  <connections/>

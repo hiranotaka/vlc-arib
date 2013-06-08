@@ -665,7 +665,13 @@ void CtrlTree::makeImage()
                                       __MIN( m_pCurBitmap->getHeight(),
                                              height -  yPos2), true );
             }
-            yPos += i_itemHeight - pText->getHeight();
+            yPos += (i_itemHeight - pText->getHeight());
+            if( yPos >= height )
+            {
+                delete pText;
+                break;
+            }
+
             int ySrc = 0;
             if( yPos < 0 )
             {
@@ -719,13 +725,6 @@ CtrlTree::Iterator CtrlTree::getFirstFromSlider()
         0;
 
     Iterator it_first = m_rTree.getItem( index );
-
-    if( m_lastClicked == m_rTree.end() )
-    {
-        m_lastClicked = it_first;
-        if( m_lastClicked != m_rTree.end() )
-            m_lastClicked->setSelected( true );
-    }
 
     return it_first;
 }

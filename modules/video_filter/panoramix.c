@@ -7,19 +7,19 @@
  * Authors: Cedric Cocquebert <cedric.cocquebert@supelec.fr>
  *          based on Samuel Hocevar <sam@zoy.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -43,7 +43,7 @@
 
 #ifdef OVERLAP
 /* OS CODE DEPENDENT to get display dimensions */
-#   ifdef WIN32
+#   ifdef _WIN32
 #       include <windows.h>
 #   else
 #       include <xcb/xcb.h>
@@ -66,7 +66,7 @@
     "which to split the video")
 
 #define ACTIVE_TEXT N_("Active windows")
-#define ACTIVE_LONGTEXT N_("Comma separated list of active windows, " \
+#define ACTIVE_LONGTEXT N_("Comma-separated list of active windows, " \
     "defaults to all")
 
 #define CFG_PREFIX "panoramix-"
@@ -169,7 +169,7 @@ vlc_module_begin()
     add_integer_with_range( CFG_PREFIX "bz-whitelevel-red", 0, 0, 255, RGAMMA_WL_TEXT, RGAMMA_WL_LONGTEXT, true )
     add_integer_with_range( CFG_PREFIX "bz-whitelevel-green", 0, 0, 255, GGAMMA_WL_TEXT, GGAMMA_WL_LONGTEXT, true )
     add_integer_with_range( CFG_PREFIX "bz-whitelevel-blue", 0, 0, 255, BGAMMA_WL_TEXT, BGAMMA_WL_LONGTEXT, true )
-#ifndef WIN32
+#ifndef _WIN32
     add_obsolete_bool( CFG_PREFIX "xinerama" );
 #endif
     add_obsolete_bool( CFG_PREFIX "offset-x" )
@@ -343,7 +343,7 @@ static const panoramix_chroma_t p_chroma_array[] = {
     { 0, {0, }, { 0, }, { 0, 0, 0 }, false }
 };
 
-#ifndef WIN32
+#ifndef _WIN32
 /* Get the number of outputs */
 static unsigned CountMonitors( vlc_object_t *obj )
 {
@@ -454,7 +454,7 @@ static int Open( vlc_object_t *p_this )
     /* Autodetect number of displays */
     if( p_sys->i_col < 0 || p_sys->i_row < 0 )
     {
-#ifdef WIN32
+#ifdef _WIN32
         const int i_monitor_count = GetSystemMetrics(SM_CMONITORS);
         if( i_monitor_count > 1 )
         {

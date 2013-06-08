@@ -4,10 +4,12 @@
  * Copyright © 2006-2008 Rafaël Carré
  * Copyright © 2007-2011 Mirsal Ennaime
  * Copyright © 2009-2011 The VideoLAN team
+ * Copyright © 2013      Alex Merry
  * $Id$
  *
  * Authors:    Mirsal Ennaime <mirsal at mirsal fr>
  *             Rafaël Carré <funman at videolanorg>
+ *             Alex Merry <dev at randomguy3 me uk>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -78,24 +80,10 @@ MarshalIdentity( intf_thread_t *p_intf, DBusMessageIter *container )
     VLC_UNUSED( p_intf );
     const char *psz_id = _("VLC media player");
 
-    dbus_message_iter_append_basic( container, DBUS_TYPE_STRING, &psz_id );
+    if (!dbus_message_iter_append_basic( container, DBUS_TYPE_STRING, &psz_id ))
+        return VLC_ENOMEM;
+
     return VLC_SUCCESS;
-}
-
-DBUS_METHOD( Identity )
-{
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-    dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "s", &v );
-
-    MarshalIdentity( p_this, &v );
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
 }
 
 static int
@@ -117,27 +105,13 @@ MarshalCanSetFullscreen( intf_thread_t *p_intf, DBusMessageIter *container )
         }
     }
 
-    dbus_message_iter_append_basic( container, DBUS_TYPE_BOOLEAN, &b_ret );
+    if (!dbus_message_iter_append_basic( container, DBUS_TYPE_BOOLEAN, &b_ret ))
+        return VLC_ENOMEM;
+
     return VLC_SUCCESS;
 }
 
-DBUS_METHOD( CanSetFullscreen )
-{
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-    dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "b", &v );
-
-    MarshalCanSetFullscreen( p_this, &v );
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
-}
-
-static void
+static int
 MarshalFullscreen( intf_thread_t *p_intf, DBusMessageIter *container )
 {
     dbus_bool_t b_fullscreen;
@@ -147,26 +121,11 @@ MarshalFullscreen( intf_thread_t *p_intf, DBusMessageIter *container )
     else
         b_fullscreen = FALSE;
 
-    dbus_message_iter_append_basic( container,
-            DBUS_TYPE_BOOLEAN, &b_fullscreen );
-}
+    if (!dbus_message_iter_append_basic( container,
+            DBUS_TYPE_BOOLEAN, &b_fullscreen ))
+        return VLC_ENOMEM;
 
-DBUS_METHOD( FullscreenGet )
-{
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-
-    if( !dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "b", &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    MarshalFullscreen( p_this, &v );
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
+    return VLC_SUCCESS;
 }
 
 DBUS_METHOD( FullscreenSet )
@@ -199,24 +158,10 @@ MarshalCanQuit( intf_thread_t *p_intf, DBusMessageIter *container )
     VLC_UNUSED( p_intf );
     const dbus_bool_t b_ret = TRUE;
 
-    dbus_message_iter_append_basic( container, DBUS_TYPE_BOOLEAN, &b_ret );
+    if (!dbus_message_iter_append_basic( container, DBUS_TYPE_BOOLEAN, &b_ret ))
+        return VLC_ENOMEM;
+
     return VLC_SUCCESS;
-}
-
-DBUS_METHOD( CanQuit )
-{
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-    dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "b", &v );
-
-    MarshalCanQuit( p_this, &v );
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
 }
 
 static int
@@ -225,24 +170,10 @@ MarshalCanRaise( intf_thread_t *p_intf, DBusMessageIter *container )
     VLC_UNUSED( p_intf );
     const dbus_bool_t b_ret = FALSE;
 
-    dbus_message_iter_append_basic( container, DBUS_TYPE_BOOLEAN, &b_ret );
+    if (!dbus_message_iter_append_basic( container, DBUS_TYPE_BOOLEAN, &b_ret ))
+        return VLC_ENOMEM;
+
     return VLC_SUCCESS;
-}
-
-DBUS_METHOD( CanRaise )
-{
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-    dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "b", &v );
-
-    MarshalCanRaise( p_this, &v );
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
 }
 
 static int
@@ -251,24 +182,10 @@ MarshalHasTrackList( intf_thread_t *p_intf, DBusMessageIter *container )
     VLC_UNUSED( p_intf );
     const dbus_bool_t b_ret = FALSE;
 
-    dbus_message_iter_append_basic( container, DBUS_TYPE_BOOLEAN, &b_ret );
+    if (!dbus_message_iter_append_basic( container, DBUS_TYPE_BOOLEAN, &b_ret ))
+        return VLC_ENOMEM;
+
     return VLC_SUCCESS;
-}
-
-DBUS_METHOD( HasTrackList )
-{
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-    dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "b", &v );
-
-    MarshalHasTrackList( p_this, &v );
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
 }
 
 static int
@@ -277,24 +194,10 @@ MarshalDesktopEntry( intf_thread_t *p_intf, DBusMessageIter *container )
     VLC_UNUSED( p_intf );
     const char* psz_ret = PACKAGE;
 
-    dbus_message_iter_append_basic( container, DBUS_TYPE_STRING, &psz_ret );
+    if (!dbus_message_iter_append_basic( container, DBUS_TYPE_STRING, &psz_ret ))
+        return VLC_ENOMEM;
+
     return VLC_SUCCESS;
-}
-
-DBUS_METHOD( DesktopEntry )
-{
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-    dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "s", &v );
-
-    MarshalDesktopEntry( p_this, &v );
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
 }
 
 static int
@@ -326,23 +229,6 @@ MarshalSupportedMimeTypes( intf_thread_t *p_intf, DBusMessageIter *container )
     return VLC_SUCCESS;
 }
 
-DBUS_METHOD( SupportedMimeTypes )
-{
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-    dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "as", &v );
-
-    if( VLC_SUCCESS != MarshalSupportedMimeTypes( p_this, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
-}
-
 static int
 MarshalSupportedUriSchemes( intf_thread_t *p_intf, DBusMessageIter *container )
 {
@@ -372,24 +258,6 @@ MarshalSupportedUriSchemes( intf_thread_t *p_intf, DBusMessageIter *container )
     return VLC_SUCCESS;
 }
 
-DBUS_METHOD( SupportedUriSchemes )
-{
-    VLC_UNUSED( p_this );
-    REPLY_INIT;
-    OUT_ARGUMENTS;
-
-    DBusMessageIter v;
-    dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, "as", &v );
-
-    if( VLC_SUCCESS != MarshalSupportedUriSchemes( p_this, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    if( !dbus_message_iter_close_container( &args, &v ) )
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    REPLY_SEND;
-}
-
 DBUS_METHOD( Quit )
 { /* exits vlc */
     REPLY_INIT;
@@ -405,11 +273,22 @@ DBUS_METHOD( Raise )
 }
 
 #define PROPERTY_MAPPING_BEGIN if( 0 ) {}
-#define PROPERTY_FUNC( interface, property, function ) \
-    else if( !strcmp( psz_interface_name, interface ) && \
-             !strcmp( psz_property_name,  property ) ) \
-        return function( p_conn, p_from, p_this );
-#define PROPERTY_MAPPING_END return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+#define PROPERTY_GET_FUNC( prop, signature ) \
+    else if( !strcmp( psz_property_name,  #prop ) ) { \
+        if( !dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, signature, &v ) ) \
+            return DBUS_HANDLER_RESULT_NEED_MEMORY; \
+        if( VLC_SUCCESS != Marshal##prop( p_this, &v ) ) { \
+            dbus_message_iter_abandon_container( &args, &v ); \
+            return DBUS_HANDLER_RESULT_NEED_MEMORY; \
+        } \
+        if( !dbus_message_iter_close_container( &args, &v ) ) \
+            return DBUS_HANDLER_RESULT_NEED_MEMORY; \
+    }
+#define PROPERTY_SET_FUNC( prop ) \
+    else if( !strcmp( psz_property_name,  #prop ) ) { \
+        return prop##Set( p_conn, p_from, p_this ); \
+    }
+#define PROPERTY_MAPPING_END else { return DBUS_HANDLER_RESULT_NOT_YET_HANDLED; }
 
 DBUS_METHOD( GetProperty )
 {
@@ -435,17 +314,27 @@ DBUS_METHOD( GetProperty )
     msg_Dbg( (vlc_object_t*) p_this, "Getting property %s",
                                      psz_property_name );
 
+    if( strcmp( psz_interface_name, DBUS_MPRIS_ROOT_INTERFACE ) ) {
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    }
+
+    REPLY_INIT;
+    OUT_ARGUMENTS;
+    DBusMessageIter v;
+
     PROPERTY_MAPPING_BEGIN
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "Identity",            Identity )
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "DesktopEntry",        DesktopEntry )
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "SupportedMimeTypes",  SupportedMimeTypes )
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "SupportedUriSchemes", SupportedUriSchemes )
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "HasTrackList",        HasTrackList )
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "CanQuit",             CanQuit )
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "CanSetFullscreen",    CanSetFullscreen )
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "Fullscreen",          FullscreenGet )
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "CanRaise",            CanRaise )
+    PROPERTY_GET_FUNC( Identity,            "s" )
+    PROPERTY_GET_FUNC( CanSetFullscreen,    "b" )
+    PROPERTY_GET_FUNC( Fullscreen,          "b" )
+    PROPERTY_GET_FUNC( CanQuit,             "b" )
+    PROPERTY_GET_FUNC( CanRaise,            "b" )
+    PROPERTY_GET_FUNC( HasTrackList,        "b" )
+    PROPERTY_GET_FUNC( DesktopEntry,        "s" )
+    PROPERTY_GET_FUNC( SupportedMimeTypes,  "as" )
+    PROPERTY_GET_FUNC( SupportedUriSchemes, "as" )
     PROPERTY_MAPPING_END
+
+    REPLY_SEND;
 }
 
 DBUS_METHOD( SetProperty )
@@ -470,54 +359,21 @@ DBUS_METHOD( SetProperty )
     }
 
     PROPERTY_MAPPING_BEGIN
-    PROPERTY_FUNC( DBUS_MPRIS_ROOT_INTERFACE, "Fullscreen",    FullscreenSet )
+    PROPERTY_SET_FUNC( Fullscreen )
     PROPERTY_MAPPING_END
 }
 
 #undef PROPERTY_MAPPING_BEGIN
 #undef PROPERTY_GET_FUNC
+#undef PROPERTY_SET_FUNC
 #undef PROPERTY_MAPPING_END
-
-static int
-AddProperty( intf_thread_t *p_intf,
-             DBusMessageIter *p_container,
-             const char* psz_property_name,
-             const char* psz_signature,
-             int (*pf_marshaller) (intf_thread_t*, DBusMessageIter*) )
-{
-    DBusMessageIter entry, v;
-
-    if( !dbus_message_iter_open_container( p_container,
-                                           DBUS_TYPE_DICT_ENTRY, NULL,
-                                           &entry ) )
-        return VLC_ENOMEM;
-
-    if( !dbus_message_iter_append_basic( &entry,
-                                         DBUS_TYPE_STRING,
-                                         &psz_property_name ) )
-        return VLC_ENOMEM;
-
-    if( !dbus_message_iter_open_container( &entry,
-                                           DBUS_TYPE_VARIANT, psz_signature,
-                                           &v ) )
-        return VLC_ENOMEM;
-
-    if( VLC_SUCCESS != pf_marshaller( p_intf, &v ) )
-        return VLC_ENOMEM;
-
-    if( !dbus_message_iter_close_container( &entry, &v) )
-        return VLC_ENOMEM;
-
-    if( !dbus_message_iter_close_container( p_container, &entry ) )
-        return VLC_ENOMEM;
-
-    return VLC_SUCCESS;
-}
 
 #define ADD_PROPERTY( prop, signature ) \
     if( VLC_SUCCESS != AddProperty( (intf_thread_t*) p_this, \
-                &dict, #prop, signature, Marshal##prop ) ) \
-        return VLC_ENOMEM;
+                &dict, #prop, signature, Marshal##prop ) ) { \
+        dbus_message_iter_abandon_container( &args, &dict ); \
+        return VLC_ENOMEM; \
+    }
 
 DBUS_METHOD( GetAllProperties )
 {
@@ -544,7 +400,8 @@ DBUS_METHOD( GetAllProperties )
 
     msg_Dbg( (vlc_object_t*) p_this, "Getting All properties" );
 
-    dbus_message_iter_open_container( &args, DBUS_TYPE_ARRAY, "{sv}", &dict );
+    if( !dbus_message_iter_open_container( &args, DBUS_TYPE_ARRAY, "{sv}", &dict ) )
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
 
     ADD_PROPERTY( Identity,            "s"  );
     ADD_PROPERTY( DesktopEntry,        "s"  );
@@ -553,9 +410,12 @@ DBUS_METHOD( GetAllProperties )
     ADD_PROPERTY( HasTrackList,        "b"  );
     ADD_PROPERTY( CanQuit,             "b"  );
     ADD_PROPERTY( CanSetFullscreen,    "b"  );
+    ADD_PROPERTY( Fullscreen,          "b"  );
     ADD_PROPERTY( CanRaise,            "b"  );
 
-    dbus_message_iter_close_container( &args, &dict );
+    if( !dbus_message_iter_close_container( &args, &dict ))
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
+
     REPLY_SEND;
 }
 
@@ -587,12 +447,22 @@ handle_root ( DBusConnection *p_conn, DBusMessage *p_from, void *p_this )
  * org.freedesktop.DBus.Properties.PropertiesChanged signal
  */
 
+#define PROPERTY_MAPPING_BEGIN if( 0 ) {}
+#define PROPERTY_ENTRY( prop, signature ) \
+    else if( !strcmp( ppsz_properties[i], #prop ) ) \
+    { \
+        if( VLC_SUCCESS != AddProperty( (intf_thread_t*) p_intf, \
+                    &changed_properties, #prop, signature, Marshal##prop ) ) \
+            return DBUS_HANDLER_RESULT_NEED_MEMORY; \
+    }
+#define PROPERTY_MAPPING_END else { return DBUS_HANDLER_RESULT_NOT_YET_HANDLED; }
+
 static DBusHandlerResult
 PropertiesChangedSignal( intf_thread_t    *p_intf,
                          vlc_dictionary_t *p_changed_properties )
 {
     DBusConnection  *p_conn = p_intf->p_sys->p_conn;
-    DBusMessageIter changed_properties, invalidated_properties, entry, variant;
+    DBusMessageIter changed_properties, invalidated_properties;
     const char *psz_interface_name = DBUS_MPRIS_ROOT_INTERFACE;
     char **ppsz_properties = NULL;
     int i_properties = 0;
@@ -603,40 +473,39 @@ PropertiesChangedSignal( intf_thread_t    *p_intf,
 
     OUT_ARGUMENTS;
     ADD_STRING( &psz_interface_name );
-    dbus_message_iter_open_container( &args, DBUS_TYPE_ARRAY, "{sv}",
-                                      &changed_properties );
+
+    if( !dbus_message_iter_open_container( &args, DBUS_TYPE_ARRAY, "{sv}",
+                                           &changed_properties ) )
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
 
     i_properties = vlc_dictionary_keys_count( p_changed_properties );
     ppsz_properties = vlc_dictionary_all_keys( p_changed_properties );
 
+    if( unlikely(!ppsz_properties) )
+    {
+        dbus_message_iter_abandon_container( &args, &changed_properties );
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
+    }
+
     for( int i = 0; i < i_properties; i++ )
     {
-        dbus_message_iter_open_container( &changed_properties,
-                                          DBUS_TYPE_DICT_ENTRY, NULL,
-                                          &entry );
+        PROPERTY_MAPPING_BEGIN
+        PROPERTY_ENTRY( Fullscreen, "b" )
+        PROPERTY_MAPPING_END
 
-        dbus_message_iter_append_basic( &entry, DBUS_TYPE_STRING,
-                                        &ppsz_properties[i] );
-
-        if( !strcmp( ppsz_properties[i], "Fullscreen" ) )
-        {
-            dbus_message_iter_open_container( &entry,
-                                              DBUS_TYPE_VARIANT, "b",
-                                              &variant );
-            MarshalFullscreen( p_intf, &variant );
-            dbus_message_iter_close_container( &entry, &variant );
-        }
-
-        dbus_message_iter_close_container( &changed_properties, &entry );
         free( ppsz_properties[i] );
     }
 
-    dbus_message_iter_close_container( &args, &changed_properties );
+    if( !dbus_message_iter_close_container( &args, &changed_properties ) )
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
 
-    dbus_message_iter_open_container( &args, DBUS_TYPE_ARRAY, "s",
-                                      &invalidated_properties );
+    if( !dbus_message_iter_open_container( &args, DBUS_TYPE_ARRAY, "s",
+                                           &invalidated_properties ) )
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
 
-    dbus_message_iter_close_container( &args, &invalidated_properties );
+    if( !dbus_message_iter_close_container( &args, &invalidated_properties ) )
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
+
     free( ppsz_properties );
 
     SIGNAL_SEND;

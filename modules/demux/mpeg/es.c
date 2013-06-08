@@ -1,25 +1,25 @@
 /*****************************************************************************
  * es.c : Generic audio ES input module for vlc
  *****************************************************************************
- * Copyright (C) 2001-2008 the VideoLAN team
+ * Copyright (C) 2001-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -38,6 +38,7 @@
 #include <vlc_input.h>
 
 #include "../../codec/a52.h"
+#include "../../codec/dts_header.h"
 
 /*****************************************************************************
  * Module descriptor
@@ -919,37 +920,22 @@ static int A52Init( demux_t *p_demux )
  *****************************************************************************/
 static int DtsCheckSync( const uint8_t *p_peek, int *pi_samples )
 {
-    /* TODO return frame size for robustness */
-
-    /* 14 bits, little endian version of the bitstream */
-    if( p_peek[0] == 0xff && p_peek[1] == 0x1f &&
-        p_peek[2] == 0x00 && p_peek[3] == 0xe8 &&
-        (p_peek[4] & 0xf0) == 0xf0 && p_peek[5] == 0x07 )
-    {
-        return 0;
-    }
-    /* 14 bits, big endian version of the bitstream */
-    else if( p_peek[0] == 0x1f && p_peek[1] == 0xff &&
-             p_peek[2] == 0xe8 && p_peek[3] == 0x00 &&
-             p_peek[4] == 0x07 && (p_peek[5] & 0xf0) == 0xf0)
-    {
-        return 0;
-    }
-    /* 16 bits, big endian version of the bitstream */
-    else if( p_peek[0] == 0x7f && p_peek[1] == 0xfe &&
-             p_peek[2] == 0x80 && p_peek[3] == 0x01 )
-    {
-        return 0;
-    }
-    /* 16 bits, little endian version of the bitstream */
-    else if( p_peek[0] == 0xfe && p_peek[1] == 0x7f &&
-             p_peek[2] == 0x01 && p_peek[3] == 0x80 )
-    {
-        return 0;
-    }
+    unsigned int i_sample_rate, i_bit_rate, i_frame_length, i_audio_mode;
+    bool b_dts_hd;
 
     VLC_UNUSED(pi_samples);
-    return VLC_EGENERIC;
+
+    int i_frame_size = GetSyncInfo( p_peek,
+                                    &b_dts_hd,
+                                    &i_sample_rate,
+                                    &i_bit_rate,
+                                    &i_frame_length,
+                                    &i_audio_mode );
+
+    if( i_frame_size != VLC_EGENERIC && i_frame_size <= 8192 )
+        return VLC_SUCCESS;
+    else
+        return VLC_EGENERIC;
 }
 
 static int DtsProbe( demux_t *p_demux, int64_t *pi_offset )

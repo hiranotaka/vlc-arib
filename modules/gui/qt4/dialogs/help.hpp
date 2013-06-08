@@ -58,9 +58,19 @@ private:
     Ui::aboutWidget ui;
 
 public slots:
-    virtual void close() { toggleVisible(); }
-
     friend class    Singleton<AboutDialog>;
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event);
+    virtual void showEvent ( QShowEvent * );
+
+private:
+    bool b_advanced;
+
+private slots:
+    void showLicense();
+    void showAuthors();
+    void showCredit();
 };
 
 #ifdef UPDATE_CHECK

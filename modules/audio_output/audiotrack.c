@@ -71,6 +71,8 @@ typedef int (*AudioSystem_getOutputSamplingRate)(int *, int);
 // _ZN7android10AudioTrack16getMinFrameCountEPiij
 typedef int (*AudioTrack_getMinFrameCount)(int *, int, unsigned int);
 
+// _ZN7android11AudioSystem17getRenderPositionEPjS1_i
+typedef int (*AudioTrack_getRenderPosition)(uint32_t *, uint32_t *, int);
 // _ZN7android10AudioTrackC1EijiiijPFviPvS1_ES1_ii
 typedef void (*AudioTrack_ctor)(void *, int, unsigned int, int, int, int, unsigned int, void (*)(int, void *, void *), void *, int, int);
 // _ZN7android10AudioTrackC1EijiiijPFviPvS1_ES1_i
@@ -91,6 +93,14 @@ typedef int (*AudioTrack_flush)(void *);
 typedef int (*AudioTrack_pause)(void *);
 
 struct aout_sys_t {
+    float soft_gain;
+    bool soft_mute;
+
+    int rate;
+    uint32_t samples_written;
+    uint32_t initial;
+    int bytes_per_frame;
+
     void *libmedia;
     void *AudioTrack;
 
@@ -108,14 +118,19 @@ struct aout_sys_t {
     AudioTrack_write at_write;
     AudioTrack_flush at_flush;
     AudioTrack_pause at_pause;
+    AudioTrack_getRenderPosition at_getRenderPosition;
 };
+
+/* Soft volume helper */
+#include "volume.h"
 
 static void *InitLibrary(struct aout_sys_t *p_sys);
 
 static int  Open(vlc_object_t *);
 static void Close(vlc_object_t *);
-static void Play(audio_output_t*, block_t*, mtime_t* restrict);
+static void Play(audio_output_t*, block_t*);
 static void Pause (audio_output_t *, bool, mtime_t);
+static void Flush (audio_output_t *, bool);
 
 vlc_module_begin ()
     set_shortname("AudioTrack")
@@ -123,6 +138,7 @@ vlc_module_begin ()
     set_capability("audio output", 225)
     set_category(CAT_AUDIO)
     set_subcategory(SUBCAT_AUDIO_AOUT)
+    add_sw_gain()
     add_shortcut("android")
     set_callbacks(Open, Close)
 vlc_module_end ()
@@ -158,6 +174,11 @@ static void *InitLibrary(struct aout_sys_t *p_sys)
     p_sys->at_flush = (AudioTrack_flush)(dlsym(p_library, "_ZN7android10AudioTrack5flushEv"));
     p_sys->at_pause = (AudioTrack_pause)(dlsym(p_library, "_ZN7android10AudioTrack5pauseEv"));
 
+    /* this symbol can have different names depending on the mangling */
+    p_sys->at_getRenderPosition = (AudioTrack_getRenderPosition)(dlsym(p_library, "_ZN7android11AudioSystem17getRenderPositionEPjS1_i"));
+    if (!p_sys->at_getRenderPosition)
+        p_sys->at_getRenderPosition = (AudioTrack_getRenderPosition)(dlsym(p_library, "_ZN7android11AudioSystem17getRenderPositionEPjS1_19audio_stream_type_t"));
+
     /* We need the first 3 or the last 1 */
     if (!((p_sys->as_getOutputFrameCount && p_sys->as_getOutputLatency && p_sys->as_getOutputSamplingRate)
         || p_sys->at_getMinFrameCount)) {
@@ -172,6 +193,34 @@ static void *InitLibrary(struct aout_sys_t *p_sys)
         return NULL;
     }
     return p_library;
+}
+
+static int TimeGet(audio_output_t *p_aout, mtime_t *restrict delay)
+{
+    aout_sys_t *p_sys = p_aout->sys;
+    uint32_t hal, dsp;
+
+    if (!p_sys->at_getRenderPosition)
+        return -1;
+
+    if (p_sys->at_getRenderPosition(&hal, &dsp, MUSIC))
+        return -1;
+
+    hal = (uint32_t)((uint64_t)hal * p_sys->rate / 44100);
+
+    if (p_sys->samples_written == 0) {
+        p_sys->initial = hal;
+        return -1;
+    }
+
+    hal -= p_sys->initial;
+    if (hal == 0)
+        return -1;
+
+    if (delay)
+        *delay = ((mtime_t)p_sys->samples_written - hal) * CLOCK_FREQ / p_sys->rate;
+
+    return 0;
 }
 
 static int Start(audio_output_t *aout, audio_sample_format_t *restrict fmt)
@@ -191,10 +240,10 @@ static int Start(audio_output_t *aout, audio_sample_format_t *restrict fmt)
 
     stream_type = MUSIC;
 
-    /* We can only accept U8 and S16L */
-    if (fmt->i_format != VLC_CODEC_U8 && fmt->i_format != VLC_CODEC_S16L)
-        fmt->i_format = VLC_CODEC_S16L;
-    format = (fmt->i_format == VLC_CODEC_S16L) ? PCM_16_BIT : PCM_8_BIT;
+    /* We can only accept U8 and S16N */
+    if (fmt->i_format != VLC_CODEC_U8 && fmt->i_format != VLC_CODEC_S16N)
+        fmt->i_format = VLC_CODEC_S16N;
+    format = (fmt->i_format == VLC_CODEC_S16N) ? PCM_16_BIT : PCM_8_BIT;
 
     /* TODO: android supports more channels */
     fmt->i_original_channels = fmt->i_physical_channels;
@@ -265,11 +314,21 @@ static int Start(audio_output_t *aout, audio_sample_format_t *restrict fmt)
         return VLC_EGENERIC;
     }
 
+    aout_SoftVolumeStart(aout);
+
     aout->sys = p_sys;
+    aout->time_get = NULL;
     aout->play = Play;
     aout->pause = Pause;
+    aout->flush = Flush;
+    aout->time_get = TimeGet;
+
+    p_sys->rate = rate;
+    p_sys->samples_written = 0;
+    p_sys->bytes_per_frame = aout_FormatNbChannels(fmt) * (format == PCM_16_BIT) ? 2 : 1;
 
     p_sys->at_start(p_sys->AudioTrack);
+    TimeGet(aout, NULL); /* Gets the initial value of DAC samples counter */
 
     fmt->i_rate = rate;
 
@@ -286,15 +345,20 @@ static void Stop(audio_output_t* p_aout)
     free(p_sys->AudioTrack);
 }
 
-/* FIXME: lipsync */
-static void Play(audio_output_t* p_aout, block_t* p_buffer, mtime_t* restrict drift)
+static void Play(audio_output_t* p_aout, block_t* p_buffer)
 {
-    VLC_UNUSED(drift);
     aout_sys_t *p_sys = p_aout->sys;
 
-    size_t length = 0;
-    while (length < p_buffer->i_buffer) {
-        length += p_sys->at_write(p_sys->AudioTrack, (char*)(p_buffer->p_buffer) + length, p_buffer->i_buffer - length);
+    while (p_buffer->i_buffer) {
+        int ret = p_sys->at_write(p_sys->AudioTrack, p_buffer->p_buffer, p_buffer->i_buffer);
+        if (ret < 0) {
+            msg_Err(p_aout, "Write failed (error %d)", ret);
+            break;
+        }
+
+        p_sys->samples_written += ret / p_sys->bytes_per_frame;
+        p_buffer->p_buffer += ret;
+        p_buffer->i_buffer -= ret;
     }
 
     block_Release( p_buffer );
@@ -309,6 +373,21 @@ static void Pause(audio_output_t *p_aout, bool pause, mtime_t date)
     if (pause) {
         p_sys->at_pause(p_sys->AudioTrack);
     } else {
+        p_sys->at_start(p_sys->AudioTrack);
+    }
+}
+
+static void Flush (audio_output_t *p_aout, bool wait)
+{
+    aout_sys_t *p_sys = p_aout->sys;
+    if (wait) {
+        mtime_t delay;
+        if (!TimeGet(p_aout, &delay))
+            msleep(delay);
+    } else {
+        p_sys->at_stop(p_sys->AudioTrack);
+        p_sys->at_flush(p_sys->AudioTrack);
+        p_sys->samples_written = 0;
         p_sys->at_start(p_sys->AudioTrack);
     }
 }
@@ -331,7 +410,7 @@ static int Open(vlc_object_t *obj)
     aout->sys = sys;
     aout->start = Start;
     aout->stop = Stop;
-    //aout_SoftVolumeInit(aout);
+    aout_SoftVolumeInit(aout);
     return VLC_SUCCESS;
 }
 

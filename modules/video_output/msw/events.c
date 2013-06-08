@@ -1,24 +1,24 @@
 /*****************************************************************************
  * events.c: Windows DirectX video output events handler
  *****************************************************************************
- * Copyright (C) 2001-2009 the VideoLAN team
+ * Copyright (C) 2001-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 
@@ -499,7 +499,7 @@ static int DirectXCreateWindow( event_thread_t *p_event )
     HMENU      hMenu;
     RECT       rect_window;
     WNDCLASS   wc;                            /* window class components */
-    char       vlc_path[MAX_PATH+1];
+    TCHAR      vlc_path[MAX_PATH+1];
     int        i_style, i_stylex;
 
     msg_Dbg( vd, "DirectXCreateWindow" );
@@ -613,9 +613,9 @@ static int DirectXCreateWindow( event_thread_t *p_event )
                     p_event->class_main,             /* name of window class */
                     _T(VOUT_TITLE) _T(" (DirectX Output)"),  /* window title */
                     i_style,                                 /* window style */
-                    (!p_event->wnd_cfg.x) ? CW_USEDEFAULT :
+                    (!p_event->wnd_cfg.x) ? (UINT)CW_USEDEFAULT :
                         (UINT)p_event->wnd_cfg.x,   /* default X coordinate */
-                    (!p_event->wnd_cfg.y) ? CW_USEDEFAULT :
+                    (!p_event->wnd_cfg.y) ? (UINT)CW_USEDEFAULT :
                         (UINT)p_event->wnd_cfg.y,   /* default Y coordinate */
                     rect_window.right - rect_window.left,    /* window width */
                     rect_window.bottom - rect_window.top,   /* window height */
@@ -957,7 +957,7 @@ void EventThreadMouseHide( event_thread_t *p_event )
 
 void EventThreadUpdateTitle( event_thread_t *p_event, const char *psz_fallback )
 {
-    char *psz_title = var_GetNonEmptyString( p_event->vd, "video-title" );
+    char *psz_title = var_InheritString( p_event->vd, "video-title" );
     if( !psz_title )
         psz_title = strdup( psz_fallback );
     if( !psz_title )
@@ -1043,9 +1043,9 @@ event_thread_t *EventThreadCreate( vout_display_t *vd)
     p_event->source = vd->source;
     vout_display_PlacePicture(&p_event->place, &vd->source, vd->cfg, false);
 
-    _snprintf( p_event->class_main, sizeof(p_event->class_main)/sizeof(*p_event->class_main),
+    _sntprintf( p_event->class_main, sizeof(p_event->class_main)/sizeof(*p_event->class_main),
                _T("VLC MSW %p"), p_event );
-    _snprintf( p_event->class_video, sizeof(p_event->class_video)/sizeof(*p_event->class_video),
+    _sntprintf( p_event->class_video, sizeof(p_event->class_video)/sizeof(*p_event->class_video),
                _T("VLC MSW video %p"), p_event );
     return p_event;
 }

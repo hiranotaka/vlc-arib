@@ -34,7 +34,8 @@
 audio_output_t *playlist_GetAout(playlist_t *pl)
 {
     /* NOTE: it is assumed that the input resource exists. In practice,
-     * the playlist must have been activated. This is automatic when calling         * pl_Get(). FIXME: input resources are deleted at deactivation, this can
+     * the playlist must have been activated. This is automatic when calling
+     * pl_Get(). FIXME: input resources are deleted at deactivation, this can
      * be too early. */
     playlist_private_t *sys = pl_priv(pl);
     return input_resource_HoldAout(sys->p_input_resource);
@@ -75,7 +76,7 @@ int playlist_VolumeUp (playlist_t *pl, int value, float *volp)
 {
     int ret = -1;
 
-    value *= var_InheritInteger (pl, "volume-step");
+    float delta = value * var_InheritFloat (pl, "volume-step");
 
     audio_output_t *aout = playlist_GetAout (pl);
     if (aout != NULL)
@@ -83,7 +84,7 @@ int playlist_VolumeUp (playlist_t *pl, int value, float *volp)
         float vol = aout_VolumeGet (aout);
         if (vol >= 0.)
         {
-            vol += value / (float)AOUT_VOLUME_DEFAULT;
+            vol += delta / (float)AOUT_VOLUME_DEFAULT;
             if (vol < 0.)
                 vol = 0.;
             if (vol > 2.)
@@ -119,8 +120,6 @@ int playlist_MuteSet (playlist_t *pl, bool mute)
     {
         ret = aout_MuteSet (aout, mute);
         vlc_object_release (aout);
-        if (ret == 0)
-            var_SetBool (pl, "mute", mute);
     }
     return ret;
 }

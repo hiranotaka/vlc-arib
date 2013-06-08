@@ -1,26 +1,27 @@
 /*****************************************************************************
  * util.cpp : matroska demuxer
  *****************************************************************************
- * Copyright (C) 2003-2004 the VideoLAN team
+ * Copyright (C) 2003-2004 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Steve Lhomme <steve.lhomme@free.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
+#include "mkv.hpp"
 #include "util.hpp"
 #include "demux.hpp"
 
@@ -30,6 +31,77 @@
  *****************************************************************************/
 
 #ifdef HAVE_ZLIB_H
+int32_t zlib_decompress_extra( demux_t * p_demux, mkv_track_t * tk )
+{
+    int result;
+    z_stream d_stream;
+    size_t n = 0;
+    uint8_t * p_new_extra = NULL;
+
+    msg_Dbg(p_demux,"Inflating private data");
+
+    d_stream.zalloc = Z_NULL;
+    d_stream.zfree = Z_NULL;
+    d_stream.opaque = Z_NULL;
+    if( inflateInit( &d_stream ) != Z_OK )
+    {
+        msg_Err( p_demux, "Couldn't initiate inflation ignore track %d",
+                 tk->i_number );
+        free(tk->p_extra_data);
+        delete tk;
+        return 1;
+    }
+
+    d_stream.next_in = tk->p_extra_data;
+    d_stream.avail_in = tk->i_extra_data;
+    do
+    {
+        n++;
+        p_new_extra = (uint8_t *) realloc(p_new_extra, n*1024);
+        if( !p_new_extra )
+        {
+            msg_Err( p_demux, "Couldn't allocate buffer to inflate data, ignore track %d",
+                      tk->i_number );
+            inflateEnd( &d_stream );
+            free(tk->p_extra_data);
+            delete tk;
+            return 1;
+        }
+        d_stream.next_out = &p_new_extra[(n - 1) * 1024];
+        d_stream.avail_out = 1024;
+        result = inflate(&d_stream, Z_NO_FLUSH);
+        if( result != Z_OK && result != Z_STREAM_END )
+        {
+            msg_Err( p_demux, "Zlib decompression failed. Result: %d", result );
+            inflateEnd( &d_stream );
+            free(p_new_extra);
+            free(tk->p_extra_data);
+            delete tk;
+            return 1;
+        }
+    }
+    while ( d_stream.avail_out == 0 && d_stream.avail_in != 0  &&
+            result != Z_STREAM_END );
+
+    free( tk->p_extra_data );
+    tk->i_extra_data = d_stream.total_out;
+    p_new_extra = (uint8_t *) realloc(p_new_extra, tk->i_extra_data);
+    if( !p_new_extra )
+    {
+        msg_Err( p_demux, "Couldn't allocate buffer to inflate data, ignore track %d",
+                 tk->i_number );
+        inflateEnd( &d_stream );
+        free(p_new_extra);
+        delete tk;
+        return 1;
+    }
+
+    tk->p_extra_data = p_new_extra;
+    
+    inflateEnd( &d_stream );
+    return 0;
+}
+
 block_t *block_zlib_decompress( vlc_object_t *p_this, block_t *p_in_block ) {
     int result, dstsize, n;
     unsigned char *dst;
@@ -49,7 +121,7 @@ block_t *block_zlib_decompress( vlc_object_t *p_this, block_t *p_in_block ) {
     d_stream.next_in = (Bytef *)p_in_block->p_buffer;
     d_stream.avail_in = p_in_block->i_buffer;
     n = 0;
-    p_block = block_New( p_this, 0 );
+    p_block = block_Alloc( 0 );
     dst = NULL;
     do
     {
@@ -61,8 +133,10 @@ block_t *block_zlib_decompress( vlc_object_t *p_this, block_t *p_in_block ) {
         result = inflate(&d_stream, Z_NO_FLUSH);
         if( ( result != Z_OK ) && ( result != Z_STREAM_END ) )
         {
-            msg_Dbg( p_this, "Zlib decompression failed. Result: %d", result );
-            return NULL;
+            msg_Err( p_this, "Zlib decompression failed. Result: %d", result );
+            inflateEnd( &d_stream );
+            block_Release( p_block );
+            return p_in_block;
         }
     }
     while( ( d_stream.avail_out == 0 ) && ( d_stream.avail_in != 0 ) &&
@@ -85,7 +159,7 @@ block_t *MemToBlock( uint8_t *p_mem, size_t i_mem, size_t offset)
     if( unlikely( i_mem > SIZE_MAX - offset ) )
         return NULL;
 
-    block_t *p_block = block_New( p_demux, i_mem + offset );
+    block_t *p_block = block_Alloc( i_mem + offset );
     if( likely(p_block != NULL) )
     {
         memcpy( p_block->p_buffer + offset, p_mem, i_mem );
@@ -124,7 +198,7 @@ void handle_real_audio(demux_t * p_demux, mkv_track_t * p_tk, block_t * p_blk, m
             if( i_index >= p_sys->i_subpackets )
                 return;
 
-            block_t *p_block = block_New( p_demux, p_sys->i_subpacket_size );
+            block_t *p_block = block_Alloc( p_sys->i_subpacket_size );
             if( !p_block )
                 return;
 

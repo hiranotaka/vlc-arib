@@ -833,7 +833,7 @@ static lua_State* GetLuaState( extensions_manager_t *p_mgr,
             luaopen_vlm( L );
             luaopen_volume( L );
             luaopen_xml( L );
-#ifdef WIN32
+#if defined(_WIN32) && !VLC_WINSTORE_APP
             luaopen_win( L );
 #endif
 
@@ -852,7 +852,7 @@ static lua_State* GetLuaState( extensions_manager_t *p_mgr,
             }
             else
             {
-                if( vlclua_add_modules_path( p_mgr, L, p_ext->psz_name ) )
+                if( vlclua_add_modules_path( L, p_ext->psz_name ) )
                 {
                     msg_Warn( p_mgr, "Error while setting the module "
                               "search path for %s", p_ext->psz_name );

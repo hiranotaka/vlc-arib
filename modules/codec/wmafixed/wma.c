@@ -5,19 +5,19 @@
  *
  * Authors: Rafaël Carré <rcarre@m2x.nl>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -137,7 +137,7 @@ static int OpenDecoder( vlc_object_t *p_this )
 
     /* Set output properties */
     p_dec->fmt_out.i_cat = AUDIO_ES;
-    p_dec->fmt_out.i_codec = VLC_CODEC_FI32;
+    p_dec->fmt_out.i_codec = VLC_CODEC_S32N;
     p_dec->fmt_out.audio.i_bitspersample = p_dec->fmt_in.audio.i_bitspersample;
     p_dec->fmt_out.audio.i_rate = p_dec->fmt_in.audio.i_rate;
 
@@ -293,7 +293,7 @@ static block_t *DecodeFrame( decoder_t *p_dec, block_t **pp_block )
     p_block->i_buffer = 0; /* this block has been decoded */
 
     for( size_t s = 0 ; s < i_buffer; s++ )
-        p_sys->p_output[s] >>= 2; /* Q30 -> Q28 translation */
+        p_sys->p_output[s] <<= 2; /* Q30 -> Q32 translation */
 
     p_aout_buffer = SplitBuffer( p_dec );
     assert( p_aout_buffer );

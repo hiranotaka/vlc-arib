@@ -1,15 +1,13 @@
 AM_LIBTOOLFLAGS=--tag=CC
 
 SOURCES_minimal_macosx = \
+	misc.m \
 	intf.m \
 	macosx.c \
 	VLCMinimalVoutWindow.m \
-	VLCOpenGLVoutView.m \
-	voutgl.m \
 	$(NULL)
 
 noinst_HEADERS = \
 	intf.h \
-	VLCMinimalVoutWindow.h \
-	VLCOpenGLVoutView.h \
-	voutgl.h
+	misc.h \
+	VLCMinimalVoutWindow.h

@@ -1,13 +1,14 @@
 /*****************************************************************************
  * intf.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2002-2012 VLC authors and VideoLAN
+ * Copyright (C) 2002-2013 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
- *          Christophe Massiot <massiot@via.ecp.fr>
  *          Derk-Jan Hartman <hartman at videolan dot org>
  *          Felix Paul Kühne <fkuehne at videolan dot org>
+ *          David Fuhrmann <david dot fuhrmann at googlemail dot com>
+ *          Pierre d'Herbemont <pdherbemont # videolan org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,6 +42,7 @@
 #import "SPMediaKeyTap.h"                   /* for the media key support */
 #import "misc.h"
 #import "MainWindow.h"
+#import "VLCVoutWindowController.h"
 #import "StringUtility.h"
 
 #import <IOKit/pwr_mgt/IOPMLib.h>           /* for sleep prevention */
@@ -65,9 +67,6 @@ struct intf_sys_t
     bool b_input_update;
     bool b_aout_update;
     bool b_vout_update;
-
-    /* The messages window */
-    msg_subscription_t sub;
 };
 
 /*****************************************************************************
@@ -78,12 +77,11 @@ struct intf_sys_t
 @class VLCEmbeddedWindow;
 @class VLCControls;
 @class VLCPlaylist;
-@class VLCVoutWindowController;
 
 @interface VLCMain : NSObject <NSWindowDelegate, NSApplicationDelegate>
 {
     intf_thread_t *p_intf;      /* The main intf object */
-    input_thread_t *p_current_input;
+    input_thread_t *p_current_input, *p_input_changed;
     id o_mainmenu;              /* VLCMainMenu */
     id o_prefs;                 /* VLCPrefs       */
     id o_sprefs;                /* VLCSimplePrefs */
@@ -144,13 +142,20 @@ struct intf_sys_t
 
     /* sleep management */
     IOPMAssertionID systemSleepAssertionID;
+    IOPMAssertionID userActivityAssertionID;
 
     VLCVoutWindowController *o_vout_controller;
+
+    /* iTunes play/pause support */
+    BOOL b_has_itunes_paused;
+    NSTimer *o_itunes_play_timer;
+
+    BOOL b_playlist_updated_selector_in_queue;
 }
 
 @property (readonly) VLCVoutWindowController* voutController;
 @property (readonly) BOOL nativeFullscreenMode;
-
+@property (nonatomic, readwrite) BOOL playlistUpdatedSelectorInQueue;
 + (VLCMain *)sharedInstance;
 
 - (intf_thread_t *)intf;
@@ -175,8 +180,6 @@ struct intf_sys_t
 - (void)updateCurrentlyUsedHotkeys;
 - (BOOL)hasDefinedShortcutKey:(NSEvent *)o_event force:(BOOL)b_force;
 
-- (void)setFullscreen:(int)i_full forWindow:(vout_window_t *)p_wnd;
-
 - (void)PlaylistItemChanged;
 - (void)playbackStatusUpdated;
 - (void)sendDistributedNotificationWithUpdatedPlaybackStatus;
@@ -200,7 +203,7 @@ struct intf_sys_t
 - (IBAction)showMessagesPanel:(id)sender;
 - (IBAction)updateMessagesPanel:(id)sender;
 
-- (void)processReceivedlibvlcMessage:(const msg_item_t *) item ofType: (int)type withStr: (char *)str;
+- (void)processReceivedlibvlcMessage:(const vlc_log_t *) item ofType: (int)type withStr: (char *)str;
 
 - (void)updateTogglePlaylistState;
 
@@ -209,11 +212,6 @@ struct intf_sys_t
 - (void)mediaKeyTap:(SPMediaKeyTap*)keyTap receivedMediaKeyEvent:(NSEvent*)event;
 @end
 
-@interface VLCMain (Internal)
-- (void)handlePortMessage:(NSPortMessage *)o_msg;
-- (void)resetMediaKeyJump;
-- (void)coreChangedMediaKeySupportSetting: (NSNotification *)o_notification;
-@end
 
 /*****************************************************************************
  * VLCApplication interface

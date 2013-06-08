@@ -12,7 +12,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -247,7 +247,7 @@ vlc_module_begin ()
                   "cable", "dvb-c", "cqam", "isdb-c",
                   "satellite", "dvb-s", "dvb-s2", "isdb-s",
                   "terrestrial", "dvb-t", "dvb-t2", "isdb-t", "atsc"
-#ifdef WIN32
+#ifdef _WIN32
                   ,"dvbt"
 #endif
                  )
@@ -261,7 +261,7 @@ vlc_module_begin ()
         change_safe ()
     add_bool ("dvb-budget-mode", false, BUDGET_TEXT, BUDGET_LONGTEXT, true)
 #endif
-#ifdef WIN32
+#ifdef _WIN32
     add_integer ("dvb-adapter", -1, ADAPTER_TEXT, ADAPTER_LONGTEXT, true)
         change_safe ()
     add_string ("dvb-network-name", "", NAME_TEXT, NAME_LONGTEXT, true)
@@ -403,7 +403,7 @@ vlc_module_begin ()
     add_integer ("dvb-tone", -1, TONE_TEXT, TONE_LONGTEXT, true)
         change_integer_list (auto_off_on_vlc, auto_off_on_user)
 #endif
-#ifdef WIN32
+#ifdef _WIN32
     add_integer ("dvb-network-id", 0, NETID_TEXT, NETID_TEXT, true)
     add_integer ("dvb-azimuth", 0, AZIMUTH_TEXT, AZIMUTH_LONGTEXT, true)
     add_integer ("dvb-elevation", 0, ELEVATION_TEXT, ELEVATION_LONGTEXT, true)
@@ -674,7 +674,7 @@ static const delsys_t *GuessSystem (const char *scheme, dvb_device_t *dev)
     if (systems & DVB_C)
         return &dvbc;
     if (systems & DVB_S)
-        return &dvbc;
+        return &dvbs;
     if (systems & DVB_T)
         return &dvbt;
     if (systems & ATSC)

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * mpeg_audio.c: parse MPEG audio sync info and packetize the stream
  *****************************************************************************
- * Copyright (C) 2001-2003 the VideoLAN team
+ * Copyright (C) 2001-2003 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
@@ -9,19 +9,19 @@
  *          Christophe Massiot <massiot@via.ecp.fr>
  *          Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -552,7 +552,7 @@ static block_t *GetSoutBuffer( decoder_t *p_dec )
     decoder_sys_t *p_sys = p_dec->p_sys;
     block_t *p_block;
 
-    p_block = block_New( p_dec, p_sys->i_frame_size );
+    p_block = block_Alloc( p_sys->i_frame_size );
     if( p_block == NULL ) return NULL;
 
     p_block->i_pts = p_block->i_dts = date_Get( &p_sys->end_date );

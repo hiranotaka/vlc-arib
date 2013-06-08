@@ -35,6 +35,7 @@
 #include "input_manager.hpp"    /* THEMIM destruction */
 #include "dialogs_provider.hpp" /* THEDP creation */
 #include "main_interface.hpp"   /* MainInterface creation */
+#include "extensions_manager.hpp" /* Extensions manager */
 #include "dialogs/help.hpp"     /* Launch Update */
 #include "recents.hpp"          /* Recents Item destruction */
 #include "util/qvlcapp.hpp"     /* QVLCApplication definition */
@@ -49,7 +50,7 @@
 #include <vlc_plugin.h>
 #include <vlc_vout_window.h>
 
-#ifdef WIN32 /* For static builds */
+#ifdef _WIN32 /* For static builds */
  #include <QtPlugin>
  Q_IMPORT_PLUGIN(qjpeg)
  Q_IMPORT_PLUGIN(qtaccessiblewidgets)
@@ -98,10 +99,6 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 #define NOTIFICATION_LONGTEXT N_( \
     "Show a notification popup with the artist and track name when " \
     "the current playlist item changes, when VLC is minimized or hidden." )
-
-#define ADVANCED_OPTIONS_TEXT N_( "Advanced options" )
-#define ADVANCED_OPTIONS_LONGTEXT N_( "Show all the advanced options " \
-                                      "in the dialogs." )
 
 #define OPACITY_TEXT N_( "Windows opacity between 0.1 and 1" )
 #define OPACITY_LONGTEXT N_( "Sets the windows opacity between 0.1 and 1 " \
@@ -180,6 +177,8 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 #define ICONCHANGE_LONGTEXT N_( \
     "This option allows the interface to change its icon on various occasions.")
 
+#define VOLUME_MAX_TEXT N_( "Maximum Volume displayed" )
+
 static const int i_notification_list[] =
     { NOTIFICATION_NEVER, NOTIFICATION_MINIMIZED, NOTIFICATION_ALWAYS };
 
@@ -236,7 +235,7 @@ vlc_module_begin ()
               UPDATER_DAYS_TEXT, UPDATER_DAYS_TEXT, false )
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
     add_bool( "qt-disable-volume-keys"             /* name */,
               true                                 /* default value */,
               QT_DISABLE_VOLUME_KEYS_TEXT          /* text */,
@@ -273,6 +272,8 @@ vlc_module_begin ()
 
     add_bool( "qt-icon-change", true, ICONCHANGE_TEXT, ICONCHANGE_LONGTEXT, true )
 
+    add_integer_with_range( "qt-max-volume", 125, 60, 300, VOLUME_MAX_TEXT, VOLUME_MAX_TEXT, true)
+
     add_obsolete_bool( "qt-blingbling" )      /* Suppressed since 1.0.0 */
     add_obsolete_integer( "qt-display-mode" ) /* Suppressed since 1.1.0 */
 
@@ -293,7 +294,7 @@ vlc_module_begin ()
         set_capability( "vout window xid", 0 )
         set_callbacks( WindowOpen, WindowClose )
 #endif
-#if defined (Q_WS_WIN) || (defined (Q_WS_QPA) && defined (WIN32)) \
+#if defined (Q_WS_WIN) || (defined (Q_WS_QPA) && defined (_WIN32)) \
  || defined (Q_WS_PM)  || (defined (Q_WS_QPA) && defined (__OS2__))
     add_submodule ()
         set_capability( "vout window hwnd", 0 )
@@ -418,8 +419,11 @@ static void Close( vlc_object_t *p_this )
 
     if( !p_sys->b_isDialogProvider )
     {
-        var_Destroy (pl_Get(p_this), "window");
-        var_Destroy (pl_Get(p_this), "qt4-iface");
+        playlist_t *pl = pl_Get(p_this);
+
+        var_Destroy (pl, "window");
+        var_Destroy (pl, "qt4-iface");
+        playlist_Deactivate (pl); /* release window provider if needed */
     }
 
     /* And quit */
@@ -455,7 +459,7 @@ static void *Thread( void *obj )
 
     /* All the settings are in the .conf/.ini style */
     p_intf->p_sys->mainSettings = new QSettings(
-#ifdef WIN32
+#ifdef _WIN32
             QSettings::IniFormat,
 #else
             QSettings::NativeFormat,
@@ -559,6 +563,9 @@ static void *Thread( void *obj )
            slots in the MainInputManager */
         delete p_mi;
     }
+
+    /* */
+    ExtensionsManager::killInstance();
 
     /* Destroy all remaining windows,
        because some are connected to some slots

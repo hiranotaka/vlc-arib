@@ -138,7 +138,8 @@ vlc_module_end ()
                 return;
             }
         } else {
-            msg_Err(p_qtsound, "Too many or only one channel found.");
+            msg_Err(p_qtsound, "Too many or only one channel found: %i.",
+                               tempAudioBufferList->mNumberBuffers);
             return;
         }
 
@@ -356,7 +357,7 @@ static int Open(vlc_object_t *p_this)
     audioformat_array = [p_sys->audiodevice formatDescriptions];
     audio_format = NULL;
     for(int k = 0; k < [audioformat_array count]; k++) {
-        audio_format = (QTFormatDescription *)[audioformat_array objectAtIndex: k];
+        audio_format = (QTFormatDescription *)[audioformat_array objectAtIndex:k];
 
         msg_Dbg(p_demux, "Audio localized format summary: %s", [[audio_format localizedFormatSummary] UTF8String]);
         msg_Dbg(p_demux, "Audio format description attributes: %s",[[[audio_format formatDescriptionAttributes] description] UTF8String]);
@@ -399,7 +400,7 @@ static int Open(vlc_object_t *p_this)
     }
 
     if([audioformat_array count])
-        audio_format = [audioformat_array objectAtIndex: 0];
+        audio_format = [audioformat_array objectAtIndex:0];
     else
         goto error;
 
@@ -502,7 +503,7 @@ static int Demux(demux_t *p_demux)
     block_t *p_blocka;
     NSAutoreleasePool *pool;
 
-    p_blocka = block_New(p_demux, p_sys->i_audio_max_buffer_size);
+    p_blocka = block_Alloc(p_sys->i_audio_max_buffer_size);
 
     if(!p_blocka) {
         msg_Err(p_demux, "cannot get audio block");

@@ -34,7 +34,7 @@
  *
  */
 
-#if defined (WIN32)
+#if defined (_WIN32)
 # include <process.h>
 # ifndef ETIMEDOUT
 #  define ETIMEDOUT 10060 /* This is the value in winsock.h. */
@@ -386,21 +386,28 @@ struct vlc_cleanup_t
 
 #ifndef LIBVLC_USE_PTHREAD_CANCEL
 /* poll() with cancellation */
+# ifdef __OS2__
+int vlc_poll (struct pollfd *fds, unsigned nfds, int timeout);
+# else
 static inline int vlc_poll (struct pollfd *fds, unsigned nfds, int timeout)
 {
-    vlc_testcancel ();
+    int val;
 
-    while (timeout > 50)
+    do
     {
-        int val = poll (fds, nfds, timeout);
-        if (val != 0)
-            return val;
-        timeout -= 50;
-        vlc_testcancel ();
-    }
+        int ugly_timeout = ((unsigned)timeout >= 50) ? 50 : timeout;
+        if (timeout >= 0)
+            timeout -= ugly_timeout;
 
-    return poll (fds, nfds, timeout);
+        vlc_testcancel ();
+        val = poll (fds, nfds, ugly_timeout);
+    }
+    while (val == 0 && timeout != 0);
+
+    return val;
 }
+# endif
+
 # define poll(u,n,t) vlc_poll(u, n, t)
 
 #endif /* LIBVLC_USE_PTHREAD_CANCEL */

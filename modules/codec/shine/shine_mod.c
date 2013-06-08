@@ -5,19 +5,19 @@
  *
  * Authors: Rafaël Carré <rcarre@m2x.nl>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -148,7 +148,7 @@ static block_t *GetPCM( encoder_t *p_enc, block_t *p_block )
     while( p_sys->i_buffer + p_block->i_buffer >= pcm_chunk_size )
     {
         unsigned int i_buffer = 0;
-        p_pcm_block = block_New( p_enc, pcm_chunk_size );
+        p_pcm_block = block_Alloc( pcm_chunk_size );
         if( !p_pcm_block )
             break;
 
@@ -224,7 +224,7 @@ static block_t *EncodeFrame( encoder_t *p_enc, block_t *p_block )
         encode_frame( (char*)p_pcm_block->p_buffer, chunk );
         block_Release( p_pcm_block );
 
-        block_t *p_mp3_block = block_New( p_enc, chunk->enc_size );
+        block_t *p_mp3_block = block_Alloc( chunk->enc_size );
         if( !p_mp3_block )
             break;
 

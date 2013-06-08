@@ -10,7 +10,7 @@
  *
  * FFmpeg is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -118,7 +118,7 @@
             "por       "MM"5, "MM"3 \n\t"\
             MOVQ"      "MM"3, "MM"1 \n\t"
 
-#if defined(__MINGW32__) && defined(WIN32) && !defined(WIN64)
+#if defined(__MINGW32__) && defined(_WIN32) && !defined(_WIN64)
 __attribute__((__force_align_arg_pointer__))
 #endif
 VLC_TARGET static void RENAME(yadif_filter_line)(uint8_t *dst,
@@ -126,7 +126,7 @@ VLC_TARGET static void RENAME(yadif_filter_line)(uint8_t *dst,
                               int w, int prefs, int mrefs, int parity, int mode)
 {
     uint8_t tmpU[5*16];
-    uint8_t *tmp= (uint8_t*)(((uint64_t)(tmpU+15)) & ~15);
+    uint8_t *tmp= (uint8_t*)(((uintptr_t)(tmpU+15)) & ~15);
     int x;
 
 #define FILTER\

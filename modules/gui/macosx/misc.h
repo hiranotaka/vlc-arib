@@ -58,13 +58,16 @@
 
 @interface NSScreen (VLCAdditions)
 
-@property (readonly) BOOL mainScreen;
-
 + (NSScreen *)screenWithDisplayID: (CGDirectDisplayID)displayID;
+- (BOOL)hasMenuBar;
+- (BOOL)hasDock;
 - (BOOL)isScreen: (NSScreen*)screen;
 - (CGDirectDisplayID)displayID;
 - (void)blackoutOtherScreens;
 + (void)unblackoutScreens;
+
+- (void)setFullscreenPresentationOptions;
+- (void)setNonFullscreenPresentationOptions;
 @end
 
 
@@ -147,10 +150,17 @@
 @interface VLCTimeField : NSTextField
 {
     NSShadow * o_string_shadow;
-    NSDictionary * o_string_attributes_dict;
     NSTextAlignment textAlignment;
+
+    NSString *o_remaining_identifier;
+    BOOL b_time_remaining;
 }
 @property (readonly) BOOL timeRemaining;
+
+-(id)initWithFrame:(NSRect)frameRect;
+
+- (void)setRemainingIdentifier:(NSString *)o_string;
+
 @end
 
 /*****************************************************************************
@@ -177,5 +187,22 @@
  * VLCThreePartDropView interface
  *****************************************************************************/
 @interface VLCThreePartDropView : VLCThreePartImageView
+
+@end
+
+/*****************************************************************************
+ * PositionFormatter interface
+ *
+ * Formats a text field to only accept decimals and :
+ *****************************************************************************/
+@interface PositionFormatter : NSFormatter
+{
+    NSCharacterSet *o_forbidden_characters;
+}
+- (NSString*)stringForObjectValue:(id)obj;
+
+- (BOOL)getObjectValue:(id*)obj forString:(NSString*)string errorDescription:(NSString**)error;
+
+- (bool)isPartialStringValid:(NSString*)partialString newEditingString:(NSString**)newString errorDescription:(NSString**)error;
 
 @end

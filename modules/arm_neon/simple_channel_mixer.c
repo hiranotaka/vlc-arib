@@ -1,26 +1,26 @@
 /*****************************************************************************
  * simple_channel_mixer.c : simple channel mixer plug-in using NEON assembly
  *****************************************************************************
- * Copyright (C) 2002, 2004, 2006-2009, 2012 the VideoLAN team
+ * Copyright (C) 2002, 2004, 2006-2009, 2012 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
  *          David Geldreich <david.geldreich@free.fr>
  *          Sébastien Toque
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -89,7 +89,7 @@ static bool FilterInit( filter_t *p_filter, block_t *p_block, block_t **pp_out )
         p_filter->fmt_out.audio.i_bitspersample *
         p_filter->fmt_out.audio.i_channels / 8;
 
-    block_t *p_out = filter_NewAudioBuffer( p_filter, i_out_size );
+    block_t *p_out = block_Alloc( i_out_size );
     if( !p_out )
     {
         msg_Warn( p_filter, "can't get output buffer" );

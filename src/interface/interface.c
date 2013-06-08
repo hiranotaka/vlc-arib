@@ -51,10 +51,6 @@
 #include "../lib/libvlc_internal.h"
 #endif
 
-/*****************************************************************************
- * Local prototypes
- *****************************************************************************/
-static void* RunInterface( void * );
 static int AddIntfCallback( vlc_object_t *, char const *,
                             vlc_value_t , vlc_value_t , void * );
 
@@ -84,7 +80,7 @@ int intf_Create( vlc_object_t *p_this, const char *chain )
                 VLC_VAR_HASCHOICE | VLC_VAR_ISCOMMAND );
     text.psz_string = _("Add Interface");
     var_Change( p_intf, "intf-add", VLC_VAR_SETTEXT, &text, NULL );
-#if !defined(WIN32) && defined(HAVE_ISATTY)
+#if !defined(_WIN32) && defined(HAVE_ISATTY)
     if( isatty( 0 ) )
 #endif
     {
@@ -127,15 +123,6 @@ int intf_Create( vlc_object_t *p_this, const char *chain )
         goto error;
     }
 
-    /* Run the interface in a separate thread */
-    if( p_intf->pf_run
-     && vlc_clone( &p_intf->thread,
-                   RunInterface, p_intf, VLC_THREAD_PRIORITY_LOW ) )
-    {
-        msg_Err( p_intf, "cannot spawn interface thread" );
-        goto error;
-    }
-
     vlc_mutex_lock( &lock );
     p_intf->p_next = libvlc_priv( p_libvlc )->p_intf;
     libvlc_priv( p_libvlc )->p_intf = p_intf;
@@ -158,51 +145,28 @@ error:
  */
 void intf_DestroyAll( libvlc_int_t *p_libvlc )
 {
-    intf_thread_t *p_first;
+    intf_thread_t *p_intf;
 
     vlc_mutex_lock( &lock );
-    p_first = libvlc_priv( p_libvlc )->p_intf;
+    p_intf = libvlc_priv( p_libvlc )->p_intf;
 #ifndef NDEBUG
     libvlc_priv( p_libvlc )->p_intf = NULL;
 #endif
     vlc_mutex_unlock( &lock );
 
-    /* Tell the interfaces to die */
-    for( intf_thread_t *p_intf = p_first; p_intf; p_intf = p_intf->p_next )
-        vlc_object_kill( p_intf );
-
     /* Cleanup the interfaces */
-    for( intf_thread_t *p_intf = p_first; p_intf != NULL; )
+    while( p_intf != NULL )
     {
         intf_thread_t *p_next = p_intf->p_next;
 
-        if( p_intf->pf_run )
-        {
-            vlc_cancel( p_intf->thread );
-            vlc_join( p_intf->thread, NULL );
-        }
         module_unneed( p_intf, p_intf->p_module );
         config_ChainDestroy( p_intf->p_cfg );
         vlc_object_release( p_intf );
-
         p_intf = p_next;
     }
 }
 
 /* Following functions are local */
-
-/**
- * RunInterface: setups necessary data and give control to the interface
- *
- * @param p_this: interface object
- */
-static void* RunInterface( void *p_this )
-{
-    intf_thread_t *p_intf = p_this;
-
-    p_intf->pf_run( p_intf );
-    return NULL;
-}
 
 static int AddIntfCallback( vlc_object_t *p_this, char const *psz_cmd,
                          vlc_value_t oldval, vlc_value_t newval, void *p_data )

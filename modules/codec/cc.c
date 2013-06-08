@@ -5,19 +5,19 @@
  *
  * Authors: Laurent Aimar < fenrir # via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -327,9 +327,13 @@ static subpicture_t *Subtitle( decoder_t *p_dec, char *psz_subtitle, char *psz_h
 
     subpicture_updater_sys_t *p_spu_sys = p_spu->updater.p_sys;
 
-    p_spu_sys->align = SUBPICTURE_ALIGN_BOTTOM;
+    /* The "leavetext" alignment is a special mode where the subpicture
+       region itself gets aligned, but the text inside it does not */
+    p_spu_sys->align = SUBPICTURE_ALIGN_LEAVETEXT;
     p_spu_sys->text  = psz_subtitle;
     p_spu_sys->html  = psz_html;
+    p_spu_sys->i_font_height_percent = 5;
+    p_spu_sys->renderbg = true;
 
     return p_spu;
 }
@@ -357,7 +361,7 @@ static subpicture_t *Convert( decoder_t *p_dec, block_t *p_block )
     if( b_changed )
     {
         char *psz_subtitle = Eia608Text( &p_sys->eia608, false );
-        char *psz_html     = NULL;//Eia608Text( &p_sys->eia608, true );
+        char *psz_html = Eia608Text( &p_sys->eia608, true );
         return Subtitle( p_dec, psz_subtitle, psz_html, i_pts );
     }
     return NULL;
@@ -915,6 +919,8 @@ static void Eia608Strlcat( char *d, const char *s, int i_max )
         d[i_max-1] = '\0';
 }
 
+#define CAT(t) Eia608Strlcat( psz_text, t, i_text_max )
+
 static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_text_max, int i_row, bool b_html )
 {
     const uint8_t *p_char = screen->characters[i_row];
@@ -926,11 +932,22 @@ static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_
     eia608_color_t last_color = EIA608_COLOR_DEFAULT;
     bool     b_last_italics = false;
     bool     b_last_underline = false;
+    char utf8[4];
 
     /* Search the start */
     i_start = 0;
-    while( i_start < EIA608_SCREEN_COLUMNS-1 && p_char[i_start] == ' ' )
+
+    /* Ensure we get a monospaced font (required for accurate positioning */
+    if( b_html )
+        CAT( "<tt>" );
+
+    /* Convert leading spaces to non-breaking so that they don't get
+       stripped by the RenderHtml routine as regular whitespace */
+    while( i_start < EIA608_SCREEN_COLUMNS && p_char[i_start] == ' ' ) {
+        Eia608TextUtf8( utf8, 0x89 );
+        CAT( utf8 );
         i_start++;
+    }
 
     /* Search the end */
     i_end = EIA608_SCREEN_COLUMNS-1;
@@ -938,13 +955,11 @@ static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_
         i_end--;
 
     /* */
-#define CAT(t) Eia608Strlcat( psz_text, t, i_text_max )
     for( x = i_start; x <= i_end; x++ )
     {
         eia608_color_t color = p_color[x];
         bool b_italics = p_font[x] & EIA608_FONT_ITALICS;
         bool b_underline = p_font[x] & EIA608_FONT_UNDERLINE;
-        char utf8[4];
 
         /* */
         if( b_html )
@@ -979,9 +994,9 @@ static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_
                     "#ff00ff",  // magenta
                     "#ffffff",  // user defined XXX we use white
                 };
-                CAT( "<font color=" );
+                CAT( "<font color=\"" );
                 CAT( ppsz_color[color] );
-                CAT( ">" );
+                CAT( "\">" );
             }
             if( ( b_close_italics && b_italics ) || ( b_italics && !b_last_italics ) )
                 CAT( "<i>" );
@@ -989,9 +1004,34 @@ static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_
                 CAT( "<u>" );
         }
 
-        /* */ 
-        Eia608TextUtf8( utf8, p_char[x] );
-        CAT( utf8 );
+        if( b_html ) {
+            /* Escape XML reserved characters
+               http://www.w3.org/TR/xml/#syntax */
+            switch (p_char[x]) {
+            case '>':
+                CAT( "&gt;" );
+                break;
+            case '<':
+                CAT( "&lt;" );
+                break;
+            case '"':
+                CAT( "&quot;" );
+                break;
+            case '\'':
+                CAT( "&apos;" );
+                break;
+            case '&':
+                CAT( "&amp;" );
+                break;
+            default:
+                Eia608TextUtf8( utf8, p_char[x] );
+                CAT( utf8 );
+                break;
+            }
+        } else {
+            Eia608TextUtf8( utf8, p_char[x] );
+            CAT( utf8 );
+        }
 
         /* */
         b_last_underline = b_underline;
@@ -1006,6 +1046,7 @@ static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_
             CAT( "</i>" );
         if( last_color != EIA608_COLOR_DEFAULT )
             CAT( "</font>" );
+        CAT( "</tt>" );
     }
 #undef CAT
 }
@@ -1065,7 +1106,7 @@ static bool Eia608Parse( eia608_t *h, int i_channel_selected, const uint8_t data
 
 static char *Eia608Text( eia608_t *h, bool b_html )
 {
-    const int i_size = EIA608_SCREEN_ROWS * 3 * EIA608_SCREEN_COLUMNS+1;
+    const int i_size = EIA608_SCREEN_ROWS * 10 * EIA608_SCREEN_COLUMNS+1;
     struct eia608_screen *screen = &h->screen[h->i_screen];
     bool b_first = true;
     char *psz;
@@ -1079,9 +1120,6 @@ static char *Eia608Text( eia608_t *h, bool b_html )
         Eia608Strlcat( psz, "<text>", i_size );
     for( int i = 0; i < EIA608_SCREEN_ROWS; i++ )
     {
-        if( !screen->row_used[i] )
-            continue;
-
         if( !b_first )
             Eia608Strlcat( psz, b_html ? "<br />" : "\n", i_size );
         b_first = false;

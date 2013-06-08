@@ -44,7 +44,7 @@
 #define ASF 12
 /* 13-15 are present, but not set */
 
-@interface VLCConvertAndSave ()
+@interface VLCConvertAndSave (Internal)
 - (void)updateDropView;
 - (void)updateOKButton;
 - (void)resetCustomizationSheetBasedOnProfile:(NSString *)profileString;
@@ -53,11 +53,14 @@
 - (NSString *)composedOptions;
 - (void)updateCurrentProfile;
 - (void)storeProfilesOnDisk;
+- (void)recreateProfilePopup;
 @end
 
 @implementation VLCConvertAndSave
 
 @synthesize MRL=_MRL, outputDestination=_outputDestination, profileNames=_profileNames, profileValueList=_profileValueList, currentProfile=_currentProfile;
+
+@synthesize vidBitrate, vidFramerate, audBitrate, audChannels;
 
 static VLCConvertAndSave *_o_sharedInstance = nil;
 
@@ -145,8 +148,8 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 
 - (void)awakeFromNib
 {
-    [_window setTitle: _NS("Convert & Save")];
-    [_ok_btn setTitle: _NS("Save")];
+    [_window setTitle: _NS("Convert & Stream")];
+    [_ok_btn setTitle: _NS("Go!")];
     [_drop_lbl setStringValue: _NS("Drop media here")];
     [_drop_btn setTitle: _NS("Open media...")];
     [_profile_lbl setStringValue: _NS("Choose Profile")];
@@ -183,10 +186,10 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [_customize_aud_codec_lbl setStringValue: _NS("Codec")];
     [_customize_aud_bitrate_lbl setStringValue: _NS("Bitrate")];
     [_customize_aud_channels_lbl setStringValue: _NS("Channels")];
-    [_customize_aud_samplerate_lbl setStringValue: _NS("Sample Rate")];
+    [_customize_aud_samplerate_lbl setStringValue: _NS("Samplerate")];
     [_customize_subs_ckb setTitle: _NS("Subtitles")];
     [_customize_subs_overlay_ckb setTitle: _NS("Overlay subtitles on the video")];
-    [_stream_ok_btn setTitle:_NS("Close")];
+    [_stream_ok_btn setTitle:_NS("OK")];
     [_stream_destination_lbl setStringValue:_NS("Stream Destination")];
     [_stream_announcement_lbl setStringValue:_NS("Stream Announcement")];
     [_stream_type_lbl setStringValue:_NS("Type")];
@@ -196,13 +199,12 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [_stream_ttl_stepper setEnabled:NO];
     [_stream_port_lbl setStringValue:_NS("Port")];
     [_stream_sap_ckb setStringValue:_NS("SAP Announcement")];
-    [_stream_http_ckb setStringValue:_NS("HTTP Announcement")];
-    [_stream_rtsp_ckb setStringValue:_NS("RTSP Announcement")];
-    [_stream_sdp_ckb setStringValue:_NS("Export SDP as file")];
+    [[_stream_sdp_matrix cellWithTag:0] setTitle:_NS("None")];
+    [[_stream_sdp_matrix cellWithTag:1] setTitle:_NS("HTTP Announcement")];
+    [[_stream_sdp_matrix cellWithTag:2] setTitle:_NS("RTSP Announcement")];
+    [[_stream_sdp_matrix cellWithTag:3] setTitle:_NS("Export SDP as file")];
     [_stream_sap_ckb setState:NSOffState];
-    [_stream_http_ckb setState:NSOffState];
-    [_stream_rtsp_ckb setState:NSOffState];
-    [_stream_sdp_ckb setState:NSOffState];
+    [_stream_sdp_matrix setEnabled:NO];
 
     /* there is no way to hide single cells, so replace the existing ones with empty cells.. */
     id blankCell = [[[NSCell alloc] init] autorelease];
@@ -218,17 +220,17 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [self recreateProfilePopup];
 
     _videoCodecs = [[NSArray alloc] initWithObjects:
-                    [NSArray arrayWithObjects:@"MPEG-1", @"MPEG-2", @"MPEG-4", @"DIVX 1", @"DIVX 2", @"DIVX 3", @"H.263", @"H.264", @"VP8", @"WMV1", @"WMV2", @"M-JPEG", @"Theora", @"Dirac", nil],
-                    [NSArray arrayWithObjects:@"mpgv", @"mp2v", @"mp4v", @"DIV1", @"DIV2", @"DIV3", @"H263", @"h264", @"VP80", @"WMV1", @"WMV2", @"MJPG", @"theo", @"drac", nil],
+                    @[@"MPEG-1", @"MPEG-2", @"MPEG-4", @"DIVX 1", @"DIVX 2", @"DIVX 3", @"H.263", @"H.264", @"VP8", @"WMV1", @"WMV2", @"M-JPEG", @"Theora", @"Dirac"],
+                    @[@"mpgv", @"mp2v", @"mp4v", @"DIV1", @"DIV2", @"DIV3", @"H263", @"h264", @"VP80", @"WMV1", @"WMV2", @"MJPG", @"theo", @"drac"],
                     nil];
     _audioCodecs = [[NSArray alloc] initWithObjects:
-                    [NSArray arrayWithObjects:@"MPEG Audio", @"MP3", @"MPEG 4 Audio (AAC)", @"A52/AC-3", @"Vorbis", @"Flac", @"Speex", @"WAV", @"WMA2", nil],
-                    [NSArray arrayWithObjects:@"mpga", @"mp3", @"mp4a", @"a52", @"vorb", @"flac", @"spx", @"s16l", @"wma2", nil],
+                    @[@"MPEG Audio", @"MP3", @"MPEG 4 Audio (AAC)", @"A52/AC-3", @"Vorbis", @"Flac", @"Speex", @"WAV", @"WMA2"],
+                    @[@"mpga", @"mp3", @"mp4a", @"a52", @"vorb", @"flac", @"spx", @"s16l", @"wma2"],
                     nil];
     _subsCodecs = [[NSArray alloc] initWithObjects:
-                   [NSArray arrayWithObjects:@"DVB subtitle", @"T.140", nil],
-                   [NSArray arrayWithObjects:@"dvbs", @"t140", nil],
-                   nil];
+                   @[@"DVB subtitle", @"T.140"],
+                   @[@"dvbs", @"t140"],
+                    nil];
 
     [_customize_vid_codec_pop removeAllItems];
     [_customize_vid_scale_pop removeAllItems];
@@ -273,6 +275,19 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 
 - (IBAction)finalizePanel:(id)sender
 {
+    if (b_streaming) {
+        if ([[[_stream_type_pop selectedItem] title] isEqualToString:@"HTTP"]) {
+            NSString *muxformat = [self.currentProfile objectAtIndex:0];
+            if ([muxformat isEqualToString:@"wav"] || [muxformat isEqualToString:@"mov"] || [muxformat isEqualToString:@"mp4"] || [muxformat isEqualToString:@"mkv"]) {
+                NSBeginInformationalAlertSheet(_NS("Invalid container format for HTTP streaming"), _NS("OK"), @"", @"", _window,
+                                               nil, nil, nil, nil,
+                                               _NS("Media encapsulated as %@ cannot be streamed through the HTTP protocol for technical reasons."),
+                                               [[self currentEncapsulationFormatAsFileExtension:YES] uppercaseString]);
+                return;
+            }
+        }
+    }
+
     playlist_t * p_playlist = pl_Get(VLCIntf);
 
     input_item_t *p_input = input_item_New([_MRL UTF8String], [[_dropin_media_lbl stringValue] UTF8String]);
@@ -280,6 +295,8 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
         return;
 
     input_item_AddOption(p_input, [[self composedOptions] UTF8String], VLC_INPUT_OPTION_TRUSTED);
+    if (b_streaming)
+        input_item_AddOption(p_input, [[NSString stringWithFormat:@"ttl=%@", [_stream_ttl_fld stringValue]] UTF8String], VLC_INPUT_OPTION_TRUSTED);
 
     int returnValue;
     returnValue = playlist_AddInput(p_playlist, p_input, PLAYLIST_STOP, PLAYLIST_END, true, pl_Unlocked);
@@ -311,7 +328,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [openPanel beginSheetModalForWindow:_window completionHandler:^(NSInteger returnCode) {
         if (returnCode == NSOKButton)
         {
-            [self setMRL: [NSString stringWithUTF8String:vlc_path2uri([[[openPanel URL] path] UTF8String], NULL)]];
+            [self setMRL: @(vlc_path2uri([[[openPanel URL] path] UTF8String], NULL))];
             [self updateOKButton];
             [self updateDropView];
         }
@@ -415,7 +432,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [saveFilePanel setCanSelectHiddenExtension: YES];
     [saveFilePanel setCanCreateDirectories: YES];
     if ([[_customize_encap_matrix selectedCell] tag] != RAW) // there is no clever guess for this
-        [saveFilePanel setAllowedFileTypes:[NSArray arrayWithObject:[self currentEncapsulationFormatAsFileExtension:YES]]];
+        [saveFilePanel setAllowedFileTypes:@[[self currentEncapsulationFormatAsFileExtension:YES]]];
     [saveFilePanel beginSheetModalForWindow:_window completionHandler:^(NSInteger returnCode) {
         if (returnCode == NSOKButton) {
             [self setOutputDestination:[[saveFilePanel URL] path]];
@@ -438,41 +455,40 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 
 - (IBAction)closeStreamPanel:(id)sender
 {
-    NSMutableString * labelContent = [[NSMutableString alloc] initWithFormat:@"%@ @ %@:%@", [_stream_type_pop titleOfSelectedItem], [_stream_address_fld stringValue], [_stream_port_fld stringValue]];
+    /* provide a summary of the user selections */
+    NSMutableString * labelContent = [[NSMutableString alloc] initWithFormat:_NS("%@ stream to %@:%@"), [_stream_type_pop titleOfSelectedItem], [_stream_address_fld stringValue], [_stream_port_fld stringValue]];
 
-    if ([_stream_type_pop indexOfSelectedItem] > 1) {
-        [labelContent appendFormat:@" TTL:%@", [_stream_ttl_fld stringValue]];
-        if ([_stream_sap_ckb state] || [_stream_rtsp_ckb state] || [_stream_http_ckb state] || [_stream_sdp_ckb state])
-            [labelContent appendFormat:@" — %@:\"%@\" (", _NS("Channel"), [_stream_channel_fld stringValue]];
+    if ([_stream_type_pop indexOfSelectedItem] > 1)
+        [labelContent appendFormat:@" (\"%@\")", [_stream_channel_fld stringValue]];
 
-        BOOL b_gotSomething;
-        if (_stream_sap_ckb) {
-            [labelContent appendString:@"SAP"];
-            b_gotSomething = YES;
-        }
-        if (_stream_rtsp_ckb) {
-            if (b_gotSomething)
-                [labelContent appendString:@", "];
-            [labelContent appendString:@"RTSP"];
-            b_gotSomething = YES;
-        }
-        if (_stream_http_ckb) {
-            if (b_gotSomething)
-                [labelContent appendString:@", "];
-            [labelContent appendString:@"HTTP"];
-            b_gotSomething = YES;
-        }
-        if ([_stream_sdp_ckb state]) {
-            if (b_gotSomething)
-                [labelContent appendString:@", "];
-            [labelContent appendString:@"SDP"];
-        }
-
-        if ([_stream_sap_ckb state] || [_stream_rtsp_ckb state] || [_stream_http_ckb state] || [_stream_sdp_ckb state])
-            [labelContent appendString:@")"];
-    }
     [_destination_stream_lbl setStringValue:labelContent];
     [labelContent release];
+
+    /* catch obvious errors */
+    if (![[_stream_address_fld stringValue] length] > 0) {
+        NSBeginInformationalAlertSheet(_NS("No Address given"),
+                                       _NS("OK"), @"", @"", _stream_panel, nil, nil, nil, nil,
+                                       @"%@", _NS("In order to stream, a valid destination address is required."));
+        return;
+    }
+
+    if ([_stream_sap_ckb state] && ![[_stream_channel_fld stringValue] length] > 0) {
+        NSBeginInformationalAlertSheet(_NS("No Channel Name given"),
+                                       _NS("OK"), @"", @"", _stream_panel, nil, nil, nil, nil,
+                                       @"%@", _NS("SAP stream announcement is enabled. However, no channel name is provided."));
+        return;
+    }
+
+    if ([_stream_sdp_matrix isEnabled] && [_stream_sdp_matrix selectedCell] != [_stream_sdp_matrix cellWithTag:0] && ![[_stream_sdp_fld stringValue] length] > 0) {
+        NSBeginInformationalAlertSheet(_NS("No SDP URL given"),
+                                       _NS("OK"), @"", @"", _stream_panel, nil, nil, nil, nil,
+                                       @"%@", _NS("A SDP export is requested, but no URL is provided."));
+        return;
+    }
+
+    /* store destination for further reference and update UI */
+    [self setOutputDestination: [_stream_address_fld stringValue]];
+    [self updateOKButton];
 
     [_stream_panel orderOut:sender];
     [NSApp endSheet: _stream_panel];
@@ -485,38 +501,48 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
         [_stream_ttl_fld setEnabled:NO];
         [_stream_ttl_stepper setEnabled:NO];
         [_stream_sap_ckb setEnabled:NO];
-        [_stream_rtsp_ckb setEnabled:NO];
-        [_stream_http_ckb setEnabled:NO];
-        [_stream_sdp_ckb setEnabled:NO];
+        [_stream_sdp_matrix setEnabled:NO];
     } else if (index == 2) { // RTP
         [_stream_ttl_fld setEnabled:YES];
         [_stream_ttl_stepper setEnabled:YES];
         [_stream_sap_ckb setEnabled:YES];
-        [_stream_rtsp_ckb setEnabled:YES];
-        [_stream_http_ckb setEnabled:YES];
-        [_stream_sdp_ckb setEnabled:YES];
-        [_stream_channel_fld setEnabled:YES];
-        [_stream_sdp_fld setEnabled:[_stream_sdp_ckb state]];
+        [_stream_sdp_matrix setEnabled:YES];
     } else { // UDP
         [_stream_ttl_fld setEnabled:YES];
         [_stream_ttl_stepper setEnabled:YES];
         [_stream_sap_ckb setEnabled:YES];
-        [_stream_rtsp_ckb setEnabled:NO];
-        [_stream_http_ckb setEnabled:NO];
-        [_stream_sdp_ckb setEnabled:NO];
-        [_stream_channel_fld setEnabled:YES];
+        [_stream_sdp_matrix setEnabled:NO];
     }
+    [self streamAnnouncementToggle:sender];
 }
 
 - (IBAction)streamAnnouncementToggle:(id)sender
 {
-    [_stream_sdp_fld setEnabled:[_stream_sdp_ckb state]];
+    [_stream_channel_fld setEnabled:[_stream_sap_ckb state] && [_stream_sap_ckb isEnabled]];
+    [_stream_sdp_fld setEnabled:[_stream_sdp_matrix isEnabled] && ([_stream_sdp_matrix selectedCell] != [_stream_sdp_matrix cellWithTag:0])];
+
+    if ([[_stream_sdp_matrix selectedCell] tag] == 3)
+        [_stream_sdp_browsefile_btn setEnabled: YES];
+    else
+        [_stream_sdp_browsefile_btn setEnabled: NO];
+}
+
+- (IBAction)sdpFileLocationSelector:(id)sender
+{
+    NSSavePanel * saveFilePanel = [NSSavePanel savePanel];
+    [saveFilePanel setCanSelectHiddenExtension: YES];
+    [saveFilePanel setCanCreateDirectories: YES];
+    [saveFilePanel setAllowedFileTypes:@[@"sdp"]];
+    [saveFilePanel beginSheetModalForWindow:_stream_panel completionHandler:^(NSInteger returnCode) {
+        if (returnCode == NSOKButton)
+            [_stream_sdp_fld setStringValue:[[saveFilePanel URL] path]];
+    }];
 }
 
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
 {
     NSPasteboard *paste = [sender draggingPasteboard];
-    NSArray *types = [NSArray arrayWithObjects: NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil];
+    NSArray *types = @[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"];
     NSString *desired_type = [paste availableTypeFromArray: types];
     NSData *carried_data = [paste dataForType: desired_type];
 
@@ -525,7 +551,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
             NSArray *values = [[paste propertyListForType: NSFilenamesPboardType] sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)];
 
             if ([values count] > 0) {
-                [self setMRL: [NSString stringWithUTF8String:vlc_path2uri([[values objectAtIndex:0] UTF8String], NULL)]];
+                [self setMRL: @(vlc_path2uri([[values objectAtIndex:0] UTF8String], NULL))];
                 [self updateOKButton];
                 [self updateDropView];
                 return YES;
@@ -670,13 +696,13 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [_customize_vid_ckb setState:[[components objectAtIndex:1] intValue]];
     [_customize_aud_ckb setState:[[components objectAtIndex:2] intValue]];
     [_customize_subs_ckb setState:[[components objectAtIndex:3] intValue]];
-    [_customize_vid_bitrate_fld setStringValue:[components objectAtIndex:5]];
+    [self setVidBitrate:[[components objectAtIndex:5] intValue]];
     [_customize_vid_scale_pop selectItemWithTitle:[components objectAtIndex:6]];
-    [_customize_vid_framerate_fld setStringValue:[components objectAtIndex:7]];
+    [self setVidFramerate:[[components objectAtIndex:7] intValue]];
     [_customize_vid_width_fld setStringValue:[components objectAtIndex:8]];
     [_customize_vid_height_fld setStringValue:[components objectAtIndex:9]];
-    [_customize_aud_bitrate_fld setStringValue:[components objectAtIndex:11]];
-    [_customize_aud_channels_fld setStringValue:[components objectAtIndex:12]];
+    [self setAudBitrate:[[components objectAtIndex:11] intValue]];
+    [self setAudChannels:[[components objectAtIndex:12] intValue]];
     [_customize_aud_samplerate_pop selectItemWithTitle:[components objectAtIndex:13]];
     [_customize_subs_overlay_ckb setState:[[components objectAtIndex:15] intValue]];
 
@@ -872,11 +898,44 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
             [composedOptions appendFormat:@",soverlay"];
     }
 
-    // add muxer
-    [composedOptions appendFormat:@"}:standard{mux=%@", [self.currentProfile objectAtIndex:0]];
+    if (!b_streaming) {
+        /* file transcoding */
+        // add muxer
+        [composedOptions appendFormat:@"}:standard{mux=%@", [self.currentProfile objectAtIndex:0]];
 
-    // add output destination (file only at this point)
-    [composedOptions appendFormat:@",dst=%@,access=file}", _outputDestination];
+        // add output destination
+        [composedOptions appendFormat:@",access=file{no-overwrite},dst=%@}", _outputDestination];
+    } else {
+        /* streaming */
+        if ([[[_stream_type_pop selectedItem] title] isEqualToString:@"RTP"])
+            [composedOptions appendFormat:@":rtp{mux=ts,dst=%@,port=%@", _outputDestination, [_stream_port_fld stringValue]];
+        else if ([[[_stream_type_pop selectedItem] title] isEqualToString:@"UDP"])
+            [composedOptions appendFormat:@":standard{mux=ts,dst=%@,port=%@,access=udp", _outputDestination, [_stream_port_fld stringValue]];
+        else if ([[[_stream_type_pop selectedItem] title] isEqualToString:@"MMSH"])
+            [composedOptions appendFormat:@":standard{mux=asfh,dst=%@,port=%@,access=mmsh", _outputDestination, [_stream_port_fld stringValue]];
+        else
+            [composedOptions appendFormat:@":standard{mux=%@,dst=%@,port=%@,access=http", [self.currentProfile objectAtIndex:0], [_stream_port_fld stringValue], _outputDestination];
+
+        if ([_stream_sap_ckb state])
+            [composedOptions appendFormat:@",sap,name=\"%@\"", [_stream_channel_fld stringValue]];
+        if ([_stream_sdp_matrix selectedCell] != [_stream_sdp_matrix cellWithTag:0]) {
+            NSInteger tag = [[_stream_sdp_matrix selectedCell] tag];
+            switch (tag) {
+                case 1:
+                    [composedOptions appendFormat:@",sdp=\"http://%@\"", [_stream_sdp_fld stringValue]];
+                    break;
+                case 2:
+                    [composedOptions appendFormat:@",sdp=\"rtsp://%@\"", [_stream_sdp_fld stringValue]];
+                    break;
+                case 3:
+                    [composedOptions appendFormat:@",sdp=\"file://%s\"", vlc_path2uri([[_stream_sdp_fld stringValue] UTF8String], NULL)];
+                default:
+                    break;
+            }
+        }
+
+        [composedOptions appendString:@"} :sout-keep"];
+    }
 
     NSString * returnString = [NSString stringWithString:composedOptions];
     [composedOptions release];
@@ -898,9 +957,9 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
         [self.currentProfile addObject: [[_videoCodecs objectAtIndex:1] objectAtIndex:i]];
     else
         [self.currentProfile addObject: @"none"];
-    [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [_customize_vid_bitrate_fld intValue]]];
+    [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [self vidBitrate]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [[[_customize_vid_scale_pop selectedItem] title] intValue]]];
-    [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [_customize_vid_framerate_fld intValue]]];
+    [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [self vidFramerate]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [_customize_vid_width_fld intValue]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [_customize_vid_height_fld intValue]]];
     i = [_customize_aud_codec_pop indexOfSelectedItem];
@@ -908,8 +967,8 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
         [self.currentProfile addObject: [[_audioCodecs objectAtIndex:1] objectAtIndex:i]];
     else
         [self.currentProfile addObject: @"none"];
-    [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [_customize_aud_bitrate_fld intValue]]];
-    [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [_customize_aud_channels_fld intValue]]];
+    [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [self audBitrate]]];
+    [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [self audChannels]]];
     [self.currentProfile addObject: [[_customize_aud_samplerate_pop selectedItem] title]];
     i = [_customize_subs_pop indexOfSelectedItem];
     if (i >= 0)
@@ -947,7 +1006,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 
 - (void)awakeFromNib
 {
-    [self registerForDraggedTypes:[NSArray arrayWithObjects: NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil]];
+    [self registerForDraggedTypes:@[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
 }
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
@@ -1013,7 +1072,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 
 - (void)awakeFromNib
 {
-    [self registerForDraggedTypes:[NSArray arrayWithObjects: NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil]];
+    [self registerForDraggedTypes:@[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
 }
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
@@ -1042,7 +1101,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 
 - (void)awakeFromNib
 {
-    [self registerForDraggedTypes:[NSArray arrayWithObjects: NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil]];
+    [self registerForDraggedTypes:@[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
 }
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender

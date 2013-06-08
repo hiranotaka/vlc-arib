@@ -4,10 +4,12 @@
  * Copyright © 2006-2008 Rafaël Carré
  * Copyright © 2007-2010 Mirsal Ennaime
  * Copyright © 2009-2010 The VideoLAN team
+ * Copyright © 2013      Alex Merry
  * $Id$
  *
  * Authors:    Mirsal Ennaime <mirsal dot ennaime at gmailcom>
  *             Rafaël Carré <funman at videolanorg>
+ *             Alex Merry <dev at randomguy3 me uk>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -100,6 +102,7 @@ struct intf_sys_t
     vlc_array_t    *p_watches;
     int             p_pipe_fds[2];
     vlc_mutex_t     lock;
+    vlc_thread_t    thread;
     input_thread_t *p_input;
 
     mtime_t         i_last_input_pos; /* Only access from input thread */
@@ -137,5 +140,10 @@ enum
 
 int DemarshalSetPropertyValue( DBusMessage *p_msg, void *p_arg );
 int GetInputMeta  ( input_item_t* p_input, DBusMessageIter *args );
+int AddProperty ( intf_thread_t *p_intf,
+                  DBusMessageIter *p_container,
+                  const char* psz_property_name,
+                  const char* psz_signature,
+                  int (*pf_marshaller) (intf_thread_t*, DBusMessageIter*) );
 
 #endif //dbus-common.h

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * access.c: DVB card input v4l2 only
  *****************************************************************************
- * Copyright (C) 1998-2010 the VideoLAN team
+ * Copyright (C) 1998-2010 VLC authors and VideoLAN
  *
  * Authors: Johan Bilien <jobi@via.ecp.fr>
  *          Jean-Paul Saman <jpsaman _at_ videolan _dot_ org>
@@ -9,19 +9,19 @@
  *          Laurent Aimar <fenrir@via.ecp.fr>
  *          David Kaplan <david@2of1.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 
@@ -41,16 +41,6 @@
 #include <poll.h>
 
 #include <errno.h>
-
-/* Include dvbpsi headers */
-# include <dvbpsi/dvbpsi.h>
-# include <dvbpsi/descriptor.h>
-# include <dvbpsi/pat.h>
-# include <dvbpsi/pmt.h>
-# include <dvbpsi/dr.h>
-# include <dvbpsi/psi.h>
-# include <dvbpsi/demux.h>
-# include <dvbpsi/sdt.h>
 
 #include "dvb.h"
 #include "scan.h"
@@ -348,7 +338,7 @@ static block_t *BlockScan( access_t *p_access )
         if ( ufds[0].revents )
         {
             const int i_read_once = 1;
-            block_t *p_block = block_New( p_access, i_read_once * TS_PACKET_SIZE );
+            block_t *p_block = block_Alloc( i_read_once * TS_PACKET_SIZE );
 
             if( ( i_ret = read( p_sys->i_handle, p_block->p_buffer,
                                 i_read_once * TS_PACKET_SIZE ) ) <= 0 )

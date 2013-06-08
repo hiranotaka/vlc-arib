@@ -451,8 +451,7 @@ int playlist_AddInput( playlist_t* p_playlist, input_item_t *p_input,
                        bool b_locked )
 {
     playlist_item_t *p_item;
-    /* FIXME: use b_killed instead: */
-    if( !vlc_object_alive(p_playlist) ) return VLC_EGENERIC;
+
     if( !pl_priv(p_playlist)->b_doing_ml )
         PL_DEBUG( "adding item `%s' ( %s )", p_input->psz_name,
                                              p_input->psz_uri );
@@ -493,10 +492,6 @@ playlist_item_t * playlist_NodeAddInput( playlist_t *p_playlist,
     playlist_item_t *p_item;
     assert( p_input );
     assert( p_parent && p_parent->i_children != -1 );
-
-    /* FIXME: use b_killed instead: */
-    if( !vlc_object_alive(p_playlist) )
-        return NULL;
 
     PL_LOCK_IF( !b_locked );
 
@@ -717,6 +712,24 @@ void playlist_SendAddNotify( playlist_t *p_playlist, int i_item_id,
     add.i_node = i_node_id;
 
     var_SetAddress( p_playlist, "playlist-item-append", &add );
+}
+
+/**
+ * Get the duration of all items in a node.
+ */
+mtime_t playlist_GetNodeDuration( playlist_item_t* node )
+{
+    /* For the assert */
+    playlist_t *p_playlist = node->p_playlist;
+    PL_ASSERT_LOCKED;
+
+    mtime_t mt_duration = 0;
+
+    if( node->i_children != -1 )
+        for( int i = 0; i < node->i_children; i++ )
+            mt_duration += input_item_GetDuration( node->pp_children[i]->p_input );
+
+    return mt_duration;
 }
 
 /***************************************************************************

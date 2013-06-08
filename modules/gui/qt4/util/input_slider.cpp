@@ -62,10 +62,11 @@ SeekSlider::SeekSlider( Qt::Orientation q, QWidget *_parent, bool _static )
     chapters = NULL;
     mHandleLength = -1;
     b_seekable = true;
+    alternativeStyle = NULL;
 
     // prepare some static colors
     QPalette p = palette();
-    QColor background = p.color( QPalette::Active, QPalette::Background );
+    QColor background = p.color( QPalette::Active, QPalette::Window );
     tickpointForeground = p.color( QPalette::Active, QPalette::WindowText );
     tickpointForeground.setHsv( tickpointForeground.hue(),
             ( background.saturation() + tickpointForeground.saturation() ) / 2,
@@ -111,7 +112,10 @@ SeekSlider::SeekSlider( Qt::Orientation q, QWidget *_parent, bool _static )
 
     /* Use the new/classic style */
     if( !b_classic )
-        setStyle( new SeekStyle );
+    {
+        alternativeStyle = new SeekStyle;
+        setStyle( alternativeStyle );
+    }
 
     /* Init to 0 */
     setPosition( -1.0, 0, 0 );
@@ -135,6 +139,8 @@ SeekSlider::SeekSlider( Qt::Orientation q, QWidget *_parent, bool _static )
 SeekSlider::~SeekSlider()
 {
     delete chapters;
+    if ( alternativeStyle )
+        delete alternativeStyle;
 }
 
 /***
@@ -193,9 +199,9 @@ void SeekSlider::updateBuffering( float f_buffering_ )
     repaint();
 }
 
-void SeekSlider::mouseReleaseEvent( QMouseEvent *event )
+void SeekSlider::processReleasedButton()
 {
-    event->accept();
+    if ( !isSliding && !isJumping ) return;
     isSliding = false;
     bool b_seekPending = seekLimitTimer->isActive();
     seekLimitTimer->stop(); /* We're not sliding anymore: only last seek on release */
@@ -204,9 +210,19 @@ void SeekSlider::mouseReleaseEvent( QMouseEvent *event )
         isJumping = false;
         return;
     }
-    QSlider::mouseReleaseEvent( event );
     if( b_seekPending && isEnabled() )
         updatePos();
+}
+
+void SeekSlider::mouseReleaseEvent( QMouseEvent *event )
+{
+    if ( event->button() != Qt::LeftButton && event->button() != Qt::MidButton )
+    {
+        QSlider::mouseReleaseEvent( event );
+        return;
+    }
+    event->accept();
+    processReleasedButton();
 }
 
 void SeekSlider::mousePressEvent( QMouseEvent* event )
@@ -267,6 +283,12 @@ void SeekSlider::mousePressEvent( QMouseEvent* event )
 
 void SeekSlider::mouseMoveEvent( QMouseEvent *event )
 {
+    if ( ! ( event->buttons() & ( Qt::LeftButton | Qt::MidButton ) ) )
+    {
+        /* Handle button release when mouserelease has been hijacked by popup */
+        processReleasedButton();
+    }
+
     if ( !isEnabled() ) return event->accept();
 
     if( isSliding )
@@ -434,15 +456,14 @@ bool SeekSlider::isAnimationRunning() const
 #define WLENGTH   80 // px
 #define WHEIGHT   22  // px
 #define SOUNDMIN  0   // %
-#define SOUNDMAX  125 // % (+6dB)
 
-SoundSlider::SoundSlider( QWidget *_parent, int _i_step,
-                          char *psz_colors )
+SoundSlider::SoundSlider( QWidget *_parent, float _i_step,
+                          char *psz_colors, int max )
                         : QAbstractSlider( _parent )
 {
     f_step = (float)(_i_step * 10000)
-           / (float)((SOUNDMAX - SOUNDMIN) * AOUT_VOLUME_DEFAULT);
-    setRange( SOUNDMIN, SOUNDMAX );
+           / (float)((max - SOUNDMIN) * AOUT_VOLUME_DEFAULT);
+    setRange( SOUNDMIN, max);
     setMouseTracking( true );
     isSliding = false;
     b_mouseOutside = true;
@@ -470,7 +491,7 @@ SoundSlider::SoundSlider( QWidget *_parent, int _i_step,
         for( int i = colorList.count(); i < 12; i++)
             colorList.append( "255" );
 
-    background = palette().color( QPalette::Active, QPalette::Background );
+    background = palette().color( QPalette::Active, QPalette::Window );
     foreground = palette().color( QPalette::Active, QPalette::WindowText );
     foreground.setHsv( foreground.hue(),
                     ( background.saturation() + foreground.saturation() ) / 2,
@@ -541,23 +562,30 @@ void SoundSlider::mousePressEvent( QMouseEvent *event )
     }
 }
 
+void SoundSlider::processReleasedButton()
+{
+    if( !b_mouseOutside && value() != i_oldvalue )
+    {
+        emit sliderReleased();
+        setValue( value() );
+        emit sliderMoved( value() );
+    }
+    isSliding = false;
+    b_mouseOutside = false;
+}
+
 void SoundSlider::mouseReleaseEvent( QMouseEvent *event )
 {
     if( event->button() != Qt::RightButton )
-    {
-        if( !b_mouseOutside && value() != i_oldvalue )
-        {
-            emit sliderReleased();
-            setValue( value() );
-            emit sliderMoved( value() );
-        }
-        isSliding = false;
-        b_mouseOutside = false;
-    }
+        processReleasedButton();
 }
 
 void SoundSlider::mouseMoveEvent( QMouseEvent *event )
 {
+    /* handle mouserelease hijacking */
+    if ( isSliding && ( event->buttons() & ~Qt::RightButton ) == Qt::NoButton )
+        processReleasedButton();
+
     if( isSliding )
     {
         QRect rect( paddingL - 15,    -1,

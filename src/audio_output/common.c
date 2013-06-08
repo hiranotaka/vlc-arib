@@ -61,11 +61,14 @@ unsigned int aout_BitsPerSample( vlc_fourcc_t i_format )
     case VLC_CODEC_S24B:
         return 24;
 
+    case VLC_CODEC_S24L32:
+    case VLC_CODEC_S24B32:
+    case VLC_CODEC_U32L:
+    case VLC_CODEC_U32B:
     case VLC_CODEC_S32L:
     case VLC_CODEC_S32B:
     case VLC_CODEC_F32L:
     case VLC_CODEC_F32B:
-    case VLC_CODEC_FI32:
         return 32;
 
     case VLC_CODEC_F64L:
@@ -241,121 +244,172 @@ void aout_FormatsPrint( vlc_object_t *obj, const char * psz_text,
 /*****************************************************************************
  * aout_CheckChannelReorder : Check if we need to do some channel re-ordering
  *****************************************************************************/
-int aout_CheckChannelReorder( const uint32_t *pi_chan_order_in,
-                              const uint32_t *pi_chan_order_out,
-                              uint32_t i_channel_mask,
-                              int i_channels, int *pi_chan_table )
+unsigned aout_CheckChannelReorder( const uint32_t *chans_in,
+                                   const uint32_t *chans_out,
+                                   uint32_t mask, uint8_t *restrict table )
 {
-    bool b_chan_reorder = false;
-    int i, j, k, l;
+    unsigned channels = 0;
 
-    if( i_channels > AOUT_CHAN_MAX )
-        return false;
+    if( chans_in == NULL )
+        chans_in = pi_vlc_chan_order_wg4;
+    if( chans_out == NULL )
+        chans_out = pi_vlc_chan_order_wg4;
 
-    if( pi_chan_order_in == NULL )
-        pi_chan_order_in = pi_vlc_chan_order_wg4;
-    if( pi_chan_order_out == NULL )
-        pi_chan_order_out = pi_vlc_chan_order_wg4;
-
-    for( i = 0, j = 0; pi_chan_order_in[i]; i++ )
+    for( unsigned i = 0; chans_in[i]; i++ )
     {
-        if( !(i_channel_mask & pi_chan_order_in[i]) ) continue;
+        const uint32_t chan = chans_in[i];
+        if( !(mask & chan) )
+            continue;
 
-        for( k = 0, l = 0; pi_chan_order_in[i] != pi_chan_order_out[k]; k++ )
-        {
-            if( i_channel_mask & pi_chan_order_out[k] ) l++;
-        }
+        unsigned index = 0;
+        for( unsigned j = 0; chan != chans_out[j]; j++ )
+            if( mask & chans_out[j] )
+                index++;
 
-        pi_chan_table[j++] = l;
+        table[channels++] = index;
     }
 
-    for( i = 0; i < i_channels; i++ )
-    {
-        if( pi_chan_table[i] != i ) b_chan_reorder = true;
-    }
-
-    return b_chan_reorder;
+    for( unsigned i = 0; i < channels; i++ )
+        if( table[i] != i )
+            return channels;
+    return 0;
 }
 
-/*****************************************************************************
- * aout_ChannelReorder :
- *****************************************************************************/
+/**
+ * Reorders audio samples within a block of linear audio interleaved samples.
+ * \param ptr start address of the block of samples
+ * \param bytes size of the block in bytes (must be a multiple of the product
+ *              of the channels count and the sample size)
+ * \param channels channels count (also length of the chans_table table)
+ * \param chans_table permutation table to reorder the channels
+ *                    (usually computed by aout_CheckChannelReorder())
+ * \param fourcc sample format (must be a linear sample format)
+ * \note The samples must be naturally aligned in memory.
+ */
 void aout_ChannelReorder( void *ptr, size_t bytes, unsigned channels,
-                          const int *pi_chan_table, unsigned bits_per_sample )
+                          const uint8_t *restrict chans_table, vlc_fourcc_t fourcc )
 {
-    size_t samples = bytes / (channels * (bits_per_sample >> 3));
-
+    assert( channels != 0 );
     assert( channels <= AOUT_CHAN_MAX );
 
-    switch( bits_per_sample )
+    /* The audio formats supported in audio output are inlined. For other
+     * formats (used in demuxers and muxers), memcpy() is used to avoid
+     * breaking type punning. */
+#define REORDER_TYPE(type) \
+do { \
+    const size_t frames = (bytes / sizeof (type)) / channels; \
+    type *buf = ptr; \
+\
+    for( size_t i = 0; i < frames; i++ ) \
+    { \
+        type tmp[AOUT_CHAN_MAX]; \
+\
+        for( size_t j = 0; j < channels; j++ ) \
+            tmp[chans_table[j]] = buf[j]; \
+        memcpy( buf, tmp, sizeof (type) * channels ); \
+        buf += channels; \
+    } \
+} while(0)
+
+    switch( fourcc )
     {
-        case 32:
-        {
-            uint32_t *buf = ptr;
+        case VLC_CODEC_U8:   REORDER_TYPE(uint8_t); break;
+        case VLC_CODEC_S16N: REORDER_TYPE(int16_t); break;
+        case VLC_CODEC_FL32: REORDER_TYPE(float);   break;
+        case VLC_CODEC_S32N: REORDER_TYPE(int32_t); break;
+        case VLC_CODEC_FL64: REORDER_TYPE(double);  break;
 
-            for( size_t i = 0; i < samples; i++ )
+        default:
+        {
+            unsigned size = aout_BitsPerSample( fourcc ) / 8;
+            const size_t frames = bytes / (size * channels);
+            unsigned char *buf = ptr;
+
+            assert( bytes != 0 );
+            for( size_t i = 0; i < frames; i++ )
             {
-                uint32_t tmp[AOUT_CHAN_MAX];
+                unsigned char tmp[AOUT_CHAN_MAX * size];
 
                 for( size_t j = 0; j < channels; j++ )
-                    tmp[pi_chan_table[j]] = buf[j];
-
-                memcpy( buf, tmp, 4 * channels );
-                buf += channels;
+                    memcpy( tmp + size * chans_table[j], buf + size * j, size );
+                memcpy( buf, tmp, size * channels );
+                buf += size * channels;
             }
             break;
-        }
-
-        case 16:
-        {
-            uint16_t *buf = ptr;
-
-            for( size_t i = 0; i < samples; i++ )
-            {
-                uint16_t tmp[AOUT_CHAN_MAX];
-
-                for( size_t j = 0; j < channels; j++ )
-                    tmp[pi_chan_table[j]] = buf[j];
-
-                memcpy( buf, tmp, 2 * channels );
-                buf += channels;
-            }
-            break;
-        }
-
-        case 8:
-        {
-            uint8_t *buf = ptr;
-
-            for( size_t i = 0; i < samples; i++ )
-            {
-                uint8_t tmp[AOUT_CHAN_MAX];
-
-                for( size_t j = 0; j < channels; j++ )
-                    tmp[pi_chan_table[j]] = buf[j];
-
-                memcpy( buf, tmp, channels );
-                buf += channels;
-            }
-            break;
-        }
-
-        case 24:
-        {
-            uint8_t *buf = ptr;
-
-            for( size_t i = 0; i < samples; i++ )
-            {
-                uint8_t tmp[3 * AOUT_CHAN_MAX];
-
-                for( size_t j = 0; j < channels; j++ )
-                    memcpy( tmp + (3 * pi_chan_table[j]), buf + (3 * j), 3 );
-
-                memcpy( buf, tmp, 3 * channels );
-                buf += 3 * channels;
-            }
         }
     }
+}
+
+/**
+ * Interleaves audio samples within a block of samples.
+ * \param dst destination buffer for interleaved samples
+ * \param src source buffer with consecutive planes of samples
+ * \param samples number of samples (per channel/per plane)
+ * \param chans channels/planes count
+ * \param fourcc sample format (must be a linear sample format)
+ * \note The samples must be naturally aligned in memory.
+ * \warning Destination and source buffers MUST NOT overlap.
+ */
+void aout_Interleave( void *restrict dst, const void *restrict src,
+                      unsigned samples, unsigned chans, vlc_fourcc_t fourcc )
+{
+#define INTERLEAVE_TYPE(type) \
+do { \
+    type *d = dst; \
+    const type *s = src; \
+    for( size_t i = 0; i < chans; i++ ) { \
+        for( size_t j = 0, k = 0; j < samples; j++, k += chans ) \
+            d[k] = *(s++); \
+        d++; \
+    } \
+} while(0)
+
+    switch( fourcc )
+    {
+        case VLC_CODEC_U8:   INTERLEAVE_TYPE(uint8_t);  break;
+        case VLC_CODEC_S16N: INTERLEAVE_TYPE(uint16_t); break;
+        case VLC_CODEC_FL32: INTERLEAVE_TYPE(float);    break;
+        case VLC_CODEC_S32N: INTERLEAVE_TYPE(int32_t);  break;
+        case VLC_CODEC_FL64: INTERLEAVE_TYPE(double);   break;
+        default:             assert(0);
+    }
+#undef INTERLEAVE_TYPE
+}
+
+/**
+ * Deinterleaves audio samples within a block of samples.
+ * \param dst destination buffer for planar samples
+ * \param src source buffer with interleaved samples
+ * \param samples number of samples (per channel/per plane)
+ * \param chans channels/planes count
+ * \param fourcc sample format (must be a linear sample format)
+ * \note The samples must be naturally aligned in memory.
+ * \warning Destination and source buffers MUST NOT overlap.
+ */
+void aout_Deinterleave( void *restrict dst, const void *restrict src,
+                      unsigned samples, unsigned chans, vlc_fourcc_t fourcc )
+{
+#define DEINTERLEAVE_TYPE(type) \
+do { \
+    type *d = dst; \
+    const type *s = src; \
+    for( size_t i = 0; i < chans; i++ ) { \
+        for( size_t j = 0, k = 0; j < samples; j++, k += chans ) \
+            *(d++) = s[k]; \
+        s++; \
+    } \
+} while(0)
+
+    switch( fourcc )
+    {
+        case VLC_CODEC_U8:   DEINTERLEAVE_TYPE(uint8_t);  break;
+        case VLC_CODEC_S16N: DEINTERLEAVE_TYPE(uint16_t); break;
+        case VLC_CODEC_FL32: DEINTERLEAVE_TYPE(float);    break;
+        case VLC_CODEC_S32N: DEINTERLEAVE_TYPE(int32_t);  break;
+        case VLC_CODEC_FL64: DEINTERLEAVE_TYPE(double);   break;
+        default:             assert(0);
+    }
+#undef DEINTERLEAVE_TYPE
 }
 
 /*****************************************************************************
@@ -387,8 +441,6 @@ void aout_ChannelExtract( void *p_dst, int i_dst_channels,
         ExtractChannel( p_dst, i_dst_channels, p_src, i_src_channels, i_sample_count, pi_selection, 1 );
     else  if( i_bits_per_sample == 16 )
         ExtractChannel( p_dst, i_dst_channels, p_src, i_src_channels, i_sample_count, pi_selection, 2 );
-    else  if( i_bits_per_sample == 24 )
-        ExtractChannel( p_dst, i_dst_channels, p_src, i_src_channels, i_sample_count, pi_selection, 3 );
     else  if( i_bits_per_sample == 32 )
         ExtractChannel( p_dst, i_dst_channels, p_src, i_src_channels, i_sample_count, pi_selection, 4 );
     else  if( i_bits_per_sample == 64 )

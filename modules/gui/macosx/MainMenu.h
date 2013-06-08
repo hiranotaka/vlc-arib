@@ -1,7 +1,7 @@
 /*****************************************************************************
  * MainMenu.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2011-2012 Felix Paul Kühne
+ * Copyright (C) 2011-2013 Felix Paul Kühne
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -80,6 +80,8 @@
     IBOutlet NSMenu * o_mu_view;
     IBOutlet NSMenuItem * o_mi_toggleJumpButtons;
     IBOutlet NSMenuItem * o_mi_togglePlaymodeButtons;
+    IBOutlet NSMenuItem * o_mi_toggleEffectsButton;
+    IBOutlet NSMenuItem * o_mi_toggleSidebar;
     IBOutlet NSMenu * o_mu_playlistTableColumns;
     NSMenu * o_mu_playlistTableColumnsContextMenu;
 
@@ -102,6 +104,7 @@
     IBOutlet NSMenuItem * o_mi_random;
     IBOutlet NSMenuItem * o_mi_repeat;
     IBOutlet NSMenuItem * o_mi_loop;
+    IBOutlet NSMenuItem * o_mi_AtoBloop;
     IBOutlet NSMenuItem * o_mi_quitAfterPB;
     IBOutlet NSMenuItem * o_mi_fwd;
     IBOutlet NSMenuItem * o_mi_bwd;
@@ -141,15 +144,30 @@
     IBOutlet NSMenu * o_mu_aspect_ratio;
     IBOutlet NSMenuItem * o_mi_crop;
     IBOutlet NSMenu * o_mu_crop;
-    IBOutlet NSMenuItem * o_mi_subtitle;
-    IBOutlet NSMenu * o_mu_subtitle;
-    IBOutlet NSMenuItem * o_mi_addSub;
     IBOutlet NSMenuItem * o_mi_deinterlace;
     IBOutlet NSMenu * o_mu_deinterlace;
     IBOutlet NSMenuItem * o_mi_deinterlace_mode;
     IBOutlet NSMenu * o_mu_deinterlace_mode;
     IBOutlet NSMenuItem * o_mi_ffmpeg_pp;
     IBOutlet NSMenu * o_mu_ffmpeg_pp;
+
+    IBOutlet NSMenu * o_mu_subtitles;
+    IBOutlet NSMenuItem * o_mi_subtitle_track;
+    IBOutlet NSMenu * o_mu_subtitle_tracks;
+    IBOutlet NSMenuItem * o_mi_openSubtitleFile;
+    IBOutlet NSMenu * o_mu_subtitle_size;
+    IBOutlet NSMenuItem *o_mi_subtitle_size;
+    IBOutlet NSMenu * o_mu_subtitle_textcolor;
+    IBOutlet NSMenuItem *o_mi_subtitle_textcolor;
+    IBOutlet NSMenu * o_mu_subtitle_bgcolor;
+    IBOutlet NSMenuItem * o_mi_subtitle_bgcolor;
+    IBOutlet NSMenuItem * o_mi_subtitle_bgopacity;
+    IBOutlet NSView * o_mi_subtitle_bgopacity_view;
+    IBOutlet id o_mi_subtitle_bgopacity_lbl;
+    IBOutlet id o_mi_subtitle_bgopacity_lbl_gray;
+    IBOutlet id o_mi_subtitle_bgopacity_sld;
+    IBOutlet NSMenu * o_mu_subtitle_outlinethickness;
+    IBOutlet NSMenuItem * o_mi_subtitle_outlinethickness;
     IBOutlet NSMenuItem * o_mi_teletext;
     IBOutlet NSMenuItem * o_mi_teletext_transparent;
     IBOutlet NSMenuItem * o_mi_teletext_index;
@@ -214,6 +232,7 @@
 - (void)setSubmenusEnabled:(BOOL)b_enabled;
 - (void)setRateControlsEnabled:(BOOL)b_enabled;
 - (void)setupExtensionsMenu;
+- (void)updateSidebarMenuItem;
 
 - (IBAction)intfOpenFile:(id)sender;
 - (IBAction)intfOpenFileGeneric:(id)sender;
@@ -221,8 +240,10 @@
 - (IBAction)intfOpenNet:(id)sender;
 - (IBAction)intfOpenCapture:(id)sender;
 
+- (IBAction)toggleEffectsButton:(id)sender;
 - (IBAction)toggleJumpButtons:(id)sender;
 - (IBAction)togglePlaymodeButtons:(id)sender;
+- (IBAction)toggleSidebar:(id)sender;
 - (IBAction)togglePlaylistColumnTable:(id)sender;
 - (void)setPlaylistColumnTableState:(NSInteger)i_state forColumn:(NSString *)o_column;
 - (NSMenu *)setupPlaylistTableColumnsMenu;
@@ -231,12 +252,21 @@
 - (void)updateRecordState:(BOOL)b_value;
 - (IBAction)setPlaybackRate:(id)sender;
 - (void)updatePlaybackRate;
+- (IBAction)toggleAtoBloop:(id)sender;
+
+- (IBAction)toggleAudioDevice:(id)sender;
 
 - (IBAction)toggleFullscreen:(id)sender;
 - (IBAction)resizeVideoWindow:(id)sender;
 - (IBAction)floatOnTop:(id)sender;
 - (IBAction)createVideoSnapshot:(id)sender;
 - (IBAction)toggleFullscreenDevice:(id)sender;
+
+- (IBAction)addSubtitleFile:(id)sender;
+- (IBAction)switchSubtitleOption:(id)sender;
+- (IBAction)switchSubtitleBackgroundOpacity:(id)sender;
+- (IBAction)telxTransparent:(id)sender;
+- (IBAction)telxNavLink:(id)sender;
 
 - (IBAction)showWizard:(id)sender;
 - (IBAction)showConvertAndSave:(id)sender;

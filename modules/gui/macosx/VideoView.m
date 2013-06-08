@@ -1,7 +1,7 @@
 /*****************************************************************************
  * VideoView.m: MacOS X video output module
  *****************************************************************************
- * Copyright (C) 2002-2012 VLC authors and VideoLAN
+ * Copyright (C) 2002-2013 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Derk-Jan Hartman <hartman at videolan dot org>
@@ -9,6 +9,7 @@
  *          Benjamin Pracht <bigben at videolan dot org>
  *          Pierre d'Herbemont <pdherbemont # videolan org>
  *          Felix Paul Kühne <fkuehne at videolan dot org>
+ *          David Fuhrmann <david dot fuhrmann at googlemail dot com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,7 +62,7 @@
 -(id)initWithFrame:(NSRect)frameRect
 {
     if (self = [super initWithFrame:frameRect]) {
-        [self registerForDraggedTypes:[NSArray arrayWithObject: NSFilenamesPboardType]];
+        [self registerForDraggedTypes:@[NSFilenamesPboardType]];
     }
 
     i_lastScrollWheelDirection = 0;
@@ -132,12 +133,8 @@
             else if (key == 'f' && i_pressed_modifiers & NSControlKeyMask && i_pressed_modifiers & NSCommandKeyMask)
                 [[VLCCoreInteraction sharedInstance] toggleFullscreen];
             else if (p_vout) {
-                if (key == ' ')
-                    [[VLCCoreInteraction sharedInstance] play];
-                else {
-                    val.i_int |= (int)CocoaKeyToVLC(key);
-                    var_Set(p_vout->p_libvlc, "key-pressed", val);
-                }
+                val.i_int |= (int)CocoaKeyToVLC(key);
+                var_Set(p_vout->p_libvlc, "key-pressed", val);
             }
             else
                 msg_Dbg(VLCIntf, "could not send keyevent to VLC core");
@@ -217,7 +214,7 @@
         i_yvlckey = KEY_MOUSEWHEELDOWN;
     else
         i_yvlckey = KEY_MOUSEWHEELUP;
-    
+
     if (f_deltaX < 0.0f)
         i_xvlckey = KEY_MOUSEWHEELRIGHT;
     else
@@ -319,7 +316,7 @@
     // This is the result of [NSEvent standardMagnificationThreshold].
     // Unfortunately, this is a private API, currently.
     CGFloat f_threshold = 0.3;
-    BOOL b_fullscreen = [[VLCMainWindow sharedInstance] fullscreen];
+    BOOL b_fullscreen = [(VLCVideoWindowCommon *)[self window] fullscreen];
 
     if ((f_cumulated_magnification > f_threshold && !b_fullscreen) || (f_cumulated_magnification < -f_threshold && b_fullscreen)) {
         f_cumulated_magnification = 0.0;

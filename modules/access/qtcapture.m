@@ -13,7 +13,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -306,13 +306,13 @@ static int Open(vlc_object_t *p_this)
     QTFormatDescription* camera_format = NULL;
     NSUInteger formatCount = [format_array count];
     for (NSUInteger k = 0; k < formatCount; k++) {
-        camera_format = [format_array objectAtIndex: k];
+        camera_format = [format_array objectAtIndex:k];
 
         msg_Dbg(p_demux, "localized Format: %s", [[camera_format localizedFormatSummary] UTF8String]);
         msg_Dbg(p_demux, "format description: %s", [[[camera_format formatDescriptionAttributes] description] UTF8String]);
     }
     if ([format_array count])
-        camera_format = [format_array objectAtIndex: 0];
+        camera_format = [format_array objectAtIndex:0];
     else
         goto error;
 
@@ -344,10 +344,10 @@ static int Open(vlc_object_t *p_this)
     msg_Dbg(p_demux, "PAR size %i %i", (int)par_size.width, (int)par_size.height);
 
     [p_sys->output setPixelBufferAttributes: [NSDictionary dictionaryWithObjectsAndKeys:
-        [NSNumber numberWithUnsignedInt:kCVPixelFormatType_422YpCbCr8], (id)kCVPixelBufferPixelFormatTypeKey,
-        [NSNumber numberWithInt: p_sys->height], kCVPixelBufferHeightKey,
-        [NSNumber numberWithInt: p_sys->width], kCVPixelBufferWidthKey,
-        [NSNumber numberWithBool:YES], (id)kCVPixelBufferOpenGLCompatibilityKey,
+        @(kCVPixelFormatType_422YpCbCr8), (id)kCVPixelBufferPixelFormatTypeKey,
+        @(p_sys->height), kCVPixelBufferHeightKey,
+        @(p_sys->width), kCVPixelBufferWidthKey,
+        @YES, (id)kCVPixelBufferOpenGLCompatibilityKey,
         nil]];
     [p_sys->output setAutomaticallyDropsLateVideoFrames:YES];
     [p_sys->output setMinimumVideoFrameInterval: (1/25)]; // 25 fps
@@ -417,7 +417,7 @@ static int Demux(demux_t *p_demux)
     demux_sys_t *p_sys = p_demux->p_sys;
     block_t *p_block;
 
-    p_block = block_New(p_demux, p_sys->width * p_sys->height * 2 /* FIXME */);
+    p_block = block_Alloc(p_sys->width * p_sys->height * 2 /* FIXME */);
     if (!p_block) {
         msg_Err(p_demux, "cannot get block");
         return 0;

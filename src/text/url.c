@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#ifdef WIN32
+#ifdef _WIN32
 # include <io.h>
 #endif
 
@@ -69,7 +69,7 @@ char *decode_URI (char *str)
     if (in == NULL)
         return NULL;
 
-    signed char c;
+    char c;
     while ((c = *(in++)) != '\0')
     {
         if (c == '%')
@@ -82,12 +82,7 @@ char *decode_URI (char *str)
             *(out++) = strtoul (hex, NULL, 0x10);
         }
         else
-        if (c >= 32)
             *(out++) = c;
-        else
-            /* Inserting non-ASCII or non-printable characters is unsafe,
-             * and no sane browser will send these unencoded */
-            *(out++) = '?';
     }
     *out = '\0';
     return str;
@@ -175,7 +170,7 @@ char *vlc_path2uri (const char *path, const char *scheme)
     path = p;
 #endif
 
-#if defined( WIN32 ) || defined( __OS2__ )
+#if defined( _WIN32 ) || defined( __OS2__ )
     /* Drive letter */
     if (isalpha ((unsigned char)path[0]) && (path[1] == ':'))
     {
@@ -191,7 +186,7 @@ char *vlc_path2uri (const char *path, const char *scheme)
 #endif
     if (!strncmp (path, "\\\\", 2))
     {   /* Windows UNC paths */
-#if !defined( WIN32 ) && !defined( __OS2__ )
+#if !defined( _WIN32 ) && !defined( __OS2__ )
         if (scheme != NULL)
             return NULL; /* remote files not supported */
 
@@ -307,7 +302,7 @@ char *make_path (const char *url)
 
     if (schemelen == 4 && !strncasecmp (url, "file", 4))
     {
-#if !defined (WIN32) && !defined (__OS2__)
+#if !defined (_WIN32) && !defined (__OS2__)
         /* Leading slash => local path */
         if (*path == '/')
             return path;
@@ -341,7 +336,7 @@ char *make_path (const char *url)
         if (*end)
             goto out;
 
-#if !defined( WIN32 ) && !defined( __OS2__ )
+#if !defined( _WIN32 ) && !defined( __OS2__ )
         switch (fd)
         {
             case 0:
@@ -405,13 +400,16 @@ void vlc_UrlParse (vlc_url_t *restrict url, const char *str, unsigned char opt)
     char *cur = buf, *next;
 
     /* URL scheme */
-    next = strchr (cur, ':');
+    next = buf;
+    while ((*next >= 'A' && *next <= 'Z') || (*next >= 'a' && *next <= 'z')
+        || (*next >= '0' && *next <= '9') || (strchr ("+-.", *next) != NULL))
+        next++;
     /* This is not strictly correct. In principles, the scheme is always
      * present in an absolute URL and followed by a colon. Depending on the
      * URL scheme, the two subsequent slashes are not required.
      * VLC uses a different scheme for historical compatibility reasons - the
      * scheme is often implicit. */
-    if (next != NULL && !strncmp (next + 1, "//", 2))
+    if (!strncmp (next, "://", 3))
     {
         *next = '\0';
         next += 3;
@@ -492,7 +490,7 @@ void vlc_UrlClean (vlc_url_t *restrict url)
 
 #if defined (HAVE_IDN)
 # include <idna.h>
-#elif defined (WIN32)
+#elif defined (_WIN32)
 # include <windows.h>
 # include <vlc_charset.h>
 #endif
@@ -511,7 +509,7 @@ static char *vlc_idna_to_ascii (const char *idn)
         return NULL;
     return adn;
 
-#elif defined (WIN32) && (_WIN32_WINNT >= 0x0601)
+#elif defined (_WIN32) && (_WIN32_WINNT >= 0x0601)
     char *ret = NULL;
 
     wchar_t *wide = ToWide (idn);
@@ -530,8 +528,6 @@ static char *vlc_idna_to_ascii (const char *idn)
         free (buf);
         goto error;
     }
-    free (wide);
-
     ret = FromWide (buf);
     free (buf);
 error:

@@ -1,7 +1,7 @@
 /*****************************************************************************
 * simple_prefs.m: Simple Preferences for Mac OS X
 *****************************************************************************
-* Copyright (C) 2008-2012 VLC authors and VideoLAN
+* Copyright (C) 2008-2013 VLC authors and VideoLAN
 * $Id$
 *
 * Authors: Felix Paul Kühne <fkuehne at videolan dot org>
@@ -105,7 +105,7 @@ static VLCSimplePrefs *_o_sharedInstance = nil;
     [o_hotkeys_listbox setDoubleAction:@selector(hotkeyTableDoubleClick:)];
 
     /* setup useful stuff */
-    o_hotkeysNonUseableKeys = [[NSArray arrayWithObjects: @"Command-c", @"Command-x", @"Command-v", @"Command-a", @"Command-," , @"Command-h", @"Command-Alt-h", @"Command-Shift-o", @"Command-o", @"Command-d", @"Command-n", @"Command-s", @"Command-z", @"Command-l", @"Command-r", @"Command-3", @"Command-m", @"Command-w", @"Command-Shift-w", @"Command-Shift-c", @"Command-Shift-p", @"Command-i", @"Command-e", @"Command-Shift-e", @"Command-b", @"Command-Shift-m", @"Command-Ctrl-m", @"Command-?", @"Command-Alt-?", nil] retain];
+    o_hotkeysNonUseableKeys = [@[@"Command-c", @"Command-x", @"Command-v", @"Command-a", @"Command-," , @"Command-h", @"Command-Alt-h", @"Command-Shift-o", @"Command-o", @"Command-d", @"Command-n", @"Command-s", @"Command-z", @"Command-l", @"Command-r", @"Command-3", @"Command-m", @"Command-w", @"Command-Shift-w", @"Command-Shift-c", @"Command-Shift-p", @"Command-i", @"Command-e", @"Command-Shift-e", @"Command-b", @"Command-Shift-m", @"Command-Ctrl-m", @"Command-?", @"Command-Alt-?"] retain];
 }
 
 #define CreateToolbarItem(o_name, o_desc, o_img, sel) \
@@ -139,13 +139,13 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     if ([o_itemIdent isEqual: VLCIntfSettingToolbarIdentifier]) {
         CreateToolbarItem(_NS("Interface"), _NS("Interface Settings"), @"spref_cone_Interface_64", showInterfaceSettings);
     } else if ([o_itemIdent isEqual: VLCAudioSettingToolbarIdentifier]) {
-        CreateToolbarItem(_NS("Audio"), _NS("General Audio Settings"), @"spref_cone_Audio_64", showAudioSettings);
+        CreateToolbarItem(_NS("Audio"), _NS("Audio Settings"), @"spref_cone_Audio_64", showAudioSettings);
     } else if ([o_itemIdent isEqual: VLCVideoSettingToolbarIdentifier]) {
-        CreateToolbarItem(_NS("Video"), _NS("General Video Settings"), @"spref_cone_Video_64", showVideoSettings);
+        CreateToolbarItem(_NS("Video"), _NS("Video Settings"), @"spref_cone_Video_64", showVideoSettings);
     } else if ([o_itemIdent isEqual: VLCOSDSettingToolbarIdentifier]) {
-        CreateToolbarItem(_NS(SUBPIC_TITLE), _NS("Subtitles & On Screen Display Settings"), @"spref_cone_Subtitles_64", showOSDSettings);
+        CreateToolbarItem(_NS(SUBPIC_TITLE), _NS("Subtitle & On Screen Display Settings"), @"spref_cone_Subtitles_64", showOSDSettings);
     } else if ([o_itemIdent isEqual: VLCInputSettingToolbarIdentifier]) {
-        CreateToolbarItem(_NS(INPUT_TITLE), _NS("Input & Codec settings"), @"spref_cone_Input_64", showInputSettings);
+        CreateToolbarItem(_NS(INPUT_TITLE), _NS("Input & Codec Settings"), @"spref_cone_Input_64", showInputSettings);
     } else if ([o_itemIdent isEqual: VLCHotkeysSettingToolbarIdentifier]) {
         CreateToolbarItem(_NS("Hotkeys"), _NS("Hotkeys settings"), @"spref_cone_Hotkeys_64", showHotkeySettings);
     }
@@ -155,20 +155,22 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
 
 - (NSArray *)toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
-    return [NSArray arrayWithObjects: VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
-        VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier, NSToolbarFlexibleSpaceItemIdentifier, nil];
+    return @[VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
+             VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier,
+             NSToolbarFlexibleSpaceItemIdentifier];
 }
 
 - (NSArray *)toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
-    return [NSArray arrayWithObjects: VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
-        VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier, NSToolbarFlexibleSpaceItemIdentifier, nil];
+    return @[VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
+             VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier,
+             NSToolbarFlexibleSpaceItemIdentifier];
 }
 
 - (NSArray *)toolbarSelectableItemIdentifiers:(NSToolbar *)toolbar
 {
-    return [NSArray arrayWithObjects: VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
-        VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier, nil];
+    return @[VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
+             VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier];
 }
 
 - (void)initStrings
@@ -176,7 +178,7 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     /* audio */
     [o_audio_dolby_txt setStringValue: _NS("Force detection of Dolby Surround")];
     [o_audio_effects_box setTitle: _NS("Effects")];
-    [o_audio_enable_ckb setTitle: _NS("Enable Audio")];
+    [o_audio_enable_ckb setTitle: _NS("Enable audio")];
     [o_audio_general_box setTitle: _NS("General Audio")];
     [o_audio_lang_txt setStringValue: _NS("Preferred Audio language")];
     [o_audio_last_ckb setTitle: _NS("Enable Last.fm submissions")];
@@ -205,15 +207,20 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_input_cachelevel_txt setStringValue: _NS("Default Caching Level")];
     [o_input_caching_box setTitle: _NS("Caching")];
     [o_input_cachelevel_custom_txt setStringValue: _NS("Use the complete preferences to configure custom caching values for each access module.")];
-    [o_input_httpproxy_txt setStringValue: _NS("HTTP Proxy")];
-    [o_input_httpproxypwd_txt setStringValue: _NS("Password for HTTP Proxy")];
     [o_input_mux_box setTitle: _NS("Codecs / Muxers")];
     [o_input_net_box setTitle: _NS("Network")];
-    [o_input_avcodec_hw_ckb setTitle: _NS("Hardware Acceleration")];
+    [o_input_avcodec_hw_txt setStringValue: _NS("Hardware Acceleration")];
     [o_input_postproc_txt setStringValue: _NS("Post-Processing Quality")];
     [o_input_rtsp_ckb setTitle: _NS("Use RTP over RTSP (TCP)")];
     [o_input_skipLoop_txt setStringValue: _NS("Skip the loop filter for H.264 decoding")];
     [o_input_mkv_preload_dir_ckb setTitle: _NS("Preload MKV files in the same directory")];
+    [o_input_urlhandler_btn setTitle: _NS("Edit default application settings for network protocols")];
+
+    /* url handler */
+    [o_urlhandler_title_txt setStringValue: _NS("Open network streams using the following protocols")];
+    [o_urlhandler_subtitle_txt setStringValue: _NS("Note that these are system-wide settings.")];
+    [o_urlhandler_save_btn setTitle: _NS("Save")];
+    [o_urlhandler_cancel_btn setTitle: _NS("Cancel")];
 
     /* interface */
     [o_intf_style_txt setStringValue: _NS("Interface style")];
@@ -221,7 +228,7 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_intf_style_bright_bcell setTitle: _NS("Bright")];
     [o_intf_art_txt setStringValue: _NS("Album art download policy")];
     [o_intf_embedded_ckb setTitle: _NS("Show video within the main window")];
-    [o_intf_nativefullscreen_ckb setTitle: _NS("Use the native fullscreen mode on OS X Lion")];
+    [o_intf_nativefullscreen_ckb setTitle: _NS("Use the native fullscreen mode")];
     [o_intf_fspanel_ckb setTitle: _NS("Show Fullscreen Controller")];
     [o_intf_network_box setTitle: _NS("Privacy / Network Interaction")];
     [o_intf_appleremote_ckb setTitle: _NS("Control playback with the Apple Remote")];
@@ -237,23 +244,23 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_osd_encoding_txt setStringValue: _NS("Default Encoding")];
     [o_osd_font_box setTitle: _NS("Display Settings")];
     [o_osd_font_btn setTitle: _NS("Choose...")];
-    [o_osd_font_color_txt setStringValue: _NS("Font Color")];
-    [o_osd_font_size_txt setStringValue: _NS("Font Size")];
+    [o_osd_font_color_txt setStringValue: _NS("Font color")];
+    [o_osd_font_size_txt setStringValue: _NS("Font size")];
     [o_osd_font_txt setStringValue: _NS("Font")];
-    [o_osd_lang_box setTitle: _NS("Subtitle Languages")];
-    [o_osd_lang_txt setStringValue: _NS("Preferred Subtitle Language")];
+    [o_osd_lang_box setTitle: _NS("Subtitle languages")];
+    [o_osd_lang_txt setStringValue: _NS("Preferred subtitle language")];
     [o_osd_osd_box setTitle: _NS("On Screen Display")];
     [o_osd_osd_ckb setTitle: _NS("Enable OSD")];
     [o_osd_opacity_txt setStringValue: _NS("Opacity")];
-    [o_osd_forcebold_ckb setTitle: _NS("Force Bold")];
-    [o_osd_outline_color_txt setStringValue: _NS("Outline Color")];
-    [o_osd_outline_thickness_txt setStringValue: _NS("Outline Thickness")];
+    [o_osd_forcebold_ckb setTitle: _NS("Force bold")];
+    [o_osd_outline_color_txt setStringValue: _NS("Outline color")];
+    [o_osd_outline_thickness_txt setStringValue: _NS("Outline thickness")];
 
     /* video */
     [o_video_black_ckb setTitle: _NS("Black screens in Fullscreen mode")];
     [o_video_device_txt setStringValue: _NS("Fullscreen Video Device")];
     [o_video_display_box setTitle: _NS("Display")];
-    [o_video_enable_ckb setTitle: _NS("Enable Video")];
+    [o_video_enable_ckb setTitle: _NS("Enable video")];
     [o_video_fullscreen_ckb setTitle: _NS("Fullscreen")];
     [o_video_videodeco_ckb setTitle: _NS("Window decorations")];
     [o_video_onTop_ckb setTitle: _NS("Always on top")];
@@ -323,10 +330,10 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
             continue;
         }
         else if (p_item->list.psz[i])
-            mi = [[NSMenuItem alloc] initWithTitle: [NSString stringWithUTF8String: p_item->list.psz[i]] action:NULL keyEquivalent: @""];
+            mi = [[NSMenuItem alloc] initWithTitle: @(p_item->list.psz[i]) action:NULL keyEquivalent: @""];
         else
             msg_Err(p_intf, "item %d of pref %s failed to be created", i, name);
-        [mi setRepresentedObject:[NSString stringWithUTF8String: p_item->list.psz[i]]];
+        [mi setRepresentedObject:@(p_item->list.psz[i])];
         [[object menu] addItem: [mi autorelease]];
         if (p_item->value.psz && !strcmp(p_item->value.psz, p_item->list.psz[i]))
             [object selectItem:[object lastItem]];
@@ -352,7 +359,7 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
             mi = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"%d", p_item->list.i[i]] action:NULL keyEquivalent: @""];
         else
             msg_Err(p_intf, "item %d of pref %s failed to be created", i, name);
-        [mi setRepresentedObject:[NSNumber numberWithInt: p_item->list.i[i]]];
+        [mi setRepresentedObject:@(p_item->list.i[i])];
         [[object menu] addItem: [mi autorelease]];
         if (p_item->value.i == p_item->list.i[i])
             [object selectItem:[object lastItem]];
@@ -381,8 +388,8 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     for (size_t i_index = 0; i_index < count; i_index++) {
         p_parser = p_list[i_index];
         if (module_provides(p_parser, p_item->psz_type)) {
-            [object addItemWithTitle: [NSString stringWithUTF8String: _(module_GetLongName(p_parser)) ?: ""]];
-            if (p_item->value.psz && !strcmp(p_item->value.psz, module_get_object(p_parser)))
+            [object addItemWithTitle: @(_(module_GetLongName(p_parser)) ?: "")];
+            if (p_item->value.psz && !strcmp(p_item->value.psz, module_get_name(p_parser, false)))
                 [object selectItem: [object lastItem]];
         }
     }
@@ -393,13 +400,13 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
 - (void)setupButton: (NSButton *)object forBoolValue: (const char *)name
 {
     [object setState: config_GetInt(p_intf, name)];
-    [object setToolTip: _NS(config_GetLabel(p_intf, name) ?: "")];
+    [object setToolTip: _NS(config_GetLabel(p_intf, name))];
 }
 
 - (void)setupField:(NSTextField *)o_object forOption:(const char *)psz_option
 {
     char *psz_tmp = config_GetPsz(p_intf, psz_option);
-    [o_object setStringValue: [NSString stringWithUTF8String: psz_tmp ?: ""]];
+    [o_object setStringValue: @(psz_tmp ?: "")];
     [o_object setToolTip: _NS(config_GetLabel(p_intf, psz_option))];
     free(psz_tmp);
 }
@@ -472,8 +479,8 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
         [o_audio_vol_fld setEnabled: YES];
         [o_audio_vol_sld setEnabled: YES];
 
-        i = config_GetInt(p_intf, "volume");
-        i = i * 200.0 / AOUT_VOLUME_MAX + 0.5;
+        i = var_InheritInteger(p_intf, "auhal-volume");
+        i = i * 200. / AOUT_VOLUME_MAX;
         [o_audio_vol_sld setIntValue: i];
         [o_audio_vol_fld setIntValue: i];
     }
@@ -520,11 +527,11 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     [o_video_device_pop addItemWithTitle: _NS("Default")];
     [[o_video_device_pop lastItem] setTag: 0];
     while (i < y) {
-        NSRect s_rect = [[[NSScreen screens] objectAtIndex: i] frame];
+        NSRect s_rect = [[[NSScreen screens] objectAtIndex:i] frame];
         [o_video_device_pop addItemWithTitle:
          [NSString stringWithFormat: @"%@ %i (%ix%i)", _NS("Screen"), i+1,
                    (int)s_rect.size.width, (int)s_rect.size.height]];
-        [[o_video_device_pop lastItem] setTag: (int)[[[NSScreen screens] objectAtIndex: i] displayID]];
+        [[o_video_device_pop lastItem] setTag: (int)[[[NSScreen screens] objectAtIndex:i] displayID]];
         i++;
     }
     [o_video_device_pop selectItemAtIndex: 0];
@@ -541,11 +548,9 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
      * input & codecs settings *
      ***************************/
     [self setupField: o_input_record_fld forOption:"input-record-path"];
-    [self setupField: o_input_httpproxy_fld forOption:"http-proxy"];
-    [self setupField: o_input_httpproxypwd_sfld forOption:"http-proxy-pwd"];
     [o_input_postproc_fld setIntValue: config_GetInt(p_intf, "postproc-q")];
     [o_input_postproc_fld setToolTip: _NS(config_GetLabel(p_intf, "postproc-q"))];
-    [self setupButton: o_input_avcodec_hw_ckb forBoolValue:"avcodec-hw"];
+    [self setupButton: o_input_avcodec_hw_pop forModuleList: "avcodec-hw"];
 
     [self setupButton: o_input_avi_pop forIntList: "avi-index"];
 
@@ -555,9 +560,8 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     [self setupButton: o_input_mkv_preload_dir_ckb forBoolValue: "mkv-preload-local-dir"];
 
     [o_input_cachelevel_pop removeAllItems];
-    [o_input_cachelevel_pop addItemsWithTitles:
-        [NSArray arrayWithObjects: _NS("Custom"), _NS("Lowest latency"), _NS("Low latency"), _NS("Normal"),
-            _NS("High latency"), _NS("Higher latency"), nil]];
+    [o_input_cachelevel_pop addItemsWithTitles: @[_NS("Custom"), _NS("Lowest latency"),
+     _NS("Low latency"), _NS("Normal"), _NS("High latency"), _NS("Higher latency")]];
     [[o_input_cachelevel_pop itemAtIndex: 0] setTag: 0];
     [[o_input_cachelevel_pop itemAtIndex: 1] setTag: 100];
     [[o_input_cachelevel_pop itemAtIndex: 2] setTag: 200];
@@ -629,9 +633,9 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
            && !strncmp(p_item->psz_name , "key-", 4)
            && !EMPTY_STR(p_item->psz_text)) {
             [o_tempArray_desc addObject: _NS(p_item->psz_text)];
-            [o_tempArray_names addObject: [NSString stringWithUTF8String:p_item->psz_name]];
+            [o_tempArray_names addObject: @(p_item->psz_name)];
             if (p_item->value.psz)
-                [o_hotkeySettings addObject: [NSString stringWithUTF8String:p_item->value.psz]];
+                [o_hotkeySettings addObject: @(p_item->value.psz)];
             else
                 [o_hotkeySettings addObject: [NSString string]];
         }
@@ -679,17 +683,24 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
         [self saveChangedSettings];
         [[NSFontPanel sharedFontPanel] close];
         [o_sprefs_win orderOut: sender];
-    } else if (sender == o_sprefs_reset_btn)
-        NSBeginInformationalAlertSheet(_NS("Reset Preferences"), _NS("Cancel"),
-                                        _NS("Continue"), nil, o_sprefs_win, self,
-                                        @selector(sheetDidEnd: returnCode: contextInfo:), NULL, nil,
-                                        _NS("Beware this will reset the VLC media player preferences.\n"
-                                            "Are you sure you want to continue?"));
-    else if (sender == o_sprefs_showAll_btn) {
+    } else if (sender == o_sprefs_showAll_btn) {
         [o_sprefs_win orderOut: self];
         [[[VLCMain sharedInstance] preferences] showPrefsWithLevel:[o_sprefs_win level]];
     } else
         msg_Warn(p_intf, "unknown buttonAction sender");
+}
+
+- (IBAction)resetPreferences:(NSControl *)sender
+{
+    NSBeginInformationalAlertSheet(_NS("Reset Preferences"), _NS("Cancel"),
+                                   _NS("Continue"), nil, [sender window], self,
+                                   @selector(sheetDidEnd: returnCode: contextInfo:), NULL, nil, @"%@",
+                                   _NS("This will reset VLC media player's preferences.\n\n"
+                                       "Note that VLC will restart during the process, so your current "
+                                       "playlist will be emptied and eventual playback, streaming or "
+                                       "transcoding activities will stop immediately.\n\n"
+                                       "The Media Library will not be affected.\n\n"
+                                       "Are you sure you want to continue?"));
 }
 
 - (void)sheetDidEnd:(NSWindow *)o_sheet
@@ -700,11 +711,23 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
         /* reset VLC's config */
         config_ResetAll(p_intf);
         [self resetControls];
+
+        /* force config file creation, since libvlc won't exit normally */
         config_SaveConfigFile(p_intf);
 
         /* reset OS X defaults */
         [NSUserDefaults resetStandardUserDefaults];
         [[NSUserDefaults standardUserDefaults] synchronize];
+
+        /* Relaunch now */
+        const char * path = [[[NSBundle mainBundle] executablePath] UTF8String];
+
+        /* For some reason we need to fork(), not just execl(), which reports a ENOTSUP then. */
+        if (fork() != 0) {
+            exit(0);
+            return;
+        }
+        execl(path, path, NULL);
     }
 }
 
@@ -744,16 +767,19 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
         p_parser = p_list[i_module_index];
 
         if (p_item->i_type == CONFIG_ITEM_MODULE && module_provides(p_parser, p_item->psz_type)) {
-            if ([objectTitle isEqualToString: _NS(module_GetLongName(p_parser))])
-            {
-                config_PutPsz(p_intf, name, strdup(module_get_object(p_parser)));
+            if ([objectTitle isEqualToString: _NS(module_GetLongName(p_parser))]) {
+                config_PutPsz(p_intf, name, strdup(module_get_name(p_parser, false)));
                 break;
             }
         }
     }
     module_list_free(p_list);
-    if ([objectTitle isEqualToString: _NS("Default")])
-        config_PutPsz(p_intf, name, "");
+    if ([objectTitle isEqualToString: _NS("Default")]) {
+        if (!strcmp(name, "vout"))
+            config_PutPsz(p_intf, name, "");
+        else
+            config_PutPsz(p_intf, name, "none");
+    }
 }
 
 - (void)saveChangedSettings
@@ -819,10 +845,11 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
      ******************/
     if (b_audioSettingChanged) {
         config_PutInt(p_intf, "audio", [o_audio_enable_ckb state]);
-        if ([o_audio_vol_fld isEnabled])
-            config_PutInt(p_intf, "volume", [o_audio_vol_fld intValue] * AOUT_VOLUME_MAX / 200.0 + 0.5);
         config_PutInt(p_intf, "volume-save", [o_audio_autosavevol_yes_bcell state]);
+        var_SetBool(p_intf, "volume-save", [o_audio_autosavevol_yes_bcell state]);
         config_PutInt(p_intf, "spdif", [o_audio_spdif_ckb state]);
+        if ([o_audio_vol_fld isEnabled])
+            config_PutInt(p_intf, "auhal-volume", ([o_audio_vol_fld intValue] * AOUT_VOLUME_MAX) / 200);
 
         SaveIntList(o_audio_dolby_pop, "force-dolby-surround");
 
@@ -874,14 +901,12 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
      ***************************/
     if (b_inputSettingChanged) {
         config_PutPsz(p_intf, "input-record-path", [[o_input_record_fld stringValue] UTF8String]);
-        config_PutPsz(p_intf, "http-proxy", [[o_input_httpproxy_fld stringValue] UTF8String]);
-        config_PutPsz(p_intf, "http-proxy-pwd", [[o_input_httpproxypwd_sfld stringValue] UTF8String]);
         config_PutInt(p_intf, "postproc-q", [o_input_postproc_fld intValue]);
 
         SaveIntList(o_input_avi_pop, "avi-index");
 
         config_PutInt(p_intf, "rtsp-tcp", [o_input_rtsp_ckb state]);
-        config_PutInt(p_intf, "avcodec-hw", [o_input_avcodec_hw_ckb state]);
+        SaveModuleList(o_input_avcodec_hw_pop, "avcodec-hw");
         SaveIntList(o_input_skipLoop_pop, "avcodec-skiploopfilter");
 
         config_PutInt(p_intf, "mkv-preload-local-dir", [o_input_mkv_preload_dir_ckb state]);
@@ -982,12 +1007,6 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
 
 - (IBAction)interfaceSettingChanged:(id)sender
 {
-    if (sender == o_intf_embedded_ckb && [o_intf_embedded_ckb state] == NSOffState)
-        [o_intf_nativefullscreen_ckb setState: NSOffState];
-
-    if (sender == o_intf_nativefullscreen_ckb && [o_intf_nativefullscreen_ckb state] == NSOnState)
-        [o_intf_embedded_ckb setState: NSOnState];
-
     b_intfSettingChanged = YES;
 }
 
@@ -1081,8 +1100,6 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
        notificationObject == o_audio_vol_fld)
         b_audioSettingChanged = YES;
     else if (notificationObject == o_input_record_fld ||
-             notificationObject == o_input_httpproxy_fld ||
-            notificationObject == o_input_httpproxypwd_sfld ||
             notificationObject == o_input_postproc_fld)
         b_inputSettingChanged = YES;
     else if (notificationObject == o_osd_font_fld ||
@@ -1097,7 +1114,7 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
 - (IBAction)showFontPicker:(id)sender
 {
     char * font = config_GetPsz(p_intf, "freetype-font");
-    NSString * fontName = font ? [NSString stringWithUTF8String: font] : nil;
+    NSString * fontName = font ? @(font) : nil;
     free(font);
     if (fontName) {
         NSFont * font = [NSFont fontWithName:fontName size:0.0];
@@ -1150,6 +1167,89 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
     [self showSettingsForCategory: o_input_view];
 }
 
+- (NSString *)bundleIdentifierForApplicationName:(NSString *)appName
+{
+    NSWorkspace * workspace = [NSWorkspace sharedWorkspace];
+    NSString * appPath = [workspace fullPathForApplication:appName];
+    if (appPath) {
+        NSBundle * appBundle = [NSBundle bundleWithPath:appPath];
+        return [appBundle bundleIdentifier];
+    }
+    return nil;
+}
+
+- (NSString *)applicationNameForBundleIdentifier:(NSString *)bundleIdentifier
+{
+    return [[[NSFileManager defaultManager] displayNameAtPath:[[NSWorkspace sharedWorkspace] absolutePathForAppBundleWithIdentifier:bundleIdentifier]] stringByDeletingPathExtension];
+}
+
+- (NSImage *)iconForBundleIdentifier:(NSString *)bundleIdentifier
+{
+    NSWorkspace *workspace = [NSWorkspace sharedWorkspace];
+    NSSize iconSize = NSMakeSize(16., 16.);
+    NSImage *icon = [workspace iconForFile:[workspace absolutePathForAppBundleWithIdentifier:bundleIdentifier]];
+    [icon setSize:iconSize];
+    return icon;
+}
+
+- (IBAction)urlHandlerAction:(id)sender
+{
+    NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
+
+    if (sender == o_input_urlhandler_btn) {
+        NSArray *handlers;
+        NSString *handler;
+        NSString *rawhandler;
+        NSMutableArray *rawHandlers;
+        NSUInteger count;
+
+#define fillUrlHandlerPopup( protocol, object ) \
+        handlers = (NSArray *)LSCopyAllHandlersForURLScheme(CFSTR( protocol )); \
+        rawHandlers = [[NSMutableArray alloc] init]; \
+        [object removeAllItems]; \
+        count = [handlers count]; \
+        for (NSUInteger x = 0; x < count; x++) { \
+            rawhandler = [handlers objectAtIndex:x]; \
+            handler = [self applicationNameForBundleIdentifier:rawhandler]; \
+            if (handler && ![handler isEqualToString:@""]) { \
+                [object addItemWithTitle:handler]; \
+                [[object lastItem] setImage: [self iconForBundleIdentifier:[handlers objectAtIndex:x]]]; \
+                [rawHandlers addObject: rawhandler]; \
+            } \
+        } \
+        [object selectItemAtIndex: [rawHandlers indexOfObject:(id)LSCopyDefaultHandlerForURLScheme(CFSTR( protocol ))]]; \
+        [rawHandlers release]
+
+        fillUrlHandlerPopup( "ftp", o_urlhandler_ftp_pop);
+        fillUrlHandlerPopup( "mms", o_urlhandler_mms_pop);
+        fillUrlHandlerPopup( "rtmp", o_urlhandler_rtmp_pop);
+        fillUrlHandlerPopup( "rtp", o_urlhandler_rtp_pop);
+        fillUrlHandlerPopup( "rtsp", o_urlhandler_rtsp_pop);
+        fillUrlHandlerPopup( "sftp", o_urlhandler_sftp_pop);
+        fillUrlHandlerPopup( "smb", o_urlhandler_smb_pop);
+        fillUrlHandlerPopup( "udp", o_urlhandler_udp_pop);
+
+#undef fillUrlHandlerPopup
+
+        [NSApp beginSheet:o_urlhandler_win modalForWindow:o_sprefs_win modalDelegate:self didEndSelector:NULL contextInfo:nil];
+    } else {
+        [o_urlhandler_win orderOut:sender];
+        [NSApp endSheet: o_urlhandler_win];
+
+        if (sender == o_urlhandler_save_btn) {
+            LSSetDefaultHandlerForURLScheme(CFSTR("ftp"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_ftp_pop selectedItem] title]]);
+            LSSetDefaultHandlerForURLScheme(CFSTR("mms"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_mms_pop selectedItem] title]]);
+            LSSetDefaultHandlerForURLScheme(CFSTR("mmsh"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_mms_pop selectedItem] title]]);
+            LSSetDefaultHandlerForURLScheme(CFSTR("rtmp"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_rtmp_pop selectedItem] title]]);
+            LSSetDefaultHandlerForURLScheme(CFSTR("rtp"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_rtp_pop selectedItem] title]]);
+            LSSetDefaultHandlerForURLScheme(CFSTR("rtsp"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_rtsp_pop selectedItem] title]]);
+            LSSetDefaultHandlerForURLScheme(CFSTR("sftp"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_sftp_pop selectedItem] title]]);
+            LSSetDefaultHandlerForURLScheme(CFSTR("smb"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_smb_pop selectedItem] title]]);
+            LSSetDefaultHandlerForURLScheme(CFSTR("udp"), (CFStringRef)[self bundleIdentifierForApplicationName:[[o_urlhandler_udp_pop selectedItem] title]]);
+        }
+    }
+}
+
 #pragma mark -
 #pragma mark Hotkey actions
 
@@ -1164,8 +1264,8 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
 {
     if (sender == o_hotkeys_change_btn || sender == o_hotkeys_listbox) {
         [o_hotkeys_change_lbl setStringValue: [NSString stringWithFormat: _NS("Press new keys for\n\"%@\""),
-                                               [o_hotkeyDescriptions objectAtIndex: [o_hotkeys_listbox selectedRow]]]];
-        [o_hotkeys_change_keys_lbl setStringValue: [[VLCStringUtility sharedInstance] OSXStringKeyToString:[o_hotkeySettings objectAtIndex: [o_hotkeys_listbox selectedRow]]]];
+                                               [o_hotkeyDescriptions objectAtIndex:[o_hotkeys_listbox selectedRow]]]];
+        [o_hotkeys_change_keys_lbl setStringValue: [[VLCStringUtility sharedInstance] OSXStringKeyToString:[o_hotkeySettings objectAtIndex:[o_hotkeys_listbox selectedRow]]]];
         [o_hotkeys_change_taken_lbl setStringValue: @""];
         [o_hotkeys_change_win setInitialFirstResponder: [o_hotkeys_change_win contentView]];
         [o_hotkeys_change_win makeFirstResponder: [o_hotkeys_change_win contentView]];
@@ -1225,9 +1325,9 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
     NSString * identifier = [aTableColumn identifier];
 
     if ([identifier isEqualToString: @"action"])
-        return [o_hotkeyDescriptions objectAtIndex: rowIndex];
+        return [o_hotkeyDescriptions objectAtIndex:rowIndex];
     else if ([identifier isEqualToString: @"shortcut"])
-        return [[VLCStringUtility sharedInstance] OSXStringKeyToString:[o_hotkeySettings objectAtIndex: rowIndex]];
+        return [[VLCStringUtility sharedInstance] OSXStringKeyToString:[o_hotkeySettings objectAtIndex:rowIndex]];
     else {
         msg_Err(p_intf, "unknown TableColumn identifier (%s)!", [identifier UTF8String]);
         return NULL;
@@ -1252,11 +1352,11 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
         if (i_returnValue != NSNotFound)
             [o_hotkeys_change_taken_lbl setStringValue: [NSString stringWithFormat:
                                                          _NS("This combination is already taken by \"%@\"."),
-                                                         [o_hotkeyDescriptions objectAtIndex: i_returnValue]]];
+                                                         [o_hotkeyDescriptions objectAtIndex:i_returnValue]]];
         else if (i_returnValue2 != NSNotFound)
             [o_hotkeys_change_taken_lbl setStringValue: [NSString stringWithFormat:
                                                          _NS("This combination is already taken by \"%@\"."),
-                                                         [o_hotkeyDescriptions objectAtIndex: i_returnValue2]]];
+                                                         [o_hotkeyDescriptions objectAtIndex:i_returnValue2]]];
         else
             [o_hotkeys_change_taken_lbl setStringValue: @""];
 
@@ -1365,6 +1465,10 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
         [tempString appendString:@"Delete"];
     else if (key == NSBackspaceCharacter)
         [tempString appendString:@"Backspace"];
+    else if (key == 0x001B)
+        [tempString appendString:@"Esc"];
+    else if (key == ' ')
+        [tempString appendString:@"Space"];
     else if (![[[o_theEvent charactersIgnoringModifiers] lowercaseString] isEqualToString:@""]) //plain characters
         [tempString appendString:[[o_theEvent charactersIgnoringModifiers] lowercaseString]];
     else

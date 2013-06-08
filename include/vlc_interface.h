@@ -52,15 +52,12 @@ typedef struct intf_thread_t
     VLC_COMMON_MEMBERS
 
     struct intf_thread_t *p_next; /** LibVLC interfaces book keeping */
-    vlc_thread_t thread; /** LibVLC thread */
-    /* Thread properties and locks */
 
     /* Specific interfaces */
     intf_sys_t *        p_sys;                          /** system interface */
 
     /** Interface module */
     module_t *   p_module;
-    void      ( *pf_run )    ( struct intf_thread_t * ); /** Run function */
 
     /** Specific for dialogs providers */
     void ( *pf_show_dialog ) ( struct intf_thread_t *, int, int,
@@ -106,27 +103,24 @@ VLC_API void libvlc_Quit( libvlc_int_t * );
 
 /**
  * Message logging callback signature.
- * Accepts one private data pointer, the message, and an overrun counter.
+ * \param data data pointer as provided to vlc_msg_SetCallback().
+ * \param type message type (VLC_MSG_* values from enum vlc_log_type)
+ * \param item meta informations
+ * \param fmt format string
+ * \param args format string arguments
  */
-typedef void (*msg_callback_t) (void *, int, const msg_item_t *,
-                                const char *, va_list);
+typedef void (*vlc_log_cb) (void *data, int type, const vlc_log_t *item,
+                            const char *fmt, va_list args);
 
-/**
- * Used by interface plugins which subscribe to the message bank.
- */
-typedef struct msg_subscription
-{
-    struct msg_subscription *prev, *next;
-    msg_callback_t func;
-    void *opaque;
-} msg_subscription_t;
+VLC_API void vlc_LogSet(libvlc_int_t *, vlc_log_cb cb, void *data);
 
-VLC_API void vlc_Subscribe(msg_subscription_t *, msg_callback_t, void *);
-VLC_API void vlc_Unsubscribe(msg_subscription_t *);
+typedef struct msg_subscription { } msg_subscription_t;
+#define vlc_Subscribe(sub,cb,data) ((sub), (cb), (data))
+#define vlc_Unsubscribe(sub) ((void)(sub))
 
 /*@}*/
 
-#if defined( WIN32 )
+#if defined( _WIN32 ) && !VLC_WINSTORE_APP
 #    define CONSOLE_INTRO_MSG \
          if( !getenv( "PWD" ) ) /* detect Cygwin shell or Wine */ \
          { \
@@ -267,7 +261,7 @@ typedef enum vlc_dialog {
                             "*.jss;*.psb;" \
                             "*.rt;*.smi;*.txt;" \
                             "*.smil;*.stl;*.usf;" \
-                            "*.dks;*.pjs;*.mpl2"
+                            "*.dks;*.pjs;*.mpl2;*.mks"
 
 /** \defgroup vlc_interaction Interaction
  * \ingroup vlc_interface

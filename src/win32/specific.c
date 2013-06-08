@@ -56,7 +56,9 @@ static int system_InitWSA(int hi, int lo)
  */
 void system_Init(void)
 {
+#if !VLC_WINSTORE_APP
     timeBeginPeriod(5);
+#endif
 
     if (system_InitWSA(2, 2) && system_InitWSA(1, 1))
         fputs("Error: cannot initialize Winsocks\n", stderr);
@@ -80,6 +82,7 @@ typedef struct
 
 void system_Configure( libvlc_int_t *p_this, int i_argc, const char *const ppsz_argv[] )
 {
+#if !VLC_WINSTORE_APP
     /* Raise default priority of the current process */
 #ifndef ABOVE_NORMAL_PRIORITY_CLASS
 #   define ABOVE_NORMAL_PRIORITY_CLASS 0x00008000
@@ -206,8 +209,10 @@ void system_Configure( libvlc_int_t *p_this, int i_argc, const char *const ppsz_
             exit( 0 );
         }
     }
+#endif
 }
 
+#if !VLC_WINSTORE_APP
 static unsigned __stdcall IPCHelperThread( void *data )
 {
     vlc_object_t *p_this = data;
@@ -291,7 +296,7 @@ LRESULT CALLBACK WMCOPYWNDPROC( HWND hwnd, UINT uMsg, WPARAM wParam,
                 /* FIXME: This breaks relative paths if calling vlc.exe is
                  * started from a different working directory. */
                 char *psz_URI = NULL;
-                if( strstr( psz_URI, "://" ) == NULL )
+                if( strstr( ppsz_argv[i_opt], "://" ) == NULL )
                     psz_URI = vlc_path2uri( ppsz_argv[i_opt], NULL );
                 playlist_AddExt( p_playlist,
                         (psz_URI != NULL) ? psz_URI : ppsz_argv[i_opt],
@@ -313,12 +318,14 @@ LRESULT CALLBACK WMCOPYWNDPROC( HWND hwnd, UINT uMsg, WPARAM wParam,
 
     return DefWindowProc( hwnd, uMsg, wParam, lParam );
 }
+#endif
 
 /**
  * Cleans up after system_Init() and system_Configure().
  */
 void system_End(void)
 {
+#if !VLC_WINSTORE_APP
     HWND ipcwindow;
 
     /* FIXME: thread-safety... */
@@ -333,6 +340,7 @@ void system_End(void)
     }
 
     timeEndPeriod(5);
+#endif
 
     /* XXX: In theory, we should not call this if WSAStartup() failed. */
     WSACleanup();

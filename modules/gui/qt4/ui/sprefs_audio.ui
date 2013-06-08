@@ -7,8 +7,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>703</width>
-    <height>656</height>
+    <width>707</width>
+    <height>536</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -32,8 +32,11 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="SPrefsAudio_zone" native="true">
-     <layout class="QVBoxLayout" name="verticalLayout">
+    <widget class="QWidget" name="audioZone" native="true">
+     <layout class="QVBoxLayout" name="audioZoneLayout">
+      <property name="margin">
+       <number>0</number>
+      </property>
       <item>
        <widget class="QGroupBox" name="audioBox">
         <property name="title">
@@ -54,6 +57,9 @@
            <property name="text">
             <string>Keep audio level between sessions</string>
            </property>
+           <property name="checked">
+            <bool>true</bool>
+           </property>
           </widget>
          </item>
          <item row="1" column="0" colspan="2">
@@ -68,7 +74,7 @@
             <string>Always reset audio start level to:</string>
            </property>
            <property name="checked">
-            <bool>true</bool>
+            <bool>false</bool>
            </property>
           </widget>
          </item>

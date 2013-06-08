@@ -1,7 +1,7 @@
 /*****************************************************************************
  * CoreInteraction.m: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2011-2012 Felix Paul Kühne
+ * Copyright (C) 2011-2013 Felix Paul Kühne
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -29,10 +29,15 @@
 #import <vlc_playlist.h>
 #import <vlc_input.h>
 #import <vlc_keys.h>
-#import <vlc_osd.h>
+#import <vlc_vout.h>
+#import <vlc_vout_osd.h>
 #import <vlc/vlc.h>
 #import <vlc_strings.h>
 #import <vlc_url.h>
+
+@interface VLCMainWindow (Internal)
+- (void)jumpWithValue:(char *)p_value forward:(BOOL)b_value;
+@end
 
 @implementation VLCCoreInteraction
 static VLCCoreInteraction *_o_sharedInstance = nil;
@@ -73,15 +78,16 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
 #pragma mark -
 #pragma mark Playback Controls
 
-- (void)play
+- (void)playOrPause
 {
     input_thread_t * p_input;
     p_input = pl_CurrentInput(VLCIntf);
+    playlist_t * p_playlist = pl_Get(VLCIntf);
+
     if (p_input) {
-        var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_PLAY_PAUSE);
+        playlist_Pause(p_playlist);
         vlc_object_release(p_input);
     } else {
-        playlist_t * p_playlist = pl_Get(VLCIntf);
         bool empty;
 
         PL_LOCK;
@@ -97,27 +103,27 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
 
 - (void)pause
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_PAUSE);
+    playlist_Pause(pl_Get(VLCIntf));
 }
 
 - (void)stop
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_STOP);
+    playlist_Stop(pl_Get(VLCIntf));
 }
 
 - (void)faster
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_FASTER);
+    var_TriggerCallback(pl_Get(VLCIntf), "rate-faster");
 }
 
 - (void)slower
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_SLOWER);
+    var_TriggerCallback(pl_Get(VLCIntf), "rate-slower");
 }
 
 - (void)normalSpeed
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_RATE_NORMAL);
+    var_SetFloat(pl_Get(VLCIntf), "rate", 1.);
 }
 
 - (void)toggleRecord
@@ -179,12 +185,12 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
 
 - (void)previous
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_PREV);
+    playlist_Prev(pl_Get(VLCIntf));
 }
 
 - (void)next
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_NEXT);
+    playlist_Next(pl_Get(VLCIntf));
 }
 
 - (int)durationOfCurrentPlaylistItem
@@ -227,7 +233,7 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     }
 
     NSURL *o_url;
-    o_url = [NSURL URLWithString:[NSString stringWithUTF8String:psz_uri]];
+    o_url = [NSURL URLWithString:@(psz_uri)];
     vlc_object_release(p_input);
 
     return o_url;
@@ -259,10 +265,10 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     char *format = var_InheritString(VLCIntf, "input-title-format");
     char *formated = str_format_meta(pl_Get(VLCIntf), format);
     free(format);
-    o_name = [NSString stringWithUTF8String:formated];
+    o_name = @(formated);
     free(formated);
 
-    NSURL * o_url = [NSURL URLWithString: [NSString stringWithUTF8String: psz_uri]];
+    NSURL * o_url = [NSURL URLWithString: @(psz_uri)];
     free(psz_uri);
 
     if ([o_name isEqualToString:@""]) {
@@ -287,44 +293,60 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     [self backwardShort];
 }
 
+- (void)jumpWithValue:(char *)p_value forward:(BOOL)b_value
+{
+    input_thread_t *p_input = pl_CurrentInput(VLCIntf);
+    if (!p_input)
+        return;
+
+    int i_interval = var_InheritInteger( p_input, p_value );
+    if (i_interval > 0) {
+        mtime_t val = CLOCK_FREQ * i_interval;
+        if (!b_value)
+            val = val * -1;
+        var_SetTime( p_input, "time-offset", val );
+    }
+    vlc_object_release(p_input);
+}
+
 - (void)forwardExtraShort
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_JUMP_FORWARD_EXTRASHORT);
+    [self jumpWithValue:"extrashort-jump-size" forward:YES];
 }
 
 - (void)backwardExtraShort
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_JUMP_BACKWARD_EXTRASHORT);
+    [self jumpWithValue:"extrashort-jump-size" forward:NO];
 }
 
 - (void)forwardShort
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_JUMP_FORWARD_SHORT);
+    [self jumpWithValue:"short-jump-size" forward:YES];
 }
 
 - (void)backwardShort
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_JUMP_BACKWARD_SHORT);
+    [self jumpWithValue:"short-jump-size" forward:NO];
 }
 
 - (void)forwardMedium
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_JUMP_FORWARD_MEDIUM);
+    [self jumpWithValue:"medium-jump-size" forward:YES];
 }
 
 - (void)backwardMedium
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_JUMP_BACKWARD_MEDIUM);
+    [self jumpWithValue:"medium-jump-size" forward:NO];
 }
 
 - (void)forwardLong
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_JUMP_FORWARD_LONG);
+    [self jumpWithValue:"long-jump-size" forward:YES];
 }
 
 - (void)backwardLong
 {
-    var_SetInteger(VLCIntf->p_libvlc, "key-action", ACTIONID_JUMP_BACKWARD_LONG);
+    [self jumpWithValue:"long-jump-size" forward:NO];
 }
 
 - (void)shuffle
@@ -417,6 +439,43 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     }
 }
 
+- (void)setAtoB
+{
+    if (!timeA) {
+        input_thread_t * p_input = pl_CurrentInput(VLCIntf);
+        if (p_input) {
+            timeA = var_GetTime(p_input, "time");
+            vlc_object_release(p_input);
+        }
+    } else if (!timeB) {
+        input_thread_t * p_input = pl_CurrentInput(VLCIntf);
+        if (p_input) {
+            timeB = var_GetTime(p_input, "time");
+            vlc_object_release(p_input);
+        }
+    } else
+        [self resetAtoB];
+}
+
+- (void)resetAtoB
+{
+    timeA = 0;
+    timeB = 0;
+}
+
+- (void)updateAtoB
+{
+    if (timeB) {
+        input_thread_t * p_input = pl_CurrentInput(VLCIntf);
+        if (p_input) {
+            mtime_t currentTime = var_GetTime(p_input, "time");
+            if ( currentTime >= timeB || currentTime < timeA)
+                var_SetTime(p_input, "time", timeA);
+            vlc_object_release(p_input);
+        }
+    }
+}
+
 - (void)volumeUp
 {
     intf_thread_t *p_intf = VLCIntf;
@@ -482,7 +541,9 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     if (!p_intf)
         return;
 
-    playlist_VolumeSet(pl_Get(p_intf), i_value / (float)AOUT_VOLUME_DEFAULT);
+    float f_value = i_value / (float)AOUT_VOLUME_DEFAULT;
+
+    playlist_VolumeSet(pl_Get(p_intf), f_value);
 }
 
 #pragma mark -
@@ -490,7 +551,7 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
 {
     NSPasteboard *o_paste = [sender draggingPasteboard];
-    NSArray *o_types = [NSArray arrayWithObject: NSFilenamesPboardType];
+    NSArray *o_types = @[NSFilenamesPboardType];
     NSString *o_desired_type = [o_paste availableTypeFromArray:o_types];
     NSData *o_carried_data = [o_paste dataForType:o_desired_type];
     BOOL b_autoplay = config_GetInt(VLCIntf, "macosx-autoplay");
@@ -505,7 +566,7 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
             BOOL b_returned = NO;
 
             if (count == 1 && p_input) {
-                b_returned = input_AddSubtitle(p_input, vlc_path2uri([[o_values objectAtIndex:0] UTF8String], NULL), true);
+                b_returned = input_AddSubtitle(p_input, [[o_values objectAtIndex:0] UTF8String], true);
                 vlc_object_release(p_input);
                 if (!b_returned)
                     return YES;
@@ -554,14 +615,14 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     if (!p_intf)
         return;
 
-    BOOL b_fs = var_ToggleBool(pl_Get(p_intf), "fullscreen");
-
     vout_thread_t *p_vout = getVoutForActiveWindow();
     if (p_vout) {
-        var_SetBool(p_vout, "fullscreen", b_fs);
+        BOOL b_fs = var_ToggleBool(p_vout, "fullscreen");
+        var_SetBool(pl_Get(p_intf), "fullscreen", b_fs);
         vlc_object_release(p_vout);
     } else { // e.g. lion fullscreen toggle
-        [[VLCMain sharedInstance] setFullscreen:b_fs forWindow:nil];
+        BOOL b_fs = var_ToggleBool(pl_Get(p_intf), "fullscreen");
+        [[[VLCMain sharedInstance] voutController] setFullscreen:b_fs forWindow:nil];
     }
 }
 

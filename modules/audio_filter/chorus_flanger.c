@@ -1,25 +1,25 @@
 /*****************************************************************************
  * chorus_flanger: Basic chorus/flanger/delay audio filter
  *****************************************************************************
- * Copyright (C) 2009-12 the VideoLAN team
+ * Copyright (C) 2009-12 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Srikanth Raju < srikiraju at gmail dot com >
  *          Sukrit Sangwan < sukritsangwan at gmail dot com >
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -86,7 +86,7 @@ vlc_module_begin ()
         N_("Rate of change of sweep depth in milliseconds shift per second "
            "of play"), true )
     add_float_with_range( "feedback-gain", 0.5, -0.9, 0.9,
-        N_("Feedback Gain"), N_("Gain on Feedback loop"), true )
+        N_("Feedback gain"), N_("Gain on Feedback loop"), true )
     add_float_with_range( "wet-mix", 0.4, -0.999, 0.999,
         N_("Wet mix"), N_("Level of delayed signal"), true )
     add_float_with_range( "dry-mix", 0.4, -0.999, 0.999,

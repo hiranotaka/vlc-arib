@@ -37,7 +37,7 @@
 #include "ui/sprefs_subtitles.h"
 #include "ui/sprefs_interface.h"
 
-#ifdef WIN32
+#ifdef _WIN32
 # include "util/registry.hpp"
 #endif
 
@@ -63,26 +63,6 @@ enum {
     CachingHigher = 1000
 };
 
-enum {
-#ifdef WIN32
-       directxW,
-#elif defined( __OS2__)
-       kaiW,
-#else
-       alsaW,
-       ossW,
-#endif
-       fileW,
-       audioOutCoB,
-       normalizerChB,
-       volLW,
-       headphoneB,
-       spdifChB,
-};
-enum { inputLE, cachingCoB };
-enum { skinRB, qtRB, styleCB };
-enum { shadowCB, backgroundCB };
-
 class ConfigControl;
 class QComboBox;
 class QLineEdit;
@@ -90,7 +70,7 @@ class QRadioButton;
 class QCheckBox;
 class QString;
 
-#ifdef WIN32
+#ifdef _WIN32
 class QTreeWidgetItem;
 #endif
 
@@ -123,11 +103,11 @@ private:
 
     int number;
 
-    QWidgetList optionWidgets;
+    QHash<QString, QWidget*> optionWidgets;
     QStringList qs_filter;
     QButtonGroup *radioGroup;
 
-#ifdef WIN32
+#ifdef _WIN32
     QList<QTreeWidgetItem *> listAsso;
     bool addType( const char * psz_ext, QTreeWidgetItem*, QTreeWidgetItem*, QVLCRegistry* );
 #endif
@@ -137,7 +117,7 @@ private slots:
     void lastfm_Changed( int );
     void updateAudioOptions( int );
     void updateAudioVolume( int );
-#ifdef WIN32
+#ifdef _WIN32
     void assoDialog();
     void saveAsso();
 #endif

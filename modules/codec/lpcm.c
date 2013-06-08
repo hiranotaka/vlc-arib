@@ -1,7 +1,7 @@
 /*****************************************************************************
  * lpcm.c: lpcm decoder/packetizer module
  *****************************************************************************
- * Copyright (C) 1999-2008 the VideoLAN team
+ * Copyright (C) 1999-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Samuel Hocevar <sam@zoy.org>
@@ -11,19 +11,19 @@
  *          Lauren Aimar <fenrir _AT_ videolan _DOT_ org >
  *          Steinar H. Gunderson <steinar+vlc@gunderson.no>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -37,6 +37,7 @@
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
 #include <vlc_aout.h>
+#include <unistd.h>
 #include <assert.h>
 
 /*****************************************************************************
@@ -255,11 +256,11 @@ static int OpenCommon( vlc_object_t *p_this, bool b_packetizer )
         {
         case 24:
         case 20:
-            p_dec->fmt_out.i_codec = VLC_CODEC_S24B;
-            p_dec->fmt_out.audio.i_bitspersample = 24;
+            p_dec->fmt_out.i_codec = VLC_CODEC_S32N;
+            p_dec->fmt_out.audio.i_bitspersample = 32;
             break;
         default:
-            p_dec->fmt_out.i_codec = VLC_CODEC_S16B;
+            p_dec->fmt_out.i_codec = VLC_CODEC_S16N;
             p_dec->fmt_out.audio.i_bitspersample = 16;
             break;
         }
@@ -377,13 +378,13 @@ static block_t *DecodeFrame( decoder_t *p_dec, block_t **pp_block )
         /* */
         if( i_bits == 16 )
         {
-            p_dec->fmt_out.i_codec = VLC_CODEC_S16B;
+            p_dec->fmt_out.i_codec = VLC_CODEC_S16N;
             p_dec->fmt_out.audio.i_bitspersample = 16;
         }
         else
         {
-            p_dec->fmt_out.i_codec = VLC_CODEC_S24B;
-            p_dec->fmt_out.audio.i_bitspersample = 24;
+            p_dec->fmt_out.i_codec = VLC_CODEC_S32N;
+            p_dec->fmt_out.audio.i_bitspersample = 32;
         }
 
         /* */
@@ -464,10 +465,8 @@ static int OpenEncoder( vlc_object_t *p_this )
 
     /* In DVD LCPM, a frame is always 150 PTS ticks. */
     p_sys->i_frame_samples = p_enc->fmt_in.audio.i_rate * 150 / 90000;
-    p_sys->p_buffer = (uint8_t *)malloc(
-        p_sys->i_frame_samples *
-        p_enc->fmt_in.audio.i_channels *
-        p_enc->fmt_in.audio.i_bitspersample);
+    p_sys->p_buffer = xmalloc(p_sys->i_frame_samples
+                            * p_enc->fmt_in.audio.i_channels * 16);
     p_sys->i_buffer_used = 0;
     p_sys->i_frame_num = 0;
 
@@ -478,7 +477,7 @@ static int OpenEncoder( vlc_object_t *p_this )
     p_enc->fmt_in.i_codec = p_enc->fmt_out.i_codec;
 
     p_enc->fmt_in.audio.i_bitspersample = 16;
-    p_enc->fmt_in.i_codec = VLC_CODEC_S16B;
+    p_enc->fmt_in.i_codec = VLC_CODEC_S16N;
 
     p_enc->fmt_out.i_bitrate =
         p_enc->fmt_in.audio.i_channels *
@@ -542,7 +541,7 @@ static block_t *EncodeFrames( encoder_t *p_enc, block_t *p_aout_buf )
 
     for ( int i = 0; i < i_num_frames; ++i )
     {
-        block_t *p_block = block_New( p_enc, i_frame_size );
+        block_t *p_block = block_Alloc( i_frame_size );
         if( !p_block )
             return NULL;
 
@@ -558,8 +557,15 @@ static block_t *EncodeFrames( encoder_t *p_enc, block_t *p_aout_buf )
         const int i_kept_bytes = p_sys->i_buffer_used * p_sys->i_channels * 2;
         const int i_consume_bytes = i_consume_samples * p_sys->i_channels * 2;
 
+#ifdef WORDS_BIGENDIAN
         memcpy( frame + 6, p_sys->p_buffer, i_kept_bytes );
-        memcpy( frame + 6 + i_kept_bytes, p_aout_buf->p_buffer + i_bytes_consumed, i_consume_bytes );
+        memcpy( frame + 6 + i_kept_bytes, p_aout_buf->p_buffer + i_bytes_consumed,
+                i_consume_bytes );
+#else
+        swab( p_sys->p_buffer, frame + 6, i_kept_bytes );
+        swab( p_aout_buf->p_buffer + i_bytes_consumed, frame + 6 + i_kept_bytes,
+              i_consume_bytes );
+#endif
 
         p_sys->i_frame_num++;
         p_sys->i_buffer_used = 0;
@@ -914,65 +920,69 @@ static int BdHeader( unsigned *pi_rate,
 static void VobExtract( block_t *p_aout_buffer, block_t *p_block,
                         unsigned i_bits )
 {
-    uint8_t *p_out = p_aout_buffer->p_buffer;
-
     /* 20/24 bits LPCM use special packing */
     if( i_bits == 24 )
     {
+        uint32_t *p_out = (uint32_t *)p_aout_buffer->p_buffer;
+
         while( p_block->i_buffer / 12 )
         {
             /* Sample 1 */
-            p_out[0] = p_block->p_buffer[0];
-            p_out[1] = p_block->p_buffer[1];
-            p_out[2] = p_block->p_buffer[8];
+            *(p_out++) = (p_block->p_buffer[ 0] << 24)
+                       | (p_block->p_buffer[ 1] << 16)
+                       | (p_block->p_buffer[ 8] <<  8);
             /* Sample 2 */
-            p_out[3] = p_block->p_buffer[2];
-            p_out[4] = p_block->p_buffer[3];
-            p_out[5] = p_block->p_buffer[9];
+            *(p_out++) = (p_block->p_buffer[ 2] << 24)
+                       | (p_block->p_buffer[ 3] << 16)
+                       | (p_block->p_buffer[ 9] <<  8);
             /* Sample 3 */
-            p_out[6] = p_block->p_buffer[4];
-            p_out[7] = p_block->p_buffer[5];
-            p_out[8] = p_block->p_buffer[10];
+            *(p_out++) = (p_block->p_buffer[ 4] << 24)
+                       | (p_block->p_buffer[ 5] << 16)
+                       | (p_block->p_buffer[10] <<  8);
             /* Sample 4 */
-            p_out[9] = p_block->p_buffer[6];
-            p_out[10] = p_block->p_buffer[7];
-            p_out[11] = p_block->p_buffer[11];
+            *(p_out++) = (p_block->p_buffer[ 6] << 24)
+                       | (p_block->p_buffer[ 7] << 16)
+                       | (p_block->p_buffer[11] <<  8);
 
             p_block->i_buffer -= 12;
             p_block->p_buffer += 12;
-            p_out += 12;
         }
     }
     else if( i_bits == 20 )
     {
+        uint32_t *p_out = (uint32_t *)p_aout_buffer->p_buffer;
+
         while( p_block->i_buffer / 10 )
         {
             /* Sample 1 */
-            p_out[0] = p_block->p_buffer[0];
-            p_out[1] = p_block->p_buffer[1];
-            p_out[2] = p_block->p_buffer[8] & 0xF0;
+            *(p_out++) = ( p_block->p_buffer[0]         << 24)
+                       | ( p_block->p_buffer[1]         << 16)
+                       | ((p_block->p_buffer[8] & 0xF0) <<  8);
             /* Sample 2 */
-            p_out[3] = p_block->p_buffer[2];
-            p_out[4] = p_block->p_buffer[3];
-            p_out[5] = p_block->p_buffer[8] << 4;
+            *(p_out++) = ( p_block->p_buffer[2]         << 24)
+                       | ( p_block->p_buffer[3]         << 16)
+                       | ((p_block->p_buffer[8] & 0x0F) << 12);
             /* Sample 3 */
-            p_out[6] = p_block->p_buffer[4];
-            p_out[7] = p_block->p_buffer[5];
-            p_out[8] = p_block->p_buffer[9] & 0xF0;
+            *(p_out++) = ( p_block->p_buffer[4]         << 24)
+                       | ( p_block->p_buffer[5]         << 16)
+                       | ((p_block->p_buffer[9] & 0xF0) <<  8);
             /* Sample 4 */
-            p_out[9] = p_block->p_buffer[6];
-            p_out[10] = p_block->p_buffer[7];
-            p_out[11] = p_block->p_buffer[9] << 4;
+            *(p_out++) = ( p_block->p_buffer[6]         << 24)
+                       | ( p_block->p_buffer[7]         << 16)
+                       | ((p_block->p_buffer[9] & 0x0F) << 12);
 
             p_block->i_buffer -= 10;
             p_block->p_buffer += 10;
-            p_out += 12;
         }
     }
     else
     {
         assert( i_bits == 16 );
-        memcpy( p_out, p_block->p_buffer, p_block->i_buffer );
+#ifdef WORDS_BIGENDIAN
+        memcpy( p_aout_buffer->p_buffer, p_block->p_buffer, p_block->i_buffer );
+#else
+        swab( p_block->p_buffer, p_aout_buffer->p_buffer, p_block->i_buffer );
+#endif
     }
 }
 static void AobExtract( block_t *p_aout_buffer,
@@ -1044,7 +1054,11 @@ static void BdExtract( block_t *p_aout_buffer, block_t *p_block,
         uint8_t *p_dst = p_aout_buffer->p_buffer;
         while( i_frame_length > 0 )
         {
+#ifdef WORDS_BIGENDIAN
             memcpy( p_dst, p_src, i_channels * i_bits / 8 );
+#else
+            swab( p_dst, p_src, i_channels * i_bits / 8 );
+#endif
             p_src += (i_channels + i_channels_padding) * i_bits / 8;
             p_dst += (i_channels +                  0) * i_bits / 8;
             i_frame_length--;
@@ -1052,7 +1066,11 @@ static void BdExtract( block_t *p_aout_buffer, block_t *p_block,
     }
     else
     {
+#ifdef WORDS_BIGENDIAN
         memcpy( p_aout_buffer->p_buffer, p_block->p_buffer, p_block->i_buffer );
+#else
+        swab( p_block->p_buffer, p_aout_buffer->p_buffer, p_block->i_buffer );
+#endif
     }
 }
 

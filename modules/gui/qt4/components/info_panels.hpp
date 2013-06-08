@@ -51,6 +51,8 @@ class QLineEdit;
 class CoverArtLabel;
 class QTextEdit;
 class QLabel;
+class VLCStatsView;
+class QPushButton;
 
 class MetaPanel: public QWidget
 {
@@ -72,8 +74,7 @@ private:
     QLineEdit *genre_text;
     QLineEdit *copyright_text;
     QLineEdit *collection_text;
-    QLineEdit *seqnum_text;
-    QLineEdit *seqtot_text;
+    QLineEdit *tracknumber_text;
 
     QTextEdit *description_text;
 //    QSpinBox *rating_text;
@@ -88,9 +89,13 @@ private:
     QLabel   *lblURL;
     QString  currentURL;
 
+    QPushButton *fingerprintButton;
+
 public slots:
     void update( input_item_t * );
     void clear();
+    void fingerprint();
+    void fingerprintUpdate( input_item_t * );
 
 private slots:
     void enterEditMode();
@@ -117,11 +122,14 @@ class InputStatsPanel: public QWidget
     Q_OBJECT
 public:
     InputStatsPanel( QWidget * );
+protected:
+    virtual void hideEvent( QHideEvent * );
 private:
     QTreeWidget *StatsTree;
     QTreeWidgetItem *input;
     QTreeWidgetItem *read_media_stat;
     QTreeWidgetItem *input_bitrate_stat;
+    QTreeWidgetItem *input_bitrate_graph;
     QTreeWidgetItem *demuxed_stat;
     QTreeWidgetItem *stream_bitrate_stat;
     QTreeWidgetItem *corrupted_stat;
@@ -143,6 +151,7 @@ private:
     QTreeWidgetItem *aplayed_stat;
     QTreeWidgetItem *alost_stat;
 
+    VLCStatsView *statsView;
 public slots:
     void update( input_item_t * );
     void clear();

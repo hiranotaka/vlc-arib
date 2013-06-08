@@ -78,7 +78,7 @@ struct intf_sys_t
     int  i_screenHeight;     /* Detection of Small screens */
     unsigned voutWindowType; /* Type of vout_window_t provided */
     bool b_isDialogProvider; /* Qt mode or Skins mode */
-#ifdef WIN32
+#ifdef _WIN32
     bool disable_volume_keys;
 #endif
 };
@@ -92,6 +92,7 @@ struct intf_sys_t
 #define THEAM ActionsManager::getInstance( p_intf )
 
 #define qfu( i ) QString::fromUtf8( i )
+#define qfue( i ) QString::fromUtf8( i ).replace( "&", "&&" ) /* for actions/buttons */
 #define qtr( i ) QString::fromUtf8( vlc_gettext(i) )
 #define qtu( i ) ((i).toUtf8().constData())
 

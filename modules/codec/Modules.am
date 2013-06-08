@@ -1,10 +1,11 @@
 noinst_HEADERS =
 
 SOURCES_a52 = a52.c a52.h
-SOURCES_dts = dts.c
+SOURCES_dts = dts.c dts_header.h dts_header.c
 SOURCES_flac = flac.c
 SOURCES_lpcm = lpcm.c
 SOURCES_araw = araw.c
+SOURCES_g711 = g711.c
 SOURCES_vorbis = vorbis.c
 SOURCES_theora = theora.c
 SOURCES_tremor = vorbis.c
@@ -56,6 +57,7 @@ SOURCES_dmo = dmo/dmo.c dmo/dmo.h dmo/buffer.c
 SOURCES_ddummy = ddummy.c
 SOURCES_edummy = edummy.c
 SOURCES_fdkaac = fdkaac.c
+SOURCES_scte27 = scte27.c
 
 libvlc_LTLIBRARIES += \
 	liba52_plugin.la \
@@ -69,6 +71,7 @@ libvlc_LTLIBRARIES += \
 	libddummy_plugin.la \
 	libdts_plugin.la \
 	libdvbsub_plugin.la \
+	libg711_plugin.la \
 	liblpcm_plugin.la \
 	libmpeg_audio_plugin.la \
 	librawvideo_plugin.la \
@@ -77,6 +80,7 @@ libvlc_LTLIBRARIES += \
 	libsubsdec_plugin.la \
 	libsubsusf_plugin.la \
 	libstl_plugin.la \
+	libscte27_plugin.la \
 	$(NULL)
 
 if ENABLE_SOUT
@@ -87,12 +91,12 @@ endif
 
 ### FFmpeg/libav ###
 libavcodec_plugin_la_SOURCES = \
+	avcodec/avcommon_compat.h \
 	avcodec/avcommon.h \
 	avcodec/video.c \
 	avcodec/subtitle.c \
 	avcodec/audio.c \
 	avcodec/cpu.c \
-	avcodec/deinterlace.c \
 	avcodec/fourcc.c \
 	avcodec/chroma.c avcodec/chroma.h \
 	avcodec/va.h \
@@ -144,13 +148,33 @@ endif
 libvda_plugin_la_SOURCES = \
 	avcodec/copy.c avcodec/copy.h \
 	avcodec/vda.c
-libvda_plugin_la_LDFLAGS = -Wl,-framework,CoreFoundation,-framework,VideoDecodeAcceleration,-framework,QuartzCore
+libvda_plugin_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_avcodec)
+libvda_plugin_la_LIBADD = $(AM_LIBADD) $(LIBS_avcodec)
+libvda_plugin_la_LDFLAGS = $(LDFLAGS_avcodec) -Wl,-framework,CoreFoundation,-framework,VideoDecodeAcceleration,-framework,QuartzCore
 if HAVE_AVCODEC_VDA
 libvlc_LTLIBRARIES += libvda_plugin.la
 endif
 
+libvdpau_plugin_la_SOURCES = avcodec/vdpau.c
+libvdpau_plugin_la_CFLAGS = $(AM_CFLAGS) $(VDPAU_CFLAGS) \
+	$(X_CFLAGS) $(CFLAGS_avcodec)
+libvdpau_plugin_la_LIBADD = $(AM_LIBADD) $(VDPAU_LIBS) \
+	 $(X_LIBS) $(X_PRE_LIBS) -lX11 $(LIBS_avcodec)
+libvdpau_plugin_la_LDFLAGS = $(AM_LDFLAGS) $(LDFLAGS_avcodec)
+if HAVE_AVCODEC_VDPAU
+libvlc_LTLIBRARIES += libvdpau_plugin.la
+endif
+
+### XWD ###
+libxwd_plugin_la_SOURCES = xwd.c
+libxwd_plugin_la_CFLAGS = $(AM_CFLAGS) $(XPROTO_CFLAGS)
+libxwd_plugin_la_LIBADD = $(AM_LIBADD) $(XPROTO_LIBS)
+libvlc_LTLIBRARIES += $(LTLIBxwd)
+EXTRA_LTLIBRARIES += libxwd_plugin.la
+
 ### OpenMAX ###
 noinst_HEADERS += \
+	omxil/OMX_Broadcom.h \
 	omxil/OMX_Component.h \
 	omxil/OMX_Core.h \
 	omxil/OMX_Image.h \
@@ -165,9 +189,13 @@ libomxil_plugin_la_SOURCES = \
 	omxil/utils.c omxil/omxil_utils.h \
 	h264_nal.h \
 	omxil/qcom.c omxil/qcom.h \
-	omxil/omxil.c omxil/omxil.h
-libomxil_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/omxil
+	omxil/omxil.c omxil/omxil.h omxil/omxil_core.c omxil/omxil_core.h
+libomxil_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/omxil $(CFLAGS_omxil)
 libomxil_plugin_la_LIBADD = $(AM_LIBADD) $(LIBDL)
+
+libomxil_vout_plugin_la_SOURCES = omxil/vout.c omxil/omxil_core.c omxil/utils.c omxil/qcom.c
+libomxil_vout_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/omxil $(CFLAGS_omxil_vout)
+libomxil_vout_plugin_la_LIBADD = $(AM_LIBADD) $(LIBDL)
 
 libiomx_plugin_la_SOURCES = $(libomxil_plugin_la_SOURCES)
 libiomx_plugin_la_CPPFLAGS = $(libomxil_plugin_la_CPPFLAGS) -DUSE_IOMX
@@ -176,40 +204,9 @@ libiomx_plugin_la_LIBADD = $(libomxil_plugin_la_LIBADD)
 libmediacodec_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/omxil
 libmediacodec_plugin_la_SOURCES = omxil/android_mediacodec.c omxil/utils.c
 
-libvlc_LTLIBRARIES += $(LTLIBomxil)
-EXTRA_LTLIBRARIES += libomxil_plugin.la
+libvlc_LTLIBRARIES += $(LTLIBomxil) $(LTLIBomxil_vout)
+EXTRA_LTLIBRARIES += libomxil_plugin.la libomxil_vout_plugin.la
 if HAVE_ANDROID
 libvlc_LTLIBRARIES += libiomx_plugin.la libmediacodec_plugin.la
 endif
 
-### Windows DLL loader ###
-
-# TODO: real check for vsscanf() and <sys/mmap.h>
-noinst_HEADERS += loader/com.h loader/driver.h loader/ext.h loader/ldt_keeper.h
-	loader/loader.h loader/registry.h \
-	loader/win32.h loader/wineacm.h loader/wrapper.h \
-	loader/qtx/qtxsdk/components.h \
-	loader/wine/avifmt.h loader/wine/basetsd.h loader/wine/debugtools.h \
-	loader/wine/driver.h loader/wine/heap.h loader/wine/mmreg.h \
-	loader/wine/module.h loader/wine/msacmdrv.h loader/wine/msacm.h \
-	loader/wine/pe_image.h loader/wine/poppack.h loader/wine/pshpack1.h \
-	loader/wine/pshpack2.h loader/wine/vfw.h loader/wine/winbase.h \
-	loader/wine/windef.h loader/wine/winerror.h \
-	loaeder/wine/winestring.h loader/wine/winnt.h loader/wine/winreg.h \
-	loader/wine/winuser.h
-
-libloader_la_CPPFLAGS = -D__WINE__ -DHAVE_SYS_MMAN_H=1 -DHAVE_VSSCANF=1 \
-	-DWIN32_PATH=\"\" -DTRACE\(...\)=\(void\)0
-libloader_la_CFLAGS = -fno-PIC -U_FILE_OFFSET_BITS \
-	-fno-omit-frame-pointer -mno-omit-leaf-frame-pointer
-libloader_la_SOURCES = loader/ldt_keeper.c loader/pe_image.c loader/module.c \
-	loader/ext.c loader/win32.c loader/driver.c loader/pe_resource.c \
-	loader/resource.c loader/registry.c loader/afl.c loader/vfl.c \
-	loader/wrapper.S loader/stubs.s loader/kludge.c
-libloader_la_LIBADD = -lpthread
-libloader_la_LDFLAGS = -static
-if LOADER
-noinst_LTLIBRARIES = libloader.la
-libdmo_plugin_la_DEPENDENCIES = libloader.la
-libquicktime_plugin_la_DEPENDENCIES = libloader.la
-endif

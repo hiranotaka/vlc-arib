@@ -38,16 +38,6 @@
 
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
-#if (GNUTLS_VERSION_NUMBER < 0x030014)
-# define gnutls_certificate_set_x509_system_trust(c) \
-    (c, GNUTLS_E_UNIMPLEMENTED_FEATURE)
-#endif
-#if (GNUTLS_VERSION_NUMBER < 0x03000D)
-# define gnutls_verify_stored_pubkey(db,tdb,host,serv,ctype,cert,fl) \
-    (db, host, serv, ctype, cert, fl, GNUTLS_E_NO_CERTIFICATE_FOUND)
-# define gnutls_store_pubkey(db,tdb,host,serv,ctype,cert,e,fl) \
-    (db, host, serv, ctype, cert, fl, GNUTLS_E_UNIMPLEMENTED_FEATURE)
-#endif
 #include "dhparams.h"
 
 /*****************************************************************************
@@ -114,7 +104,7 @@ static int gnutls_Init (vlc_object_t *p_this)
         goto error;
     }
 
-    const char *psz_version = gnutls_check_version ("2.6.6");
+    const char *psz_version = gnutls_check_version ("3.0.20");
     if (psz_version == NULL)
     {
         msg_Err (p_this, "unsupported GnuTLS version");
@@ -149,7 +139,7 @@ static int gnutls_Error (vlc_object_t *obj, int val)
     switch (val)
     {
         case GNUTLS_E_AGAIN:
-#ifdef WIN32
+#ifdef _WIN32
             WSASetLastError (WSAEWOULDBLOCK);
 #else
             errno = EAGAIN;
@@ -157,7 +147,7 @@ static int gnutls_Error (vlc_object_t *obj, int val)
             break;
 
         case GNUTLS_E_INTERRUPTED:
-#ifdef WIN32
+#ifdef _WIN32
             WSASetLastError (WSAEINTR);
 #else
             errno = EINTR;
@@ -170,7 +160,7 @@ static int gnutls_Error (vlc_object_t *obj, int val)
             if (!gnutls_error_is_fatal (val))
                 msg_Err (obj, "Error above should be handled");
 #endif
-#ifdef WIN32
+#ifdef _WIN32
             WSASetLastError (WSAECONNRESET);
 #else
             errno = ECONNRESET;
@@ -226,16 +216,23 @@ static int gnutls_ContinueHandshake (vlc_tls_t *session, const char *host,
     vlc_tls_sys_t *sys = session->sys;
     int val;
 
-#ifdef WIN32
+#ifdef _WIN32
     WSASetLastError (0);
 #endif
-    val = gnutls_handshake (sys->session);
-    if ((val == GNUTLS_E_AGAIN) || (val == GNUTLS_E_INTERRUPTED))
-        return 1 + gnutls_record_get_direction (sys->session);
+    do
+    {
+        val = gnutls_handshake (sys->session);
+        msg_Dbg (session, "TLS handshake: %s", gnutls_strerror (val));
+
+        if ((val == GNUTLS_E_AGAIN) || (val == GNUTLS_E_INTERRUPTED))
+            /* I/O event: return to caller's poll() loop */
+            return 1 + gnutls_record_get_direction (sys->session);
+    }
+    while (val < 0 && !gnutls_error_is_fatal (val));
 
     if (val < 0)
     {
-#ifdef WIN32
+#ifdef _WIN32
         msg_Dbg (session, "Winsock error %d", WSAGetLastError ());
 #endif
         msg_Err (session, "TLS handshake error: %s", gnutls_strerror (val));
@@ -338,25 +335,17 @@ static int gnutls_CertSearch (vlc_tls_t *obj, const char *host,
 
 static struct
 {
-    int flag;
-    const char msg[43];
-    bool strict;
+    unsigned flag;
+    const char msg[29];
 } cert_errs[] =
 {
-    { GNUTLS_CERT_INVALID,
-        "Certificate could not be verified", false },
-    { GNUTLS_CERT_REVOKED,
-        "Certificate was revoked", true },
-    { GNUTLS_CERT_SIGNER_NOT_FOUND,
-        "Certificate's signer was not found", false },
-    { GNUTLS_CERT_SIGNER_NOT_CA,
-        "Certificate's signer is not a CA", true },
-    { GNUTLS_CERT_INSECURE_ALGORITHM,
-      "Insecure certificate signature algorithm", true },
-    { GNUTLS_CERT_NOT_ACTIVATED,
-        "Certificate is not yet activated", true },
-    { GNUTLS_CERT_EXPIRED,
-        "Certificate has expired", true },
+    { GNUTLS_CERT_INVALID,            "Certificate not verified"     },
+    { GNUTLS_CERT_REVOKED,            "Certificate revoked"          },
+    { GNUTLS_CERT_SIGNER_NOT_FOUND,   "Signer not found"             },
+    { GNUTLS_CERT_SIGNER_NOT_CA,      "Signer not a CA"              },
+    { GNUTLS_CERT_INSECURE_ALGORITHM, "Signature algorithm insecure" },
+    { GNUTLS_CERT_NOT_ACTIVATED,      "Certificate not activated"    },
+    { GNUTLS_CERT_EXPIRED,            "Certificate expired"          },
 };
 
 
@@ -379,25 +368,14 @@ static int gnutls_HandshakeAndValidate (vlc_tls_t *session, const char *host,
                  gnutls_strerror (val));
         return -1;
     }
-
     if (status)
     {
-        msg_Err (session, "Certificate verification failure:");
+        msg_Err (session, "Certificate verification failure (0x%04X)", status);
         for (size_t i = 0; i < sizeof (cert_errs) / sizeof (cert_errs[0]); i++)
             if (status & cert_errs[i].flag)
-            {
                 msg_Err (session, " * %s", cert_errs[i].msg);
-                status &= ~cert_errs[i].flag;
-                if (cert_errs[i].strict)
-                    val = -1;
-            }
-
-        if (status)
-        {
-            msg_Err (session, " * Unknown verification error 0x%04X", status);
-            val = -1;
-        }
-        status = -1;
+        if (status & ~(GNUTLS_CERT_INVALID|GNUTLS_CERT_SIGNER_NOT_FOUND))
+            return -1;
     }
 
     /* certificate (host)name verification */
@@ -439,8 +417,8 @@ static int gnutls_HandshakeAndValidate (vlc_tls_t *session, const char *host,
         val = gnutls_CertSearch (session, host, service, data);
     }
 error:
-    gnutls_x509_crt_init (&cert);
-    return val ? -1 : 0;
+    gnutls_x509_crt_deinit (cert);
+    return val;
 }
 
 static int

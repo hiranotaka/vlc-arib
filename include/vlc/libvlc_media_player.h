@@ -640,7 +640,7 @@ LIBVLC_API libvlc_time_t libvlc_media_player_get_time( libvlc_media_player_t *p_
 LIBVLC_API void libvlc_media_player_set_time( libvlc_media_player_t *p_mi, libvlc_time_t i_time );
 
 /**
- * Get movie position.
+ * Get movie position as percentage between 0.0 and 1.0.
  *
  * \param p_mi the Media Player
  * \return movie position, or -1. in case of error
@@ -648,7 +648,8 @@ LIBVLC_API void libvlc_media_player_set_time( libvlc_media_player_t *p_mi, libvl
 LIBVLC_API float libvlc_media_player_get_position( libvlc_media_player_t *p_mi );
 
 /**
- * Set movie position. This has no effect if playback is not enabled.
+ * Set movie position as percentage between 0.0 and 1.0. 
+ * This has no effect if playback is not enabled.
  * This might not work depending on the underlying input format and protocol.
  *
  * \param p_mi the Media Player
@@ -1036,10 +1037,10 @@ LIBVLC_API libvlc_track_description_t *
  * Set new video subtitle.
  *
  * \param p_mi the media player
- * \param i_spu new video subtitle to select
+ * \param i_spu video subtitle track to select (i_id from track description)
  * \return 0 on success, -1 if out of range
  */
-LIBVLC_API int libvlc_video_set_spu( libvlc_media_player_t *p_mi, unsigned i_spu );
+LIBVLC_API int libvlc_video_set_spu( libvlc_media_player_t *p_mi, int i_spu );
 
 /**
  * Set new video subtitle file.
@@ -1486,23 +1487,18 @@ LIBVLC_API void libvlc_audio_output_device_set( libvlc_media_player_t *p_mi,
                                                 const char *psz_device_id );
 
 /**
- * Get current audio device type. Device type describes something like
- * character of output sound - stereo sound, 2.1, 5.1 etc
- *
- * \param p_mi media player
- * \return the audio devices type \see libvlc_audio_output_device_types_t
+ * Stub for backward compatibility.
+ * \return always -1.
  */
+LIBVLC_DEPRECATED
 LIBVLC_API int libvlc_audio_output_get_device_type( libvlc_media_player_t *p_mi );
 
 /**
- * Set current audio device type.
- *
- * \param p_mi vlc instance
- * \param device_type the audio device type,
-          according to \see libvlc_audio_output_device_types_t
+ * Stub for backward compatibility.
  */
-LIBVLC_API void libvlc_audio_output_set_device_type( libvlc_media_player_t *p_mi,
-                                                         int device_type );
+LIBVLC_DEPRECATED
+LIBVLC_API void libvlc_audio_output_set_device_type( libvlc_media_player_t *,
+                                                     int );
 
 
 /**

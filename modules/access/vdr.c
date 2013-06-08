@@ -3,19 +3,19 @@
  *****************************************************************************
  * Copyright (C) 2010 Tobias Güntner
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /***
@@ -50,7 +50,7 @@ See http://www.vdr-wiki.de/ and http://www.tvdr.de/ for more information.
 #include <fcntl.h>
 #ifdef HAVE_UNISTD_H
 #   include <unistd.h>
-#elif defined( WIN32 )
+#elif defined( _WIN32 )
 #   include <io.h>
 #endif
 
@@ -202,6 +202,8 @@ static int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
+    free( p_access->psz_demux );
+    p_access->psz_demux = strdup( "ts" );
     return VLC_SUCCESS;
 }
 
@@ -479,7 +481,6 @@ static bool ImportNextFile( access_t *p_access )
 
     ARRAY_APPEND( p_sys->file_sizes, st.st_size );
     p_access->info.i_size += st.st_size;
-    p_access->info.i_update |= INPUT_UPDATE_SIZE;
 
     return true;
 }
@@ -556,13 +557,11 @@ static void OptimizeForRead( int fd )
     posix_fadvise( fd, 0, 4096, POSIX_FADV_WILLNEED );
     posix_fadvise( fd, 0, 0, POSIX_FADV_NOREUSE );
 #endif
-#ifdef HAVE_FCNTL
 #ifdef F_RDAHEAD
     fcntl( fd, F_RDAHEAD, 1 );
 #endif
 #ifdef F_NOCACHE
-    fcntl( fd, F_NOCACHE, 1 );
-#endif
+    fcntl( fd, F_NOCACHE, 0 );
 #endif
 }
 
@@ -586,7 +585,6 @@ static void UpdateFileSize( access_t *p_access )
     p_access->info.i_size -= CURRENT_FILE_SIZE;
     CURRENT_FILE_SIZE = st.st_size;
     p_access->info.i_size += CURRENT_FILE_SIZE;
-    p_access->info.i_update |= INPUT_UPDATE_SIZE;
 }
 
 /*****************************************************************************

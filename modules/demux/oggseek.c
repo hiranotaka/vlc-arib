@@ -7,19 +7,19 @@
  * adapted from: http://lives.svn.sourceforge.net/viewvc/lives/trunk/lives-plugins
  * /plugins/decoders/ogg_theora_decoder.c
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -55,22 +55,6 @@ void oggseek_index_entries_free ( demux_index_entry_t *idx )
         free( idx );
         idx = idx_next;
     }
-}
-
-
-/* unlink and free idx. If idx is head of list, return new head */
-
-static demux_index_entry_t *index_entry_delete( demux_index_entry_t *idx )
-{
-    demux_index_entry_t *xidx = idx;
-
-    if ( idx->p_prev != NULL ) idx->p_prev->p_next = idx->p_next;
-    else xidx = idx->p_next;
-
-    if ( idx->p_next != NULL ) idx->p_next->p_prev = idx->p_prev;
-    free( idx );
-
-    return xidx;
 }
 
 
@@ -391,13 +375,11 @@ static int64_t find_last_frame (demux_t *p_demux, logical_stream_t *p_stream)
     int64_t i_kframe = 0;
     int64_t i_pos1;
     int64_t i_pos2;
-    int64_t i_serialno;
 
     demux_sys_t *p_sys  = p_demux->p_sys;
 
     i_pos1 = p_stream->i_data_start;
     i_pos2 = p_sys->i_total_length;
-    i_serialno = p_stream->os.serialno;
 
     i_start_pos = i_pos2 - OGGSEEK_BYTES_TO_READ;
 
@@ -696,6 +678,14 @@ static int64_t get_last_frame ( demux_t *p_demux, logical_stream_t *p_stream )
 {
     demux_sys_t *p_sys  = p_demux->p_sys;
     int64_t i_frame;
+    ogg_stream_state os;
+
+    /* Backup the stream state. We get called during header processing, and our
+     * caller expects its header packet to remain valid after the call. If we
+     * let find_last_frame() reuse the same stream state, then it will
+     * invalidate the pointers in that packet. */
+    memcpy(&os, &p_stream->os, sizeof(os));
+    ogg_stream_init( &p_stream->os, p_stream->i_serial_no );
 
     i_frame = find_last_frame ( p_demux, p_stream );
 
@@ -708,9 +698,8 @@ static int64_t get_last_frame ( demux_t *p_demux, logical_stream_t *p_stream )
     seek_byte( p_demux, 0 );
     /* Reset stream states */
     p_sys->i_streams = 0;
-    p_stream->i_serial_no = ogg_page_serialno( &p_sys->current_page );
-    ogg_stream_init( &p_stream->os, p_stream->i_serial_no );
-    ogg_stream_pagein( &p_stream->os, &p_sys->current_page );
+    ogg_stream_clear( &p_stream->os );
+    memcpy( &p_stream->os, &os, sizeof(os) );
 
     return i_frame;
 }

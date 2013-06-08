@@ -3,25 +3,33 @@
  *   This plugin makes use of libdca to do the actual decoding
  *   (http://developers.videolan.org/libdca.html).
  *****************************************************************************
- * Copyright (C) 2001, 2002libdca the VideoLAN team
+ * Copyright (C) 2001, 2002libdca VLC authors and VideoLAN
  * $Id$
  *
  * Author: Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
+
+/*****************************************************************************
+ * NOTA BENE: this module requires the linking against a library which is
+ * known to require licensing under the GNU General Public License version 2
+ * (or later). Therefore, the result of compiling this module will normally
+ * be subject to the terms of that later license.
+ *****************************************************************************/
+
 
 /*****************************************************************************
  * Preamble
@@ -66,7 +74,7 @@ struct filter_sys_t
     bool b_dontwarn;
     int i_nb_channels; /* number of float32 per sample */
 
-    int pi_chan_table[AOUT_CHAN_MAX]; /* channel reordering */
+    uint8_t pi_chan_table[AOUT_CHAN_MAX]; /* channel reordering */
 };
 
 /*****************************************************************************
@@ -176,7 +184,6 @@ static int Open( vlc_object_t *p_this, filter_sys_t *p_sys,
 
     aout_CheckChannelReorder( pi_channels_in, NULL,
                               output->i_physical_channels,
-                              p_sys->i_nb_channels,
                               p_sys->pi_chan_table );
 
     return VLC_SUCCESS;
@@ -186,7 +193,7 @@ static int Open( vlc_object_t *p_this, filter_sys_t *p_sys,
  * Interleave: helper function to interleave channels
  *****************************************************************************/
 static void Interleave( float * p_out, const float * p_in, int i_nb_channels,
-                        int *pi_chan_table )
+                        uint8_t *pi_chan_table )
 {
     /* We do not only have to interleave, but also reorder the channels. */
 

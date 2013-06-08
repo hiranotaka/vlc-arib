@@ -93,7 +93,7 @@
 #define ARATE_TEXT N_("Audio sample rate")
 #define ARATE_LONGTEXT N_( \
  "Sample rate of the transcoded audio stream (11250, 22500, 44100 or 48000).")
-#define ALANG_TEXT N_("Audio Language")
+#define ALANG_TEXT N_("Audio language")
 #define ALANG_LONGTEXT N_( \
     "This is the language of the audio stream.")
 #define ACHANS_TEXT N_("Audio channels")
@@ -104,13 +104,13 @@
     "Audio filters will be applied to the audio streams (after conversion " \
     "filters are applied). You can enter a colon-separated list of filters." )
 
-#define SENC_TEXT N_("Subtitles encoder")
+#define SENC_TEXT N_("Subtitle encoder")
 #define SENC_LONGTEXT N_( \
-    "This is the subtitles encoder module that will be used (and its " \
+    "This is the subtitle encoder module that will be used (and its " \
     "associated options)." )
-#define SCODEC_TEXT N_("Destination subtitles codec")
+#define SCODEC_TEXT N_("Destination subtitle codec")
 #define SCODEC_LONGTEXT N_( \
-    "This is the subtitles codec that will be used." )
+    "This is the subtitle codec that will be used." )
 
 #define SFILTER_TEXT N_("Overlays")
 #define SFILTER_LONGTEXT N_( \

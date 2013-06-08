@@ -178,6 +178,7 @@ struct pl_item_t
 
 struct intf_sys_t
 {
+    vlc_thread_t    thread;
     input_thread_t *p_input;
 
     bool            color;
@@ -190,11 +191,10 @@ struct intf_sys_t
     int             box_start;        // first line of box displayed
     int             box_idx;          // selected line
 
-    msg_subscription_t sub;         // message bank subscription
     struct
     {
         int              type;
-        msg_item_t      *item;
+        vlc_log_t       *item;
         char            *msg;
     } msgs[50];      // ring buffer
     int                 i_msgs;
@@ -863,7 +863,7 @@ static int DrawHelp(intf_thread_t *intf)
     if (sys->color) color_set(C_DEFAULT, NULL);
     H(_(" h,H                    Show/Hide help box"));
     H(_(" i                      Show/Hide info box"));
-    H(_(" m                      Show/Hide metadata box"));
+    H(_(" M                      Show/Hide metadata box"));
     H(_(" L                      Show/Hide messages box"));
     H(_(" P                      Show/Hide playlist box"));
     H(_(" B                      Show/Hide filebrowser"));
@@ -886,6 +886,7 @@ static int DrawHelp(intf_thread_t *intf)
     /* xgettext: You can use ← and → characters */
     H(_(" <left>,<right>         Seek -/+ 1%%"));
     H(_(" a, z                   Volume Up/Down"));
+    H(_(" m                      Mute"));
     /* xgettext: You can use ↑ and ↓ characters */
     H(_(" <up>,<down>            Navigate through the box line by line"));
     /* xgettext: You can use ⇞ and ⇟ characters */
@@ -998,7 +999,7 @@ static int DrawMessages(intf_thread_t *intf)
     vlc_mutex_lock(&sys->msg_lock);
     int i = sys->i_msgs;
     for(;;) {
-        msg_item_t *msg = sys->msgs[i].item;
+        vlc_log_t *msg = sys->msgs[i].item;
         if (msg) {
             if (sys->color)
                 color_set(sys->msgs[i].type + C_INFO, NULL);
@@ -1089,13 +1090,12 @@ static int DrawStatus(intf_thread_t *intf)
 
             mvnprintw(y++, 0, COLS, _(" Position : %s/%s"), buf1, buf2);
 
-            volume =playlist_VolumeGet(p_playlist);
-            if (volume >= 0.f)
-                mvnprintw(y++, 0, COLS, _(" Volume   : %3ld%%"),
-                          lroundf(volume * 100.f));
-            else
-                mvnprintw(y++, 0, COLS, _(" Volume   : ----"),
-                          lroundf(volume * 100.f));
+            volume = playlist_VolumeGet(p_playlist);
+            int mute = playlist_MuteGet(p_playlist);
+            mvnprintw(y++, 0, COLS,
+                      mute ? _(" Volume   : Mute") :
+                      volume >= 0.f ? _(" Volume   : %3ld%%") : _(" Volume   : ----"),
+                      lroundf(volume * 100.f));
 
             if (!var_Get(p_input, "title", &val)) {
                 int i_title_count = var_CountChoices(p_input, "title");
@@ -1563,7 +1563,7 @@ static void HandleCommonKey(intf_thread_t *intf, int key)
     case 'h':
     case 'H': BoxSwitch(sys, BOX_HELP);       return;
     case 'i': BoxSwitch(sys, BOX_INFO);       return;
-    case 'm': BoxSwitch(sys, BOX_META);       return;
+    case 'M': BoxSwitch(sys, BOX_META);       return;
     case 'L': BoxSwitch(sys, BOX_LOG);        return;
     case 'P': BoxSwitch(sys, BOX_PLAYLIST);   return;
     case 'B': BoxSwitch(sys, BOX_BROWSE);     return;
@@ -1609,6 +1609,7 @@ static void HandleCommonKey(intf_thread_t *intf, int key)
     case 'n': playlist_Next(p_playlist);            break;
     case 'a': playlist_VolumeUp(p_playlist, 1, NULL);   break;
     case 'z': playlist_VolumeDown(p_playlist, 1, NULL); break;
+    case 'm': playlist_MuteToggle(p_playlist); break;
 
     case 0x0c:  /* ^l */
     case KEY_CLEAR:
@@ -1697,9 +1698,9 @@ static void HandleKey(intf_thread_t *intf)
 /*
  *
  */
-static msg_item_t *msg_Copy (const msg_item_t *msg)
+static vlc_log_t *msg_Copy (const vlc_log_t *msg)
 {
-    msg_item_t *copy = (msg_item_t *)xmalloc (sizeof (*copy));
+    vlc_log_t *copy = (vlc_log_t *)xmalloc (sizeof (*copy));
     copy->i_object_id = msg->i_object_id;
     copy->psz_object_type = msg->psz_object_type;
     copy->psz_module = strdup (msg->psz_module);
@@ -1707,14 +1708,14 @@ static msg_item_t *msg_Copy (const msg_item_t *msg)
     return copy;
 }
 
-static void msg_Free (msg_item_t *msg)
+static void msg_Free (vlc_log_t *msg)
 {
     free ((char *)msg->psz_module);
     free ((char *)msg->psz_header);
     free (msg);
 }
 
-static void MsgCallback(void *data, int type, const msg_item_t *msg,
+static void MsgCallback(void *data, int type, const vlc_log_t *msg,
                         const char *format, va_list ap)
 {
     intf_sys_t *sys = data;
@@ -1753,18 +1754,17 @@ static inline void UpdateInput(intf_sys_t *sys, playlist_t *p_playlist)
 /*****************************************************************************
  * Run: ncurses thread
  *****************************************************************************/
-static void Run(intf_thread_t *intf)
+static void *Run(void *data)
 {
+    intf_thread_t *intf = data;
     intf_sys_t    *sys = intf->p_sys;
     playlist_t    *p_playlist = pl_Get(intf);
-
-    int canc = vlc_savecancel();
 
     var_AddCallback(p_playlist, "intf-change", PlaylistChanged, intf);
     var_AddCallback(p_playlist, "item-change", ItemChanged, intf);
     var_AddCallback(p_playlist, "playlist-item-append", PlaylistChanged, intf);
 
-    while (vlc_object_alive(intf) && !sys->exit) {
+    while (!sys->exit) {
         UpdateInput(sys, p_playlist);
         Redraw(intf);
         HandleKey(intf);
@@ -1773,7 +1773,7 @@ static void Run(intf_thread_t *intf)
     var_DelCallback(p_playlist, "intf-change", PlaylistChanged, intf);
     var_DelCallback(p_playlist, "item-change", ItemChanged, intf);
     var_DelCallback(p_playlist, "playlist-item-append", PlaylistChanged, intf);
-    vlc_restorecancel(canc);
+    return NULL;
 }
 
 /*****************************************************************************
@@ -1792,7 +1792,7 @@ static int Open(vlc_object_t *p_this)
     vlc_mutex_init(&sys->pl_lock);
 
     sys->verbosity = var_InheritInteger(intf, "verbose");
-    vlc_Subscribe(&sys->sub, MsgCallback, sys);
+    vlc_LogSet(intf->p_libvlc, MsgCallback, sys);
 
     sys->box_type = BOX_PLAYLIST;
     sys->plidx_follow = true;
@@ -1824,7 +1824,9 @@ static int Open(vlc_object_t *p_this)
     PlaylistRebuild(intf),
     PL_UNLOCK;
 
-    intf->pf_run = Run;
+    if (vlc_clone(&sys->thread, Run, intf, VLC_THREAD_PRIORITY_LOW))
+        abort(); /* TODO */
+
     return VLC_SUCCESS;
 }
 
@@ -1834,6 +1836,8 @@ static int Open(vlc_object_t *p_this)
 static void Close(vlc_object_t *p_this)
 {
     intf_sys_t *sys = ((intf_thread_t*)p_this)->p_sys;
+
+    vlc_join(sys->thread, NULL);
 
     PlaylistDestroy(sys);
     DirsDestroy(sys);
@@ -1845,7 +1849,7 @@ static void Close(vlc_object_t *p_this)
 
     endwin();   /* Close the ncurses interface */
 
-    vlc_Unsubscribe(&sys->sub);
+    vlc_LogSet(p_this->p_libvlc, NULL, NULL);
     vlc_mutex_destroy(&sys->msg_lock);
     vlc_mutex_destroy(&sys->pl_lock);
     for(unsigned i = 0; i < sizeof sys->msgs / sizeof *sys->msgs; i++) {

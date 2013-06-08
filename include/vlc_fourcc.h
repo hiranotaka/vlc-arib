@@ -52,7 +52,6 @@
 #define VLC_CODEC_VC1             VLC_FOURCC('V','C','-','1')
 #define VLC_CODEC_THEORA          VLC_FOURCC('t','h','e','o')
 #define VLC_CODEC_TARKIN          VLC_FOURCC('t','a','r','k')
-#define VLC_CODEC_SNOW            VLC_FOURCC('S','N','O','W')
 #define VLC_CODEC_DIRAC           VLC_FOURCC('d','r','a','c')
 #define VLC_CODEC_CAVS            VLC_FOURCC('C','A','V','S')
 #define VLC_CODEC_NUV             VLC_FOURCC('N','J','P','G')
@@ -131,6 +130,9 @@
 #define VLC_CODEC_MSA1            VLC_FOURCC('M','S','A','1')
 #define VLC_CODEC_TSC2            VLC_FOURCC('T','S','C','2')
 #define VLC_CODEC_MTS2            VLC_FOURCC('M','T','S','2')
+#define VLC_CODEC_HEVC            VLC_FOURCC('h','e','v','c')
+#define VLC_CODEC_VP9             VLC_FOURCC('V','P','9','0')
+#define VLC_CODEC_ICOD            VLC_FOURCC('i','c','o','d')
 
 /* Planar YUV 4:1:0 Y:V:U */
 #define VLC_CODEC_YV9             VLC_FOURCC('Y','V','U','9')
@@ -178,6 +180,10 @@
 #define VLC_CODEC_YUVP            VLC_FOURCC('Y','U','V','P')
 /* Planar YUV 4:4:4 Y:U:V:A */
 #define VLC_CODEC_YUVA            VLC_FOURCC('Y','U','V','A')
+/* Planar YUV 4:2:2 Y:U:V:A */
+#define VLC_CODEC_YUV422A         VLC_FOURCC('I','4','2','A')
+/* Planar YUV 4:2:0 Y:U:V:A */
+#define VLC_CODEC_YUV420A         VLC_FOURCC('I','4','0','A')
 /* Palettized RGB with palette element R:G:B */
 #define VLC_CODEC_RGBP            VLC_FOURCC('R','G','B','P')
 /* 8 bits RGB */
@@ -238,6 +244,7 @@
 #define VLC_CODEC_SGI             VLC_FOURCC('s','g','i',' ')
 #define VLC_CODEC_PNM             VLC_FOURCC('p','n','m',' ')
 #define VLC_CODEC_PCX             VLC_FOURCC('p','c','x',' ')
+#define VLC_CODEC_XWD             VLC_FOURCC('X','W','D',' ')
 
 
 /* Audio codec */
@@ -297,7 +304,6 @@
 #define VLC_CODEC_GSM_MS                     VLC_FOURCC('a','g','s','m')
 #define VLC_CODEC_ATRAC1                     VLC_FOURCC('a','t','r','1')
 #define VLC_CODEC_ATRAC3                     VLC_FOURCC('a','t','r','c')
-#define VLC_CODEC_SONIC                      VLC_FOURCC('S','O','N','C')
 #define VLC_CODEC_IMC                        VLC_FOURCC(0x1,0x4,0x0,0x0)
 #define VLC_CODEC_TRUESPEECH                 VLC_FOURCC(0x22,0x0,0x0,0x0)
 #define VLC_CODEC_NELLYMOSER                 VLC_FOURCC('N','E','L','L')
@@ -322,6 +328,8 @@
 #define VLC_CODEC_S24B                       VLC_FOURCC('s','2','4','b')
 #define VLC_CODEC_U24L                       VLC_FOURCC('u','2','4','l')
 #define VLC_CODEC_U24B                       VLC_FOURCC('u','2','4','b')
+#define VLC_CODEC_S24L32                     VLC_FOURCC('s','2','4','4')
+#define VLC_CODEC_S24B32                     VLC_FOURCC('S','2','4','4')
 #define VLC_CODEC_S32L                       VLC_FOURCC('s','3','2','l')
 #define VLC_CODEC_S32B                       VLC_FOURCC('s','3','2','b')
 #define VLC_CODEC_U32L                       VLC_FOURCC('u','3','2','l')
@@ -335,7 +343,6 @@
 #define VLC_CODEC_MULAW                      VLC_FOURCC('m','l','a','w')
 #define VLC_CODEC_DAT12                      VLC_FOURCC('L','P','1','2')
 #define VLC_CODEC_S24DAUD                    VLC_FOURCC('d','a','u','d')
-#define VLC_CODEC_FI32                       VLC_FOURCC('f','i','3','2')
 #define VLC_CODEC_TWINVQ                     VLC_FOURCC('T','W','I','N')
 #define VLC_CODEC_BMVAUDIO                   VLC_FOURCC('B','M','V','A')
 #define VLC_CODEC_ULEAD_DV_AUDIO_NTSC        VLC_FOURCC('m','s',0x02,0x15)
@@ -360,6 +367,10 @@
 #define VLC_CODEC_BD_PG     VLC_FOURCC('b','d','p','g')
 /* EBU STL (TECH. 3264-E) */
 #define VLC_CODEC_EBU_STL   VLC_FOURCC('S','T','L',' ')
+#define VLC_CODEC_SCTE_27   VLC_FOURCC('S','C','2','7')
+
+/* XYZ colorspace 12 bits packed in 16 bits, organisation |XXX0|YYY0|ZZZ0| */
+#define VLC_CODEC_XYZ12     VLC_FOURCC('X','Y','1','2')
 
 
 /* Special endian dependant values
@@ -369,27 +380,35 @@
 #   define VLC_CODEC_S16N VLC_CODEC_S16B
 #   define VLC_CODEC_U16N VLC_CODEC_U16B
 #   define VLC_CODEC_S24N VLC_CODEC_S24B
+#   define VLC_CODEC_U24N VLC_CODEC_U24B
 #   define VLC_CODEC_S32N VLC_CODEC_S32B
+#   define VLC_CODEC_U32N VLC_CODEC_U32B
 #   define VLC_CODEC_FL32 VLC_CODEC_F32B
 #   define VLC_CODEC_FL64 VLC_CODEC_F64B
 
 #   define VLC_CODEC_S16I VLC_CODEC_S16L
 #   define VLC_CODEC_U16I VLC_CODEC_U16L
 #   define VLC_CODEC_S24I VLC_CODEC_S24L
+#   define VLC_CODEC_U24I VLC_CODEC_U24L
 #   define VLC_CODEC_S32I VLC_CODEC_S32L
+#   define VLC_CODEC_U32I VLC_CODEC_U32L
 
 #else
 #   define VLC_CODEC_S16N VLC_CODEC_S16L
 #   define VLC_CODEC_U16N VLC_CODEC_U16L
 #   define VLC_CODEC_S24N VLC_CODEC_S24L
+#   define VLC_CODEC_U24N VLC_CODEC_U24L
 #   define VLC_CODEC_S32N VLC_CODEC_S32L
+#   define VLC_CODEC_U32N VLC_CODEC_U32L
 #   define VLC_CODEC_FL32 VLC_CODEC_F32L
 #   define VLC_CODEC_FL64 VLC_CODEC_F64L
 
 #   define VLC_CODEC_S16I VLC_CODEC_S16B
 #   define VLC_CODEC_U16I VLC_CODEC_U16B
 #   define VLC_CODEC_S24I VLC_CODEC_S24B
+#   define VLC_CODEC_U24I VLC_CODEC_U24B
 #   define VLC_CODEC_S32I VLC_CODEC_S32B
+#   define VLC_CODEC_U32I VLC_CODEC_U32B
 #endif
 
 /* Non official codecs, used to force a profile in an encoder */

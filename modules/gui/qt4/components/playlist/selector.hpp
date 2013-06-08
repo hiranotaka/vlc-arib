@@ -62,6 +62,7 @@ enum {
     IN_ITEM_ROLE,        //input_item_t->i_id
     SPECIAL_ROLE,        //SpecialData
     CAP_SEARCH_ROLE,
+    SD_CATEGORY_ROLE,
 };
 
 enum ItemAction {
@@ -130,8 +131,12 @@ protected:
 private:
     void createItems();
     PLSelItem * addItem ( SelectorItemType type, const char* str,
-            bool drop = false, QTreeWidgetItem* parentItem = 0 );
+            bool drop = false, bool bold = false, QTreeWidgetItem* parentItem = 0 );
     PLSelItem * addPodcastItem( playlist_item_t *p_item );
+
+    PLSelItem* playlistItem;
+
+    void updateTotalDuration(PLSelItem*, const char*);
 
     inline PLSelItem * itemWidget( QTreeWidgetItem * );
 
@@ -150,6 +155,7 @@ private slots:
 
 signals:
     void categoryActivated( playlist_item_t *, bool );
+    void SDCategorySelected( bool );
 };
 
 #endif

@@ -90,8 +90,6 @@ typedef struct playlist_private_t
     bool     b_tree; /**< Display as a tree */
     bool     b_doing_ml; /**< Doing media library stuff  get quicker */
     bool     b_auto_preparse;
-    mtime_t  last_rebuild_date;
-
 } playlist_private_t;
 
 #define pl_priv( pl ) ((playlist_private_t *)(pl))
@@ -101,13 +99,8 @@ typedef struct playlist_private_t
  *****************************************************************************/
 
 /* Creation/Deletion */
-playlist_t *playlist_Create( vlc_object_t * );
 void playlist_Destroy( playlist_t * );
-
-/* */
 void playlist_Activate( playlist_t * );
-void playlist_Deactivate( playlist_t * );
-void pl_Deactivate (libvlc_int_t *);
 
 /* */
 playlist_item_t *playlist_ItemNewFromInput( playlist_t *p_playlist,

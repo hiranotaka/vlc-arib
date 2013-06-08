@@ -12,7 +12,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -45,7 +45,6 @@ static void Close (vlc_object_t *);
 
 vlc_module_begin ()
 #if USE_OPENGL_ES == 2
-# error The OpenGL ES2 plugin is incomplete and not functional. FIXME.
 # define API VLC_OPENGL_ES2
 # define MODULE_VARNAME "gles2"
     set_shortname (N_("OpenGL ES2"))
@@ -159,7 +158,10 @@ static int Open (vlc_object_t *obj)
     const vlc_fourcc_t *spu_chromas;
     sys->vgl = vout_display_opengl_New (&vd->fmt, &spu_chromas, sys->gl);
     if (!sys->vgl)
+    {
+        vlc_gl_ReleaseCurrent (sys->gl);
         goto error;
+    }
 
     vd->sys = sys;
     vd->info.has_pictures_invalid = false;
@@ -190,6 +192,8 @@ static void Close (vlc_object_t *obj)
     vout_display_sys_t *sys = vd->sys;
 
     vout_display_opengl_Delete (sys->vgl);
+    vlc_gl_ReleaseCurrent (sys->gl);
+
     vlc_gl_Destroy (sys->gl);
     vout_display_DeleteWindow (vd, sys->window);
     free (sys);

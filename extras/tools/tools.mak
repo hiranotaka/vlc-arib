@@ -130,10 +130,10 @@ CLEAN_FILE += .xz
 
 # autoconf
 
-autoconf-$(AUTOCONF_VERSION).tar.bz2:
+autoconf-$(AUTOCONF_VERSION).tar.gz:
 	$(call download,$(AUTOCONF_URL))
 
-autoconf: autoconf-$(AUTOCONF_VERSION).tar.bz2
+autoconf: autoconf-$(AUTOCONF_VERSION).tar.gz
 	$(UNPACK)
 	$(MOVE)
 
@@ -143,7 +143,7 @@ autoconf: autoconf-$(AUTOCONF_VERSION).tar.bz2
 
 CLEAN_FILE += .autoconf
 CLEAN_PKG += autoconf
-DISTCLEAN_PKG += autoconf-$(AUTOCONF_VERSION).tar.bz2
+DISTCLEAN_PKG += autoconf-$(AUTOCONF_VERSION).tar.gz
 
 # automake
 

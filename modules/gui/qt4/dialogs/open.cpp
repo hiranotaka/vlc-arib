@@ -86,7 +86,7 @@ OpenDialog::OpenDialog( QWidget *parent,
     captureOpenPanel = new CaptureOpenPanel( this, p_intf );
 
     /* Insert the tabs */
-    ui.Tab->insertTab( OPEN_FILE_TAB, fileOpenPanel, QIcon( ":/type/folder-grey" ),
+    ui.Tab->insertTab( OPEN_FILE_TAB, fileOpenPanel, QIcon( ":/type/file-asym" ),
                        qtr( "&File" ) );
     ui.Tab->insertTab( OPEN_DISC_TAB, discOpenPanel, QIcon( ":/type/disc" ),
                        qtr( "&Disc" ) );
@@ -443,6 +443,9 @@ void OpenDialog::updateMRL() {
     }
     ui.advancedLineInput->setText( mrl );
     ui.mrlLine->setText( itemsMRL.join( " " ) );
+    /* Only allow action without valid items */
+    playButton->setEnabled( !itemsMRL.isEmpty() );
+    selectButton->setEnabled( !itemsMRL.isEmpty() );
 }
 
 /* Change the caching combobox */

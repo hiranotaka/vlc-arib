@@ -1,24 +1,26 @@
 /*****************************************************************************
  * quartztext.c : Put text on the video, using Mac OS X Quartz Engine
  *****************************************************************************
- * Copyright (C) 2007, 2009 the VideoLAN team
+ * Copyright (C) 2007, 2009, 2012 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Bernie Purcell <bitmap@videolan.org>
+ *          Pierre d'Herbemont <pdherbemont # videolan dot>
+ *          Felix Paul Kühne <fkuehne # videolan # org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -31,10 +33,10 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_osd.h>
 #include <vlc_stream.h>
 #include <vlc_xml.h>
 #include <vlc_input.h>
+#include <vlc_filter.h>
 
 #include <TargetConditionals.h>
 
@@ -103,6 +105,11 @@ static const int pi_color_values[] = {
   0x00000000, 0x00808080, 0x00C0C0C0, 0x00FFFFFF, 0x00800000,
   0x00FF0000, 0x00FF00FF, 0x00FFFF00, 0x00808000, 0x00008000, 0x00008080,
   0x0000FF00, 0x00800080, 0x00000080, 0x000000FF, 0x0000FFFF };
+
+static const char *const ppsz_color_names[] = {
+    "black", "gray", "silver", "white", "maroon",
+    "red", "fuchsia", "yellow", "olive", "green",
+    "teal", "lime", "purple", "navy", "blue", "aqua" };
 
 static const char *const ppsz_color_descriptions[] = {
   N_("Black"), N_("Gray"), N_("Silver"), N_("White"), N_("Maroon"),
@@ -308,6 +315,7 @@ static int RenderText(filter_t *p_filter, subpicture_region_t *p_region_out,
     bool          b_bold, b_uline, b_italic;
     vlc_value_t val;
     b_bold = b_uline = b_italic = FALSE;
+    VLC_UNUSED(p_chroma_list);
 
     p_sys->i_font_size    = GetFontSize(p_filter);
 
@@ -490,9 +498,20 @@ static int HandleFontAttributes(xml_reader_t *p_xml_reader,
             }
             else
                 i_font_size = atoi(value);
-        } else if (!strcasecmp("color", attr)  && (value[0] == '#')) {
-            i_font_color = strtol(value + 1, NULL, 16);
-            i_font_color &= 0x00ffffff;
+        } else if (!strcasecmp("color", attr)) {
+            if (value[0] == '#') {
+                i_font_color = strtol(value + 1, NULL, 16);
+                i_font_color &= 0x00ffffff;
+            } else {
+                /* color detection fallback */
+                unsigned int count = sizeof(ppsz_color_names);
+                for (unsigned x = 0; x < count; x++) {
+                    if (!strcmp(value, ppsz_color_names[x])) {
+                        i_font_color = pi_color_values[x];
+                        break;
+                    }
+                }
+            }
         } else if (!strcasecmp("alpha", attr) && (value[0] == '#')) {
             i_font_alpha = strtol(value + 1, NULL, 16);
             i_font_alpha &= 0xff;
@@ -738,6 +757,7 @@ static int RenderHtml(filter_t *p_filter, subpicture_region_t *p_region_out,
     stream_t     *p_sub = NULL;
     xml_t        *p_xml = NULL;
     xml_reader_t *p_xml_reader = NULL;
+    VLC_UNUSED(p_chroma_list);
 
     if (!p_region_in || !p_region_in->psz_html)
         return VLC_EGENERIC;

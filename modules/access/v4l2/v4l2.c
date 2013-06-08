@@ -1,7 +1,7 @@
 /*****************************************************************************
  * v4l2.c : Video4Linux2 input module for VLC
  *****************************************************************************
- * Copyright (C) 2002-2009 the VideoLAN team
+ * Copyright (C) 2002-2009 VLC authors and VideoLAN
  * Copyright (C) 2011-2012 Rémi Denis-Courmont
  *
  * Authors: Benjamin Pracht <bigben at videolan dot org>
@@ -9,14 +9,14 @@
  *          Antoine Cellerier <dionoea at videolan d.t org>
  *          Dennis Lou <dlou99 at yahoo dot com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -43,6 +43,10 @@
 
 #define VIDEO_DEVICE_TEXT N_( "Video capture device" )
 #define VIDEO_DEVICE_LONGTEXT N_("Video capture device node." )
+#define VBI_DEVICE_TEXT N_("VBI capture device")
+#define VBI_DEVICE_LONGTEXT N_( \
+    "The device node where VBI data can be read "   \
+    " (for closed captions) " )
 #define STANDARD_TEXT N_( "Standard" )
 #define STANDARD_LONGTEXT N_( \
     "Video standard (Default, SECAM, PAL, or NTSC)." )
@@ -133,7 +137,7 @@ static const char *const power_freq_user[] = { N_("Unspecified"),
     N_("Off"), N_("50 Hz"), N_("60 Hz"), N_("Automatic"),
 };
 #define BKLT_COMPENSATE_TEXT N_( "Backlight compensation" )
-#define BKLT_COMPENSATE_LONGTEXT N_( "Backlight compensation." )
+#define BKLT_COMPENSATE_LONGTEXT BKLT_COMPENSATE_TEXT
 #define BAND_STOP_FILTER_TEXT N_( "Band-stop filter" )
 #define BAND_STOP_FILTER_LONGTEXT N_(  \
     "Cut a light band induced by fluorescent lighting (unit undocumented)." )
@@ -277,6 +281,10 @@ vlc_module_begin ()
     add_loadfile( CFG_PREFIX "dev", "/dev/video0",
                   VIDEO_DEVICE_TEXT, VIDEO_DEVICE_LONGTEXT, false )
         change_safe()
+#ifdef ZVBI_COMPILED
+    add_loadfile( CFG_PREFIX "vbidev", NULL,
+                  VBI_DEVICE_TEXT, VBI_DEVICE_LONGTEXT, false )
+#endif
     add_string( CFG_PREFIX "standard", "",
                 STANDARD_TEXT, STANDARD_LONGTEXT, false )
         change_string_list( standards_vlc, standards_user )

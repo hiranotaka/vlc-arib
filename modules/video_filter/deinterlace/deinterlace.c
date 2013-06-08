@@ -1,7 +1,7 @@
 /*****************************************************************************
  * deinterlace.c : deinterlacer plugin for vlc
  *****************************************************************************
- * Copyright (C) 2000-2011 the VideoLAN team
+ * Copyright (C) 2000-2011 VLC authors and VideoLAN
  * $Id$
  *
  * Author: Sam Hocevar <sam@zoy.org>
@@ -10,19 +10,19 @@
  *         Juha Jeronen <juha.jeronen@jyu.fi>
  *         ...and others
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -51,7 +51,6 @@
  *****************************************************************************/
 
 #define MODE_TEXT N_("Deinterlace mode")
-#define MODE_LONGTEXT N_("Deinterlace method to use for local playback.")
 
 #define SOUT_MODE_TEXT N_("Streaming deinterlace mode")
 #define SOUT_MODE_LONGTEXT N_("Deinterlace method to use for streaming.")
@@ -171,14 +170,14 @@ void SetFilterMethod( filter_t *p_filter, const char *psz_method )
         p_sys->b_half_height = false;
         p_sys->b_use_frame_history = false;
     }
-    else if( !strcmp( psz_method, "yadif" ) && p_sys->chroma->pixel_size == 1 )
+    else if( !strcmp( psz_method, "yadif" ) )
     {
         p_sys->i_mode = DEINTERLACE_YADIF;
         p_sys->b_double_rate = false;
         p_sys->b_half_height = false;
         p_sys->b_use_frame_history = true;
     }
-    else if( !strcmp( psz_method, "yadif2x" ) && p_sys->chroma->pixel_size == 1 )
+    else if( !strcmp( psz_method, "yadif2x" ) )
     {
         p_sys->i_mode = DEINTERLACE_YADIF2X;
         p_sys->b_double_rate = true;

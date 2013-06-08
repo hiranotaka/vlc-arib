@@ -67,6 +67,7 @@ struct subpicture_region_t
     char            *psz_text;       /**< text string comprising this region */
     char            *psz_html;       /**< HTML version of subtitle (NULL = use psz_text) */
     text_style_t    *p_style;        /**< a description of the text style formatting */
+    bool            b_renderbg;      /**< render black background under text */
 
     subpicture_region_t *p_next;                /**< next region in the list */
     subpicture_region_private_t *p_private;  /**< Private data for spu_t *only* */
@@ -77,9 +78,10 @@ struct subpicture_region_t
 #define SUBPICTURE_ALIGN_RIGHT 0x2
 #define SUBPICTURE_ALIGN_TOP 0x4
 #define SUBPICTURE_ALIGN_BOTTOM 0x8
+#define SUBPICTURE_ALIGN_LEAVETEXT 0x10 /**< Align the subpicture, but not the text inside */
 #define SUBPICTURE_ALIGN_MASK ( SUBPICTURE_ALIGN_LEFT|SUBPICTURE_ALIGN_RIGHT| \
-                                SUBPICTURE_ALIGN_TOP |SUBPICTURE_ALIGN_BOTTOM )
-
+                                SUBPICTURE_ALIGN_TOP |SUBPICTURE_ALIGN_BOTTOM| \
+                                SUBPICTURE_ALIGN_LEAVETEXT )
 /**
  * This function will create a new subpicture region.
  *

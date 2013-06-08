@@ -1,24 +1,24 @@
 /*****************************************************************************
  * mux.c: muxer using libavformat
  *****************************************************************************
- * Copyright (C) 2006 the VideoLAN team
+ * Copyright (C) 2006 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -59,8 +59,6 @@ struct sout_mux_sys_t
 
     bool     b_write_header;
     bool     b_error;
-
-    int64_t        i_initial_dts;
 };
 
 /*****************************************************************************
@@ -106,11 +104,6 @@ int OpenMux( vlc_object_t *p_this )
       return VLC_EGENERIC;
     }
 
-    /* Fill p_mux fields */
-    p_mux->pf_control   = Control;
-    p_mux->pf_addstream = AddStream;
-    p_mux->pf_delstream = DelStream;
-    p_mux->pf_mux       = Mux;
     p_mux->p_sys = p_sys = malloc( sizeof( sout_mux_sys_t ) );
     if( !p_sys )
         return VLC_ENOMEM;
@@ -127,14 +120,19 @@ int OpenMux( vlc_object_t *p_this )
 
     p_sys->io = avio_alloc_context(
         p_sys->io_buffer, p_sys->io_buffer_size,
-        1, p_mux, NULL, IOWrite, IOSeek );
+        0, p_mux, NULL, IOWrite, IOSeek );
 
     p_sys->oc->pb = p_sys->io;
     p_sys->oc->nb_streams = 0;
 
     p_sys->b_write_header = true;
     p_sys->b_error = false;
-    p_sys->i_initial_dts = 0;
+
+    /* Fill p_mux fields */
+    p_mux->pf_control   = Control;
+    p_mux->pf_addstream = AddStream;
+    p_mux->pf_delstream = DelStream;
+    p_mux->pf_mux       = Mux;
 
     return VLC_SUCCESS;
 }
@@ -221,6 +219,7 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
                    &codec->sample_aspect_ratio.den,
                    p_input->p_fmt->video.i_sar_num,
                    p_input->p_fmt->video.i_sar_den, 1 << 30 /* something big */ );
+        stream->sample_aspect_ratio.den = codec->sample_aspect_ratio.den;
         stream->sample_aspect_ratio.num = codec->sample_aspect_ratio.num;
         codec->time_base.den = p_input->p_fmt->video.i_frame_rate;
         codec->time_base.num = p_input->p_fmt->video.i_frame_rate_base;
@@ -230,9 +229,9 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
 
     codec->bit_rate = p_input->p_fmt->i_bitrate;
     codec->codec_tag = av_codec_get_tag( p_sys->oc->oformat->codec_tag, i_codec_id );
-    if( !codec->codec_tag && i_codec_id == CODEC_ID_MP2 )
+    if( !codec->codec_tag && i_codec_id == AV_CODEC_ID_MP2 )
     {
-        i_codec_id = CODEC_ID_MP3;
+        i_codec_id = AV_CODEC_ID_MP3;
         codec->codec_tag = av_codec_get_tag( p_sys->oc->oformat->codec_tag, i_codec_id );
     }
     codec->codec_id = i_codec_id;
@@ -274,10 +273,6 @@ static int MuxBlock( sout_mux_t *p_mux, sout_input_t *p_input )
     pkt.stream_index = i_stream;
 
     if( p_data->i_flags & BLOCK_FLAG_TYPE_I ) pkt.flags |= AV_PKT_FLAG_KEY;
-
-    /* avformat expects pts/dts which start from 0 */
-    p_data->i_dts -= p_mux->p_sys->i_initial_dts;
-    p_data->i_pts -= p_mux->p_sys->i_initial_dts;
 
     if( p_data->i_pts > 0 )
         pkt.pts = p_data->i_pts * p_stream->time_base.den /
@@ -349,9 +344,6 @@ static int Mux( sout_mux_t *p_mux )
         if( i_stream < 0 )
             return VLC_SUCCESS;
 
-        if( !p_mux->p_sys->i_initial_dts )
-            p_mux->p_sys->i_initial_dts = i_dts;
-
         MuxBlock( p_mux, p_mux->pp_inputs[i_stream] );
     }
 
@@ -401,7 +393,7 @@ static int IOWrite( void *opaque, uint8_t *buf, int buf_size )
     msg_Dbg( p_mux, "IOWrite %i bytes", buf_size );
 #endif
 
-    block_t *p_buf = block_New( p_mux->p_sout, buf_size );
+    block_t *p_buf = block_Alloc( buf_size );
     if( buf_size > 0 ) memcpy( p_buf->p_buffer, buf, buf_size );
 
     if( p_mux->p_sys->b_write_header )

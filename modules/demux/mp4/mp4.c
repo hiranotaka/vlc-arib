@@ -1,23 +1,23 @@
 /*****************************************************************************
  * mp4.c : MP4 file input module for vlc
  *****************************************************************************
- * Copyright (C) 2001-2004, 2010 the VideoLAN team
+ * Copyright (C) 2001-2004, 2010 VLC authors and VideoLAN
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -216,10 +216,15 @@ static int LoadInitFrag( demux_t *p_demux, const bool b_smooth )
                 if( p_stra && p_stra->data.p_stra->i_track_ID )
                     p_sys->i_tracks++;
                 /* Get timescale and duration of the video track; */
-                if( !p_sys->i_timescale )
+                if( p_sys->i_timescale == 0 )
                 {
                     p_sys->i_timescale = p_stra->data.p_stra->i_timescale;
                     p_sys->i_duration = p_stra->data.p_stra->i_duration;
+                    if( p_sys->i_timescale == 0 )
+                    {
+                        msg_Err( p_demux, "bad timescale" );
+                        goto LoadInitFragError;
+                    }
                 }
             }
         }
@@ -1883,7 +1888,7 @@ static int TrackCreateES( demux_t *p_demux, mp4_track_t *p_track,
                           "(%u), making both equal (report any problem).",
                           p_track->i_timescale, p_soun->i_sampleratehi );
 
-                if( p_soun->i_sampleratehi )
+                if( p_soun->i_sampleratehi != 0 )
                     p_track->i_timescale = p_soun->i_sampleratehi;
                 else
                     p_soun->i_sampleratehi = p_track->i_timescale;
@@ -2497,16 +2502,16 @@ static void MP4_TrackCreate( demux_t *p_demux, mp4_track_t *p_track,
     }
 
     p_track->i_timescale = p_mdhd->data.p_mdhd->i_timescale;
-    if( !p_track->i_timescale )
+    if( p_track->i_timescale == 0 )
         return;
 
-    if( p_mdhd->data.p_mdhd->i_language_code < 0x800 )
+    if( p_mdhd->data.p_mdhd->i_language_code < 0x400 )
     {
-        /* We can convert i_language_code into iso 639 code,
-         * I won't */
         strcpy( language, MP4_ConvertMacCode( p_mdhd->data.p_mdhd->i_language_code ) );
         p_track->b_mac_encoding = true;
     }
+    else if( p_mdhd->data.p_mdhd->i_language_code == 0x7fff )
+        p_track->b_mac_encoding = true;
     else
     {
         for( unsigned i = 0; i < 3; i++ )
@@ -3440,10 +3445,14 @@ static int MP4_frg_GetChunk( demux_t *p_demux, MP4_Box_t *p_chunk, unsigned *i_t
         {
             MP4_Box_data_sidx_t *p_sidx_data = p_sidx->data.p_sidx;
             assert( p_sidx_data->i_reference_count == 1 );
+
+            if( p_sidx_data->i_timescale == 0 )
+                return VLC_EGENERIC;
+
             unsigned i_chunk_duration = p_sidx_data->p_items[0].i_subsegment_duration /
-                                                       p_sidx_data->i_timescale;
-            default_duration = i_chunk_duration *
-                p_track->i_timescale / ret->i_sample_count;
+                                        p_sidx_data->i_timescale;
+            default_duration = i_chunk_duration * p_track->i_timescale / ret->i_sample_count;
+
         }
     }
 

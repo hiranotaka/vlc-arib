@@ -3,23 +3,23 @@
  * @brief GLX video output module for VLC media player
  */
 /*****************************************************************************
- * Copyright © 2004 the VideoLAN team
+ * Copyright © 2004 VLC authors and VideoLAN
  * Copyright © 2009 Rémi Denis-Courmont
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
+ * (at your option) any later version.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- ****************************************************************************/
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -84,70 +84,19 @@ static void Manage (vout_display_t *);
 static void SwapBuffers (vlc_gl_t *gl);
 static void *GetProcAddress (vlc_gl_t *gl, const char *);
 
-static vout_window_t *MakeWindow (vout_display_t *vd)
+static unsigned GetScreenNumber (xcb_connection_t *conn,
+                                 const xcb_screen_t *screen)
 {
-    vout_window_cfg_t wnd_cfg;
-
-    memset (&wnd_cfg, 0, sizeof (wnd_cfg));
-    wnd_cfg.type = VOUT_WINDOW_TYPE_XID;
-    wnd_cfg.x = var_InheritInteger (vd, "video-x");
-    wnd_cfg.y = var_InheritInteger (vd, "video-y");
-    wnd_cfg.width  = vd->cfg->display.width;
-    wnd_cfg.height = vd->cfg->display.height;
-
-    vout_window_t *wnd = vout_display_NewWindow (vd, &wnd_cfg);
-    if (wnd == NULL)
-        msg_Err (vd, "parent window not available");
-    return wnd;
-}
-
-static const xcb_screen_t *
-FindWindow (vout_display_t *vd, xcb_connection_t *conn,
-            unsigned *restrict pnum, uint8_t *restrict pdepth,
-            uint16_t *restrict pwidth, uint16_t *restrict pheight)
-{
-    vout_display_sys_t *sys = vd->sys;
-
-    xcb_get_geometry_reply_t *geo =
-        xcb_get_geometry_reply (conn,
-            xcb_get_geometry (conn, sys->embed->handle.xid), NULL);
-    if (geo == NULL)
-    {
-        msg_Err (vd, "parent window not valid");
-        return NULL;
-    }
-
-    xcb_window_t root = geo->root;
-    *pdepth = geo->depth;
-    *pwidth = geo->width;
-    *pheight = geo->height;
-    free (geo);
-
-    /* Find the selected screen */
     const xcb_setup_t *setup = xcb_get_setup (conn);
-    const xcb_screen_t *screen = NULL;
     unsigned num = 0;
 
-    for (xcb_screen_iterator_t i = xcb_setup_roots_iterator (setup);
-         i.rem > 0;
+    for (xcb_screen_iterator_t i = xcb_setup_roots_iterator (setup);;
          xcb_screen_next (&i))
     {
-        if (i.data->root == root)
-        {
-            screen = i.data;
-            break;
-        }
+        if (i.data->root == screen->root)
+            return num;
         num++;
     }
-
-    if (screen == NULL)
-    {
-        msg_Err (vd, "parent window screen not found");
-        return NULL;
-    }
-    msg_Dbg (vd, "using screen 0x%"PRIx32 " (number: %u)", root, num);
-    *pnum = num;
-    return screen;
 }
 
 static bool CheckGLX (vout_display_t *vd, Display *dpy)
@@ -172,25 +121,37 @@ static bool CheckGLX (vout_display_t *vd, Display *dpy)
 }
 
 static int CreateWindow (vout_display_t *vd, xcb_connection_t *conn,
-                         uint_fast8_t depth, xcb_visualid_t vid,
+                         const xcb_screen_t *screen,
                          uint_fast16_t width, uint_fast16_t height)
 {
     vout_display_sys_t *sys = vd->sys;
-    const uint32_t mask = XCB_CW_EVENT_MASK;
+    xcb_pixmap_t pixmap = xcb_generate_id (conn);
+    const uint32_t mask =
+        XCB_CW_BACK_PIXMAP |
+        XCB_CW_BACK_PIXEL |
+        XCB_CW_BORDER_PIXMAP |
+        XCB_CW_BORDER_PIXEL |
+        XCB_CW_EVENT_MASK |
+        XCB_CW_COLORMAP;
     const uint32_t values[] = {
-        /* XCB_CW_EVENT_MASK */
+        pixmap,
+        screen->black_pixel,
+        pixmap,
+        screen->black_pixel,
         XCB_EVENT_MASK_VISIBILITY_CHANGE,
+        screen->default_colormap,
     };
     xcb_void_cookie_t cc, cm;
 
-    cc = xcb_create_window_checked (conn, depth, sys->window,
+    xcb_create_pixmap (conn, screen->root_depth, pixmap, screen->root, 1, 1);
+    cc = xcb_create_window_checked (conn, screen->root_depth, sys->window,
                                     sys->embed->handle.xid, 0, 0,
                                     width, height, 0,
                                     XCB_WINDOW_CLASS_INPUT_OUTPUT,
-                                    vid, mask, values);
+                                    screen->root_visual, mask, values);
     cm = xcb_map_window_checked (conn, sys->window);
-    if (CheckError (vd, conn, "cannot create X11 window", cc)
-     || CheckError (vd, conn, "cannot map X11 window", cm))
+    if (XCB_error_Check (vd, conn, "cannot create X11 window", cc)
+     || XCB_error_Check (vd, conn, "cannot map X11 window", cm))
         return VLC_EGENERIC;
 
     msg_Dbg (vd, "using X11 window %08"PRIx32, sys->window);
@@ -215,22 +176,19 @@ static int Open (vlc_object_t *obj)
     sys->pool = NULL;
     sys->gl.sys = NULL;
 
-    /* Get window */
-    sys->embed = MakeWindow (vd);
+    /* Get window, connect to X server (via XCB) */
+    xcb_connection_t *conn;
+    const xcb_screen_t *scr;
+    uint16_t width, height;
+    sys->embed = XCB_parent_Create (vd, &conn, &scr, &width, &height);
     if (sys->embed == NULL)
     {
         free (sys);
         return VLC_EGENERIC;
     }
+    const unsigned snum = GetScreenNumber (conn, scr);
 
-    /* Connect to X server */
-    xcb_connection_t *conn = xcb_connect (sys->embed->display.x11, NULL);
-    if (unlikely(xcb_connection_has_error (conn)))
-    {
-        vout_display_DeleteWindow (vd, sys->embed);
-        free (sys);
-        return VLC_EGENERIC;
-    }
+    sys->conn = conn;
 
     Display *dpy = XOpenDisplay (sys->embed->display.x11);
     if (dpy == NULL)
@@ -241,21 +199,9 @@ static int Open (vlc_object_t *obj)
         return VLC_EGENERIC;
     }
     sys->display = dpy;
-    sys->conn = conn;
     sys->ctx = NULL;
 
     if (!CheckGLX (vd, dpy))
-        goto error;
-
-    RegisterMouseEvents (obj, conn, sys->embed->handle.xid);
-
-    /* Find window parameters */
-    unsigned snum;
-    uint8_t depth;
-    uint16_t width, height;
-    const xcb_screen_t *scr = FindWindow (vd, conn, &snum, &depth,
-                                          &width, &height);
-    if (scr == NULL)
         goto error;
 
     sys->window = xcb_generate_id (conn);
@@ -311,7 +257,7 @@ static int Open (vlc_object_t *obj)
     }
 
     sys->glwin = None;
-    if (!CreateWindow (vd, conn, depth, 0 /* ??? */, width, height))
+    if (!CreateWindow (vd, conn, scr, width, height))
         sys->glwin = glXCreateWindow (dpy, conf, sys->window, NULL );
     if (sys->glwin == None)
     {
@@ -370,7 +316,7 @@ static int Open (vlc_object_t *obj)
         goto error;
     }
 
-    sys->cursor = CreateBlankCursor (conn, scr);
+    sys->cursor = XCB_cursor_Create (conn, scr);
     sys->visible = false;
 
     /* Setup vout_display_t once everything is fine */
@@ -534,7 +480,7 @@ static int Control (vout_display_t *vd, int query, va_list ap)
                             XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y
                           | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
                               values);
-        if (CheckError (vd, sys->conn, "cannot resize X11 window", ck))
+        if (XCB_error_Check (vd, sys->conn, "cannot resize X11 window", ck))
             return VLC_EGENERIC;
 
         glViewport (0, 0, place.width, place.height);
@@ -568,5 +514,5 @@ static void Manage (vout_display_t *vd)
 {
     vout_display_sys_t *sys = vd->sys;
 
-    ManageEvent (vd, sys->conn, &sys->visible);
+    XCB_Manage (vd, sys->conn, &sys->visible);
 }

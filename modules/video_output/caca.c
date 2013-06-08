@@ -1,25 +1,25 @@
 /*****************************************************************************
  * caca.c: Color ASCII Art "vout display" module using libcaca
  *****************************************************************************
- * Copyright (C) 2003-2009 the VideoLAN team
+ * Copyright (C) 2003-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Sam Hocevar <sam@zoy.org>
  *          Laurent Aimar <fenrir _AT_ videolan _DOT_ org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -34,7 +34,7 @@
 #include <vlc_plugin.h>
 #include <vlc_vout_display.h>
 #include <vlc_picture_pool.h>
-#if !defined(WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32) && !defined(__APPLE__)
 # ifdef X_DISPLAY_MISSING
 #  error Xlib required due to XInitThreads
 # endif
@@ -88,14 +88,14 @@ static int Open(vlc_object_t *object)
     vout_display_t *vd = (vout_display_t *)object;
     vout_display_sys_t *sys;
 
-#if !defined(__APPLE__) && !defined(WIN32)
+#if !defined(__APPLE__) && !defined(_WIN32)
 # ifndef X_DISPLAY_MISSING
     if (!vlc_xlib_init(object))
         return VLC_EGENERIC;
 # endif
 #endif
 
-#if defined(WIN32)
+#if defined(_WIN32)
     CONSOLE_SCREEN_BUFFER_INFO csbiInfo;
     SMALL_RECT rect;
     COORD coord;
@@ -216,7 +216,7 @@ error:
 
         free(sys);
     }
-#if defined(WIN32)
+#if defined(_WIN32)
     FreeConsole();
 #endif
     return VLC_EGENERIC;
@@ -237,7 +237,7 @@ static void Close(vlc_object_t *object)
     caca_free_display(sys->dp);
     cucul_free_canvas(sys->cv);
 
-#if defined(WIN32)
+#if defined(_WIN32)
     FreeConsole();
 #endif
 

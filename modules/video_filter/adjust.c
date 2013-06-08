@@ -1,26 +1,26 @@
 /*****************************************************************************
  * adjust.c : Contrast/Hue/Saturation/Brightness video plugin for vlc
  *****************************************************************************
- * Copyright (C) 2000-2006 the VideoLAN team
+ * Copyright (C) 2000-2006 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Simon Latapie <garf@via.ecp.fr>
  *          Antoine Cellerier <dionoea -at- videolan d0t org>
  *          Martin Briza <gamajun@seznam.cz> (SSE)
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -372,11 +372,11 @@ static picture_t *FilterPacked( filter_t *p_filter, picture_t *p_pic )
     int pi_gamma[256];
 
     picture_t *p_outpic;
-    uint8_t *p_in, *p_in_v, *p_in_end, *p_line_end;
-    uint8_t *p_out, *p_out_v;
+    uint8_t *p_in, *p_in_end, *p_line_end;
+    uint8_t *p_out;
     int i_y_offset, i_u_offset, i_v_offset;
 
-    int i_visible_lines, i_pitch, i_visible_pitch;
+    int i_pitch, i_visible_pitch;
 
     bool b_thres;
     double  f_hue;
@@ -389,7 +389,6 @@ static picture_t *FilterPacked( filter_t *p_filter, picture_t *p_pic )
 
     if( !p_pic ) return NULL;
 
-    i_visible_lines = p_pic->p->i_visible_lines;
     i_pitch = p_pic->p->i_pitch;
     i_visible_pitch = p_pic->p->i_visible_pitch;
 
@@ -501,13 +500,6 @@ static picture_t *FilterPacked( filter_t *p_filter, picture_t *p_pic )
     /*
      * Do the U and V planes
      */
-
-    p_in = p_pic->p->p_pixels + i_u_offset;
-    p_in_v = p_pic->p->p_pixels + i_v_offset;
-    p_in_end = p_in + i_visible_lines * i_pitch - 8 * 4;
-
-    p_out = p_outpic->p->p_pixels + i_u_offset;
-    p_out_v = p_outpic->p->p_pixels + i_v_offset;
 
     i_sin = sin(f_hue) * 256;
     i_cos = cos(f_hue) * 256;

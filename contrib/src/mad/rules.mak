@@ -3,7 +3,9 @@
 MAD_VERSION := 0.15.1b
 MAD_URL := $(CONTRIB_VIDEOLAN)/libmad-$(MAD_VERSION).tar.gz
 
+ifdef GPL
 PKGS += mad
+endif
 ifeq ($(call need_pkg,"mad"),)
 PKGS_FOUND += mad
 endif
@@ -26,6 +28,7 @@ ifdef HAVE_IOS
 endif
 	$(APPLY) $(SRC)/mad/mad-noopt.patch
 	$(APPLY) $(SRC)/mad/Provide-Thumb-2-alternative-code-for-MAD_F_MLN.diff
+	$(APPLY) $(SRC)/mad/mad-mips-h-constraint-removal.patch
 	$(MOVE)
 
 .mad: libmad

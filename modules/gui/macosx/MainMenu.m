@@ -1,7 +1,7 @@
 /*****************************************************************************
  * MainMenu.m: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2011-2012 Felix Paul Kühne
+ * Copyright (C) 2011-2013 Felix Paul Kühne
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -64,7 +64,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     } else {
         _o_sharedInstance = [super init];
 
-        o_ptc_translation_dict = [NSDictionary dictionaryWithObjectsAndKeys:
+        o_ptc_translation_dict = [[NSDictionary alloc] initWithObjectsAndKeys:
                       _NS("Track Number"),  TRACKNUM_COLUMN,
                       _NS("Title"),         TITLE_COLUMN,
                       _NS("Author"),        ARTIST_COLUMN,
@@ -77,8 +77,9 @@ static VLCMainMenu *_o_sharedInstance = nil;
                       _NS("URI"),           URI_COLUMN,
                       nil];
         // this array also assigns tags (index) to type of menu item
-        o_ptc_menuorder = [NSArray arrayWithObjects:TRACKNUM_COLUMN, TITLE_COLUMN, ARTIST_COLUMN, DURATION_COLUMN,
-                       GENRE_COLUMN, ALBUM_COLUMN, DESCRIPTION_COLUMN, DATE_COLUMN, LANGUAGE_COLUMN, URI_COLUMN, nil];
+        o_ptc_menuorder = [[NSArray alloc] initWithObjects: TRACKNUM_COLUMN, TITLE_COLUMN,
+                           ARTIST_COLUMN, DURATION_COLUMN, GENRE_COLUMN, ALBUM_COLUMN,
+                           DESCRIPTION_COLUMN, DATE_COLUMN, LANGUAGE_COLUMN, URI_COLUMN, nil];
     }
 
     return _o_sharedInstance;
@@ -109,6 +110,9 @@ static VLCMainMenu *_o_sharedInstance = nil;
         [o_mu_playlistTableColumnsContextMenu release];
 
     [self releaseRepresentedObjects:[NSApp mainMenu]];
+
+    [o_ptc_translation_dict release];
+    [o_ptc_menuorder release];
 
     [super dealloc];
 }
@@ -157,11 +161,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_quit setKeyEquivalentModifierMask: [o_vlcstringutility VLCModifiersToCocoa:o_key]];
     FREENULL(key);
 
-    key = config_GetPsz(p_intf, "key-play-pause");
-    o_key = [NSString stringWithFormat:@"%s", key];
-    [o_mi_play setKeyEquivalent: [o_vlcstringutility VLCKeyToString: o_key]];
-    [o_mi_play setKeyEquivalentModifierMask: [o_vlcstringutility VLCModifiersToCocoa:o_key]];
-    FREENULL(key);
+    // do not assign play/pause key
 
     key = config_GetPsz(p_intf, "key-stop");
     o_key = [NSString stringWithFormat:@"%s", key];
@@ -261,6 +261,43 @@ static VLCMainMenu *_o_sharedInstance = nil;
                              var: "intf-add" selector: @selector(toggleVar:)];
 
     [self setupExtensionsMenu];
+
+    [self refreshAudioDeviceList];
+
+    /* setup subtitles menu */
+    [self setupMenu: o_mu_subtitle_size withIntList:"freetype-rel-fontsize" andSelector:@selector(switchSubtitleOption:)];
+    [self setupMenu: o_mu_subtitle_textcolor withIntList:"freetype-color" andSelector:@selector(switchSubtitleOption:)];
+    [o_mi_subtitle_bgopacity_sld setIntValue: config_GetInt(VLC_OBJECT(p_intf), "freetype-background-opacity")];
+    [self setupMenu: o_mu_subtitle_bgcolor withIntList:"freetype-background-color" andSelector:@selector(switchSubtitleOption:)];
+    [self setupMenu: o_mu_subtitle_outlinethickness withIntList:"freetype-outline-thickness" andSelector:@selector(switchSubtitleOption:)];
+}
+
+- (void)setupMenu: (NSMenu*)menu withIntList: (char *)psz_name andSelector:(SEL)selector
+{
+    module_config_t *p_item;
+
+    [menu removeAllItems];
+    p_item = config_FindConfig(VLC_OBJECT(p_intf), psz_name);
+
+    /* serious problem, if no item found */
+    assert(p_item);
+
+    for (int i = 0; i < p_item->list_count; i++) {
+        NSMenuItem *mi;
+        if (p_item->list_text != NULL)
+            mi = [[NSMenuItem alloc] initWithTitle: _NS(p_item->list_text[i]) action:NULL keyEquivalent: @""];
+        else if (p_item->list.i[i])
+            mi = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"%d", p_item->list.i[i]] action:NULL keyEquivalent: @""];
+        else
+            msg_Err(p_intf, "item %d of pref %s failed to be created", i, psz_name);
+        [mi setTarget:self];
+        [mi setAction:selector];
+        [mi setTag:p_item->list.i[i]];
+        [mi setRepresentedObject:@(psz_name)];
+        [menu addItem: [mi autorelease]];
+        if (p_item->value.i == p_item->list.i[i])
+            [mi setState:NSOnState];
+    }
 }
 
 - (void)initStrings
@@ -288,7 +325,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_open_capture setTitle: _NS("Open Capture Device...")];
     [o_mi_open_recent setTitle: _NS("Open Recent")];
     [o_mi_open_wizard setTitle: _NS("Streaming/Exporting Wizard...")];
-    [o_mi_convertandsave setTitle: _NS("Convert / Save...")];
+    [o_mi_convertandsave setTitle: _NS("Convert / Stream...")];
 
     [o_mu_edit setTitle: _NS("Edit")];
     [o_mi_cut setTitle: _NS("Cut")];
@@ -302,6 +339,10 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_toggleJumpButtons setState: config_GetInt(VLCIntf, "macosx-show-playback-buttons")];
     [o_mi_togglePlaymodeButtons setTitle: _NS("Show Shuffle & Repeat Buttons")];
     [o_mi_togglePlaymodeButtons setState: config_GetInt(VLCIntf, "macosx-show-playmode-buttons")];
+    [o_mi_toggleEffectsButton setTitle: _NS("Show Audio Effects Button")];
+    [o_mi_toggleEffectsButton setState: config_GetInt(VLCIntf, "macosx-show-effects-button")];
+    [o_mi_toggleSidebar setTitle: _NS("Show Sidebar")];
+    [o_mi_toggleSidebar setState: config_GetInt(VLCIntf, "macosx-show-sidebar")];
     [o_mu_playlistTableColumns setTitle: _NS("Playlist Table Columns")];
 
     [o_mu_controls setTitle: _NS("Playback")];
@@ -320,6 +361,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_random setTitle: _NS("Random")];
     [o_mi_repeat setTitle: _NS("Repeat One")];
     [o_mi_loop setTitle: _NS("Repeat All")];
+    [o_mi_AtoBloop setTitle: _NS("A→B Loop")];
     [o_mi_quitAfterPB setTitle: _NS("Quit after Playback")];
     [o_mi_fwd setTitle: _NS("Step Forward")];
     [o_mi_bwd setTitle: _NS("Step Backward")];
@@ -337,8 +379,8 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_mute setTitle: _NS("Mute")];
     [o_mi_audiotrack setTitle: _NS("Audio Track")];
     [o_mu_audiotrack setTitle: _NS("Audio Track")];
-    [o_mi_channels setTitle: _NS("Audio Channels")];
-    [o_mu_channels setTitle: _NS("Audio Channels")];
+    [o_mi_channels setTitle: _NS("Stereo audio mode")];
+    [o_mu_channels setTitle: _NS("Stereo audio mode")];
     [o_mi_device setTitle: _NS("Audio Device")];
     [o_mu_device setTitle: _NS("Audio Device")];
     [o_mi_visual setTitle: _NS("Visualizations")];
@@ -354,21 +396,30 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_snapshot setTitle: _NS("Snapshot")];
     [o_mi_videotrack setTitle: _NS("Video Track")];
     [o_mu_videotrack setTitle: _NS("Video Track")];
-    [o_mi_aspect_ratio setTitle: _NS("Aspect-ratio")];
-    [o_mu_aspect_ratio setTitle: _NS("Aspect-ratio")];
+    [o_mi_aspect_ratio setTitle: _NS("Aspect ratio")];
+    [o_mu_aspect_ratio setTitle: _NS("Aspect ratio")];
     [o_mi_crop setTitle: _NS("Crop")];
     [o_mu_crop setTitle: _NS("Crop")];
     [o_mi_screen setTitle: _NS("Fullscreen Video Device")];
     [o_mu_screen setTitle: _NS("Fullscreen Video Device")];
-    [o_mi_subtitle setTitle: _NS("Subtitles Track")];
-    [o_mu_subtitle setTitle: _NS("Subtitles Track")];
-    [o_mi_addSub setTitle: _NS("Open File...")];
     [o_mi_deinterlace setTitle: _NS("Deinterlace")];
     [o_mu_deinterlace setTitle: _NS("Deinterlace")];
     [o_mi_deinterlace_mode setTitle: _NS("Deinterlace mode")];
     [o_mu_deinterlace_mode setTitle: _NS("Deinterlace mode")];
     [o_mi_ffmpeg_pp setTitle: _NS("Post processing")];
     [o_mu_ffmpeg_pp setTitle: _NS("Post processing")];
+
+    [o_mu_subtitles setTitle:_NS("Subtitles")];
+    [o_mi_openSubtitleFile setTitle: _NS("Add Subtitle File...")];
+    [o_mi_subtitle_track setTitle: _NS("Subtitles Track")];
+    [o_mu_subtitle_tracks setTitle: _NS("Subtitles Track")];
+    [o_mi_subtitle_size setTitle: _NS("Text Size")];
+    [o_mi_subtitle_textcolor setTitle: _NS("Text Color")];
+    [o_mi_subtitle_outlinethickness setTitle: _NS("Outline Thickness")];
+    [o_mi_subtitle_bgopacity setView: o_mi_subtitle_bgopacity_view];
+    [o_mi_subtitle_bgopacity_lbl setStringValue: _NS("Background Opacity")];
+    [o_mi_subtitle_bgopacity_lbl_gray setStringValue: _NS("Background Opacity")];
+    [o_mi_subtitle_bgcolor setTitle: _NS("Background Color")];
     [o_mi_teletext setTitle: _NS("Teletext")];
     [o_mi_teletext_transparent setTitle: _NS("Transparent")];
     [o_mi_teletext_index setTitle: _NS("Index")];
@@ -431,13 +482,17 @@ static VLCMainMenu *_o_sharedInstance = nil;
         o_mi_tmp = [o_mu_playlistTableColumns addItemWithTitle:o_title
                                                         action:@selector(togglePlaylistColumnTable:)
                                                  keyEquivalent:@""];
-        [o_mi_tmp setTarget:self];
+        /* don't set a valid target for the title column selector, since we want it to be disabled */
+        if (![[o_ptc_menuorder objectAtIndex:i] isEqualToString: TITLE_COLUMN])
+            [o_mi_tmp setTarget:self];
         [o_mi_tmp setTag:i];
 
         o_mi_tmp = [o_context_menu addItemWithTitle:o_title
                                              action:@selector(togglePlaylistColumnTable:)
                                       keyEquivalent:@""];
-        [o_mi_tmp setTarget:self];
+        /* don't set a valid target for the title column selector, since we want it to be disabled */
+        if (![[o_ptc_menuorder objectAtIndex:i] isEqualToString: TITLE_COLUMN])
+            [o_mi_tmp setTarget:self];
         [o_mi_tmp setTag:i];
     }
     if (!o_mu_playlistTableColumnsContextMenu)
@@ -455,7 +510,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     NSArray *menuitems_array = [the_menu itemArray];
     NSUInteger menuItemCount = [menuitems_array count];
     for (NSUInteger i=0; i < menuItemCount; i++) {
-        NSMenuItem *one_item = [menuitems_array objectAtIndex: i];
+        NSMenuItem *one_item = [menuitems_array objectAtIndex:i];
         if ([one_item hasSubmenu])
             [self releaseRepresentedObjects: [one_item submenu]];
 
@@ -488,20 +543,13 @@ static VLCMainMenu *_o_sharedInstance = nil;
         [self setupVarMenuItem: o_mi_videotrack target: (vlc_object_t *)p_input
                                  var: "video-es" selector: @selector(toggleVar:)];
 
-        [self setupVarMenuItem: o_mi_subtitle target: (vlc_object_t *)p_input
+        [self setupVarMenuItem: o_mi_subtitle_track target: (vlc_object_t *)p_input
                                  var: "spu-es" selector: @selector(toggleVar:)];
-
-        /* special case for "Open File" inside the subtitles menu item */
-        if ([o_mi_videotrack isEnabled] == YES)
-            [o_mi_subtitle setEnabled: YES];
 
         audio_output_t * p_aout = playlist_GetAout(p_playlist);
         if (p_aout != NULL) {
             [self setupVarMenuItem: o_mi_channels target: (vlc_object_t *)p_aout
                                      var: "stereo-mode" selector: @selector(toggleVar:)];
-
-            [self setupVarMenuItem: o_mi_device target: (vlc_object_t *)p_aout
-                                     var: "audio-device" selector: @selector(toggleVar:)];
 
             [self setupVarMenuItem: o_mi_visual target: (vlc_object_t *)p_aout
                                      var: "visual" selector: @selector(toggleVar:)];
@@ -556,11 +604,11 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mitem setTarget: self];
     NSRect s_rect;
     for (NSUInteger i = 0; i < count; i++) {
-        s_rect = [[o_screens objectAtIndex: i] frame];
+        s_rect = [[o_screens objectAtIndex:i] frame];
         [o_submenu addItemWithTitle: [NSString stringWithFormat: @"%@ %li (%ix%i)", _NS("Screen"), i+1,
                                       (int)s_rect.size.width, (int)s_rect.size.height] action:@selector(toggleFullscreenDevice:) keyEquivalent:@""];
         o_mitem = [o_submenu itemAtIndex:i+1];
-        [o_mitem setTag: (int)[[o_screens objectAtIndex: i] displayID]];
+        [o_mitem setTag: (int)[[o_screens objectAtIndex:i] displayID]];
         [o_mitem setEnabled: YES];
         [o_mitem setTarget: self];
     }
@@ -575,15 +623,27 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_audiotrack setEnabled: b_enabled];
     [o_mi_visual setEnabled: b_enabled];
     [o_mi_videotrack setEnabled: b_enabled];
-    [o_mi_subtitle setEnabled: b_enabled];
+    [o_mi_subtitle_track setEnabled: b_enabled];
     [o_mi_channels setEnabled: b_enabled];
     [o_mi_deinterlace setEnabled: b_enabled];
     [o_mi_deinterlace_mode setEnabled: b_enabled];
     [o_mi_ffmpeg_pp setEnabled: b_enabled];
-    [o_mi_device setEnabled: b_enabled];
     [o_mi_screen setEnabled: b_enabled];
     [o_mi_aspect_ratio setEnabled: b_enabled];
     [o_mi_crop setEnabled: b_enabled];
+}
+
+- (void)setSubtitleMenuEnabled:(BOOL)b_enabled
+{
+    [o_mi_openSubtitleFile setEnabled: b_enabled];
+    if (b_enabled) {
+        [o_mi_subtitle_bgopacity_lbl_gray setHidden: YES];
+        [o_mi_subtitle_bgopacity_lbl setHidden: NO];
+    } else {
+        [o_mi_subtitle_bgopacity_lbl_gray setHidden: NO];
+        [o_mi_subtitle_bgopacity_lbl setHidden: YES];
+    }
+    [o_mi_subtitle_bgopacity_sld setEnabled: b_enabled];
     [o_mi_teletext setEnabled: b_enabled];
 }
 
@@ -602,6 +662,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
         [o_mi_rate_lbl setHidden: YES];
         [o_mi_rate_lbl_gray setHidden: NO];
     }
+    [self setSubtitleMenuEnabled: b_enabled];
     [o_pool release];
 }
 
@@ -630,6 +691,15 @@ static VLCMainMenu *_o_sharedInstance = nil;
 
 #pragma mark -
 #pragma mark View
+
+- (IBAction)toggleEffectsButton:(id)sender
+{
+    BOOL b_value = !config_GetInt(VLCIntf, "macosx-show-effects-button");
+    config_PutInt(VLCIntf, "macosx-show-effects-button", b_value);
+    [[[[VLCMain sharedInstance] mainWindow] controlsBar] toggleEffectsButton];
+    [o_mi_toggleEffectsButton setState: b_value];
+}
+
 - (IBAction)toggleJumpButtons:(id)sender
 {
     BOOL b_value = !config_GetInt(VLCIntf, "macosx-show-playback-buttons");
@@ -646,6 +716,16 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_togglePlaymodeButtons setState: b_value];
 }
 
+- (IBAction)toggleSidebar:(id)sender
+{
+    [[[VLCMain sharedInstance] mainWindow] toggleLeftSubSplitView];
+}
+
+- (void)updateSidebarMenuItem
+{
+    [o_mi_toggleSidebar setState: config_GetInt(VLCIntf, "macosx-show-sidebar")];
+}
+
 - (IBAction)togglePlaylistColumnTable:(id)sender
 {
     NSInteger i_new_state = ![sender state];
@@ -653,7 +733,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [[o_mu_playlistTableColumns            itemWithTag: i_tag] setState: i_new_state];
     [[o_mu_playlistTableColumnsContextMenu itemWithTag: i_tag] setState: i_new_state];
 
-    NSString *o_column = [o_ptc_menuorder objectAtIndex: i_tag];
+    NSString *o_column = [o_ptc_menuorder objectAtIndex:i_tag];
     [[[VLCMain sharedInstance] playlist] setColumn: o_column state: i_new_state translationDict: o_ptc_translation_dict];
 }
 
@@ -691,6 +771,75 @@ static VLCMainMenu *_o_sharedInstance = nil;
     double speed =  pow(2, (double)i / 17);
     [o_mi_rate_fld setStringValue: [NSString stringWithFormat:@"%.2fx", speed]];
     [o_mi_rate_sld setIntValue: i];
+}
+
+- (IBAction)toggleAtoBloop:(id)sender
+{
+    [[VLCCoreInteraction sharedInstance] setAtoB];
+}
+
+#pragma mark -
+#pragma mark audio menu
+- (void)refreshAudioDeviceList
+{
+    char **ids, **names;
+    char *currentDevice;
+
+    [o_mu_device removeAllItems];
+
+    audio_output_t * p_aout = getAout();
+    if (!p_aout)
+        return;
+
+    int n = aout_DevicesList(p_aout, &ids, &names);
+    if (n == -1) {
+        vlc_object_release(p_aout);
+        return;
+    }
+
+    currentDevice = aout_DeviceGet(p_aout);
+    NSMenuItem * o_mi_tmp;
+
+    for (NSUInteger x = 0; x < n; x++) {
+        o_mi_tmp = [o_mu_device addItemWithTitle:[NSString stringWithFormat:@"%s", names[x]] action:@selector(toggleAudioDevice:) keyEquivalent:@""];
+        [o_mi_tmp setTarget:self];
+        [o_mi_tmp setTag:[[NSString stringWithFormat:@"%s", ids[x]] intValue]];
+    }
+    vlc_object_release(p_aout);
+
+    [[o_mu_device itemWithTag:[[NSString stringWithFormat:@"%s", currentDevice] intValue]] setState:NSOnState];
+
+    free(currentDevice);
+
+    for (NSUInteger x = 0; x < n; x++) {
+        free(ids[x]);
+        free(names[x]);
+    }
+    free(ids);
+    free(names);
+
+    [o_mu_device setAutoenablesItems:YES];
+    [o_mi_device setEnabled:YES];
+}
+
+- (IBAction)toggleAudioDevice:(id)sender
+{
+    audio_output_t * p_aout = getAout();
+    if (!p_aout)
+        return;
+
+    int returnValue = 0;
+
+    if ([sender tag] > 0)
+        returnValue = aout_DeviceSet(p_aout, [[NSString stringWithFormat:@"%li", [sender tag]] UTF8String]);
+    else
+        returnValue = aout_DeviceSet(p_aout, NULL);
+
+    if (returnValue != 0)
+        msg_Warn(VLCIntf, "failed to set audio device %li", [sender tag]);
+
+    vlc_object_release(p_aout);
+    [self refreshAudioDeviceList];
 }
 
 #pragma mark -
@@ -758,6 +907,105 @@ static VLCMainMenu *_o_sharedInstance = nil;
 - (id)voutMenu
 {
     return o_vout_menu;
+}
+
+#pragma mark - Subtitles Menu
+- (IBAction)addSubtitleFile:(id)sender
+{
+    NSInteger i_returnValue = 0;
+    input_thread_t * p_input = pl_CurrentInput(VLCIntf);
+    if (!p_input)
+        return;
+
+    input_item_t *p_item = input_GetItem(p_input);
+    if (!p_item) {
+        vlc_object_release(p_input);
+        return;
+    }
+
+    char *path = input_item_GetURI(p_item);
+    if (!path)
+        path = strdup("");
+
+    NSOpenPanel * openPanel = [NSOpenPanel openPanel];
+    [openPanel setCanChooseFiles: YES];
+    [openPanel setCanChooseDirectories: NO];
+    [openPanel setAllowsMultipleSelection: YES];
+    [openPanel setAllowedFileTypes: @[@"cdg",@"@idx",@"srt",@"sub",@"utf",@"ass",@"ssa",@"aqt",@"jss",@"psb",@"rt",@"smi",@"txt",@"smil"]];
+    [openPanel setDirectoryURL:[NSURL fileURLWithPath:[@(path) stringByExpandingTildeInPath]]];
+    i_returnValue = [openPanel runModal];
+    free(path);
+
+    if (i_returnValue == NSOKButton) {
+        NSUInteger c = 0;
+        if (!p_input)
+            return;
+
+        c = [[openPanel URLs] count];
+
+        for (int i = 0; i < c ; i++) {
+            msg_Dbg(VLCIntf, "loading subs from %s", [[[[openPanel URLs] objectAtIndex:i] path] UTF8String]);
+            if (input_AddSubtitle(p_input, [[[[openPanel URLs] objectAtIndex:i] path] UTF8String], TRUE))
+                msg_Warn(VLCIntf, "unable to load subtitles from '%s'",
+                         [[[[openPanel URLs] objectAtIndex:i] path] UTF8String]);
+        }
+    }
+    vlc_object_release(p_input);
+}
+
+- (IBAction)switchSubtitleOption:(id)sender
+{
+    int intValue = [sender tag];
+    NSString *representedObject = [sender representedObject];
+
+    config_PutInt(p_intf, [representedObject UTF8String], intValue);
+
+    NSMenu *menu = [sender menu];
+    NSUInteger count = [menu numberOfItems];
+    for (NSUInteger x = 0; x < count; x++)
+        [[menu itemAtIndex:x] setState:NSOffState];
+    [[menu itemWithTag:intValue] setState:NSOnState];
+}
+
+- (IBAction)switchSubtitleBackgroundOpacity:(id)sender
+{
+    config_PutInt(p_intf, "freetype-background-opacity", [sender intValue]);
+}
+
+- (IBAction)telxTransparent:(id)sender
+{
+    vlc_object_t *p_vbi;
+    p_vbi = (vlc_object_t *) vlc_object_find_name(pl_Get(VLCIntf), "zvbi");
+    if (p_vbi) {
+        var_SetBool(p_vbi, "vbi-opaque", [sender state]);
+        [sender setState: ![sender state]];
+        vlc_object_release(p_vbi);
+    }
+}
+
+- (IBAction)telxNavLink:(id)sender
+{
+    intf_thread_t * p_intf = VLCIntf;
+    vlc_object_t *p_vbi;
+    int i_page = 0;
+
+    if ([[sender title] isEqualToString: _NS("Index")])
+        i_page = 'i' << 16;
+    else if ([[sender title] isEqualToString: _NS("Red")])
+        i_page = 'r' << 16;
+    else if ([[sender title] isEqualToString: _NS("Green")])
+        i_page = 'g' << 16;
+    else if ([[sender title] isEqualToString: _NS("Yellow")])
+        i_page = 'y' << 16;
+    else if ([[sender title] isEqualToString: _NS("Blue")])
+        i_page = 'b' << 16;
+    if (i_page == 0) return;
+
+    p_vbi = (vlc_object_t *) vlc_object_find_name(pl_Get(VLCIntf), "zvbi");
+    if (p_vbi) {
+        var_SetInteger(p_vbi, "vbi-page", i_page);
+        vlc_object_release(p_vbi);
+    }
 }
 
 #pragma mark -
@@ -845,10 +1093,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
 
 - (IBAction)viewPreferences:(id)sender
 {
-    NSInteger i_level = NSNormalWindowLevel;
-    NSInteger i_video_window_level = [[[[VLCMainWindow sharedInstance] videoView] window] level];
-    if (i_video_window_level == NSStatusWindowLevel)
-        i_level = NSStatusWindowLevel;
+    NSInteger i_level = [[[VLCMain sharedInstance] voutController] currentWindowLevel];
     [[[VLCMain sharedInstance] simplePreferences] showSimplePrefsWithLevel:i_level];
 }
 
@@ -873,7 +1118,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
 - (IBAction)showLicense:(id)sender
 {
     [self initAbout];
-    [o_about showGPL: sender];
+    [o_about showGPL];
 }
 
 - (IBAction)viewHelp:(id)sender
@@ -1055,7 +1300,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_parent setEnabled:NO];
 
     /* Aspect Ratio */
-    if ([[o_parent title] isEqualToString: _NS("Aspect-ratio")] == YES) {
+    if ([[o_parent title] isEqualToString: _NS("Aspect ratio")] == YES) {
         NSMenuItem *o_lmi_tmp2;
         o_lmi_tmp2 = [o_menu addItemWithTitle: _NS("Lock Aspect Ratio") action: @selector(lockVideosAspectRatio:) keyEquivalent: @""];
         [o_lmi_tmp2 setTarget: [[VLCMain sharedInstance] controls]];
@@ -1063,15 +1308,6 @@ static VLCMainMenu *_o_sharedInstance = nil;
         [o_lmi_tmp2 setState: [[VLCCoreInteraction sharedInstance] aspectRatioIsLocked]];
         [o_parent setEnabled: YES];
         [o_menu addItem: [NSMenuItem separatorItem]];
-    }
-
-    /* special case for the subtitles item */
-    if ([[o_parent title] isEqualToString: _NS("Subtitles Track")] == YES) {
-        NSMenuItem * o_lmi_tmp;
-        o_lmi_tmp = [o_menu addItemWithTitle: _NS("Open File...") action: @selector(addSubtitleFile:) keyEquivalent: @""];
-        [o_lmi_tmp setTarget: [[VLCMain sharedInstance] controls]];
-        [o_lmi_tmp setEnabled: YES];
-        [o_parent setEnabled: YES];
     }
 
     /* Check the type of the object variable */
@@ -1112,10 +1348,6 @@ static VLCMainMenu *_o_sharedInstance = nil;
 
     /* make (un)sensitive */
     [o_parent setEnabled: (val_list.p_list->i_count > 1)];
-
-    /* another special case for the subtitles item */
-    if ([[o_parent title] isEqualToString: _NS("Subtitles Track")] == YES)
-        [o_menu addItem: [NSMenuItem separatorItem]];
 
     for (i = 0; i < val_list.p_list->i_count; i++) {
         NSMenuItem * o_lmi;
@@ -1158,13 +1390,6 @@ static VLCMainMenu *_o_sharedInstance = nil;
         }
     }
 
-    /* special case for the subtitles sub-menu
-     * In case that we don't have any subs, we don't want a separator item at the end */
-    if ([[o_parent title] isEqualToString: _NS("Subtitles Track")] == YES) {
-        if ([o_menu numberOfItems] == 2)
-            [o_menu removeItemAtIndex: 1];
-    }
-
     /* clean up everything */
     if ((i_type & VLC_VAR_TYPE) == VLC_VAR_STRING) free(val.psz_string);
     var_FreeList(&val_list, &text_list);
@@ -1192,10 +1417,6 @@ static VLCMainMenu *_o_sharedInstance = nil;
     if (!strcmp([menuContent name], "fullscreen") || !strcmp([menuContent name], "video-on-top"))
         var_Set(pl_Get(VLCIntf), [menuContent name] , [menuContent value]);
 
-    /* save our audio device across multiple sessions */
-    if (!strcmp([menuContent name], "audio-device"))
-        config_PutInt(VLCIntf, "macosx-audio-device", [menuContent value].i_int);
-
     p_object = [menuContent vlcObject];
 
     if (p_object != NULL) {
@@ -1221,9 +1442,8 @@ static VLCMainMenu *_o_sharedInstance = nil;
     input_thread_t * p_input = playlist_CurrentInput(p_playlist);
 
     if ([o_title isEqualToString: _NS("Stop")]) {
-        if (p_input == NULL) {
+        if (!p_input)
             bEnabled = FALSE;
-        }
         [self setupMenus]; /* Make sure input menu is up to date */
     } else if ([o_title isEqualToString: _NS("Previous")] ||
             [o_title isEqualToString: _NS("Next")]) {
@@ -1261,6 +1481,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     } else if ([o_title isEqualToString: _NS("Mute")]) {
         [o_mi setState: [[VLCCoreInteraction sharedInstance] mute] ? NSOnState : NSOffState];
         [self setupMenus]; /* Make sure audio menu is up to date */
+        [self refreshAudioDeviceList];
     } else if ([o_title isEqualToString: _NS("Half Size")] ||
                [o_title isEqualToString: _NS("Normal Size")] ||
                [o_title isEqualToString: _NS("Double Size")] ||
@@ -1276,16 +1497,28 @@ static VLCMainMenu *_o_sharedInstance = nil;
                 if ([o_title isEqualToString: _NS("Float on Top")])
                     [o_mi setState: var_GetBool(p_vout, "video-on-top")];
 
-                bEnabled = TRUE;
+                if ([o_title isEqualToString: _NS("Fullscreen")])
+                    [o_mi setState: var_GetBool(p_vout, "fullscreen")];
 
+                bEnabled = TRUE;
                 vlc_object_release(p_vout);
             }
         }
-        if ([o_title isEqualToString: _NS("Fullscreen")]) {
-            [o_mi setState: var_GetBool(p_playlist, "fullscreen")];
-            bEnabled = TRUE;
-        }
+
         [self setupMenus]; /* Make sure video menu is up to date */
+
+    } else if ([o_title isEqualToString: _NS("Add Subtitle File...")]) {
+        bEnabled = [o_mi isEnabled];
+        [self setupMenus]; /* Make sure subtitles menu is up to date */
+    } else {
+        NSMenuItem *o_mi_parent = [o_mi parentItem];
+        if (o_mi_parent == o_mi_subtitle_size || o_mi == o_mi_subtitle_size ||
+            o_mi_parent == o_mi_subtitle_textcolor || o_mi == o_mi_subtitle_textcolor ||
+            o_mi_parent == o_mi_subtitle_bgcolor || o_mi == o_mi_subtitle_bgcolor ||
+            o_mi_parent == o_mi_subtitle_bgopacity || o_mi == o_mi_subtitle_bgopacity ||
+            o_mi_parent == o_mi_subtitle_outlinethickness || o_mi == o_mi_subtitle_outlinethickness ||
+            o_mi_parent == o_mi_teletext || o_mi == o_mi_teletext)
+            bEnabled = o_mi_openSubtitleFile.isEnabled;
     }
 
     /* Special case for telx menu */
@@ -1302,7 +1535,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     if (p_input)
         vlc_object_release(p_input);
 
-    return bEnabled ;
+    return bEnabled;
 }
 
 @end

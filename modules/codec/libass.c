@@ -1,24 +1,24 @@
 /*****************************************************************************
  * SSA/ASS subtitle decoder using libass.
  *****************************************************************************
- * Copyright (C) 2008-2009 the VideoLAN team
+ * Copyright (C) 2008-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -42,7 +42,7 @@
 
 #include <ass/ass.h>
 
-#if defined(WIN32)
+#if defined(_WIN32)
 #   include <vlc_charset.h>
 #endif
 
@@ -219,7 +219,7 @@ static int Create( vlc_object_t *p_this )
 #endif
 
 #ifdef HAVE_FONTCONFIG
-#if defined(WIN32)
+#if defined(_WIN32)
     dialog_progress_bar_t *p_dialog =
         dialog_ProgressCreate( p_dec,
                                _("Building font cache"),
@@ -227,7 +227,7 @@ static int Create( vlc_object_t *p_this )
                                   "This should take less than a minute." ), NULL );
 #endif
     ass_set_fonts( p_renderer, psz_font, psz_family, true, NULL, 1 );  // setup default font/family
-#ifdef WIN32
+#ifdef _WIN32
     if( p_dialog )
     {
         dialog_ProgressSet( p_dialog, NULL, 1.0 );

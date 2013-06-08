@@ -38,7 +38,7 @@
 
 #include <sys/stat.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 # include <vlc_charset.h>
 # include <io.h>
 #else
@@ -47,7 +47,7 @@
 
 
 // Taglib headers
-#ifdef WIN32
+#ifdef _WIN32
 # define TAGLIB_STATIC
 #endif
 #include <taglib.h>
@@ -75,7 +75,7 @@
 #include <mpegfile.h>
 #include <oggfile.h>
 #include <oggflacfile.h>
-#include "../demux/vorbis.h"
+#include "../demux/xiph_metadata.h"
 
 #include <aifffile.h>
 #include <wavfile.h>
@@ -467,20 +467,26 @@ static void ReadMetaFromXiph( Ogg::XiphComment* tag, demux_meta_t* p_demux_meta,
             return;
 
         uint8_t *p_data;
-        int type;
+        int i_cover_score;
+        int i_cover_idx;
         int i_data = vlc_b64_decode_binary( &p_data, art_list[0].toCString(true) );
-        p_attachment = ParseFlacPicture( p_data, i_data, 0, &type );
+        i_cover_score = i_cover_idx = 0;
+        /* TODO: Use i_cover_score / i_cover_idx to select the picture. */
+        p_attachment = ParseFlacPicture( p_data, i_data, 0,
+            &i_cover_score, &i_cover_idx );
     }
 
     TAB_INIT( p_demux_meta->i_attachments, p_demux_meta->attachments );
-    TAB_APPEND_CAST( (input_attachment_t**),
-                     p_demux_meta->i_attachments, p_demux_meta->attachments,
-                     p_attachment );
+    if (p_attachment) {
+        TAB_APPEND_CAST( (input_attachment_t**),
+                p_demux_meta->i_attachments, p_demux_meta->attachments,
+                p_attachment );
 
-    char *psz_url;
-    if( asprintf( &psz_url, "attachment://%s", p_attachment->psz_name ) != -1 ) {
-        vlc_meta_SetArtURL( p_meta, psz_url );
-        free( psz_url );
+        char *psz_url;
+        if( asprintf( &psz_url, "attachment://%s", p_attachment->psz_name ) != -1 ) {
+            vlc_meta_SetArtURL( p_meta, psz_url );
+            free( psz_url );
+        }
     }
 }
 
@@ -536,7 +542,7 @@ static int ReadMeta( vlc_object_t* p_this)
     if( !psz_path )
         return VLC_ENOMEM;
 
-#if defined(WIN32)
+#if defined(_WIN32)
     wchar_t *wpath = ToWide( psz_path );
     if( wpath == NULL )
     {
@@ -713,6 +719,34 @@ static void WriteMetaToId3v2( ID3v2::Tag* tag, input_item_t* p_item )
     WRITE( Publisher, "TPUB" );
 
 #undef WRITE
+    /* Track Total as Custom Field */
+    psz_meta = input_item_GetTrackTotal( p_item );
+    if ( psz_meta )
+    {
+        ID3v2::FrameList list = tag->frameListMap()["TXXX"];
+        ID3v2::UserTextIdentificationFrame *p_txxx;
+        for( ID3v2::FrameList::Iterator iter = list.begin(); iter != list.end(); iter++ )
+        {
+            p_txxx = dynamic_cast<ID3v2::UserTextIdentificationFrame*>(*iter);
+            if( !p_txxx )
+                continue;
+            if( !strcmp( p_txxx->description().toCString( true ), "TRACKTOTAL" ) )
+            {
+                p_txxx->setText( psz_meta );
+                FREENULL( psz_meta );
+                break;
+            }
+        }
+        if( psz_meta ) /* not found in existing custom fields */
+        {
+            ByteVector p_byte( "TXXX", 4 );
+            p_txxx = new ID3v2::UserTextIdentificationFrame( p_byte );
+            p_txxx->setDescription( "TRACKTOTAL" );
+            p_txxx->setText( psz_meta );
+            free( psz_meta );
+            tag->addFrame( p_txxx );
+        }
+    }
 
     /* Write album art */
     char *psz_url = input_item_GetArtworkURL( p_item );
@@ -829,7 +863,7 @@ static int WriteMeta( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
-#if defined(WIN32)
+#if defined(_WIN32)
     wchar_t *wpath = ToWide( p_export->psz_file );
     if( wpath == NULL )
         return VLC_EGENERIC;
@@ -873,10 +907,12 @@ static int WriteMeta( vlc_object_t *p_this )
 
     psz_meta = input_item_GetDate( p_item );
     if( !EMPTY_STR(psz_meta) ) p_tag->setYear( atoi( psz_meta ) );
+    else p_tag->setYear( 0 );
     free( psz_meta );
 
     psz_meta = input_item_GetTrackNum( p_item );
     if( !EMPTY_STR(psz_meta) ) p_tag->setTrack( atoi( psz_meta ) );
+    else p_tag->setTrack( 0 );
     free( psz_meta );
 
 

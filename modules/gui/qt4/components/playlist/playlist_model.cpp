@@ -466,7 +466,7 @@ QString PLModel::getURI( const QModelIndex &index ) const
     input_item_t *p_item = getItem( index )->inputItem();
     /* no PL lock as item gets refcount +1 from PLItem, which only depends of events */
     vlc_mutex_lock( &p_item->lock );
-    uri = QString( p_item->psz_uri );
+    uri = qfu( p_item->psz_uri );
     vlc_mutex_unlock( &p_item->lock );
     return uri;
 }
@@ -648,11 +648,9 @@ bool PLModel::canEdit() const
 void PLModel::processInputItemUpdate( input_thread_t *p_input )
 {
     if( !p_input ) return;
-    if( p_input && !( p_input->b_dead || !vlc_object_alive( p_input ) ) )
-    {
-        PLItem *item = findByInput( rootItem, input_GetItem( p_input )->i_id );
-        if( item ) emit currentIndexChanged( index( item, 0 ) );
-    }
+
+    PLItem *item = findByInput( rootItem, input_GetItem( p_input )->i_id );
+    if( item ) emit currentIndexChanged( index( item, 0 ) );
     processInputItemUpdate( input_GetItem( p_input ) );
 }
 

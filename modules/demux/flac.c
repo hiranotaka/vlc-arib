@@ -1,25 +1,25 @@
 /*****************************************************************************
  * flac.c : FLAC demux module for vlc
  *****************************************************************************
- * Copyright (C) 2001-2008 the VideoLAN team
+ * Copyright (C) 2001-2008 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@netcourrier.com>
  *          Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -38,7 +38,7 @@
 #include <vlc_charset.h>              /* EnsureUTF8 */
 
 #include <assert.h>
-#include "vorbis.h"                   /* vorbis comments */
+#include "xiph_metadata.h"            /* vorbis comments */
 
 /*****************************************************************************
  * Module descriptor
@@ -72,7 +72,6 @@ struct demux_sys_t
     decoder_t *p_packetizer;
 
     vlc_meta_t *p_meta;
-    audio_replay_gain_t replay_gain;
 
     int64_t i_time_offset;
     int64_t i_pts;
@@ -128,7 +127,6 @@ static int Open( vlc_object_t * p_this )
     p_demux->p_sys      = p_sys;
     p_sys->b_start = true;
     p_sys->p_meta = NULL;
-    memset( &p_sys->replay_gain, 0, sizeof(p_sys->replay_gain) );
     p_sys->i_length = 0;
     p_sys->i_time_offset = 0;
     p_sys->i_pts = 0;
@@ -169,7 +167,6 @@ static int Open( vlc_object_t * p_this )
                   p_sys->attachments[p_sys->i_cover_idx]->psz_name );
         vlc_meta_Set( p_sys->p_meta, vlc_meta_ArtworkURL, psz_url );
     }
-    vlc_audio_replay_gain_MergeFromMeta( &p_sys->replay_gain, p_sys->p_meta );
     return VLC_SUCCESS;
 }
 
@@ -224,7 +221,6 @@ static int Demux( demux_t *p_demux )
             if( p_sys->p_es == NULL )
             {
                 p_sys->p_packetizer->fmt_out.b_packetized = true;
-                p_sys->p_packetizer->fmt_out.audio_replay_gain = p_sys->replay_gain;
                 p_sys->p_es = es_out_Add( p_demux->out, &p_sys->p_packetizer->fmt_out);
             }
 
@@ -578,40 +574,22 @@ static void ParseComment( demux_t *p_demux, const uint8_t *p_data, int i_data )
     if( i_data < 4 )
         return;
 
-    vorbis_ParseComment( &p_sys->p_meta, &p_data[4], i_data - 4, NULL, NULL );
-
+    vorbis_ParseComment( &p_sys->p_meta, &p_data[4], i_data - 4,
+        &p_sys->i_attachments, &p_sys->attachments,
+        &p_sys->i_cover_score, &p_sys->i_cover_idx, NULL, NULL );
 }
 
 static void ParsePicture( demux_t *p_demux, const uint8_t *p_data, int i_data )
 {
-    static const int pi_cover_score[] = {
-        0,      /* other */
-        2, 1,   /* icons */
-        10,     /* front cover */
-        9,      /* back cover */
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        6,      /* movie/video screen capture */
-        0,
-        7,      /* Illustration */
-        8,      /* Band/Artist logotype */
-        0,      /* Publisher/Studio */
-    };
     demux_sys_t *p_sys = p_demux->p_sys;
-    int i_type;
 
     i_data -= 4; p_data += 4;
 
-    input_attachment_t *p_attachment = ParseFlacPicture( p_data, i_data, p_sys->i_attachments, &i_type );
+    input_attachment_t *p_attachment = ParseFlacPicture( p_data, i_data,
+        p_sys->i_attachments, &p_sys->i_cover_score, &p_sys->i_cover_idx );
     if( p_attachment == NULL )
         return;
 
     TAB_APPEND( p_sys->i_attachments, p_sys->attachments, p_attachment );
-
-    if( i_type >= 0 && (unsigned int)i_type < sizeof(pi_cover_score)/sizeof(pi_cover_score[0]) &&
-        p_sys->i_cover_score < pi_cover_score[i_type] )
-    {
-        p_sys->i_cover_idx = p_sys->i_attachments-1;
-        p_sys->i_cover_score = pi_cover_score[i_type];
-    }
 }
 

@@ -39,6 +39,8 @@
 #include <QComboBox>
 #include <QTimer>
 #include <QFileDialog>
+#include <QGraphicsScene>
+#include <QPainter>
 
 #include "components/extended_panels.hpp"
 #include "dialogs/preferences.hpp"
@@ -49,7 +51,6 @@
 #include "../../audio_filter/equalizer_presets.h"
 #include <vlc_intf_strings.h>
 #include <vlc_vout.h>
-#include <vlc_osd.h>
 #include <vlc_modules.h>
 #include <vlc_plugin.h>
 
@@ -915,315 +916,449 @@ void ExtV4l2::ValueChange( int value )
 }
 
 /**********************************************************************
- * Equalizer
+ * Sliders
  **********************************************************************/
 
-static const QString vlc_band_frequencies[] =
+FilterSliderData::FilterSliderData( QObject *parent, QSlider *_slider ) :
+    QObject( parent ), slider( _slider )
 {
-    "  60 Hz  ", " 170 Hz ", " 310 Hz ", " 600 Hz ", "  1 kHz ",
-    "  3 kHz  ", "  6 kHz ", " 12 kHz ", " 14 kHz ", " 16 kHz "
-};
-
-static const QString iso_band_frequencies[] =
-{
-    " 31.25 Hz ", " 62.5 Hz ", " 125 Hz ", " 250 Hz ", " 500 Hz ",
-    "    1 kHz ", "   2 kHz ", "  4 kHz ", "  8 kHz ", " 16 kHz "
-};
-
-Equalizer::Equalizer( intf_thread_t *_p_intf, QWidget *_parent ) :
-                            QWidget( _parent ) , p_intf( _p_intf )
-{
-    QFont smallFont = QApplication::font();
-    smallFont.setPointSize( smallFont.pointSize() - 3 );
-
-    ui.setupUi( this );
-    ui.preampLabel->setFont( smallFont );
-
-    /* Setup of presetsComboBox */
-    presetsComboBox = ui.presetsCombo;
-    CONNECT( presetsComboBox, activated( int ), this, setCorePreset( int ) );
-
-    b_vlcBands = var_InheritBool( p_intf, "equalizer-vlcfreqs" );
-
-    /* Add the sliders for the Bands */
-    QGridLayout *grid = new QGridLayout( ui.frame );
-    grid->setMargin( 0 );
-    for( int i = 0 ; i < BANDS ; i++ )
-    {
-        bands[i] = new QSlider( Qt::Vertical );
-        bands[i]->setMaximum( 400 );
-        bands[i]->setValue( 200 );
-        bands[i]->setMinimumWidth(36);
-        CONNECT( bands[i], valueChanged( int ), this, setCoreBands() );
-
-        QString val = QString("%1").arg( 0.0, 5, 'f', 1 );
-        band_texts[i] = new QLabel( (b_vlcBands ? vlc_band_frequencies[i]
-                                               : iso_band_frequencies[i]) + "\n" + val + "dB" );
-        band_texts[i]->setFont( smallFont );
-
-        grid->addWidget( bands[i], 0, i );
-        grid->addWidget( band_texts[i], 1, i );
-    }
-
-    /* Add the listed presets */
-    for( int i = 0 ; i < NB_PRESETS ; i ++ )
-    {
-        presetsComboBox->addItem( qtr( preset_list_text[i] ),
-                                  QVariant( preset_list[i] ) );
-    }
-
-    /* Connects */
-    BUTTONACT( ui.enableCheck, enable() );
-    BUTTONACT( ui.eq2PassCheck, set2Pass() );
-    CONNECT( ui.preampSlider, valueChanged( int ), this, setPreamp() );
-
-    /* Do the update from the value of the core */
-    updateUIFromCore();
+    b_save_to_config = false;
 }
 
-/* Write down initial values */
-void Equalizer::updateUIFromCore()
+FilterSliderData::FilterSliderData( QObject *parent,
+                                    intf_thread_t *_p_intf,
+                                    QSlider *_slider,
+                                    QLabel *_label, QLabel *_nameLabel,
+                                    const slider_data_t *_p_data ):
+    QObject( parent ), slider( _slider ), valueLabel( _label ),
+    nameLabel( _nameLabel ), p_data( _p_data ), p_intf( _p_intf )
 {
-    char *psz_af, *psz_pres, *psz_bands;
-    float f_preamp;
-    int i_preset;
+    b_save_to_config = false;
+    slider->setMinimum( p_data->f_min / p_data->f_resolution );
+    slider->setMaximum( p_data->f_max / p_data->f_resolution );
+    nameLabel->setText( p_data->descs );
+    CONNECT( slider, valueChanged( int ), this, updateText( int ) );
+    setValue( initialValue() );
+    /* In case current == min|max text would not be first updated */
+    if ( slider->value() == slider->maximum() ||
+         slider->value() == slider->minimum() )
+        updateText( slider->value() );
+    CONNECT( slider, valueChanged( int ), this, onValueChanged( int ) );
+}
+
+void FilterSliderData::setValue( float f )
+{
+    slider->setValue( f / p_data->f_resolution );
+}
+
+void FilterSliderData::updateText( int i )
+{
+    float f = ((float) i) * p_data->f_resolution * p_data->f_visual_multiplier;
+    valueLabel->setText( QString( p_data->units )
+                    .prepend( "%1 " )
+                    .arg( QString::number( f, 'f', 1 ) ) );
+}
+
+float FilterSliderData::initialValue()
+{
+    vlc_object_t *p_aout = (vlc_object_t *) THEMIM->getAout();
+    float f = p_data->f_value;
+    if( p_aout )
+    {
+        if ( var_Type( p_aout, qtu(p_data->name) ) == 0 )
+        {
+            vlc_object_release( p_aout );
+            /* Not found, will try in config */
+        }
+        else
+        {
+            f = var_GetFloat( p_aout, qtu(p_data->name) );
+            vlc_object_release( p_aout );
+            return f;
+        }
+    }
+
+    if ( ! config_FindConfig( VLC_OBJECT(p_intf), qtu(p_data->name) ) )
+        return f;
+
+    f = config_GetFloat( p_intf, qtu(p_data->name) );
+    return f;
+}
+
+void FilterSliderData::onValueChanged( int i ) const
+{
+    float f = ((float) i) * p_data->f_resolution;
+    vlc_object_t *p_aout = (vlc_object_t *) THEMIM->getAout();
+    if ( p_aout )
+    {
+        var_SetFloat( p_aout, qtu(p_data->name), f );
+        vlc_object_release( p_aout );
+    }
+    writeToConfig();
+}
+
+void FilterSliderData::writeToConfig() const
+{
+    if ( !b_save_to_config ) return;
+    float f = ((float) slider->value()) * p_data->f_resolution;
+    config_PutFloat( p_intf, qtu(p_data->name), f );
+}
+
+void FilterSliderData::setSaveToConfig( bool b )
+{
+    b_save_to_config = b;
+}
+
+AudioFilterControlWidget::AudioFilterControlWidget
+( intf_thread_t *_p_intf, QWidget *parent, const char *_name ) :
+    QWidget( parent ), p_intf( _p_intf ), name( _name ), i_smallfont(0)
+{}
+
+void AudioFilterControlWidget::build()
+{
+    QFont smallFont = QApplication::font();
+    smallFont.setPointSize( smallFont.pointSize() + i_smallfont );
+
+    QVBoxLayout *layout = new QVBoxLayout( this );
+    slidersBox = new QGroupBox( qtr( "Enable" ) );
+    slidersBox->setCheckable( true );
+    layout->addWidget( slidersBox );
+
+    QGridLayout *ctrlLayout = new QGridLayout( slidersBox );
+
+    int i = 0;
+    foreach( const FilterSliderData::slider_data_t &data, controls )
+    {
+        QSlider *slider = new QSlider( Qt::Vertical );
+        QLabel *valueLabel = new QLabel();
+        valueLabel->setFont( smallFont );
+        valueLabel->setAlignment( Qt::AlignHCenter );
+        QLabel *nameLabel = new QLabel();
+        nameLabel->setFont( smallFont );
+        nameLabel->setAlignment( Qt::AlignHCenter );
+        FilterSliderData *filter =
+            new FilterSliderData( this, p_intf,
+                                  slider, valueLabel, nameLabel, & data );
+        ctrlLayout->addWidget( slider, 0, i, Qt::AlignHCenter );
+        ctrlLayout->addWidget( valueLabel, 1, i, Qt::AlignHCenter );
+        ctrlLayout->addWidget( nameLabel, 2, i, Qt::AlignHCenter );
+        i++;
+        sliderDatas << filter;
+    }
 
     vlc_object_t *p_aout = (vlc_object_t *)THEMIM->getAout();
+    char *psz_af;
     if( p_aout )
     {
         psz_af = var_GetNonEmptyString( p_aout, "audio-filter" );
-        psz_pres = var_GetString( p_aout, "equalizer-preset" );
-        if( var_GetBool( p_aout, "equalizer-2pass" ) )
-            ui.eq2PassCheck->setChecked( true );
-        f_preamp = var_GetFloat( p_aout, "equalizer-preamp" );
-        psz_bands = var_GetNonEmptyString( p_aout, "equalizer-bands" );
-        i_preset = presetsComboBox->findData( QVariant( psz_pres ) );
         vlc_object_release( p_aout );
     }
     else
-    {
         psz_af = config_GetPsz( p_intf, "audio-filter" );
-        psz_pres = config_GetPsz( p_intf, "equalizer-preset" );
-        if( config_GetInt( p_intf, "equalizer-2pass" ) )
-            ui.eq2PassCheck->setChecked( true );
-        f_preamp = config_GetFloat( p_intf, "equalizer-preamp" );
-        psz_bands = config_GetPsz( p_intf, "equalizer-bands" );
-        i_preset = presetsComboBox->findData( QVariant( psz_pres ) );
-    }
-    if( psz_af && strstr( psz_af, "equalizer" ) != NULL )
-        ui.enableCheck->setChecked( true );
-    enable( ui.enableCheck->isChecked() );
 
-    presetsComboBox->setCurrentIndex( i_preset );
-
-    ui.preampSlider->setValue( (int)( ( f_preamp + 20 ) * 10 ) );
-
-    if( psz_bands && strlen( psz_bands ) > 1 )
-    {
-        char *psz_bands_orig = psz_bands;
-        for( int i = 0; i < BANDS; i++ )
-        {
-            const float f = us_strtod(psz_bands, &psz_bands );
-            bands[i]->setValue( (int)( ( f + 20 ) * 10 )  );
-            if( psz_bands == NULL || *psz_bands == '\0' ) break;
-            psz_bands++;
-            if( *psz_bands == '\0' ) break;
-        }
-        free( psz_bands_orig );
-    }
-    else free( psz_bands );
+    if( psz_af && strstr( psz_af, qtu(name) ) != NULL )
+        slidersBox->setChecked( true );
+    else
+        slidersBox->setChecked( false );
+    CONNECT( slidersBox, toggled(bool), this, enable(bool) );
 
     free( psz_af );
-    free( psz_pres );
 }
 
-void Equalizer::changeFreqLabels( bool b_useVlcBands )
+AudioFilterControlWidget::~AudioFilterControlWidget()
 {
-    b_vlcBands = b_useVlcBands;
-
-    const QString *band_frequencies = b_vlcBands
-                                    ? vlc_band_frequencies
-                                    : iso_band_frequencies;
-
-    for( int i = 0; i < BANDS; i++ )
-    {
-        const float f_val = (float)( bands[i]->value() ) / 10 - 20;
-        QString val = QString("%1").arg( f_val, 5, 'f', 1 );
-        band_texts[i]->setText( band_frequencies[i] + "\n" + val + "dB" );
-    }
-}
-
-/* Function called when enableButton is toggled */
-void Equalizer::enable()
-{
-    bool en = ui.enableCheck->isChecked();
-    playlist_EnableAudioFilter( THEPL, "equalizer", en );
-    //playlist_EnableAudioFilter( THEPL, "upmixer", en );
-    //playlist_EnableAudioFilter( THEPL, "vsurround", en );
-    enable( en );
-
-    if( presetsComboBox->currentIndex() < 0 )
-        presetsComboBox->setCurrentIndex( 0 );
 
 }
 
-void Equalizer::enable( bool en )
+void AudioFilterControlWidget::enable( bool b_enable ) const
 {
-    ui.eq2PassCheck->setEnabled( en );
-    presetsComboBox->setEnabled( en );
-    ui.presetLabel->setEnabled( en );
-    ui.preampLabel->setEnabled( en );
-    ui.preampSlider->setEnabled( en  );
-    for( int i = 0 ; i< BANDS; i++ )
-    {
-        bands[i]->setEnabled( en ); band_texts[i]->setEnabled( en );
-    }
+    playlist_EnableAudioFilter( THEPL, qtu(name), b_enable );
 }
 
-/* Function called when the set2Pass button is activated */
-void Equalizer::set2Pass()
+void AudioFilterControlWidget::setSaveToConfig( bool b_save )
 {
-    vlc_object_t *p_aout= (vlc_object_t *)THEMIM->getAout();
-    bool b_2p = ui.eq2PassCheck->isChecked();
+    foreach( FilterSliderData *f, sliderDatas )
+        f->setSaveToConfig( b_save );
+}
 
+/**********************************************************************
+ * Equalizer
+ **********************************************************************/
+
+EqualizerSliderData::EqualizerSliderData( QObject *parent, intf_thread_t *_p_intf,
+                                          QSlider *slider, QLabel *_label,
+                                          QLabel *_nameLabel, const slider_data_t *_p_data,
+                                          int _index )
+    : FilterSliderData( parent, slider ), index( _index )
+{
+    p_intf = _p_intf;
+    valueLabel = _label;
+    nameLabel = _nameLabel;
+    p_data = _p_data;
+
+    slider->setMinimum( p_data->f_min / p_data->f_resolution );
+    slider->setMaximum( p_data->f_max / p_data->f_resolution );
+    nameLabel->setText( p_data->descs );
+    CONNECT( slider, valueChanged( int ), this, updateText( int ) );
+    setValue( initialValue() );
+    updateText( slider->value() );
+    CONNECT( slider, valueChanged( int ), this, onValueChanged( int ) );
+}
+
+QStringList EqualizerSliderData::getBandsFromAout() const
+{
+    vlc_object_t *p_aout = (vlc_object_t *) THEMIM->getAout();
+    QStringList bands;
     if( p_aout )
     {
-        var_SetBool( p_aout, "equalizer-2pass", b_2p );
+        if ( var_Type( p_aout, qtu(p_data->name) ) == VLC_VAR_STRING )
+        {
+            char *psz_bands = var_GetString( p_aout, qtu(p_data->name) );
+            if ( psz_bands )
+            {
+                bands = QString( psz_bands ).split( " ", QString::SkipEmptyParts );
+                free( psz_bands );
+            }
+        }
         vlc_object_release( p_aout );
     }
-    config_PutInt( p_intf, "equalizer-2pass", b_2p );
+
+    if ( bands.count() ) return bands;
+    /* Or try config then */
+
+    if ( ! config_FindConfig( VLC_OBJECT(p_intf), qtu(p_data->name) ) )
+        return bands;
+
+    char *psz_bands = config_GetPsz( p_intf, qtu(p_data->name) );
+    if ( psz_bands )
+    {
+        bands = QString( psz_bands ).split( " ", QString::SkipEmptyParts );
+        free( psz_bands );
+    }
+
+    return bands;
 }
 
-/* Function called when the preamp slider is moved */
-void Equalizer::setPreamp()
+float EqualizerSliderData::initialValue()
 {
-    const float f = ( float )(  ui.preampSlider->value() ) /10 - 20;
+    float f = p_data->f_value;
+    QStringList bands = getBandsFromAout();
+
+    if ( bands.count() > index )
+        f = QLocale( QLocale::C ).toFloat( bands[ index ] );
+
+    return f;
+}
+
+void EqualizerSliderData::onValueChanged( int i ) const
+{
+    QStringList bands = getBandsFromAout();
+    if ( bands.count() > index )
+    {
+        float f = ((float) i) * p_data->f_resolution;
+        bands[ index ] = QLocale( QLocale::C ).toString( f );
+        vlc_object_t *p_aout = (vlc_object_t *) THEMIM->getAout();
+        if ( p_aout )
+        {
+            var_SetString( p_aout, qtu(p_data->name), qtu(bands.join( " " )) );
+            vlc_object_release( p_aout );
+        }
+        writeToConfig();
+    }
+}
+
+void EqualizerSliderData::writeToConfig() const
+{
+    if ( !b_save_to_config ) return;
+    QStringList bands = getBandsFromAout();
+    if ( bands.count() > index )
+    {
+        float f = (float) slider->value() * p_data->f_resolution;
+        bands[ index ] = QLocale( QLocale::C ).toString( f );
+        config_PutPsz( p_intf, qtu(p_data->name), qtu(bands.join( " " )) );
+    }
+}
+
+Equalizer::Equalizer( intf_thread_t *p_intf, QWidget *parent )
+    : AudioFilterControlWidget( p_intf, parent, "equalizer" )
+{
+    i_smallfont = -3;
+    bool b_vlcBands = var_InheritBool( p_intf, "equalizer-vlcfreqs" );
+
+    const FilterSliderData::slider_data_t vlc_bands[10] =
+    {
+        { "equalizer-bands", qtr("60 Hz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("170 Hz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("310 Hz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("600 Hz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("1 KHz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("3 KHz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("6 KHz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("12 KHz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("14 KHz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("16 KHz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+    };
+    const FilterSliderData::slider_data_t iso_bands[10] =
+    {
+        { "equalizer-bands", qtr("31 Hz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("63 Hz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("125 Hz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("250 Hz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("500 Hz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("1 KHz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("2 KHz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("4 KHz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("8 KHz"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+        { "equalizer-bands", qtr("16 KHz"), qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 },
+    };
+    const FilterSliderData::slider_data_t preamp_vals =
+        { "equalizer-preamp", qtr("Preamp"),  qtr("dB"), -20.0f, 20.0f, 0.0f, 0.1f, 1.0 };
+
+    for( int i=0; i<10 ;i++ ) controls.append( (b_vlcBands) ? vlc_bands[i] : iso_bands[i] );
+    preamp_values = preamp_vals;
+    build();
+}
+
+void Equalizer::build()
+{
+    QFont smallFont = QApplication::font();
+    smallFont.setPointSize( smallFont.pointSize() + i_smallfont );
+
+    Ui::EqualizerWidget ui;
+    ui.setupUi( this );
+
+    QGridLayout *ctrlLayout = new QGridLayout( ui.slidersPlaceholder );
+
+    /* set up preamp control */
+    ui.preampLabel->setFont( smallFont );
+    ui.preampValue->setFont( smallFont );
+    preamp = new FilterSliderData( this, p_intf,
+        ui.preampSlider, ui.preampValue, ui.preampLabel, & preamp_values );
+
+    /* fix sliders spacing accurately */
+    int i_width = qMax( QFontMetrics( smallFont ).width( "500 Hz" ),
+                        QFontMetrics( smallFont ).width( "-20.0 dB" ) );
+    int i = 0;
+    foreach( const FilterSliderData::slider_data_t &data, controls )
+    {
+        QSlider *slider = new QSlider( Qt::Vertical );
+        slider->setMinimumWidth( i_width );
+        QLabel *valueLabel = new QLabel();
+        valueLabel->setFont( smallFont );
+        valueLabel->setAlignment( Qt::AlignHCenter );
+        QLabel *nameLabel = new QLabel();
+        nameLabel->setFont( smallFont );
+        nameLabel->setAlignment( Qt::AlignHCenter );
+        EqualizerSliderData *filter =
+            new EqualizerSliderData( this, p_intf,
+                                     slider, valueLabel, nameLabel, & data, i );
+        ctrlLayout->addWidget( slider, 0, i, Qt::AlignHCenter );
+        ctrlLayout->addWidget( valueLabel, 2, i, Qt::AlignHCenter );
+        ctrlLayout->addWidget( nameLabel, 1, i, Qt::AlignHCenter );
+        sliderDatas << filter; /* keep track for applying presets */
+        i++;
+    }
+
+    /* Add the listed presets */
+    ui.presetsCombo->addItem( "", QVariant() ); /* 1st entry = custom/modified */
+    for( i = 0 ; i < NB_PRESETS ; i ++ )
+    {
+        QGraphicsScene scene;
+        QPixmap icon( 40, 40 );
+        icon.fill( Qt::transparent );
+        QPainter painter( &icon );
+        for ( int j = 0; j < eqz_preset_10b[i].i_band; j++ )
+        {
+            float f_value = eqz_preset_10b[i].f_amp[j];
+            if ( f_value > 20.0 ) f_value = 20.0;
+            if ( f_value < -20.0 ) f_value = -20.0;
+            QRectF shape( j, 20.0 - f_value, 1, f_value );
+            scene.addRect( shape, QPen(), palette().brush( QPalette::WindowText ) );
+        }
+        scene.addLine( 0.0, 20.0, eqz_preset_10b[i].i_band, 20.0,
+                       palette().color( QPalette::WindowText ) );
+        scene.setSceneRect( 0.0, 0.0, eqz_preset_10b[i].i_band , 40.0 );
+        scene.render( &painter, icon.rect(), scene.sceneRect(), Qt::IgnoreAspectRatio );
+        ui.presetsCombo->addItem( icon, qtr( preset_list_text[i] ),
+                                     QVariant( preset_list[i] ) );
+    }
+    CONNECT( ui.presetsCombo, activated(int), this, setCorePreset(int) );
+
+    /* Set enable checkbox */
     vlc_object_t *p_aout = (vlc_object_t *)THEMIM->getAout();
-
-    ui.preampLabel->setText( qtr( "Preamp\n" ) + QString::number( f, 'f', 1 )
-                                               + qtr( "dB" ) );
+    char *psz_af;
     if( p_aout )
     {
-        //delCallbacks( p_aout );
-        var_SetFloat( p_aout, "equalizer-preamp", f );
-        //addCallbacks( p_aout );
+        psz_af = var_GetNonEmptyString( p_aout, "audio-filter" );
         vlc_object_release( p_aout );
     }
-    config_PutFloat( p_intf, "equalizer-preamp", f );
+    else
+        psz_af = config_GetPsz( p_intf, "audio-filter" );
+
+    /* To enable or disable subwidgets */
+    /* If that list grows, better iterate over layout's childs */
+    CONNECT( ui.enableCheck, toggled(bool), ui.presetsCombo, setEnabled(bool) );
+    CONNECT( ui.enableCheck, toggled(bool), ui.presetLabel, setEnabled(bool) );
+    CONNECT( ui.enableCheck, toggled(bool), ui.eq2PassCheck, setEnabled(bool) );
+    CONNECT( ui.enableCheck, toggled(bool), ui.slidersPlaceholder, setEnabled(bool) );
+    CONNECT( ui.enableCheck, toggled(bool), ui.preampSlider, setEnabled(bool) );
+    CONNECT( ui.enableCheck, toggled(bool), ui.preampValue, setEnabled(bool) );
+    CONNECT( ui.enableCheck, toggled(bool), ui.preampLabel, setEnabled(bool) );
+
+    if( psz_af && strstr( psz_af, qtu(name) ) != NULL )
+        ui.enableCheck->setChecked( true );
+    else
+        ui.enableCheck->setChecked( false );
+
+    /* workaround for non emitted toggle() signal */
+    ui.enableCheck->toggle(); ui.enableCheck->toggle();
+
+    free( psz_af );
+    CONNECT( ui.enableCheck, toggled(bool), this, enable(bool) );
+
+    /* Connect and set 2 Pass checkbox */
+    ui.eq2PassCheck->setChecked( var_InheritBool( p_aout, "equalizer-2pass" ) );
+    CONNECT( ui.eq2PassCheck, toggled(bool), this, enable2Pass(bool) );
 }
 
-void Equalizer::setCoreBands()
+void Equalizer::setSaveToConfig( bool b_save )
 {
-    /**\todo smoothing */
-
-    const QString *band_frequencies = b_vlcBands
-                                    ? vlc_band_frequencies
-                                    : iso_band_frequencies;
-
-    QString values;
-    for( int i = 0; i < BANDS; i++ )
-    {
-        const float f_val = (float)( bands[i]->value() ) / 10 - 20;
-        QString val = QString("%1").arg( f_val, 5, 'f', 1 );
-
-        band_texts[i]->setText( band_frequencies[i] + "\n" + val + "dB" );
-        values += " " + val;
-    }
-
-    vlc_object_t *p_aout = (vlc_object_t *)THEMIM->getAout();
-    if( p_aout )
-    {
-        //delCallbacks( p_aout );
-        var_SetString( p_aout, "equalizer-bands", qtu( values ) );
-        //addCallbacks( p_aout );
-        vlc_object_release( p_aout );
-    }
-}
-
-char * Equalizer::createValuesFromPreset( int i_preset )
-{
-    QString values;
-
-    /* Create the QString in Qt */
-    for( int i = 0 ; i< BANDS ;i++ )
-        values += QString( " %1" ).arg( eqz_preset_10b[i_preset].f_amp[i], 5, 'f', 1 );
-
-    /* Convert it to char * */
-    return strdup( values.toAscii().constData() );
+    AudioFilterControlWidget::setSaveToConfig( b_save );
+    preamp->setSaveToConfig( b_save );
 }
 
 void Equalizer::setCorePreset( int i_preset )
 {
-    if( i_preset < 0 )
+    if( i_preset < 1 )
         return;
 
-    /* Update pre-amplification in the UI */
-    float f_preamp = eqz_preset_10b[i_preset].f_preamp;
-    ui.preampSlider->setValue( (int)( ( f_preamp + 20 ) * 10 ) );
-    ui.preampLabel->setText( qtr( "Preamp\n" )
-                   + QString::number( f_preamp, 'f', 1 ) + qtr( "dB" ) );
+    i_preset--;/* 1st in index was an empty entry */
 
-    char *psz_values = createValuesFromPreset( i_preset );
-    if( !psz_values ) return ;
+    preamp->setValue( eqz_preset_10b[i_preset].f_preamp );
+    for ( int i=0; i< qMin( eqz_preset_10b[i_preset].i_band,
+                            sliderDatas.count() ) ; i++ )
+        sliderDatas[i]->setValue( eqz_preset_10b[i_preset].f_amp[i] );
 
-    const QString *band_frequencies = b_vlcBands
-                                    ? vlc_band_frequencies
-                                    : iso_band_frequencies;
-
-    char *p = psz_values;
-    for( int i = 0; i < BANDS && *p; i++ )
-    {
-        const float f = us_strtod( p, &p );
-
-        bands[i]->setValue( (int)( ( f + 20 ) * 10 )  );
-        band_texts[i]->setText( band_frequencies[i] + "\n"
-                              + QString("%1").arg( f, 5, 'f', 1 ) + "dB" );
-        if( *p )
-            p++; /* skip separator */
-    }
-
-    /* Apply presets to audio output */
     vlc_object_t *p_aout = (vlc_object_t *)THEMIM->getAout();
     if( p_aout )
     {
         var_SetString( p_aout , "equalizer-preset" , preset_list[i_preset] );
-
-        var_SetString( p_aout, "equalizer-bands", psz_values );
-        var_SetFloat( p_aout, "equalizer-preamp",
-                      eqz_preset_10b[i_preset].f_preamp );
         vlc_object_release( p_aout );
     }
-    config_PutPsz( p_intf, "equalizer-bands", psz_values );
     config_PutPsz( p_intf, "equalizer-preset", preset_list[i_preset] );
-    config_PutFloat( p_intf, "equalizer-preamp",
-                    eqz_preset_10b[i_preset].f_preamp );
-    free( psz_values );
 }
 
-static int PresetCallback( vlc_object_t *p_this, char const *psz_cmd,
-                         vlc_value_t oldval, vlc_value_t newval, void *p_data )
+/* Function called when the set2Pass button is activated */
+void Equalizer::enable2Pass( bool b_enable ) const
 {
-    VLC_UNUSED( p_this ); VLC_UNUSED( psz_cmd ); VLC_UNUSED( oldval );
+    vlc_object_t *p_aout= (vlc_object_t *)THEMIM->getAout();
 
-    char *psz_preset = newval.psz_string;
-    Equalizer *eq = ( Equalizer * )p_data;
-    int i_preset = eq->presetsComboBox->findData( QVariant( psz_preset ) );
-    eq->presetsComboBox->setCurrentIndex( i_preset );
-    return VLC_SUCCESS;
-}
-
-void Equalizer::delCallbacks( vlc_object_t *p_aout )
-{
-    //var_DelCallback( p_aout, "equalizer-bands", EqzCallback, this );
-    //var_DelCallback( p_aout, "equalizer-preamp", EqzCallback, this );
-    var_DelCallback( p_aout, "equalizer-preset", PresetCallback, this );
-}
-
-void Equalizer::addCallbacks( vlc_object_t *p_aout )
-{
-    //var_AddCallback( p_aout, "equalizer-bands", EqzCallback, this );
-    //var_AddCallback( p_aout, "equalizer-preamp", EqzCallback, this );
-    var_AddCallback( p_aout, "equalizer-preset", PresetCallback, this );
+    if( p_aout )
+    {
+        var_SetBool( p_aout, "equalizer-2pass", b_enable );
+        vlc_object_release( p_aout );
+    }
+    config_PutInt( p_intf, "equalizer-2pass", b_enable );
 }
 
 /**********************************************************************
@@ -1234,305 +1369,42 @@ void Equalizer::addCallbacks( vlc_object_t *p_aout )
  * Dynamic range compressor
  **********************************************************************/
 
-typedef struct
+Compressor::Compressor( intf_thread_t *p_intf, QWidget *parent )
+    : AudioFilterControlWidget( p_intf, parent, "compressor" )
 {
-    const char *psz_name;
-    const char *psz_descs;
-    const char *psz_units;
-    const float f_min;      // min
-    const float f_max;      // max
-    const float f_value;    // value
-    const float f_resolution; // resolution
-} comp_controls_t;
-
-static const comp_controls_t comp_controls[] =
-{
-    { "compressor-rms-peak",    _("RMS/peak"),       "",       0.0f,   1.0f,   0.00f, 0.001f },
-    { "compressor-attack",      _("Attack"),       _(" ms"),   1.5f, 400.0f,  25.00f, 0.100f },
-    { "compressor-release",     _("Release"),      _(" ms"),   2.0f, 800.0f, 100.00f, 0.100f },
-    { "compressor-threshold",   _("Threshold"),    _(" dB"), -30.0f,   0.0f, -11.00f, 0.010f },
-    { "compressor-ratio",       _("Ratio"),          ":1",     1.0f,  20.0f,   8.00f, 0.010f },
-    { "compressor-knee",        _("Knee\nradius"), _(" dB"),   1.0f,  10.0f,   2.50f, 0.010f },
-    { "compressor-makeup-gain", _("Makeup\ngain"), _(" dB"),   0.0f,  24.0f,   7.00f, 0.010f },
-};
-
-Compressor::Compressor( intf_thread_t *_p_intf, QWidget *_parent )
-           : QWidget( _parent ) , p_intf( _p_intf )
-{
-    QFont smallFont = QApplication::font();
-    smallFont.setPointSize( smallFont.pointSize() - 2 );
-
-    QGridLayout *layout = new QGridLayout( this );
-
-    enableCheck = new QCheckBox( qtr( "Enable dynamic range compressor" ) );
-    layout->addWidget( enableCheck, 0, 0, 1, NUM_CP_CTRL );
-
-    for( int i = 0 ; i < NUM_CP_CTRL ; i++ )
+    i_smallfont = -2;
+    const FilterSliderData::slider_data_t a[7] =
     {
-        const int i_min = (int)( comp_controls[i].f_min
-                               / comp_controls[i].f_resolution );
-        const int i_max = (int)( comp_controls[i].f_max
-                               / comp_controls[i].f_resolution );
-        const int i_val = (int)( comp_controls[i].f_value
-                               / comp_controls[i].f_resolution );
-
-        compCtrl[i] = new QSlider( Qt::Vertical );
-        compCtrl[i]->setMinimum( i_min );
-        compCtrl[i]->setMaximum( i_max );
-        compCtrl[i]->setValue(   i_val );
-
-        oldControlVars[i] = comp_controls[i].f_value;
-
-        ctrl_texts[i] = new QLabel( qtr( comp_controls[i].psz_descs ) + "\n" );
-        ctrl_texts[i]->setFont( smallFont );
-        ctrl_texts[i]->setAlignment( Qt::AlignHCenter );
-
-        ctrl_readout[i] = new QLabel;
-        ctrl_readout[i]->setFont( smallFont );
-        ctrl_readout[i]->setAlignment( Qt::AlignHCenter );
-
-        layout->addWidget( compCtrl[i],     1, i, Qt::AlignHCenter );
-        layout->addWidget( ctrl_readout[i], 2, i, Qt::AlignHCenter );
-        layout->addWidget( ctrl_texts[i],   3, i, Qt::AlignHCenter );
-    }
-
-    for( int i = 0; i < NUM_CP_CTRL; i++ )
-        CONNECT( compCtrl[i], valueChanged( int ), this, setInitValues() );
-
-    BUTTONACT( enableCheck, enable() );
-
-    /* Write down initial values */
-    vlc_object_t *p_aout = (vlc_object_t *)THEMIM->getAout();
-    char *psz_af;
-
-    if( p_aout )
-    {
-        psz_af = var_GetNonEmptyString( p_aout, "audio-filter" );
-        for( int i = 0; i < NUM_CP_CTRL; i++ )
-        {
-            controlVars[i] = var_GetFloat( p_aout,
-                                           comp_controls[i].psz_name );
-        }
-        vlc_object_release( p_aout );
-    }
-    else
-    {
-        psz_af = config_GetPsz( p_intf, "audio-filter" );
-        for( int i = 0; i < NUM_CP_CTRL; i++ )
-        {
-            controlVars[i] = config_GetFloat( p_intf,
-                                              comp_controls[i].psz_name );
-        }
-    }
-    if( psz_af && strstr( psz_af, "compressor" ) != NULL )
-    {
-        enableCheck->setChecked( true );
-    }
-    free( psz_af );
-    enable( enableCheck->isChecked() );
-    updateSliders( controlVars );
-    setValues();
-}
-
-void Compressor::enable()
-{
-    bool en = enableCheck->isChecked();
-    playlist_EnableAudioFilter( THEPL, "compressor", en );
-    enable( en );
-}
-
-void Compressor::enable( bool en )
-{
-    for( int i = 0 ; i < NUM_CP_CTRL ; i++ )
-    {
-        compCtrl[i]->setEnabled( en );
-        ctrl_texts[i]->setEnabled( en );
-        ctrl_readout[i]->setEnabled( en );
-    }
-}
-
-void Compressor::updateSliders( float * p_controlVars )
-{
-    for( int i = 0 ; i < NUM_CP_CTRL ; i++ )
-    {
-        if( oldControlVars[i] != p_controlVars[i] )
-        {
-            compCtrl[i]->setValue(
-                    (int)( p_controlVars[i] / comp_controls[i].f_resolution ) );
-        }
-    }
-}
-
-void Compressor::setInitValues()
-{
-    setValues();
-}
-
-void Compressor::setValues()
-{
-    vlc_object_t *p_aout = (vlc_object_t *)THEMIM->getAout();
-
-    for( int i = 0 ; i < NUM_CP_CTRL ; i++ )
-    {
-        float f = (float)( compCtrl[i]->value() ) * ( comp_controls[i].f_resolution );
-        ctrl_readout[i]->setText( QString::number( f, 'f', 1 )
-                                + qtr( comp_controls[i].psz_units ) );
-        if( oldControlVars[i] != f )
-        {
-            if( p_aout )
-            {
-                var_SetFloat( p_aout, comp_controls[i].psz_name, f );
-            }
-            config_PutFloat( p_intf, comp_controls[i].psz_name, f );
-            oldControlVars[i] = f;
-        }
-    }
-    if( p_aout )
-    {
-        vlc_object_release( p_aout );
-    }
+        { "compressor-rms-peak",    qtr("RMS/peak"),         "",       0.0f,   1.0f,   0.00f, 0.001f, 1.0 },
+        { "compressor-attack",      qtr("Attack"),       qtr("ms"),   1.5f, 400.0f,  25.00f, 0.100f, 1.0 },
+        { "compressor-release",     qtr("Release"),      qtr("ms"),   2.0f, 800.0f, 100.00f, 0.100f, 1.0 },
+        { "compressor-threshold",   qtr("Threshold"),    qtr("dB"), -30.0f,   0.0f, -11.00f, 0.010f, 1.0 },
+        { "compressor-ratio",       qtr("Ratio"),            ":1",     1.0f,  20.0f,   8.00f, 0.010f, 1.0 },
+        { "compressor-knee",        qtr("Knee\nradius"), qtr("dB"),   1.0f,  10.0f,   2.50f, 0.010f, 1.0 },
+        { "compressor-makeup-gain", qtr("Makeup\ngain"), qtr("dB"),   0.0f,  24.0f,   7.00f, 0.010f, 1.0 },
+    };
+    for( int i=0; i<7 ;i++ ) controls.append( a[i] );
+    build();
 }
 
 /**********************************************************************
  * Spatializer
  **********************************************************************/
-typedef struct
+
+Spatializer::Spatializer( intf_thread_t *p_intf, QWidget *parent )
+    : AudioFilterControlWidget( p_intf, parent, "spatializer" )
 {
-    const char *psz_name;
-    const char *psz_desc;
-} spat_controls_t;
-
-static const spat_controls_t spat_controls[] =
-{
-    { "spatializer-roomsize", _("Size") },
-    { "spatializer-width",    _("Width") },
-    { "spatializer-wet",      _("Wet") },
-    { "spatializer-dry",      _("Dry") },
-    { "spatializer-damp",     _("Damp") },
-};
-
-Spatializer::Spatializer( intf_thread_t *_p_intf, QWidget *_parent )
-            : QWidget( _parent ) , p_intf( _p_intf )
-{
-    QFont smallFont = QApplication::font();
-    smallFont.setPointSize( smallFont.pointSize() - 1 );
-
-    QGridLayout *layout = new QGridLayout( this );
-
-    enableCheck = new QCheckBox( qtr( "Enable spatializer" ) );
-    layout->addWidget( enableCheck, 0, 0, 1, NUM_SP_CTRL );
-
-    for( int i = 0 ; i < NUM_SP_CTRL ; i++ )
+    i_smallfont = -1;
+    const FilterSliderData::slider_data_t a[5] =
     {
-        spatCtrl[i] = new QSlider( Qt::Vertical );
-        spatCtrl[i]->setValue( (int)var_InheritFloat( p_intf, spat_controls[i].psz_name ) * 10. );
-        oldControlVars[i] = spatCtrl[i]->value();
-
-        ctrl_texts[i] = new QLabel( qtr( spat_controls[i].psz_desc ) + "\n" );
-        ctrl_texts[i]->setFont( smallFont );
-
-        ctrl_readout[i] = new QLabel;
-        ctrl_readout[i]->setFont( smallFont );
-
-        layout->addWidget( spatCtrl[i],     1, i, Qt::AlignHCenter );
-        layout->addWidget( ctrl_readout[i], 2, i, Qt::AlignHCenter );
-        layout->addWidget( ctrl_texts[i],   3, i, Qt::AlignHCenter );
-        spatCtrl[i]->setRange( 0, 10 );
-    }
-    spatCtrl[0]->setRange( 0, 11 );
-
-    for( int i = 0; i < NUM_SP_CTRL; i++ )
-        CONNECT( spatCtrl[i], valueChanged( int ), this, setInitValues() );
-
-    BUTTONACT( enableCheck, enable() );
-
-    /* Write down initial values */
-    vlc_object_t *p_aout = (vlc_object_t *)THEMIM->getAout();
-    char *psz_af;
-
-    if( p_aout )
-    {
-        psz_af = var_GetNonEmptyString( p_aout, "audio-filter" );
-        for( int i = 0; i < NUM_SP_CTRL ; i++ )
-        {
-            controlVars[i] = var_GetFloat( p_aout, spat_controls[i].psz_name );
-        }
-        vlc_object_release( p_aout );
-    }
-    else
-    {
-        psz_af = config_GetPsz( p_intf, "audio-filter" );
-        for( int i = 0; i < NUM_SP_CTRL ; i++ )
-        {
-            controlVars[i] = config_GetFloat( p_intf, spat_controls[i].psz_name );
-        }
-    }
-    if( psz_af && strstr( psz_af, "spatializer" ) != NULL )
-        enableCheck->setChecked( true );
-    free( psz_af );
-    enable( enableCheck->isChecked() );
-    setValues();
-}
-
-void Spatializer::enable()
-{
-    bool en = enableCheck->isChecked();
-    playlist_EnableAudioFilter( THEPL, "spatializer", en );
-    enable( en );
-}
-
-void Spatializer::enable( bool en )
-{
-    for( int i = 0 ; i< NUM_SP_CTRL; i++ )
-    {
-        spatCtrl[i]->setEnabled( en );
-        ctrl_texts[i]->setEnabled( en );
-        ctrl_readout[i]->setEnabled( en );
-    }
-}
-void Spatializer::setInitValues()
-{
-    setValues();
-}
-
-void Spatializer::setValues()
-{
-    vlc_object_t *p_aout = (vlc_object_t *)THEMIM->getAout();
-
-    for( int i = 0 ; i < NUM_SP_CTRL ; i++ )
-    {
-        float f = (float)( spatCtrl[i]->value() ) / 10;
-        ctrl_readout[i]->setText( QString::number( f, 'f',  1 ) );
-    }
-
-    if( p_aout )
-    {
-        for( int i = 0 ; i < NUM_SP_CTRL ; i++ )
-        {
-            float f = (float)( spatCtrl[i]->value() ) / 10 ;
-            if( oldControlVars[i] != spatCtrl[i]->value() )
-            {
-                var_SetFloat( p_aout, spat_controls[i].psz_name, f );
-                config_PutFloat( p_intf, spat_controls[i].psz_name, f );
-                oldControlVars[i] = spatCtrl[i]->value();
-            }
-        }
-        vlc_object_release( p_aout );
-    }
-
-}
-void Spatializer::delCallbacks( vlc_object_t *p_aout )
-{
-    VLC_UNUSED( p_aout );
-    //    var_DelCallback( p_aout, "Spatializer-bands", EqzCallback, this );
-    //    var_DelCallback( p_aout, "Spatializer-preamp", EqzCallback, this );
-}
-
-void Spatializer::addCallbacks( vlc_object_t *p_aout )
-{
-    VLC_UNUSED( p_aout );
-    //    var_AddCallback( p_aout, "Spatializer-bands", EqzCallback, this );
-    //    var_AddCallback( p_aout, "Spatializer-preamp", EqzCallback, this );
+        { "spatializer-roomsize",   qtr("Size"),    "", 0.0f, 1.1f, 0.85f, 0.1f, 10.0 },
+        { "spatializer-width",      qtr("Width"),   "", 0.0f, 1.0f, 1.0f, 0.1f, 10.0 },
+        { "spatializer-wet",        qtr("Wet"),     "", 0.0f, 1.0f, 0.4f, 0.1f, 10.0 },
+        { "spatializer-dry",        qtr("Dry"),     "", 0.0f, 1.0f, 0.5f, 0.1f, 10.0 },
+        { "spatializer-damp",       qtr("Damp"),    "", 0.0f, 1.0f, 0.5f, 0.1f, 10.0 },
+    };
+    for( int i=0; i<5 ;i++ ) controls.append( a[i] );
+    build();
 }
 
 #include <QToolButton>
@@ -1604,14 +1476,14 @@ SyncControls::SyncControls( intf_thread_t *_p_intf, QWidget *_parent ) :
     QGridLayout *subsLayout = new QGridLayout( subsBox );
 
     QLabel *subsLabel = new QLabel;
-    subsLabel->setText( qtr( "Subtitle track syncronization:" ) );
+    subsLabel->setText( qtr( "Subtitle track synchronization:" ) );
     subsLayout->addWidget( subsLabel, 0, 0, 1, 1 );
 
     subsSpin = new SyncWidget( this );
     subsLayout->addWidget( subsSpin, 0, 2, 1, 1 );
 
     QLabel *subSpeedLabel = new QLabel;
-    subSpeedLabel->setText( qtr( "Subtitles speed:" ) );
+    subSpeedLabel->setText( qtr( "Subtitle speed:" ) );
     subsLayout->addWidget( subSpeedLabel, 1, 0, 1, 1 );
 
     subSpeedSpin = new QDoubleSpinBox;
@@ -1625,7 +1497,7 @@ SyncControls::SyncControls( intf_thread_t *_p_intf, QWidget *_parent ) :
     subsLayout->addWidget( subSpeedSpin, 1, 2, 1, 1 );
 
     QLabel *subDurationLabel = new QLabel;
-    subDurationLabel->setText( qtr( "Subtitles duration factor:" ) );
+    subDurationLabel->setText( qtr( "Subtitle duration factor:" ) );
     subsLayout->addWidget( subDurationLabel, 2, 0, 1, 1 );
 
     subDurationSpin = new QDoubleSpinBox;
@@ -1736,17 +1608,17 @@ void SyncControls::initSubsDuration()
     {
     default:
     case SUBSDELAY_MODE_ABSOLUTE:
-        subDurationSpin->setToolTip( qtr( "Extend subtitles duration by this value.\n"
+        subDurationSpin->setToolTip( qtr( "Extend subtitle duration by this value.\n"
                                           "Set 0 to disable." ) );
         subDurationSpin->setSuffix( " s" );
         break;
     case SUBSDELAY_MODE_RELATIVE_SOURCE_DELAY:
-        subDurationSpin->setToolTip( qtr( "Multiply subtitles duration by this value.\n"
+        subDurationSpin->setToolTip( qtr( "Multiply subtitle duration by this value.\n"
                                           "Set 0 to disable." ) );
         subDurationSpin->setSuffix( "" );
         break;
     case SUBSDELAY_MODE_RELATIVE_SOURCE_CONTENT:
-        subDurationSpin->setToolTip( qtr( "Recalculate subtitles duration according\n"
+        subDurationSpin->setToolTip( qtr( "Recalculate subtitle duration according\n"
                                           "to their content and this value.\n"
                                           "Set 0 to disable." ) );
         subDurationSpin->setSuffix( "" );

@@ -1,23 +1,23 @@
 /*****************************************************************************
  * libmp4.c : LibMP4 library for mp4 module for vlc
  *****************************************************************************
- * Copyright (C) 2001-2004, 2010 the VideoLAN team
+ * Copyright (C) 2001-2004, 2010 VLC authors and VideoLAN
  *
  * Author: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -215,7 +215,10 @@ static int MP4_ReadBoxContainerChildren( stream_t *p_stream,
         p_container->p_last = p_box;
 
         if( p_box->i_type == i_last_child )
+        {
+            MP4_NextBox( p_stream, p_box );
             break;
+        }
 
     } while( MP4_NextBox( p_stream, p_box ) == 1 );
 
@@ -2898,7 +2901,7 @@ static int MP4_ReadBox_sdtp( stream_t *p_stream, MP4_Box_t *p_box )
         MP4_GET1BYTE( p_sdtp->p_sample_table[i] );
 
 #ifdef MP4_VERBOSE
-    msg_Info( p_stream, "i_sample_count is %"PRIu32"", i_sample_count );
+    msg_Dbg( p_stream, "i_sample_count is %"PRIu32"", i_sample_count );
     msg_Dbg( p_stream,
              "read box: \"sdtp\" head: %"PRIx8" %"PRIx8" %"PRIx8" %"PRIx8"",
                  p_sdtp->p_sample_table[0],
@@ -3049,8 +3052,8 @@ static int MP4_ReadBox_tfra( stream_t *p_stream, MP4_Box_t *p_box )
                 ((uint64_t *)(p_tfra->p_moof_offset))[1] );
     }
 
-    msg_Info( p_stream, "number_of_entries is %"PRIu32"", i_number_of_entries );
-    msg_Info( p_stream, "track ID is: %"PRIu32"", p_tfra->i_track_ID );
+    msg_Dbg( p_stream, "number_of_entries is %"PRIu32"", i_number_of_entries );
+    msg_Dbg( p_stream, "track ID is: %"PRIu32"", p_tfra->i_track_ID );
 #endif
 
     MP4_READBOX_EXIT( 1 );
@@ -3571,7 +3574,7 @@ MP4_Box_t *MP4_BoxGetRoot( stream_t *s )
         return p_root;
 
     p_root->i_size = stream_Size( s );
-    if( stream_Tell( s ) < stream_Size( s ) )
+    if( stream_Tell( s ) + 8 < stream_Size( s ) )
     {
         /* Get the rest of the file */
         i_result = MP4_ReadBoxContainerRaw( p_stream, p_root );
@@ -3609,6 +3612,7 @@ MP4_Box_t *MP4_BoxGetRoot( stream_t *s )
 
 error:
     free( p_root );
+    stream_Seek( p_stream, 0 );
     return NULL;
 }
 

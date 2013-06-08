@@ -44,7 +44,7 @@
 #include <vlc_strings.h>
 #include <vlc_rand.h>
 
-#ifndef WIN32
+#ifndef _WIN32
 # include <locale.h>
 #endif
 
@@ -755,7 +755,7 @@ static void CommandPush( vod_t *p_vod, rtsp_cmd_type_t i_type, vod_media_t *p_me
     if( psz_arg )
         cmd.psz_arg = strdup(psz_arg);
 
-    p_cmd = block_New( p_vod, sizeof(rtsp_cmd_t) );
+    p_cmd = block_Alloc( sizeof(rtsp_cmd_t) );
     memcpy( p_cmd->p_buffer, &cmd, sizeof(cmd) );
 
     block_FifoPut( p_vod->p_sys->p_fifo_cmd, p_cmd );
@@ -1439,9 +1439,10 @@ static int RtspCallbackES( httpd_callback_sys_t *p_args, httpd_client_t *cl,
 
             for( int i = 0; i < p_rtsp->i_es; i++ )
             {
-                if( p_rtsp->es[i]->p_media_es == p_es )
+                rtsp_client_es_t *es = p_rtsp->es[i];
+                if( es->p_media_es == p_es )
                 {
-                    TAB_REMOVE( p_rtsp->i_es, p_rtsp->es, p_rtsp->es[i] );
+                    TAB_REMOVE( p_rtsp->i_es, p_rtsp->es, es );
                     break;
                 }
             }

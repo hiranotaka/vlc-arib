@@ -12,7 +12,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -110,7 +110,7 @@ static int dvb_parse_modulation (const char *str, int def)
         { "32APSK", APSK_32   },
         { "32QAM",   QAM_32   },
         { "64QAM",   QAM_64   },
-        { "8PSK",    PSK_8    }, 
+        { "8PSK",    PSK_8    },
         { "8VSB",    VSB_8    },
         { "DQPSK", DQPSK      },
         { "QAM",     QAM_AUTO },
@@ -792,7 +792,7 @@ known:
                    | ((voltage == SEC_VOLTAGE_18) << 1) /* polarization */
                    | (tone == SEC_TONE_ON); /* option */
         cmd.msg[4] = cmd.msg[5] = 0; /* unused */
-        cmd.msg_len = 4; /* length*/
+        cmd.msg_len = 4; /* length */
 
         msleep (15000); /* wait 15 ms before DiSEqC command */
         unsigned uncommitted = var_InheritInteger (d->obj, "dvb-uncommitted");
@@ -807,24 +807,25 @@ known:
                        | ((voltage == SEC_VOLTAGE_18) << 1) /* polarization */
                        | (tone == SEC_TONE_ON); /* option */
           uncmd.msg[4] = uncmd.msg[5] = 0; /* unused */
-          uncmd.msg_len = 4; /* length*/
+          uncmd.msg_len = 4; /* length */
           if (ioctl (d->frontend, FE_DISEQC_SEND_MASTER_CMD, &uncmd) < 0)
           {
-              msg_Err (d->obj, "cannot send DiSEqC command: %m");
+              msg_Err (d->obj, "cannot send uncommitted DiSEqC command: %m");
               return -1;
           }
           /* Repeat uncommitted command */
           uncmd.msg[0] = 0xE1; /* framing: master, no reply, repeated TX */
           if (ioctl (d->frontend, FE_DISEQC_SEND_MASTER_CMD, &uncmd) < 0)
           {
-              msg_Err (d->obj, "cannot send DiSEqC command: %m");
+              msg_Err (d->obj,
+                       "cannot send repeated uncommitted DiSEqC command: %m");
               return -1;
           }
           msleep(125000); /* wait 125 ms before committed DiSEqC command */
         }
         if (ioctl (d->frontend, FE_DISEQC_SEND_MASTER_CMD, &cmd) < 0)
         {
-            msg_Err (d->obj, "cannot send DiSEqC command: %m");
+            msg_Err (d->obj, "cannot send committed DiSEqC command: %m");
             return -1;
         }
         msleep (54000 + 15000);
@@ -990,7 +991,12 @@ int dvb_set_dvbt2 (dvb_device_t *d, uint32_t freq, const char *modstr,
                           DTV_INNER_FEC, fec, DTV_BANDWIDTH_HZ, bandwidth,
                           DTV_TRANSMISSION_MODE, transmit_mode,
                           DTV_GUARD_INTERVAL, guard,
-                          DTV_STREAM_ID, plp);
+# if DVBv5(8)
+                          DTV_STREAM_ID,
+# else
+                          DTV_DVBT2_PLP_ID,
+# endif
+                          plp);
 #else
 # warning DVB-T2 needs Linux DVB version 5.3 or later.
     msg_Err (d->obj, "DVB-T2 support not compiled-in");
@@ -1031,7 +1037,12 @@ int dvb_set_isdbs (dvb_device_t *d, uint64_t freq_Hz, uint16_t ts_id)
         return -1;
     return dvb_set_props (d, 5, DTV_CLEAR, 0, DTV_DELIVERY_SYSTEM, SYS_ISDBS,
                           DTV_FREQUENCY, freq,
-                          DTV_STREAM_ID, (uint32_t)ts_id);
+#if DVBv5(8)
+                          DTV_STREAM_ID,
+#else
+                          DTV_ISDBS_TS_ID,
+#endif
+                          (uint32_t)ts_id);
 }
 
 

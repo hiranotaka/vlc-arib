@@ -122,6 +122,10 @@ static void x264_log( void *, int i_level, const char *psz, va_list );
     " - normal: Non-strict (not Blu-ray compatible)\n"\
     )
 
+#define FULLRANGE_TEXT N_("Use fullrange instead of TV colorrange")
+#define FULLRANGE_LONGTEXT N_("TV-range is usually used colorrange, defining this to true " \
+                              "will enable libx264 to use full colorrange on encoding")
+
 #define CABAC_TEXT N_("CABAC")
 #define CABAC_LONGTEXT N_( "CABAC (Context-Adaptive Binary Arithmetic "\
     "Coding). Slightly slows down encoding and decoding, but should save " \
@@ -267,7 +271,7 @@ static void x264_log( void *, int i_level, const char *psz, va_list );
     "(p4x4 requires p8x8. i8x8 requires 8x8dct).")
 
 #define DIRECT_PRED_TEXT N_("Direct MV prediction mode")
-#define DIRECT_PRED_LONGTEXT N_( "Direct MV prediction mode.")
+#define DIRECT_PRED_LONGTEXT DIRECT_PRED_TEXT
 
 #define DIRECT_PRED_SIZE_TEXT N_("Direct prediction size")
 #define DIRECT_PRED_SIZE_LONGTEXT N_( "Direct prediction size: "\
@@ -317,7 +321,6 @@ static void x264_log( void *, int i_level, const char *psz, va_list );
     "tradeoffs involved in the motion estimation decision process " \
     "(lower = quicker and higher = better quality). Range 1 to 9." )
 
-#define B_RDO_TEXT N_("RD based mode decision for B-frames")
 #define B_RDO_LONGTEXT N_( "RD based mode decision for B-frames. This " \
     "requires subme 6 (or higher).")
 
@@ -330,7 +333,6 @@ static void x264_log( void *, int i_level, const char *psz, va_list );
 #define CHROMA_ME_LONGTEXT N_( "Chroma ME for subpel and mode decision in " \
     "P-frames.")
 
-#define BIME_TEXT N_("Jointly optimize both MVs in B-frames")
 #define BIME_LONGTEXT N_( "Joint bidirectional motion refinement.")
 
 #define TRANSFORM_8X8DCT_TEXT N_("Adaptive spatial transform size")
@@ -424,12 +426,12 @@ static const char *const bpyramid_list[] =
 static const char *const enc_analyse_list[] =
   { "none", "fast", "normal", "slow", "all" };
 static const char *const enc_analyse_list_text[] =
-  { N_("none"), N_("fast"), N_("normal"), N_("slow"), N_("all") };
+  { N_("None"), N_("Fast"), N_("Normal"), N_("Slow"), N_("All") };
 
 static const char *const direct_pred_list[] =
   { "none", "spatial", "temporal", "auto" };
 static const char *const direct_pred_list_text[] =
-  { N_("none"), N_("spatial"), N_("temporal"), N_("auto") };
+  { N_("None"), N_("Spatial"), N_("Temporal"), N_("Auto") };
 
 static const int const framepacking_list[] =
   { -1, 0, 1, 2, 3, 4, 5 };
@@ -438,10 +440,10 @@ static const char *const framepacking_list_text[] =
 
 vlc_module_begin ()
 #ifdef MODULE_NAME_IS_x26410b
-    set_description( N_("H.264/MPEG4 AVC encoder (x264 10-bit)"))
+    set_description( N_("H.264/MPEG-4 Part 10/AVC encoder (x264 10-bit)"))
     set_capability( "encoder", 0 )
 #else
-    set_description( N_("H.264/MPEG4 AVC encoder (x264)"))
+    set_description( N_("H.264/MPEG-4 Part 10/AVC encoder (x264)"))
     set_capability( "encoder", 200 )
 #endif
     set_callbacks( Open, Close )
@@ -495,6 +497,9 @@ vlc_module_begin ()
         change_string_list( bpyramid_list, bpyramid_list )
 
     add_bool( SOUT_CFG_PREFIX "cabac", true, CABAC_TEXT, CABAC_LONGTEXT,
+              true )
+
+    add_bool( SOUT_CFG_PREFIX "fullrange", false, FULLRANGE_TEXT, FULLRANGE_LONGTEXT,
               true )
 
     add_integer( SOUT_CFG_PREFIX "ref", 3, REF_TEXT,
@@ -756,6 +761,7 @@ static const char *const ppsz_sout_options[] = {
     "aq-mode", "aq-strength", "psy-rd", "psy", "profile", "lookahead", "slices",
     "slice-max-size", "slice-max-mbs", "intra-refresh", "mbtree", "hrd",
     "tune","preset", "opengop", "bluray-compat", "frame-packing", "options",
+    "fullrange",
     NULL
 };
 
@@ -791,6 +797,7 @@ static int  Open ( vlc_object_t *p_this )
     int i_qmin = 0, i_qmax = 0;
     x264_nal_t    *nal;
     int i, i_nal;
+    bool fullrange = false;
 
     if( p_enc->fmt_out.i_codec != VLC_CODEC_H264 &&
         !p_enc->b_force )
@@ -808,7 +815,8 @@ static int  Open ( vlc_object_t *p_this )
     if( !p_sys )
         return VLC_ENOMEM;
 
-    p_enc->fmt_in.i_codec = VLC_CODEC_I420;
+    fullrange = var_GetBool( p_enc, SOUT_CFG_PREFIX "fullrange" );
+    p_enc->fmt_in.i_codec = fullrange ? VLC_CODEC_J420 : VLC_CODEC_I420;
     p_sys->i_colorspace = X264_CSP_I420;
 #if X264_BUILD >= 118
     char *psz_profile = var_GetString( p_enc, SOUT_CFG_PREFIX "profile" );
@@ -826,17 +834,17 @@ static int  Open ( vlc_object_t *p_this )
 
         if( !strcmp( psz_profile, "high10" ) )
         {
-            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I420_10L : VLC_CODEC_I420;
+            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I420_10L : fullrange ? VLC_CODEC_J420 : VLC_CODEC_I420;
             p_sys->i_colorspace = X264_CSP_I420 | mask;
         }
         else if( !strcmp( psz_profile, "high422" ) )
         {
-            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I422_10L : VLC_CODEC_I422;
+            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I422_10L : fullrange ? VLC_CODEC_J422 : VLC_CODEC_I422;
             p_sys->i_colorspace = X264_CSP_I422 | mask;
         }
         else if( !strcmp( psz_profile, "high444" ) )
         {
-            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I444_10L : VLC_CODEC_I444;
+            p_enc->fmt_in.i_codec = mask ? VLC_CODEC_I444_10L : fullrange ? VLC_CODEC_J444 : VLC_CODEC_I444;
             p_sys->i_colorspace = X264_CSP_I444 | mask;
         }
 #ifdef MODULE_NAME_IS_x26410b
@@ -879,6 +887,7 @@ static int  Open ( vlc_object_t *p_this )
     p_sys->param.i_csp = p_sys->i_colorspace;
     p_sys->param.i_width  = p_enc->fmt_in.video.i_width;
     p_sys->param.i_height = p_enc->fmt_in.video.i_height;
+    p_sys->param.vui.b_fullrange = fullrange;
 
     if( fabs(var_GetFloat( p_enc, SOUT_CFG_PREFIX "qcomp" ) - 0.60) > 0.005 )
        p_sys->param.rc.f_qcompress = var_GetFloat( p_enc, SOUT_CFG_PREFIX "qcomp" );
@@ -1475,7 +1484,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pict )
     for( i = 0; i < i_nal; i++ )
         i_out += nal[i].i_payload;
 
-    p_block = block_New( p_enc, i_out + p_sys->i_sei_size );
+    p_block = block_Alloc( i_out + p_sys->i_sei_size );
     if( !p_block ) return NULL;
 
     unsigned int i_offset = 0;
@@ -1495,7 +1504,7 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pict )
         p_block->i_flags |= BLOCK_FLAG_TYPE_I;
     else if( pic.i_type == X264_TYPE_P || pic.i_type == X264_TYPE_I )
         p_block->i_flags |= BLOCK_FLAG_TYPE_P;
-    else if( pic.i_type == X264_TYPE_B )
+    else if( IS_X264_TYPE_B( pic.i_type ) )
         p_block->i_flags |= BLOCK_FLAG_TYPE_B;
     else
         p_block->i_flags |= BLOCK_FLAG_TYPE_PB;

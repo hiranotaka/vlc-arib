@@ -34,8 +34,8 @@
 #include <vlc_spu.h>
 #include <vlc_modules.h>
 
-#define ENC_FRAMERATE (25 * 1000 + .5)
-#define ENC_FRAMERATE_BASE 1000
+#define ENC_FRAMERATE (25 * 1001 + .5)
+#define ENC_FRAMERATE_BASE 1001
 
 struct decoder_owner_sys_t
 {
@@ -64,6 +64,12 @@ static picture_t *video_new_buffer_decoder( decoder_t *p_dec )
 {
     p_dec->fmt_out.video.i_chroma = p_dec->fmt_out.i_codec;
     return picture_NewFromFormat( &p_dec->fmt_out.video );
+}
+
+static picture_t *video_new_buffer_encoder( encoder_t *p_enc )
+{
+    p_enc->fmt_in.video.i_chroma = p_enc->fmt_in.i_codec;
+    return picture_NewFromFormat( &p_enc->fmt_in.video );
 }
 
 static picture_t *transcode_video_filter_buffer_new( filter_t *p_filter )
@@ -228,6 +234,8 @@ int transcode_video_new( sout_stream_t *p_stream, sout_stream_id_t *id )
         if( p_sys->pp_pics == NULL )
         {
             msg_Err( p_stream, "cannot create picture fifo" );
+            vlc_mutex_destroy( &p_sys->lock_out );
+            vlc_cond_destroy( &p_sys->cond );
             module_unneed( id->p_decoder, id->p_decoder->p_module );
             id->p_decoder->p_module = NULL;
             free( id->p_decoder->p_owner );
@@ -238,6 +246,9 @@ int transcode_video_new( sout_stream_t *p_stream, sout_stream_id_t *id )
         if( vlc_clone( &p_sys->thread, EncoderThread, p_sys, i_priority ) )
         {
             msg_Err( p_stream, "cannot spawn encoder thread" );
+            vlc_mutex_destroy( &p_sys->lock_out );
+            vlc_cond_destroy( &p_sys->cond );
+            picture_fifo_Delete( p_sys->pp_pics );
             module_unneed( id->p_decoder, id->p_decoder->p_module );
             id->p_decoder->p_module = NULL;
             free( id->p_decoder->p_owner );
@@ -638,12 +649,41 @@ int transcode_video_process( sout_stream_t *p_stream, sout_stream_id_t *id,
                 b_need_duplicate = true;
             }
         }
+        if( unlikely (
+             id->p_encoder->p_module &&
+             !video_format_IsSimilar( &p_sys->fmt_input_video, &id->p_decoder->fmt_out.video )
+            )
+          )
+        {
+            msg_Info( p_stream, "aspect-ratio changed, reiniting. %i -> %i : %i -> %i.",
+                        p_sys->fmt_input_video.i_sar_num, id->p_decoder->fmt_out.video.i_sar_num,
+                        p_sys->fmt_input_video.i_sar_den, id->p_decoder->fmt_out.video.i_sar_den
+                    );
+            /* Close filters */
+            if( id->p_f_chain )
+                filter_chain_Delete( id->p_f_chain );
+            id->p_f_chain = NULL;
+            if( id->p_uf_chain )
+                filter_chain_Delete( id->p_uf_chain );
+            id->p_uf_chain = NULL;
+
+            /* Reinitialize filters */
+            id->p_encoder->fmt_out.video.i_width  = p_sys->i_width & ~1;
+            id->p_encoder->fmt_out.video.i_height = p_sys->i_height & ~1;
+            id->p_encoder->fmt_out.video.i_sar_num = id->p_encoder->fmt_out.video.i_sar_den = 0;
+
+            transcode_video_encoder_init( p_stream, id );
+            transcode_video_filter_init( p_stream, id );
+            memcpy( &p_sys->fmt_input_video, &id->p_decoder->fmt_out.video, sizeof(video_format_t));
+        }
+
 
         if( unlikely( !id->p_encoder->p_module ) )
         {
             transcode_video_encoder_init( p_stream, id );
 
             transcode_video_filter_init( p_stream, id );
+            memcpy( &p_sys->fmt_input_video, &id->p_decoder->fmt_out.video, sizeof(video_format_t));
 
             if( transcode_video_encoder_open( p_stream, id ) != VLC_SUCCESS )
             {
@@ -690,8 +730,9 @@ int transcode_video_process( sout_stream_t *p_stream, sout_stream_id_t *id,
             {
                 if( picture_IsReferenced( p_pic ) && !filter_chain_GetLength( id->p_f_chain ) )
                 {
-                    /* We can't modify the picture, we need to duplicate it */
-                    picture_t *p_tmp = video_new_buffer_decoder( id->p_decoder );
+                    /* We can't modify the picture, we need to duplicate it,
+                     * in this point the picture is already p_encoder->fmt.in format*/
+                    picture_t *p_tmp = video_new_buffer_encoder( id->p_encoder );
                     if( likely( p_tmp ) )
                     {
                         picture_Copy( p_tmp, p_pic );
@@ -736,7 +777,7 @@ int transcode_video_process( sout_stream_t *p_stream, sout_stream_id_t *id,
                if( p_sys->i_threads >= 1 )
                {
                    /* We can't modify the picture, we need to duplicate it */
-                   p_pic2 = video_new_buffer_decoder( id->p_decoder );
+                   p_pic2 = video_new_buffer_encoder( id->p_encoder );
                    if( likely( p_pic2 != NULL ) )
                    {
                        picture_Copy( p_pic2, p_pic );

@@ -1,24 +1,24 @@
 /*****************************************************************************
  * directx.c: Windows DirectDraw video output
  *****************************************************************************
- * Copyright (C) 2001-2009 the VideoLAN team
+ * Copyright (C) 2001-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -42,7 +42,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_vout_display.h>
-#include <vlc_playlist.h>   /* needed for wallpaper */
 #include <vlc_charset.h>
 
 #include <windows.h>
@@ -53,8 +52,15 @@
 #include "common.h"
 
 #ifdef UNICODE
-#   error "Unicode mode not supported"
+# warning "Unicode mode not tested"
 #endif
+
+#ifdef UNICODE
+# define DIRECTDRAWENUMERATEEX_NAME "DirectDrawEnumerateExW"
+#else
+# define DIRECTDRAWENUMERATEEX_NAME "DirectDrawEnumerateExA"
+#endif
+
 
 /*****************************************************************************
  * Module descriptor
@@ -447,12 +453,15 @@ static BOOL WINAPI DirectXOpenDDrawCallback(GUID *guid, LPTSTR desc,
     if (!hmon)
         return TRUE;
 
-    msg_Dbg(vd, "DirectXEnumCallback: %s, %s", desc, drivername);
+    char *psz_drivername = FromT(drivername);
+    char *psz_desc = FromT(desc);
+
+    msg_Dbg(vd, "DirectXEnumCallback: %s, %s", psz_desc, psz_drivername);
 
     char *device = var_GetString(vd, "directx-device");
 
     /* Check for forced device */
-    if (device && *device && !strcmp(drivername, device)) {
+    if (device && *device && !strcmp(psz_drivername, device)) {
         MONITORINFO monitor_info;
         monitor_info.cbSize = sizeof(MONITORINFO);
 
@@ -476,7 +485,7 @@ static BOOL WINAPI DirectXOpenDDrawCallback(GUID *guid, LPTSTR desc,
     free(device);
 
     if (hmon == sys->hmonitor) {
-        msg_Dbg(vd, "selecting %s, %s", desc, drivername);
+        msg_Dbg(vd, "selecting %s, %s", psz_desc, psz_drivername);
 
         free(sys->display_driver);
         sys->display_driver = malloc(sizeof(*guid));
@@ -484,6 +493,8 @@ static BOOL WINAPI DirectXOpenDDrawCallback(GUID *guid, LPTSTR desc,
             *sys->display_driver = *guid;
     }
 
+    free(psz_drivername);
+    free(psz_desc);
     return TRUE;
 }
 /**
@@ -565,16 +576,16 @@ static int DirectXOpenDDraw(vout_display_t *vd)
     /* */
     HRESULT (WINAPI *OurDirectDrawCreate)(GUID *,LPDIRECTDRAW *,IUnknown *);
     OurDirectDrawCreate =
-        (void *)GetProcAddress(sys->hddraw_dll, _T("DirectDrawCreate"));
+        (void *)GetProcAddress(sys->hddraw_dll, "DirectDrawCreate");
     if (!OurDirectDrawCreate) {
         msg_Err(vd, "DirectXInitDDraw failed GetProcAddress");
         return VLC_EGENERIC;
     }
 
     /* */
-    HRESULT (WINAPI *OurDirectDrawEnumerateEx)(LPDDENUMCALLBACKEXA, LPVOID, DWORD);
+    HRESULT (WINAPI *OurDirectDrawEnumerateEx)(LPDDENUMCALLBACKEX, LPVOID, DWORD);
     OurDirectDrawEnumerateEx =
-      (void *)GetProcAddress(sys->hddraw_dll, _T("DirectDrawEnumerateExA"));
+      (void *)GetProcAddress(sys->hddraw_dll, DIRECTDRAWENUMERATEEX_NAME);
 
     if (OurDirectDrawEnumerateEx) {
         char *device = var_GetString(vd, "directx-device");
@@ -1396,11 +1407,10 @@ static int WallpaperCallback(vlc_object_t *object, char const *cmd,
 
     /* FIXME we should have a way to export variable to be saved */
     if (ch_wallpaper) {
-        playlist_t *p_playlist = pl_Get(vd);
         /* Modify playlist as well because the vout might have to be
          * restarted */
-        var_Create(p_playlist, "video-wallpaper", VLC_VAR_BOOL);
-        var_SetBool(p_playlist, "video-wallpaper", newval.b_bool);
+        var_Create(object->p_parent, "video-wallpaper", VLC_VAR_BOOL);
+        var_SetBool(object->p_parent, "video-wallpaper", newval.b_bool);
     }
     return VLC_SUCCESS;
 }
@@ -1423,14 +1433,15 @@ static BOOL WINAPI DirectXEnumCallback2(GUID *guid, LPTSTR desc,
 
     VLC_UNUSED(guid); VLC_UNUSED(desc); VLC_UNUSED(hmon);
 
+    char *psz_drivername = FromT(drivername);
     ctx->values = xrealloc(ctx->values, (ctx->count + 1) * sizeof(char *));
     ctx->descs = xrealloc(ctx->descs, (ctx->count + 1) * sizeof(char *));
 
-    /* TODO? Unicode APIs */
-    ctx->values[ctx->count] = FromANSI(drivername);
-    ctx->descs[ctx->count] = FromANSI(drivername);
+    ctx->values[ctx->count] = psz_drivername;
+    ctx->descs[ctx->count] = psz_drivername;
     ctx->count++;
 
+    free(psz_drivername);
     return TRUE; /* Keep enumerating */
 }
 
@@ -1450,9 +1461,9 @@ static int FindDevicesCallback(vlc_object_t *object, const char *name,
     if (hddraw_dll != NULL)
     {
         /* Enumerate displays */
-        HRESULT (WINAPI *OurDirectDrawEnumerateEx)(LPDDENUMCALLBACKEXA,
+        HRESULT (WINAPI *OurDirectDrawEnumerateEx)(LPDDENUMCALLBACKEX,
                                                    LPVOID, DWORD) =
-              (void *)GetProcAddress(hddraw_dll, _T("DirectDrawEnumerateExA"));
+              (void *)GetProcAddress(hddraw_dll, DIRECTDRAWENUMERATEEX_NAME);
         if (OurDirectDrawEnumerateEx != NULL)
             OurDirectDrawEnumerateEx(DirectXEnumCallback2, &ctx,
                                      DDENUM_ATTACHEDSECONDARYDEVICES);

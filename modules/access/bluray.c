@@ -13,7 +13,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -32,6 +32,13 @@
 #include <sys/stat.h>
 #endif
 
+#ifdef __APPLE__
+#include <sys/stat.h>
+#include <sys/param.h>
+#include <sys/ucred.h>
+#include <sys/mount.h>
+#endif
+
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_demux.h>                      /* demux_t */
@@ -39,6 +46,7 @@
 #include <vlc_atomic.h>
 #include <vlc_dialog.h>                     /* BD+/AACS warnings */
 #include <vlc_vout.h>                       /* vout_PutSubpicture / subpicture_t */
+#include <vlc_url.h>                        /* vlc_path2uri */
 
 #include <libbluray/bluray.h>
 #include <libbluray/keys.h>
@@ -49,8 +57,8 @@
  * Module descriptor
  *****************************************************************************/
 
-#define BD_MENU_TEXT        N_( "Bluray menus" )
-#define BD_MENU_LONGTEXT    N_( "Use bluray menus. If disabled, "\
+#define BD_MENU_TEXT        N_( "Blu-ray menus" )
+#define BD_MENU_LONGTEXT    N_( "Use Blu-ray menus. If disabled, "\
                                 "the movie will start directly" )
 
 /* Callbacks */
@@ -58,8 +66,8 @@ static int  blurayOpen ( vlc_object_t * );
 static void blurayClose( vlc_object_t * );
 
 vlc_module_begin ()
-    set_shortname( N_("BluRay") )
-    set_description( N_("Blu-Ray Disc support (libbluray)") )
+    set_shortname( N_("Blu-ray") )
+    set_description( N_("Blu-ray Disc support (libbluray)") )
 
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
@@ -118,6 +126,9 @@ struct  demux_sys_t
     int                 i_audio_stream; /* Selected audio stream. -1 if default */
     int                 i_video_stream;
     stream_t            *p_parser;
+
+    /* Used to store bluray disc path */
+    char                *psz_bd_path;
 };
 
 struct subpicture_updater_sys_t
@@ -155,7 +166,6 @@ static int blurayOpen( vlc_object_t *object )
     demux_t *p_demux = (demux_t*)object;
     demux_sys_t *p_sys;
 
-    char bd_path[PATH_MAX] = { '\0' };
     const char *error_msg = NULL;
 
     if (strcmp(p_demux->psz_access, "bluray")) {
@@ -179,28 +189,26 @@ static int blurayOpen( vlc_object_t *object )
 
     TAB_INIT( p_sys->i_title, p_sys->pp_title );
 
-    /* store current bd_path */
+    /* store current bd path */
     if (p_demux->psz_file) {
-        strncpy(bd_path, p_demux->psz_file, sizeof(bd_path));
-        bd_path[PATH_MAX - 1] = '\0';
+        p_sys->psz_bd_path = strndup(p_demux->psz_file, strlen(p_demux->psz_file));
     }
 
 #if defined (HAVE_MNTENT_H) && defined (HAVE_SYS_STAT_H)
     /* If we're passed a block device, try to convert it to the mount point. */
     struct stat st;
-    if ( !stat (bd_path, &st)) {
+    if ( !stat (p_sys->psz_bd_path, &st)) {
         if (S_ISBLK (st.st_mode)) {
             FILE* mtab = setmntent ("/proc/self/mounts", "r");
             struct mntent* m;
             struct mntent mbuf;
             char buf [8192];
-            /* bd_path may be a symlink (e.g. /dev/dvd -> /dev/sr0), so make
+            /* bd path may be a symlink (e.g. /dev/dvd -> /dev/sr0), so make
              * sure we look up the real device */
-            char* bd_device = realpath(bd_path, NULL);
+            char* bd_device = realpath(p_sys->psz_bd_path, NULL);
             while ((m = getmntent_r (mtab, &mbuf, buf, sizeof(buf))) != NULL) {
-                if (!strcmp (m->mnt_fsname, (bd_device == NULL ? bd_path : bd_device))) {
-                    strncpy (bd_path, m->mnt_dir, sizeof(bd_path));
-                    bd_path[sizeof(bd_path) - 1] = '\0';
+                if (!strcmp (m->mnt_fsname, (bd_device == NULL ? p_sys->psz_bd_path : bd_device))) {
+                    p_sys->psz_bd_path = strndup(m->mnt_dir, strlen(m->mnt_dir));
                     break;
                 }
             }
@@ -209,7 +217,26 @@ static int blurayOpen( vlc_object_t *object )
         }
     }
 #endif /* HAVE_MNTENT_H && HAVE_SYS_STAT_H */
-    p_sys->bluray = bd_open(bd_path, NULL);
+#ifdef __APPLE__
+    /* If we're passed a block device, try to convert it to the mount point. */
+    struct stat st;
+    if ( !stat (p_sys->psz_bd_path, &st)) {
+        if (S_ISBLK (st.st_mode)) {
+            struct statfs mbuf[128];
+            int fs_count;
+
+            if ( (fs_count = getfsstat (NULL, 0, MNT_NOWAIT)) > 0 ) {
+                getfsstat (mbuf, fs_count * sizeof(mbuf[0]), MNT_NOWAIT);
+                for ( int i = 0; i < fs_count; ++i) {
+                    if (!strcmp (mbuf[i].f_mntfromname, p_sys->psz_bd_path)) {
+                        p_sys->psz_bd_path = strndup(mbuf[i].f_mntonname, strlen(mbuf[i].f_mntonname));
+                    }
+                }
+            }
+        }
+    }
+#endif
+    p_sys->bluray = bd_open(p_sys->psz_bd_path, NULL);
     if (!p_sys->bluray) {
         free(p_sys);
         return VLC_EGENERIC;
@@ -220,7 +247,7 @@ static int blurayOpen( vlc_object_t *object )
 
     /* Is it a bluray? */
     if (!disc_info->bluray_detected) {
-        error_msg = "Path doesn't appear to be a bluray";
+        error_msg = "Path doesn't appear to be a Blu-ray";
         goto error;
     }
 
@@ -233,7 +260,7 @@ static int blurayOpen( vlc_object_t *object )
     /* AACS */
     if (disc_info->aacs_detected) {
         if (!disc_info->libaacs_detected) {
-            error_msg = _("This Blu-Ray Disc needs a library for AACS decoding, "
+            error_msg = _("This Blu-ray Disc needs a library for AACS decoding, "
                       "and your system does not have it.");
             goto error;
         }
@@ -242,7 +269,7 @@ static int blurayOpen( vlc_object_t *object )
             if (disc_info->aacs_error_code) {
                 switch (disc_info->aacs_error_code) {
                     case BD_AACS_CORRUPTED_DISC:
-                        error_msg = _("BluRay Disc is corrupted.");
+                        error_msg = _("Blu-ray Disc is corrupted.");
                         break;
                     case BD_AACS_NO_CONFIG:
                         error_msg = _("Missing AACS configuration file!");
@@ -273,7 +300,7 @@ static int blurayOpen( vlc_object_t *object )
     /* BD+ */
     if (disc_info->bdplus_detected) {
         if (!disc_info->libbdplus_detected) {
-            error_msg = _("This Blu-Ray Disc needs a library for BD+ decoding, "
+            error_msg = _("This Blu-ray Disc needs a library for BD+ decoding, "
                       "and your system does not have it.");
             goto error;
         }
@@ -340,7 +367,7 @@ static int blurayOpen( vlc_object_t *object )
 
 error:
     if (error_msg)
-        dialog_Fatal(p_demux, _("Blu-Ray error"), "%s", error_msg);
+        dialog_Fatal(p_demux, _("Blu-ray error"), "%s", error_msg);
     blurayClose(object);
     return VLC_EGENERIC;
 }
@@ -381,6 +408,7 @@ static void blurayClose( vlc_object_t *object )
         vlc_input_title_Delete(p_sys->pp_title[i]);
     TAB_CLEAN( p_sys->i_title, p_sys->pp_title );
 
+    free(p_sys->psz_bd_path);
     free(p_sys);
 }
 
@@ -1074,8 +1102,20 @@ static int blurayControl(demux_t *p_demux, int query, va_list args)
             // if (meta->di_set_number > 0) vlc_meta_SetTrackNum(p_meta, meta->di_set_number);
             // if (meta->di_num_sets > 0) vlc_meta_AddExtra(p_meta, "Discs numbers in Set", meta->di_num_sets);
 
-            if (meta->thumb_count > 0 && meta->thumbnails) {
-                vlc_meta_SetArtURL(p_meta, meta->thumbnails[0].path);
+            if (meta->thumb_count > 0 && meta->thumbnails)
+            {
+                char *psz_thumbpath;
+                if( asprintf( &psz_thumbpath, "%s" DIR_SEP "BDMV" DIR_SEP "META" DIR_SEP "DL" DIR_SEP "%s",
+                              p_sys->psz_bd_path, meta->thumbnails[0].path ) > 0 )
+                {
+                    char *psz_thumburl = vlc_path2uri( psz_thumbpath, "file" );
+                    if( unlikely(psz_thumburl == NULL) )
+                        return VLC_ENOMEM;
+
+                    vlc_meta_SetArtURL( p_meta, psz_thumburl );
+                    free( psz_thumburl );
+                }
+                free( psz_thumbpath );
             }
 
             return VLC_SUCCESS;
@@ -1173,7 +1213,7 @@ static int blurayDemux(demux_t *p_demux)
 {
     demux_sys_t *p_sys = p_demux->p_sys;
 
-    block_t *p_block = block_New(p_demux, NB_TS_PACKETS * (int64_t)BD_TS_PACKET_SIZE);
+    block_t *p_block = block_Alloc(NB_TS_PACKETS * (int64_t)BD_TS_PACKET_SIZE);
     if (!p_block) {
         return -1;
     }

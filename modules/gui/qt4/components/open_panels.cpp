@@ -38,7 +38,7 @@
 #include <vlc_intf_strings.h>
 #include <vlc_modules.h>
 #include <vlc_plugin.h>
-#ifdef WIN32
+#ifdef _WIN32
   #include <vlc_charset.h> /* FromWide for Win32 */
 #endif
 
@@ -249,7 +249,7 @@ void FileOpenPanel::removeFile()
 void FileOpenPanel::browseFileSub()
 {
     // TODO Handle selection of more than one subtitles file
-    QStringList files = THEDP->showSimpleOpen( qtr("Open subtitles file"),
+    QStringList files = THEDP->showSimpleOpen( qtr("Open subtitle file"),
                            EXT_FILTER_SUBTITLE, p_intf->p_sys->filepath );
 
     if( files.isEmpty() ) return;
@@ -338,7 +338,7 @@ DiscOpenPanel::DiscOpenPanel( QWidget *_parent, intf_thread_t *_p_intf ) :
     ui.deviceCombo->setToolTip( qtr(I_DEVICE_TOOLTIP) );
     ui.deviceCombo->setInsertPolicy( QComboBox::InsertAtTop );
 
-#if !defined( WIN32 ) && !defined( __OS2__ )
+#if !defined( _WIN32 ) && !defined( __OS2__ )
     char const * const ppsz_discdevices[] = {
         "sr*",
         "sg*",
@@ -374,7 +374,7 @@ DiscOpenPanel::DiscOpenPanel( QWidget *_parent, intf_thread_t *_p_intf ) :
     updateButtons();
 }
 
-#ifdef WIN32 /* Disc drives probing for Windows */
+#ifdef _WIN32 /* Disc drives probing for Windows */
 void DiscOpenPanel::onFocus()
 {
     ui.deviceCombo->clear();
@@ -470,7 +470,7 @@ void DiscOpenPanel::clear()
     m_discType = None;
 }
 
-#if defined( WIN32 ) || defined( __OS2__ )
+#if defined( _WIN32 ) || defined( __OS2__ )
     #define setDrive( psz_name ) {\
     int index = ui.deviceCombo->findText( qfu( psz_name ) ); \
     if( index != -1 ) ui.deviceCombo->setCurrentIndex( index );}
@@ -656,6 +656,10 @@ NetOpenPanel::NetOpenPanel( QWidget *_parent, intf_thread_t *_p_intf ) :
     else
         b_recentList = false;
 
+    QFont smallFont = QApplication::font();
+    smallFont.setPointSize( smallFont.pointSize() - 1 );
+    ui.examples->setFont( smallFont );
+
     /* Use a simple validator for URLs */
     ui.urlComboBox->setValidator( new UrlValidator( this ) );
     ui.urlComboBox->setFocus();
@@ -681,7 +685,7 @@ NetOpenPanel::~NetOpenPanel()
 
 void NetOpenPanel::clear()
 {
-    ui.urlComboBox->clear();
+    ui.urlComboBox->lineEdit()->clear();
 }
 
 void NetOpenPanel::onAccept()
@@ -700,13 +704,10 @@ void NetOpenPanel::updateMRL()
 {
     QString url = ui.urlComboBox->lineEdit()->text();
 
-    if( url.isEmpty() )
-        return;
-
     emit methodChanged( qfu( "network-caching" ) );
 
     QStringList qsl;
-    qsl << url;
+    if( !url.isEmpty() ) qsl << url;
     emit mrlUpdated( qsl, "" );
 }
 
@@ -742,6 +743,7 @@ void CaptureOpenPanel::initialize()
     ui.setupUi( this );
 
     BUTTONACT( ui.advancedButton, advancedDialog() );
+    CONNECT( ui.deviceCombo, currentIndexChanged(int), this, enableAdvancedDialog(int) );
 
     /* Create two stacked layouts in the main comboBoxes */
     QStackedLayout *stackedDevLayout = new QStackedLayout;
@@ -764,7 +766,7 @@ void CaptureOpenPanel::initialize()
 
 #define CuMRL( widget, slot ) CONNECT( widget , slot , this, updateMRL() );
 
-#ifdef WIN32
+#ifdef _WIN32
     /*********************
      * DirectShow Stuffs *
      *********************/
@@ -801,7 +803,7 @@ void CaptureOpenPanel::initialize()
     CuMRL( dshowVSizeLine, textChanged( const QString& ) );
     configList << "dshow-vdev" << "dshow-adev" << "dshow-size";
     }
-#else /* WIN32 */
+#else /* _WIN32 */
     /*******
      * V4L2*
      *******/
@@ -1024,7 +1026,7 @@ void CaptureOpenPanel::initialize()
                << "dvb-bandwidth";
     }
 
-#ifndef WIN32
+#ifndef _WIN32
     /************
      * PVR      *
      ************/
@@ -1141,7 +1143,7 @@ void CaptureOpenPanel::updateMRL()
             ui.deviceCombo->currentIndex() ).toInt();
     switch( i_devicetype )
     {
-#ifdef WIN32
+#ifdef _WIN32
     case DSHOW_DEVICE:
         fileList << "dshow://";
         mrl+= " :dshow-vdev=" +
@@ -1286,6 +1288,14 @@ void CaptureOpenPanel::updateButtons()
     }
 
     advMRL.clear();
+}
+
+void CaptureOpenPanel::enableAdvancedDialog( int i_index )
+{
+    int i_devicetype = ui.deviceCombo->itemData( i_index ).toInt();
+    module_t *p_module =
+        module_find( psz_devModule[i_devicetype] );
+    ui.advancedButton->setEnabled( NULL != p_module );
 }
 
 void CaptureOpenPanel::advancedDialog()

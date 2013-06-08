@@ -309,7 +309,6 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
         case VLC_CODEC_WMV1:
         case VLC_CODEC_WMV2:
         case VLC_CODEC_WMV3:
-        case VLC_CODEC_SNOW:
             p_stream->p_oggds_header = calloc( 1, sizeof(oggds_header_t) );
             if( !p_stream->p_oggds_header )
             {
@@ -516,7 +515,7 @@ static block_t *OggStreamGetPage( sout_mux_t *p_mux,
     while( pager( p_os, &og ) )
     {
         /* Flush all data */
-        p_og = block_New( p_mux, og.header_len + og.body_len );
+        p_og = block_Alloc( og.header_len + og.body_len );
 
         memcpy( p_og->p_buffer, og.header, og.header_len );
         memcpy( p_og->p_buffer + og.header_len, og.body, og.body_len );

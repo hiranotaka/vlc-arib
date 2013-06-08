@@ -1,33 +1,33 @@
 /*****************************************************************************
  * macosx.m: MacOS X OpenGL provider
  *****************************************************************************
- * Copyright (C) 2001-2012 the VideoLAN team
+ * Copyright (C) 2001-2013 VLC authors and VideoLAN
  * $Id$
  *
- * Authors: Colin Delacroix <colin@zoy.org>
- *          Florian G. Pflug <fgp@phlo.org>
- *          Jon Lech Johansen <jon-vl@nanocrew.net>
- *          Derk-Jan Hartman <hartman at videolan dot org>
+ * Authors: Derk-Jan Hartman <hartman at videolan dot org>
  *          Eric Petit <titer@m0k.org>
  *          Benjamin Pracht <bigben at videolan dot org>
  *          Damien Fouilleul <damienf at videolan dot org>
  *          Pierre d'Herbemont <pdherbemont at videolan dot org>
  *          Felix Paul Kühne <fkuehne at videolan dot org>
  *          David Fuhrmann <david dot fuhrmann at googlemail dot com>
+ *          Rémi Denis-Courmont
+ *          Juho Vähä-Herttua <juhovh at iki dot fi>
+ *          Laurent Aimar <fenrir _AT_ videolan _DOT_ org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -173,7 +173,7 @@ static int Open (vlc_object_t *this)
             container = sys->embed->handle.nsobject;
 
         if (!container) {
-            msg_Dbg(vd, "No drawable-nsobject nor vout_window_t found, passing over.");
+            msg_Err(vd, "No drawable-nsobject nor vout_window_t found, passing over.");
             goto error;
         }
     }
@@ -220,6 +220,7 @@ static int Open (vlc_object_t *this)
 
     sys->vgl = vout_display_opengl_New (&vd->fmt, &subpicture_chromas, &sys->gl);
     if (!sys->vgl) {
+        msg_Err(vd, "Error while initializing opengl display.");
         sys->gl.sys = NULL;
         goto error;
     }
@@ -266,10 +267,10 @@ void Close (vlc_object_t *this)
     [(id)sys->container performSelectorOnMainThread:@selector(release) withObject:nil waitUntilDone:NO];
     [sys->glView performSelectorOnMainThread:@selector(removeFromSuperview) withObject:nil waitUntilDone:NO];
 
-    [sys->glView release];
-
     if (sys->gl.sys != NULL)
         vout_display_opengl_Delete (sys->vgl);
+
+    [sys->glView release];
 
     if (sys->embed)
         vout_display_DeleteWindow (vd, sys->embed);
@@ -315,6 +316,12 @@ static int Control (vout_display_t *vd, int query, va_list ap)
 {
     vout_display_sys_t *sys = vd->sys;
 
+    if (!vd->sys)
+        return VLC_EGENERIC;
+
+    if (!sys->embed)
+        return VLC_EGENERIC;
+
     switch (query)
     {
         case VOUT_DISPLAY_CHANGE_FULLSCREEN:
@@ -336,9 +343,6 @@ static int Control (vout_display_t *vd, int query, va_list ap)
         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
         case VOUT_DISPLAY_CHANGE_DISPLAY_SIZE:
         {
-            if (!vd->sys)
-                return VLC_EGENERIC;
-
             NSAutoreleasePool * o_pool = [[NSAutoreleasePool alloc] init];
 
             id o_window = [sys->glView window];
@@ -503,8 +507,23 @@ static void OpenglSwap (vlc_gl_t *gl)
     GLint params[] = { 1 };
     CGLSetParameter ([[self openGLContext] CGLContextObj], kCGLCPSwapInterval, params);
 
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                                                      object:[NSApplication sharedApplication]
+                                                       queue:nil
+                                                  usingBlock:^(NSNotification *notification) {
+                                                      [self performSelectorOnMainThread:@selector(reshape)
+                                                                             withObject:nil
+                                                                          waitUntilDone:NO];
+                                                  }];
+
     [self setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     return self;
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [super dealloc];
 }
 
 /**
@@ -702,9 +721,13 @@ static void OpenglSwap (vlc_gl_t *gl)
 
 - (void)mouseDown:(NSEvent *)o_event
 {
-    if ([o_event type] == NSLeftMouseDown && !([o_event modifierFlags] &  NSControlKeyMask)) {
-        if ([o_event clickCount] <= 1)
-            vout_display_SendEventMousePressed (vd, MOUSE_BUTTON_LEFT);
+    @synchronized (self) {
+        if (vd) {
+            if ([o_event type] == NSLeftMouseDown && !([o_event modifierFlags] &  NSControlKeyMask)) {
+                if ([o_event clickCount] <= 1)
+                    vout_display_SendEventMousePressed (vd, MOUSE_BUTTON_LEFT);
+            }
+        }
     }
 
     [super mouseDown:o_event];
@@ -712,22 +735,32 @@ static void OpenglSwap (vlc_gl_t *gl)
 
 - (void)otherMouseDown:(NSEvent *)o_event
 {
-    vout_display_SendEventMousePressed (vd, MOUSE_BUTTON_CENTER);
+    @synchronized (self) {
+        if (vd)
+            vout_display_SendEventMousePressed (vd, MOUSE_BUTTON_CENTER);
+    }
 
     [super otherMouseDown: o_event];
 }
 
 - (void)mouseUp:(NSEvent *)o_event
 {
-    if ([o_event type] == NSLeftMouseUp)
-        vout_display_SendEventMouseReleased (vd, MOUSE_BUTTON_LEFT);
+    @synchronized (self) {
+        if (vd) {
+            if ([o_event type] == NSLeftMouseUp)
+                vout_display_SendEventMouseReleased (vd, MOUSE_BUTTON_LEFT);
+        }
+    }
 
     [super mouseUp: o_event];
 }
 
 - (void)otherMouseUp:(NSEvent *)o_event
 {
-    vout_display_SendEventMouseReleased (vd, MOUSE_BUTTON_CENTER);
+    @synchronized (self) {
+        if (vd)
+            vout_display_SendEventMouseReleased (vd, MOUSE_BUTTON_CENTER);
+    }
 
     [super otherMouseUp: o_event];
 }

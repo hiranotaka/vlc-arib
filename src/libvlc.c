@@ -49,17 +49,12 @@
 
 #include "config/vlc_getopt.h"
 
-#ifdef HAVE_UNISTD_H
-#   include <unistd.h> /* isatty() */
-#endif
-
 #ifdef HAVE_DBUS
 /* used for one-instance mode */
 #   include <dbus/dbus.h>
 #endif
 
 
-#include <vlc_media_library.h>
 #include <vlc_playlist.h>
 #include <vlc_interface.h>
 
@@ -85,7 +80,7 @@
  * The evil global variables. We handle them with care, don't worry.
  *****************************************************************************/
 
-#if !defined(WIN32) && !defined(__OS2__)
+#if !defined(_WIN32) && !defined(__OS2__)
 static bool b_daemon = false;
 #endif
 
@@ -113,18 +108,9 @@ libvlc_int_t * libvlc_InternalCreate( void )
 
     priv = libvlc_priv (p_libvlc);
     priv->p_playlist = NULL;
-    priv->p_ml = NULL;
     priv->p_dialog_provider = NULL;
     priv->p_vlm = NULL;
-    priv->i_verbose = 3; /* initial value until config is loaded */
-#if defined( HAVE_ISATTY ) && !defined( WIN32 )
-    priv->b_color = isatty( STDERR_FILENO ); /* 2 is for stderr */
-#else
-    priv->b_color = false;
-#endif
 
-    /* Initialize mutexes */
-    vlc_mutex_init( &priv->ml_lock );
     vlc_ExitInit( &priv->exit );
 
     return p_libvlc;
@@ -145,7 +131,6 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     char *       psz_modules = NULL;
     char *       psz_parser = NULL;
     char *       psz_control = NULL;
-    playlist_t  *p_playlist = NULL;
     char        *psz_val;
 
     /* System specific initialization code */
@@ -163,20 +148,8 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
         module_EndBank (false);
         return VLC_EGENERIC;
     }
-    priv->i_verbose = var_InheritInteger( p_libvlc, "verbose" );
 
-    /* Find verbosity from VLC_VERBOSE environment variable */
-    {
-        char *env = getenv( "VLC_VERBOSE" );
-        if( env != NULL )
-            priv->i_verbose = atoi( env );
-    }
-
-    /* Announce who we are (TODO: only first instance?) */
-    msg_Dbg( p_libvlc, "VLC media player - %s", VERSION_MESSAGE );
-    msg_Dbg( p_libvlc, "%s", COPYRIGHT_MESSAGE );
-    msg_Dbg( p_libvlc, "revision %s", psz_vlc_changeset );
-    msg_Dbg( p_libvlc, "configured with %s", CONFIGURE_LINE );
+    vlc_LogInit (p_libvlc);
     vlc_threads_setup (p_libvlc);
 
     /* Load the builtins and plugins into the module_bank.
@@ -202,15 +175,10 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     int vlc_optind;
     if( config_LoadCmdLine( p_libvlc, i_argc, ppsz_argv, &vlc_optind ) )
     {
-#ifdef WIN32
-        MessageBox (NULL, TEXT("The command line options could not be parsed.\n"
-                    "Make sure they are valid."), TEXT("VLC media player"),
-                    MB_OK|MB_ICONERROR);
-#endif
         module_EndBank (true);
+        vlc_LogDeinit (p_libvlc);
         return VLC_EGENERIC;
     }
-    priv->i_verbose = var_InheritInteger( p_libvlc, "verbose" );
 
     /*
      * Support for gettext
@@ -225,14 +193,15 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
     if (config_PrintHelp (VLC_OBJECT(p_libvlc)))
     {
         module_EndBank (true);
-        return VLC_EEXITSUCCESS;
+        exit(0);
     }
 
     if( module_count <= 1 )
     {
         msg_Err( p_libvlc, "No plugins found! Check your VLC installation.");
         module_EndBank (true);
-        return VLC_ENOITEM;
+        vlc_LogDeinit (p_libvlc);
+        return VLC_ENOMOD;
     }
 
 #ifdef HAVE_DAEMON
@@ -245,7 +214,8 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
         {
             msg_Err( p_libvlc, "Unable to fork vlc to daemon mode" );
             module_EndBank (true);
-            return VLC_EEXIT;
+            vlc_LogDeinit (p_libvlc);
+            return VLC_ENOMEM;
         }
         b_daemon = true;
 
@@ -352,7 +322,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
 
             /* append MRLs */
             if( !dbus_message_append_args( msg, DBUS_TYPE_STRING, &mrl,
-                                                DBUS_TYPE_STRING, &after_track,
+                                                DBUS_TYPE_OBJECT_PATH, &after_track,
                                                 DBUS_TYPE_BOOLEAN, &play,
                                                 DBUS_TYPE_INVALID ) )
             {
@@ -387,22 +357,7 @@ int libvlc_InternalInit( libvlc_int_t *p_libvlc, int i_argc,
 dbus_out:
 #endif // HAVE_DBUS
 
-    /*
-     * Message queue options
-     */
-    /* Last chance to set the verbosity. Once we start interfaces and other
-     * threads, verbosity becomes read-only. */
-    var_Create( p_libvlc, "verbose", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
-    if( var_InheritBool( p_libvlc, "quiet" ) )
-    {
-        var_SetInteger( p_libvlc, "verbose", -1 );
-        priv->i_verbose = -1;
-    }
-    if( priv->b_color )
-        priv->b_color = var_InheritBool( p_libvlc, "color" );
-
     vlc_CPU_dump( VLC_OBJECT(p_libvlc) );
-    vlc_object_set_name( p_libvlc, "main" );
 
     priv->b_stats = var_InheritBool( p_libvlc, "stats" );
 
@@ -433,44 +388,8 @@ dbus_out:
     var_Create( p_libvlc, "user-agent", VLC_VAR_STRING );
     var_SetString( p_libvlc, "user-agent", "(LibVLC "VERSION")" );
 
-    /* Initialize playlist and get commandline files */
-    p_playlist = playlist_Create( VLC_OBJECT(p_libvlc) );
-    if( !p_playlist )
-    {
-        msg_Err( p_libvlc, "playlist initialization failed" );
-        module_EndBank (true);
-        return VLC_EGENERIC;
-    }
-
     /* System specific configuration */
     system_Configure( p_libvlc, i_argc - vlc_optind, ppsz_argv + vlc_optind );
-
-#if defined(MEDIA_LIBRARY)
-    /* Get the ML */
-    if( var_GetBool( p_libvlc, "load-media-library-on-startup" ) )
-    {
-        priv->p_ml = ml_Create( VLC_OBJECT( p_libvlc ), NULL );
-        if( !priv->p_ml )
-        {
-            msg_Err( p_libvlc, "ML initialization failed" );
-            return VLC_EGENERIC;
-        }
-    }
-    else
-    {
-        priv->p_ml = NULL;
-    }
-#endif
-
-    /* Add service discovery modules */
-    psz_modules = var_InheritString( p_libvlc, "services-discovery" );
-    if( psz_modules )
-    {
-        char *p = psz_modules, *m;
-        while( ( m = strsep( &p, " :," ) ) != NULL )
-            playlist_ServicesDiscoveryAdd( p_playlist, m );
-        free( psz_modules );
-    }
 
 #ifdef ENABLE_VLM
     /* Initialize VLM if vlm-conf is specified */
@@ -565,7 +484,7 @@ dbus_out:
     var_Create( p_libvlc, "drawable-clip-right", VLC_VAR_INTEGER );
     var_Create( p_libvlc, "drawable-nsobject", VLC_VAR_ADDRESS );
 #endif
-#if defined (WIN32) || defined (__OS2__)
+#if defined (_WIN32) || defined (__OS2__)
     var_Create( p_libvlc, "drawable-hwnd", VLC_VAR_INTEGER );
 #endif
 
@@ -582,7 +501,7 @@ dbus_out:
     psz_val = var_InheritString( p_libvlc, "open" );
     if ( psz_val != NULL )
     {
-        playlist_AddExt( p_playlist, psz_val, NULL, PLAYLIST_INSERT, 0,
+        playlist_AddExt( pl_Get(p_libvlc), psz_val, NULL, PLAYLIST_INSERT, 0,
                          -1, 0, NULL, 0, true, pl_Unlocked );
         free( psz_val );
     }
@@ -597,15 +516,6 @@ dbus_out:
 void libvlc_InternalCleanup( libvlc_int_t *p_libvlc )
 {
     libvlc_priv_t *priv = libvlc_priv (p_libvlc);
-    playlist_t    *p_playlist = libvlc_priv (p_libvlc)->p_playlist;
-
-    /* Deactivate the playlist */
-    msg_Dbg( p_libvlc, "deactivating the playlist" );
-    pl_Deactivate( p_libvlc );
-
-    /* Remove all services discovery */
-    msg_Dbg( p_libvlc, "removing all services discovery tasks" );
-    playlist_ServicesDiscoveryKillAll( p_playlist );
 
     /* Ask the interfaces to stop and destroy them */
     msg_Dbg( p_libvlc, "removing all interfaces" );
@@ -620,22 +530,14 @@ void libvlc_InternalCleanup( libvlc_int_t *p_libvlc )
     }
 #endif
 
-#if defined(MEDIA_LIBRARY)
-    media_library_t* p_ml = priv->p_ml;
-    if( p_ml )
-    {
-        ml_Destroy( VLC_OBJECT( p_ml ) );
-        vlc_object_release( p_ml );
-        libvlc_priv(p_playlist->p_libvlc)->p_ml = NULL;
-    }
-#endif
-
     /* Free playlist now, all threads are gone */
-    playlist_Destroy( p_playlist );
+    playlist_t *p_playlist = libvlc_priv (p_libvlc)->p_playlist;
+    if( p_playlist != NULL )
+        playlist_Destroy( p_playlist );
 
     msg_Dbg( p_libvlc, "removing stats" );
 
-#if !defined( WIN32 ) && !defined( __OS2__ )
+#if !defined( _WIN32 ) && !defined( __OS2__ )
     char* psz_pidfile = NULL;
 
     if( b_daemon )
@@ -654,15 +556,16 @@ void libvlc_InternalCleanup( libvlc_int_t *p_libvlc )
     }
 #endif
 
+    vlc_DeinitActions( p_libvlc, priv->actions );
+
     /* Save the configuration */
     if( !var_InheritBool( p_libvlc, "ignore-config" ) )
         config_AutoSaveConfigFile( VLC_OBJECT(p_libvlc) );
 
     /* Free module bank. It is refcounted, so we call this each time  */
     module_EndBank (true);
-
-    vlc_DeinitActions( p_libvlc, priv->actions );
-#ifdef WIN32
+    vlc_LogDeinit (p_libvlc);
+#if defined(_WIN32) || defined(__OS2__)
     system_End( );
 #endif
 }
@@ -678,9 +581,7 @@ void libvlc_InternalDestroy( libvlc_int_t *p_libvlc )
 {
     libvlc_priv_t *priv = libvlc_priv( p_libvlc );
 
-    /* Destroy mutexes */
     vlc_ExitDestroy( &priv->exit );
-    vlc_mutex_destroy( &priv->ml_lock );
 
     assert( atomic_load(&(vlc_internals(p_libvlc)->refs)) == 1 );
     vlc_object_release( p_libvlc );
@@ -699,7 +600,7 @@ int libvlc_InternalAddIntf( libvlc_int_t *p_libvlc, char const *psz_module )
         char *psz_interface = var_CreateGetNonEmptyString( p_libvlc, "intf" );
         if( !psz_interface ) /* "intf" has not been set */
         {
-#if !defined( WIN32 ) && !defined( __OS2__ )
+#if !defined( _WIN32 ) && !defined( __OS2__ )
             if( b_daemon )
                  /* Daemon mode hack.
                   * We prefer the dummy interface if none is specified. */

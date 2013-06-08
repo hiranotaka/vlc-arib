@@ -12,7 +12,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -53,7 +53,8 @@ struct key_handler_t
  * @param conn XCB connection to the X server (to fetch key mappings)
  * @return NULL on error, or a key handling context.
  */
-key_handler_t *CreateKeyHandler (vlc_object_t *obj, xcb_connection_t *conn)
+key_handler_t *XCB_keyHandler_Create (vlc_object_t *obj,
+                                      xcb_connection_t *conn)
 {
     key_handler_t *ctx = malloc (sizeof (*ctx));
     if (!ctx)
@@ -64,7 +65,7 @@ key_handler_t *CreateKeyHandler (vlc_object_t *obj, xcb_connection_t *conn)
     return ctx;
 }
 
-void DestroyKeyHandler (key_handler_t *ctx)
+void XCB_keyHandler_Destroy (key_handler_t *ctx)
 {
     xcb_key_symbols_free (ctx->syms);
     free (ctx);
@@ -97,6 +98,23 @@ static uint_fast32_t ConvertKeySym (xcb_keysym_t sym)
     if (sym >= 0x1000100 && sym <= 0x110ffff)
         return sym - 0x1000000;
 
+#if 0
+    for (size_t i = 0; i < sizeof (tab) / sizeof (tab[0]); i++)
+        if (i > 0 && tab[i-1].x11 >= tab[i].x11)
+        {
+            fprintf (stderr, "key %x and %x are not ordered properly\n",
+                     tab[i-1].x11, tab[i].x11);
+            abort ();
+        }
+    for (size_t i = 0; i < sizeof (old) / sizeof (old[0]); i++)
+        if (i > 0 && old[i-1].x11 >= old[i].x11)
+        {
+            fprintf (stderr, "key %x and %x are not ordered properly\n",
+                     old[i-1].x11, old[i].x11);
+            abort ();
+        }
+#endif
+
     /* Special keys */
     res = bsearch (&sym, tab, sizeof (tab) / sizeof (tab[0]), sizeof (tab[0]),
                    keysymcmp);
@@ -119,7 +137,7 @@ static uint_fast32_t ConvertKeySym (xcb_keysym_t sym)
  * @param ev XCB event to process
  * @return 0 if the event was handled and free()'d, non-zero otherwise
  */
-int ProcessKeyEvent (key_handler_t *ctx, xcb_generic_event_t *ev)
+int XCB_keyHandler_Process (key_handler_t *ctx, xcb_generic_event_t *ev)
 {
     assert (ctx);
 
@@ -168,20 +186,21 @@ int ProcessKeyEvent (key_handler_t *ctx, xcb_generic_event_t *ev)
 
 #else /* HAVE_XCB_KEYSYMS */
 
-key_handler_t *CreateKeyHandler (vlc_object_t *obj, xcb_connection_t *conn)
+key_handler_t *XCB_keyHandler_Create (vlc_object_t *obj,
+                                      xcb_connection_t *conn)
 {
     msg_Err (obj, "X11 key press support not compiled-in");
     (void) conn;
     return NULL;
 }
 
-void DestroyKeyHandler (key_handler_t *ctx)
+void XCB_keyHandler_Destroy (key_handler_t *ctx)
 {
     (void) ctx;
     abort ();
 }
 
-int ProcessKeyEvent (key_handler_t *ctx, xcb_generic_event_t *ev)
+int XCB_keyHandler_Process (key_handler_t *ctx, xcb_generic_event_t *ev)
 {
     (void) ctx;
     (void) ev;

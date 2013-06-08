@@ -12,7 +12,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public License
@@ -61,7 +61,7 @@ struct vlc_va_sys_t
 {
     struct vda_context  hw_ctx;
 
-    const uint8_t       *p_extradata;
+    uint8_t             *p_extradata;
     int                 i_extradata;
 
     vlc_fourcc_t        i_chroma;
@@ -91,6 +91,9 @@ static void vda_Copy420YpCbCr8Planar( picture_t *p_pic,
     uint8_t *pp_plane[3];
     size_t  pi_pitch[3];
 
+    if (!buffer)
+        return;
+
     CVPixelBufferLockBaseAddress( buffer, 0 );
 
     for( int i = 0; i < 3; i++ )
@@ -103,6 +106,7 @@ static void vda_Copy420YpCbCr8Planar( picture_t *p_pic,
                   i_width, i_height, cache );
 
     CVPixelBufferUnlockBaseAddress( buffer, 0 );
+    CVPixelBufferRelease( buffer );
 }
 
 /*****************************************************************************
@@ -133,13 +137,13 @@ static void vda_Copy422YpCbCr8( picture_t *p_pic,
     }
 
     CVPixelBufferUnlockBaseAddress( buffer, 0 );
+    CVPixelBufferRelease( buffer );
 }
 
-static int Setup( vlc_va_t *p_external, void **pp_hw_ctx, vlc_fourcc_t *pi_chroma,
+static int Setup( vlc_va_t *external, void **pp_hw_ctx, vlc_fourcc_t *pi_chroma,
                   int i_width, int i_height )
 {
-
-    vlc_va_vda_t *p_va = vlc_va_vda_Get( p_external );
+    vlc_va_vda_t *p_va = vlc_va_vda_Get( external );
 
     if( p_va->hw_ctx.width == i_width
         && p_va->hw_ctx.height == i_height
@@ -160,7 +164,6 @@ static int Setup( vlc_va_t *p_external, void **pp_hw_ctx, vlc_fourcc_t *pi_chrom
     p_va->hw_ctx.width = i_width;
     p_va->hw_ctx.height = i_height;
     p_va->hw_ctx.format = 'avc1';
-    p_va->hw_ctx.use_sync_decoding = 1;
 
     int i_pix_fmt = var_CreateGetInteger( p_va->p_log, "avcodec-vda-pix-fmt" );
 
@@ -169,12 +172,14 @@ static int Setup( vlc_va_t *p_external, void **pp_hw_ctx, vlc_fourcc_t *pi_chrom
         case 1 :
             p_va->hw_ctx.cv_pix_fmt_type = kCVPixelFormatType_422YpCbCr8;
             p_va->i_chroma = VLC_CODEC_UYVY;
+            msg_Dbg(p_va->p_log, "using pixel format 422YpCbCr8");
             break;
         case 0 :
         default :
             p_va->hw_ctx.cv_pix_fmt_type = kCVPixelFormatType_420YpCbCr8Planar;
             p_va->i_chroma = VLC_CODEC_I420;
             CopyInitCache( &p_va->image_cache, i_width );
+            msg_Dbg(p_va->p_log, "using pixel format 420YpCbCr8Planar");
     }
 
 ok:
@@ -188,16 +193,18 @@ ok:
                                         p_va->i_extradata );
     if( status )
     {
-        msg_Err( p_va->p_log, "Failed to create the decoder : %i", status );
+        msg_Err( p_va->p_log, "Failed to create decoder: %i", status );
         return VLC_EGENERIC;
     }
+    else
+        msg_Dbg( p_va->p_log, "VDA decoder created");
 
     return VLC_SUCCESS;
 }
 
-static int Get( vlc_va_t *p_external, AVFrame *p_ff )
+static int Get( vlc_va_t *external, AVFrame *p_ff )
 {
-    VLC_UNUSED( p_external );
+    VLC_UNUSED( external );
 
     /* */
     for( int i = 0; i < 4; i++ )
@@ -206,15 +213,15 @@ static int Get( vlc_va_t *p_external, AVFrame *p_ff )
         p_ff->linesize[i] = 0;
 
         if( i == 0 || i == 3 )
-        p_ff->data[i] = 1; // dummy
+        p_ff->data[i] = (uint8_t *)1; // dummy
     }
 
     return VLC_SUCCESS;
 }
 
-static int Extract( vlc_va_t *p_external, picture_t *p_picture, AVFrame *p_ff )
+static int Extract( vlc_va_t *external, picture_t *p_picture, AVFrame *p_ff )
 {
-    vlc_va_vda_t *p_va = vlc_va_vda_Get( p_external );
+    vlc_va_vda_t *p_va = vlc_va_vda_Get( external );
     CVPixelBufferRef cv_buffer = ( CVPixelBufferRef )p_ff->data[3];
 
     if( !cv_buffer )
@@ -225,8 +232,10 @@ static int Extract( vlc_va_t *p_external, picture_t *p_picture, AVFrame *p_ff )
 
     if( p_va->hw_ctx.cv_pix_fmt_type == kCVPixelFormatType_420YpCbCr8Planar )
     {
-        if( !p_va->image_cache.buffer )
+        if( !p_va->image_cache.buffer ) {
+            CVPixelBufferRelease( cv_buffer );
             return VLC_EGENERIC;
+        }
 
         vda_Copy420YpCbCr8Planar( p_picture,
                                   cv_buffer,
@@ -240,18 +249,20 @@ static int Extract( vlc_va_t *p_external, picture_t *p_picture, AVFrame *p_ff )
     return VLC_SUCCESS;
 }
 
-static void Release( vlc_va_t *p_external, AVFrame *p_ff )
+static void Release( vlc_va_t *external, AVFrame *p_ff )
 {
-    VLC_UNUSED( p_external );
+    VLC_UNUSED( external );
     CVPixelBufferRef cv_buffer = ( CVPixelBufferRef )p_ff->data[3];
 
     if ( cv_buffer )
-        CFRelease( cv_buffer );
+        CVPixelBufferRelease( cv_buffer );
 }
 
-static void Close( vlc_va_t *p_external )
+static void Close( vlc_va_t *external )
 {
-    vlc_va_vda_t *p_va = vlc_va_vda_Get( p_external );
+    vlc_va_vda_t *p_va = vlc_va_vda_Get( external );
+
+    msg_Dbg(p_va->p_log, "destroying VDA decoder");
 
     ff_vda_destroy_decoder( &p_va->hw_ctx ) ;
 
@@ -263,18 +274,22 @@ static void Close( vlc_va_t *p_external )
 
 static int Open( vlc_va_t *external, int i_codec_id, const es_format_t *fmt )
 {
-    if( i_codec_id != CODEC_ID_H264 )
-        return NULL;
+    msg_Dbg( external, "opening VDA module" );
+    if( i_codec_id != AV_CODEC_ID_H264 )
+    {
+        msg_Warn( external, "input codec isn't H264, canceling VDA decoding" );
+        return VLC_EGENERIC;
+    }
 
     if( fmt->p_extra == NULL || fmt->i_extra < 7 )
     {
         msg_Warn( external, "VDA requires extradata." );
-        return NULL;
+        return VLC_EGENERIC;
     }
 
     vlc_va_vda_t *p_va = calloc( 1, sizeof(*p_va) );
     if( !p_va )
-        return NULL;
+        return VLC_EGENERIC;
 
     p_va->p_log = VLC_OBJECT(external);
     p_va->p_extradata = fmt->p_extra;

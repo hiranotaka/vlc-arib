@@ -100,9 +100,11 @@
     input_item_t * p_item;
 
     BOOL b_awakeFromNib;
+    BOOL b_stats;
 }
 @property (readonly) input_item_t * item;
 
+- (void)updateCocoaWindowLevel:(NSInteger)i_level;
 - (void)initPanel;
 
 - (IBAction)metaFieldChanged:(id)sender;

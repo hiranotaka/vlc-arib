@@ -47,16 +47,18 @@
  * Local prototypes
  *****************************************************************************/
 /* Object variables callbacks */
-static int ZoomCallback( vlc_object_t *, char const *,
-                         vlc_value_t, vlc_value_t, void * );
 static int CropCallback( vlc_object_t *, char const *,
                          vlc_value_t, vlc_value_t, void * );
 static int CropBorderCallback( vlc_object_t *, char const *,
                                vlc_value_t, vlc_value_t, void * );
 static int AspectCallback( vlc_object_t *, char const *,
                            vlc_value_t, vlc_value_t, void * );
-static int ScalingCallback( vlc_object_t *, char const *,
-                            vlc_value_t, vlc_value_t, void * );
+static int AutoScaleCallback( vlc_object_t *, char const *,
+                              vlc_value_t, vlc_value_t, void * );
+static int ScaleCallback( vlc_object_t *, char const *,
+                          vlc_value_t, vlc_value_t, void * );
+static int ZoomCallback( vlc_object_t *, char const *,
+                         vlc_value_t, vlc_value_t, void * );
 static int OnTopCallback( vlc_object_t *, char const *,
                           vlc_value_t, vlc_value_t, void * );
 static int FullscreenCallback( vlc_object_t *, char const *,
@@ -162,9 +164,18 @@ void vout_IntfInit( vout_thread_t *p_vout )
     var_Create( p_vout, "mouse-hide-timeout",
                 VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
 
-    var_Create( p_vout, "video-title-show", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
-    var_Create( p_vout, "video-title-timeout", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
-    var_Create( p_vout, "video-title-position", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
+    /* Add variables to manage scaling video */
+    var_Create( p_vout, "autoscale", VLC_VAR_BOOL | VLC_VAR_DOINHERIT
+                | VLC_VAR_ISCOMMAND );
+    text.psz_string = _("Autoscale video");
+    var_Change( p_vout, "autoscale", VLC_VAR_SETTEXT, &text, NULL );
+    var_AddCallback( p_vout, "autoscale", AutoScaleCallback, NULL );
+
+    var_Create( p_vout, "scale", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT
+                | VLC_VAR_ISCOMMAND );
+    text.psz_string = _("Scale factor");
+    var_Change( p_vout, "scale", VLC_VAR_SETTEXT, &text, NULL );
+    var_AddCallback( p_vout, "scale", ScaleCallback, NULL );
 
     /* Zoom object var */
     var_Create( p_vout, "zoom", VLC_VAR_FLOAT | VLC_VAR_ISCOMMAND |
@@ -172,19 +183,20 @@ void vout_IntfInit( vout_thread_t *p_vout )
 
     text.psz_string = _("Zoom");
     var_Change( p_vout, "zoom", VLC_VAR_SETTEXT, &text, NULL );
-
-    var_Get( p_vout, "zoom", &old_val );
+    old_val.f_float = var_GetFloat( p_vout, "zoom" );
 
     for( size_t i = 0; i < ARRAY_SIZE(p_zoom_values); i++ )
     {
-        if( old_val.f_float == p_zoom_values[i].f_value )
-            var_Change( p_vout, "zoom", VLC_VAR_DELCHOICE, &old_val, NULL );
         val.f_float = p_zoom_values[i].f_value;
-        text.psz_string = _( p_zoom_values[i].psz_label );
+        text.psz_string = vlc_gettext( p_zoom_values[i].psz_label );
+        /* FIXME: This DELCHOICE hack corrupts the the "zoom" variable value
+         * for a short time window. Same for "crop" and "aspect-ratio". */
+        if( old_val.f_float == val.f_float )
+            var_Change( p_vout, "zoom", VLC_VAR_DELCHOICE, &old_val, NULL );
         var_Change( p_vout, "zoom", VLC_VAR_ADDCHOICE, &val, &text );
+        if( old_val.f_float == val.f_float )
+            var_Change( p_vout, "zoom", VLC_VAR_SETVALUE, &old_val, NULL );
     }
-
-    var_Set( p_vout, "zoom", old_val ); /* Is this really needed? */
 
     var_AddCallback( p_vout, "zoom", ZoomCallback, NULL );
 
@@ -225,10 +237,6 @@ void vout_IntfInit( vout_thread_t *p_vout )
     }
 
     var_AddCallback( p_vout, "crop", CropCallback, NULL );
-    var_Get( p_vout, "crop", &old_val );
-    if( old_val.psz_string && *old_val.psz_string )
-        var_TriggerCallback( p_vout, "crop" );
-    free( old_val.psz_string );
 
     /* Monitor pixel aspect-ratio */
     var_Create( p_vout, "monitor-par", VLC_VAR_STRING | VLC_VAR_DOINHERIT );
@@ -237,7 +245,7 @@ void vout_IntfInit( vout_thread_t *p_vout )
     var_Create( p_vout, "aspect-ratio", VLC_VAR_STRING | VLC_VAR_ISCOMMAND |
                 VLC_VAR_HASCHOICE | VLC_VAR_DOINHERIT );
 
-    text.psz_string = _("Aspect-ratio");
+    text.psz_string = _("Aspect ratio");
     var_Change( p_vout, "aspect-ratio", VLC_VAR_SETTEXT, &text, NULL );
 
     val.psz_string = (char*)"";
@@ -259,23 +267,6 @@ void vout_IntfInit( vout_thread_t *p_vout )
     }
 
     var_AddCallback( p_vout, "aspect-ratio", AspectCallback, NULL );
-    var_Get( p_vout, "aspect-ratio", &old_val );
-    if( (old_val.psz_string && *old_val.psz_string) )
-        var_TriggerCallback( p_vout, "aspect-ratio" );
-    free( old_val.psz_string );
-
-    /* Add variables to manage scaling video */
-    var_Create( p_vout, "autoscale", VLC_VAR_BOOL | VLC_VAR_DOINHERIT
-                | VLC_VAR_ISCOMMAND );
-    text.psz_string = _("Autoscale video");
-    var_Change( p_vout, "autoscale", VLC_VAR_SETTEXT, &text, NULL );
-    var_AddCallback( p_vout, "autoscale", ScalingCallback, NULL );
-
-    var_Create( p_vout, "scale", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT
-                | VLC_VAR_ISCOMMAND );
-    text.psz_string = _("Scale factor");
-    var_Change( p_vout, "scale", VLC_VAR_SETTEXT, &text, NULL );
-    var_AddCallback( p_vout, "scale", ScalingCallback, NULL );
 
     /* Add a variable to indicate if the window should be on top of others */
     var_Create( p_vout, "video-on-top", VLC_VAR_BOOL | VLC_VAR_DOINHERIT
@@ -283,7 +274,6 @@ void vout_IntfInit( vout_thread_t *p_vout )
     text.psz_string = _("Always on top");
     var_Change( p_vout, "video-on-top", VLC_VAR_SETTEXT, &text, NULL );
     var_AddCallback( p_vout, "video-on-top", OnTopCallback, NULL );
-    var_TriggerCallback( p_vout, "video-on-top" );
 
     /* Add a variable to indicate whether we want window decoration or not */
     var_Create( p_vout, "video-deco", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
@@ -305,31 +295,43 @@ void vout_IntfInit( vout_thread_t *p_vout )
     var_Create( p_vout, "video-filter",
                 VLC_VAR_STRING | VLC_VAR_DOINHERIT | VLC_VAR_ISCOMMAND );
     var_AddCallback( p_vout, "video-filter", VideoFilterCallback, NULL );
-    var_TriggerCallback( p_vout, "video-filter" );
 
     /* Add a sub-source variable */
     var_Create( p_vout, "sub-source",
                 VLC_VAR_STRING | VLC_VAR_DOINHERIT | VLC_VAR_ISCOMMAND );
     var_AddCallback( p_vout, "sub-source", SubSourceCallback, NULL );
-    var_TriggerCallback( p_vout, "sub-source" );
 
     /* Add a sub-filter variable */
     var_Create( p_vout, "sub-filter",
                 VLC_VAR_STRING | VLC_VAR_DOINHERIT | VLC_VAR_ISCOMMAND );
     var_AddCallback( p_vout, "sub-filter", SubFilterCallback, NULL );
-    var_TriggerCallback( p_vout, "sub-filter" );
 
     /* Add sub-margin variable */
     var_Create( p_vout, "sub-margin",
                 VLC_VAR_INTEGER | VLC_VAR_DOINHERIT | VLC_VAR_ISCOMMAND );
     var_AddCallback( p_vout, "sub-margin", SubMarginCallback, NULL );
-    var_TriggerCallback( p_vout, "sub-margin" );
 
     /* Mouse coordinates */
     var_Create( p_vout, "mouse-button-down", VLC_VAR_INTEGER );
     var_Create( p_vout, "mouse-moved", VLC_VAR_COORDS );
     var_Create( p_vout, "mouse-clicked", VLC_VAR_COORDS );
     var_Create( p_vout, "mouse-object", VLC_VAR_BOOL );
+
+    vout_IntfReinit( p_vout );
+}
+
+void vout_IntfReinit( vout_thread_t *p_vout )
+{
+    var_TriggerCallback( p_vout, "zoom" );
+    var_TriggerCallback( p_vout, "crop" );
+    var_TriggerCallback( p_vout, "aspect-ratio" );
+
+    var_TriggerCallback( p_vout, "video-on-top" );
+
+    var_TriggerCallback( p_vout, "video-filter" );
+    var_TriggerCallback( p_vout, "sub-source" );
+    var_TriggerCallback( p_vout, "sub-filter" );
+    var_TriggerCallback( p_vout, "sub-margin" );
 }
 
 /*****************************************************************************
@@ -535,14 +537,6 @@ void vout_EnableFilter( vout_thread_t *p_vout, const char *psz_name,
 /*****************************************************************************
  * Object variables callbacks
  *****************************************************************************/
-static int ZoomCallback( vlc_object_t *p_this, char const *psz_cmd,
-                         vlc_value_t oldval, vlc_value_t newval, void *p_data )
-{
-    (void)psz_cmd; (void)oldval; (void)p_data;
-
-    return var_SetFloat( p_this, "scale", newval.f_float );
-}
-
 static int CropCallback( vlc_object_t *object, char const *cmd,
                          vlc_value_t oldval, vlc_value_t newval, void *data )
 {
@@ -598,18 +592,31 @@ static int AspectCallback( vlc_object_t *object, char const *cmd,
     return VLC_SUCCESS;
 }
 
-static int ScalingCallback( vlc_object_t *p_this, char const *psz_cmd,
-                         vlc_value_t oldval, vlc_value_t newval, void *p_data )
+static int AutoScaleCallback( vlc_object_t *obj, char const *name,
+                              vlc_value_t prev, vlc_value_t cur, void *data )
 {
-    vout_thread_t *p_vout = (vout_thread_t *)p_this;
-    (void)oldval; (void)newval; (void)p_data;
+    vout_thread_t *p_vout = (vout_thread_t *)obj;
 
-    if( !strcmp( psz_cmd, "autoscale" ) )
-        vout_ControlChangeDisplayFilled( p_vout, newval.b_bool );
-    else if( !strcmp( psz_cmd, "scale" ) )
-        vout_ControlChangeZoom( p_vout, 1000 * newval.f_float, 1000 );
-
+    (void) name; (void) prev; (void) data;
+    vout_ControlChangeDisplayFilled( p_vout, cur.b_bool );
     return VLC_SUCCESS;
+}
+
+static int ScaleCallback( vlc_object_t *obj, char const *name,
+                          vlc_value_t prev, vlc_value_t cur, void *data )
+{
+    vout_thread_t *p_vout = (vout_thread_t *)obj;
+
+    (void) name; (void) prev; (void) data;
+    vout_ControlChangeZoom( p_vout, 1000 * cur.f_float, 1000 );
+    return VLC_SUCCESS;
+}
+
+static int ZoomCallback( vlc_object_t *obj, char const *name,
+                         vlc_value_t prev, vlc_value_t cur, void *data )
+{
+    (void) name; (void) prev; (void) data;
+    return var_SetFloat( obj, "scale", cur.f_float );
 }
 
 static int OnTopCallback( vlc_object_t *p_this, char const *psz_cmd,

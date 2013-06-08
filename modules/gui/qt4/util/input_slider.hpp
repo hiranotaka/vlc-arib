@@ -46,6 +46,7 @@ class QTimer;
 class SeekPoints;
 class QPropertyAnimation;
 class QStyleOption;
+class QCommonStyle;
 
 /* Input Slider derived from QSlider */
 class SeekSlider : public QSlider
@@ -70,6 +71,7 @@ protected:
 
     virtual QSize sizeHint() const;
 
+    void processReleasedButton();
     bool isAnimationRunning() const;
     qreal handleOpacity() const;
     void setHandleOpacity( qreal opacity );
@@ -96,6 +98,8 @@ private:
     QColor tickpointForeground;
     QColor shadowDark;
     QColor shadowLight;
+    QCommonStyle *alternativeStyle;
+
     /* Handle's animation */
     qreal mHandleOpacity;
     QPropertyAnimation *animHandle;
@@ -121,11 +125,13 @@ signals:
 /* Sound Slider inherited directly from QAbstractSlider */
 class QPaintEvent;
 
+#define SOUNDMAX  125 // % (+6dB)
+
 class SoundSlider : public QAbstractSlider
 {
     Q_OBJECT
 public:
-    SoundSlider( QWidget *_parent, int _i_step, char * );
+    SoundSlider(QWidget *_parent, float _i_step, char *psz_colors, int max = SOUNDMAX );
     void setMuted( bool ); /* Set Mute status */
 
 protected:
@@ -137,6 +143,8 @@ protected:
     virtual void mousePressEvent( QMouseEvent * );
     virtual void mouseMoveEvent( QMouseEvent * );
     virtual void mouseReleaseEvent( QMouseEvent * );
+
+    void processReleasedButton();
 
 private:
     bool isSliding; /* Whether we are currently sliding by user action */

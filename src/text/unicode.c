@@ -39,7 +39,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <sys/types.h>
-#if defined(WIN32)
+#if defined(_WIN32)
 #  include <io.h>
 #endif
 #include <errno.h>
@@ -51,7 +51,7 @@
  */
 int utf8_vfprintf( FILE *stream, const char *fmt, va_list ap )
 {
-#ifndef WIN32
+#ifndef _WIN32
     return vfprintf (stream, fmt, ap);
 #else
     char *str;
@@ -59,6 +59,7 @@ int utf8_vfprintf( FILE *stream, const char *fmt, va_list ap )
     if (unlikely(res == -1))
         return -1;
 
+#if !VLC_WINSTORE_APP
     /* Writing to the console is a lot of fun on Microsoft Windows.
      * If you use the standard I/O functions, you must use the OEM code page,
      * which is different from the usual ANSI code page. Or maybe not, if the
@@ -79,12 +80,12 @@ int utf8_vfprintf( FILE *stream, const char *fmt, va_list ap )
                 goto out;
         }
     }
-
-    char *ansi = ToANSI (str);
-    if (ansi != NULL)
+#endif
+    wchar_t *wide = ToWide(str);
+    if (likely(wide != NULL))
     {
-        fputs (ansi, stream);
-        free (ansi);
+        res = fputws(wide, stream);
+        free(wide);
     }
     else
         res = -1;

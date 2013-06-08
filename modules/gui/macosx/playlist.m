@@ -50,7 +50,6 @@
 #import "MainMenu.h"
 
 #include <vlc_keys.h>
-#import <vlc_osd.h>
 #import <vlc_interface.h>
 
 #include <vlc_url.h>
@@ -296,20 +295,20 @@
     if ([o_identifier isEqualToString:TRACKNUM_COLUMN]) {
         psz_value = input_item_GetTrackNumber(p_item->p_input);
         if (psz_value) {
-            o_value = [NSString stringWithUTF8String: psz_value];
+            o_value = @(psz_value);
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:TITLE_COLUMN]) {
         /* sanity check to prevent the NSString class from crashing */
         char *psz_title =  input_item_GetTitleFbName(p_item->p_input);
         if (psz_title) {
-            o_value = [NSString stringWithUTF8String: psz_title];
+            o_value = @(psz_title);
             free(psz_title);
         }
     } else if ([o_identifier isEqualToString:ARTIST_COLUMN]) {
         psz_value = input_item_GetArtist(p_item->p_input);
         if (psz_value) {
-            o_value = [NSString stringWithUTF8String: psz_value];
+            o_value = @(psz_value);
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:@"duration"]) {
@@ -317,45 +316,45 @@
         mtime_t dur = input_item_GetDuration(p_item->p_input);
         if (dur != -1) {
             secstotimestr(psz_duration, dur/1000000);
-            o_value = [NSString stringWithUTF8String: psz_duration];
+            o_value = @(psz_duration);
         }
         else
             o_value = @"--:--";
     } else if ([o_identifier isEqualToString:GENRE_COLUMN]) {
         psz_value = input_item_GetGenre(p_item->p_input);
         if (psz_value) {
-            o_value = [NSString stringWithUTF8String: psz_value];
+            o_value = @(psz_value);
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:ALBUM_COLUMN]) {
         psz_value = input_item_GetAlbum(p_item->p_input);
         if (psz_value) {
-            o_value = [NSString stringWithUTF8String: psz_value];
+            o_value = @(psz_value);
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:DESCRIPTION_COLUMN]) {
         psz_value = input_item_GetDescription(p_item->p_input);
         if (psz_value) {
-            o_value = [NSString stringWithUTF8String: psz_value];
+            o_value = @(psz_value);
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:DATE_COLUMN]) {
         psz_value = input_item_GetDate(p_item->p_input);
         if (psz_value) {
-            o_value = [NSString stringWithUTF8String: psz_value];
+            o_value = @(psz_value);
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:LANGUAGE_COLUMN]) {
         psz_value = input_item_GetLanguage(p_item->p_input);
         if (psz_value) {
-            o_value = [NSString stringWithUTF8String: psz_value];
+            o_value = @(psz_value);
             free(psz_value);
         }
     }
     else if ([o_identifier isEqualToString:URI_COLUMN]) {
         psz_value = decode_URI(input_item_GetURI(p_item->p_input));
         if (psz_value) {
-            o_value = [NSString stringWithUTF8String: psz_value];
+            o_value = @(psz_value);
             free(psz_value);
         }
     }
@@ -403,15 +402,19 @@
 /*****************************************************************************
  * VLCPlaylist implementation
  *****************************************************************************/
+@interface VLCPlaylist (Internal)
+- (void)saveTableColumns;
+@end
+
 @implementation VLCPlaylist
 
 + (void)initialize{
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableArray * o_columnArray = [[NSMutableArray alloc] init];
-    [o_columnArray addObject: [NSArray arrayWithObjects: TITLE_COLUMN, [NSNumber numberWithFloat: 190.], nil]];
-    [o_columnArray addObject: [NSArray arrayWithObjects: ARTIST_COLUMN, [NSNumber numberWithFloat: 95.], nil]];
-    [o_columnArray addObject: [NSArray arrayWithObjects: DURATION_COLUMN, [NSNumber numberWithFloat: 95.], nil]];
-    NSDictionary *appDefaults = [NSDictionary dictionaryWithObject:[NSArray arrayWithArray:o_columnArray] forKey:@"PlaylistColumnSelection"];
+    [o_columnArray addObject: @[TITLE_COLUMN, @190.]];
+    [o_columnArray addObject: @[ARTIST_COLUMN, @95.]];
+    [o_columnArray addObject: @[DURATION_COLUMN, @95.]];
+    NSDictionary *appDefaults = [NSDictionary dictionaryWithObject:[NSArray arrayWithArray:o_columnArray] forKey: @"PlaylistColumnSelection"];
 
     [defaults registerDefaults:appDefaults];
     [o_columnArray release];
@@ -443,14 +446,10 @@
     [o_outline_view setDoubleAction: @selector(playItem:)];
     [o_outline_view_other setDoubleAction: @selector(playItem:)];
 
-    [o_outline_view registerForDraggedTypes:
-        [NSArray arrayWithObjects: NSFilenamesPboardType,
-        @"VLCPlaylistItemPboardType", nil]];
+    [o_outline_view registerForDraggedTypes: @[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
     [o_outline_view setIntercellSpacing: NSMakeSize (0.0, 1.0)];
 
-    [o_outline_view_other registerForDraggedTypes:
-     [NSArray arrayWithObjects: NSFilenamesPboardType,
-      @"VLCPlaylistItemPboardType", nil]];
+    [o_outline_view_other registerForDraggedTypes: @[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
     [o_outline_view_other setIntercellSpacing: NSMakeSize (0.0, 1.0)];
 
     /* This uses a private API, but works fine on all current OSX releases.
@@ -515,7 +514,7 @@
     [o_save_accessory_text setStringValue: _NS("File Format:")];
     [[o_save_accessory_popup itemAtIndex:0] setTitle: _NS("Extended M3U")];
     [[o_save_accessory_popup itemAtIndex:1] setTitle: _NS("XML Shareable Playlist Format (XSPF)")];
-    [[o_save_accessory_popup itemAtIndex:2] setTitle: _NS("HTML Playlist")];
+    [[o_save_accessory_popup itemAtIndex:2] setTitle: _NS("HTML playlist")];
 }
 
 - (void)playlistUpdated
@@ -793,7 +792,7 @@
             continue;
 
         char * psz_url = decode_URI(input_item_GetURI(p_item->p_input));
-        o_mrl = [[NSMutableString alloc] initWithString: [NSString stringWithUTF8String: psz_url ? psz_url : ""]];
+        o_mrl = [[NSMutableString alloc] initWithString: @(psz_url ? psz_url : "")];
         if (psz_url != NULL)
             free( psz_url );
 
@@ -1036,7 +1035,7 @@
         NSDictionary *o_one_item;
 
         /* Get the item */
-        o_one_item = [o_array objectAtIndex: i_item];
+        o_one_item = [o_array objectAtIndex:i_item];
         p_input = [self createItem: o_one_item];
         if (!p_input)
             continue;
@@ -1069,7 +1068,7 @@
         NSDictionary *o_one_item;
 
         /* Get the item */
-        o_one_item = [o_array objectAtIndex: i_item];
+        o_one_item = [o_array objectAtIndex:i_item];
         p_input = [self createItem: o_one_item];
 
         if (!p_input)
@@ -1112,11 +1111,9 @@
         NSString *o_current_name, *o_current_author;
 
         PL_LOCK;
-        o_current_name = [NSString stringWithUTF8String:
-            p_item->pp_children[i_current]->p_input->psz_name];
-        psz_temp = input_item_GetInfo(p_item->p_input ,
-                   _("Meta-information"),_("Artist"));
-        o_current_author = [NSString stringWithUTF8String: psz_temp];
+        o_current_name = @(p_item->pp_children[i_current]->p_input->psz_name);
+        psz_temp = input_item_GetInfo(p_item->p_input, _("Meta-information"),_("Artist"));
+        o_current_author = @(psz_temp);
         free(psz_temp);
         PL_UNLOCK;
 
@@ -1164,7 +1161,7 @@
 
     if (o_result != NULL) {
         int i_start;
-        if ([[o_result objectAtIndex: 0] pointerValue] == p_playlist->p_local_category)
+        if ([[o_result objectAtIndex:0] pointerValue] == p_playlist->p_local_category)
             i_start = 1;
         else
             i_start = 0;
@@ -1173,11 +1170,11 @@
         for (NSUInteger i = i_start ; i < count - 1 ; i++) {
             [o_outline_view expandItem: [o_outline_dict objectForKey:
                         [NSString stringWithFormat: @"%p",
-                        [[o_result objectAtIndex: i] pointerValue]]]];
+                        [[o_result objectAtIndex:i] pointerValue]]]];
         }
         i_row = [o_outline_view rowForItem: [o_outline_dict objectForKey:
                         [NSString stringWithFormat: @"%p",
-                        [[o_result objectAtIndex: count - 1 ]
+                        [[o_result objectAtIndex:count - 1 ]
                         pointerValue]]]];
     }
     if (i_row > -1) {
@@ -1359,6 +1356,8 @@
     }
     else
         [o_outline_view removeTableColumn: [o_outline_view tableColumnWithIdentifier: o_column]];
+
+    [o_outline_view setOutlineTableColumn: [o_outline_view tableColumnWithIdentifier:TITLE_COLUMN]];
 }
 
 - (void)saveTableColumns
@@ -1368,8 +1367,8 @@
     NSUInteger count = [o_columns count];
     NSTableColumn * o_currentColumn;
     for (NSUInteger i = 0; i < count; i++) {
-        o_currentColumn = [o_columns objectAtIndex: i];
-        [o_arrayToSave addObject: [NSArray arrayWithObjects: [o_currentColumn identifier], [NSNumber numberWithFloat: [o_currentColumn width]], nil]];
+        o_currentColumn = [o_columns objectAtIndex:i];
+        [o_arrayToSave addObject: @[[o_currentColumn identifier], @([o_currentColumn width])]];
     }
     [[NSUserDefaults standardUserDefaults] setObject: o_arrayToSave forKey:@"PlaylistColumnSelection"];
     [[NSUserDefaults standardUserDefaults] synchronize];
@@ -1402,7 +1401,7 @@
     NSUInteger itemCount = [items count];
 
     for (NSUInteger i = 0 ; i < itemCount ; i++) {
-        id o_item = [items objectAtIndex: i];
+        id o_item = [items objectAtIndex:i];
 
         /* Fill the items and nodes to move in 2 different arrays */
         if (((playlist_item_t *)[o_item pointerValue])->i_children > 0)
@@ -1419,8 +1418,7 @@
     /* We add the "VLCPlaylistItemPboardType" type to be able to recognize
        a Drop operation coming from the playlist. */
 
-    [pboard declareTypes: [NSArray arrayWithObjects:
-        @"VLCPlaylistItemPboardType", nil] owner: self];
+    [pboard declareTypes: @[@"VLCPlaylistItemPboardType"] owner: self];
     [pboard setData:[NSData data] forType:@"VLCPlaylistItemPboardType"];
 
     return YES;
@@ -1454,7 +1452,7 @@
         NSUInteger count = [o_nodes_array count];
         for (NSUInteger i = 0 ; i < count ; i++) {
             /* We refuse to Drop in a child of an item we are moving */
-            if ([self isItem: [item pointerValue] inNode: [[o_nodes_array objectAtIndex: i] pointerValue] checkItemExistence: NO locked:NO]) {
+            if ([self isItem: [item pointerValue] inNode: [[o_nodes_array objectAtIndex:i] pointerValue] checkItemExistence: NO locked:NO]) {
                 return NSDragOperationNone;
             }
         }
@@ -1474,6 +1472,9 @@
 
     /* Drag & Drop inside the playlist */
     if ([[o_pasteboard types] containsObject: @"VLCPlaylistItemPboardType"]) {
+        if (index == -1) // this is no valid target, sanitize to top of table
+            index = 0;
+
         int i_row = 0;
         playlist_item_t *p_new_parent, *p_item = NULL;
         NSArray *o_all_items = [o_nodes_array arrayByAddingObjectsFromArray: o_items_array];
@@ -1520,7 +1521,7 @@
         free(pp_items);
 
         [self playlistUpdated];
-        i_row = [o_outline_view rowForItem:[o_outline_dict objectForKey:[NSString stringWithFormat: @"%p", [[o_all_items objectAtIndex: 0] pointerValue]]]];
+        i_row = [o_outline_view rowForItem:[o_outline_dict objectForKey:[NSString stringWithFormat: @"%p", [[o_all_items objectAtIndex:0] pointerValue]]]];
 
         if (i_row == -1)
             i_row = [o_outline_view rowForItem:[o_outline_dict objectForKey:[NSString stringWithFormat: @"%p", p_new_parent]]];

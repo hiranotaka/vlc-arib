@@ -49,7 +49,6 @@
 #include <libvlc.h>
 #include "vout_internal.h"
 #include "interlacing.h"
-#include "postprocessing.h"
 #include "display.h"
 
 /*****************************************************************************
@@ -150,9 +149,9 @@ static vout_thread_t *VoutCreate(vlc_object_t *object,
     /* Take care of some "interface/control" related initialisations */
     vout_IntfInit(vout);
 
-    vout->p->title.show     = var_GetBool(vout, "video-title-show");
-    vout->p->title.timeout  = var_GetInteger(vout, "video-title-timeout");
-    vout->p->title.position = var_GetInteger(vout, "video-title-position");
+    vout->p->title.show     = var_InheritBool(vout, "video-title-show");
+    vout->p->title.timeout  = var_InheritInteger(vout, "video-title-timeout");
+    vout->p->title.position = var_InheritInteger(vout, "video-title-position");
 
     /* Get splitter name if present */
     char *splitter_name = var_InheritString(vout, "video-splitter");
@@ -222,6 +221,7 @@ vout_thread_t *(vout_Request)(vlc_object_t *object,
 
         if (!vout->p->dead) {
             msg_Dbg(object, "reusing provided vout");
+            vout_IntfReinit(vout);
             return vout;
         }
         vout_CloseAndRelease(vout);
@@ -855,7 +855,6 @@ static int ThreadDisplayPreparePicture(vout_thread_t *vout, bool reuse, bool is_
         vout->p->displayed.decoded       = picture_Hold(decoded);
         vout->p->displayed.timestamp     = decoded->date;
         vout->p->displayed.is_interlaced = !decoded->b_progressive;
-        vout->p->displayed.qtype         = decoded->i_qtype;
 
         picture = filter_chain_VideoFilter(vout->p->filter.chain_static, decoded);
     }
@@ -1128,8 +1127,7 @@ static int ThreadDisplayPicture(vout_thread_t *vout,
 
 static void ThreadManage(vout_thread_t *vout,
                          mtime_t *deadline,
-                         vout_interlacing_support_t *interlacing,
-                         vout_postprocessing_support_t *postprocessing)
+                         vout_interlacing_support_t *interlacing)
 {
     vlc_mutex_lock(&vout->p->picture_lock);
 
@@ -1139,13 +1137,9 @@ static void ThreadManage(vout_thread_t *vout,
             break;
     }
 
-    const int  picture_qtype      = vout->p->displayed.qtype;
     const bool picture_interlaced = vout->p->displayed.is_interlaced;
 
     vlc_mutex_unlock(&vout->p->picture_lock);
-
-    /* Post processing */
-    vout_SetPostProcessingState(vout, postprocessing, picture_qtype);
 
     /* Deinterlacing */
     vout_SetInterlacingState(vout, interlacing, picture_interlaced);
@@ -1268,8 +1262,6 @@ static void ThreadStep(vout_thread_t *vout, mtime_t *duration)
 
 static void ThreadChangeFullscreen(vout_thread_t *vout, bool fullscreen)
 {
-    /* FIXME not sure setting "fullscreen" is good ... */
-    var_SetBool(vout, "fullscreen", fullscreen);
     vout_SetDisplayFullscreen(vout->p->display.vd, fullscreen);
 }
 
@@ -1366,7 +1358,6 @@ static int ThreadStart(vout_thread_t *vout, const vout_display_state_t *state)
     vout->p->displayed.decoded       = NULL;
     vout->p->displayed.date          = VLC_TS_INVALID;
     vout->p->displayed.timestamp     = VLC_TS_INVALID;
-    vout->p->displayed.qtype         = QTYPE_NONE;
     vout->p->displayed.is_interlaced = false;
 
     vout->p->step.last               = VLC_TS_INVALID;
@@ -1482,9 +1473,6 @@ static void *Thread(void *object)
         .is_interlaced = false,
         .date = mdate(),
     };
-    vout_postprocessing_support_t postprocessing = {
-        .qtype = QTYPE_NONE,
-    };
 
     mtime_t deadline = VLC_TS_INVALID;
     for (;;) {
@@ -1578,7 +1566,7 @@ static void *Thread(void *object)
             vout_control_cmd_Clean(&cmd);
         }
 
-        ThreadManage(vout, &deadline, &interlacing, &postprocessing);
+        ThreadManage(vout, &deadline, &interlacing);
     }
 }
 

@@ -29,6 +29,7 @@ usage()
 	echo "  --disable-disc   configure to not build optical discs packages"
 	echo "  --disable-sout   configure to not build stream output packages"
 	echo "  --enable-small   optimize libraries for size with slight speed decrease [DANGEROUS]"
+	echo "  --disable-gpl    configure to not build viral GPL code"
 }
 
 BUILD=
@@ -38,6 +39,7 @@ PKGS_ENABLE=
 PKGS_DISABLE=
 BUILD_ENCODERS="1"
 BUILD_DISCS="1"
+GPL="1"
 
 if test ! -f "../../contrib/src/main.mak"
 then
@@ -69,6 +71,9 @@ do
 			;;
 		--enable-small)
 			ENABLE_SMALL=1
+			;;
+		--disable-gpl)
+			GPL=
 			;;
 		--disable-*)
 			PKGS_DISABLE="${PKGS_DISABLE} ${1#--disable-}"
@@ -113,7 +118,7 @@ fi
 # Prepare files
 #
 echo "Creating configuration file... config.mak"
-exec 3>config.mak
+exec 3>config.mak || exit $?
 cat >&3 << EOF
 # This file was automatically generated.
 # Any change will be overwritten if ../bootstrap is run again.
@@ -191,14 +196,16 @@ check_android_sdk()
 	add_make "ANDROID_NDK := ${ANDROID_NDK}"
 	[ -z "${ANDROID_ABI}" ] && echo "You must set ANDROID_ABI environment variable" && exit 1
 	add_make "ANDROID_ABI := ${ANDROID_ABI}"
-	test -z "${NO_NEON}" && add_make_enabled "HAVE_NEON"
+	[ ${ANDROID_ABI} = "armeabi-v7a" ] && add_make_enabled "HAVE_NEON"
 	[ ${ANDROID_ABI} = "armeabi-v7a" ] && add_make_enabled "HAVE_ARMV7A"
+	[ ${ANDROID_ABI} = "armeabi" -a -z "${NO_ARMV6}" ] && add_make_enabled "HAVE_ARMV6"
 }
 
 test -z "$PREFIX" || add_make "PREFIX := $PREFIX"
 test -z "$BUILD_DISCS" || add_make_enabled "BUILD_DISCS"
 test -z "$BUILD_ENCODERS" || add_make_enabled "BUILD_ENCODERS"
 test -z "$ENABLE_SMALL" || add_make_enabled "ENABLE_SMALL"
+test -z "$GPL" || add_make_enabled "GPL"
 
 #
 # Checks
@@ -248,7 +255,7 @@ esac
 # Results output
 #
 test -e Makefile && unlink Makefile
-ln -sf ../../contrib/src/main.mak Makefile
+ln -sf ../../contrib/src/main.mak Makefile || exit $?
 cat << EOF
 Bootstrap completed.
 
@@ -266,4 +273,4 @@ Other targets:
  * make package      prepare prebuilt packages
 EOF
 
-mkdir -p ../../contrib/tarballs
+mkdir -p ../../contrib/tarballs || exit $?

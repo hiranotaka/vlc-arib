@@ -12,7 +12,7 @@
  * 
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * Lesser General Public License for more details.
  * 
  * You should have received a copy of the GNU Lesser General Public
@@ -49,9 +49,6 @@ static void CloseEncoder( vlc_object_t * );
 
 #define AFTERBURNER_TEXT N_("Enable afterburner library")
 #define AFTERBURNER_LONGTEXT N_( "This library will produce higher quality audio at the expense of additional CPU usage (default is enabled)" )
-
-#define BITRATE_TEXT N_("CBR Bitrate")
-#define BITRATE_LONGTEXT N_( "Bitrate of desired stream (in bps)" )
 
 #define SIGNALING_TEXT N_("Signaling mode of the extension AOT")
 #define SIGNALING_LONGTEXT N_( "1 is explicit for SBR and implicit for PS (default), 2 is explicit hierarchical" )
@@ -434,7 +431,7 @@ static block_t *EncodeAudio( encoder_t *p_enc, block_t *p_aout_buf )
             in_buf.bufElSizes = &in_elem_size;
         }
         block_t *p_block;
-        p_block = block_New( p_enc, p_sys->i_maxoutputsize );
+        p_block = block_Alloc( p_sys->i_maxoutputsize );
         p_block->i_buffer = p_sys->i_maxoutputsize;
         out_ptr = p_block->p_buffer;
         out_size = p_block->i_buffer;

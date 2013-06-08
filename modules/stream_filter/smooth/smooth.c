@@ -15,7 +15,7 @@
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
@@ -738,6 +738,8 @@ static int Control( stream_t *s, int i_query, va_list args )
             *(va_arg( args, bool * )) = true;
             break;
         case STREAM_CAN_FASTSEEK:
+        case STREAM_CAN_PAUSE: /* TODO */
+        case STREAM_CAN_CONTROL_PACE:
             *(va_arg( args, bool * )) = false;
             break;
         case STREAM_GET_POSITION:

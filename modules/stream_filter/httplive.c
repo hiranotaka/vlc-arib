@@ -542,20 +542,49 @@ static int string_to_IV(char *string_hexa, uint8_t iv[AES_BLOCK_SIZE])
 
 static char *relative_URI(const char *psz_url, const char *psz_path)
 {
+    char *ret = NULL;
     assert(psz_url != NULL && psz_path != NULL);
+
+
     //If the path is actually an absolute URL, don't do anything.
     if (strncmp(psz_path, "http", 4) == 0)
         return NULL;
 
-    char    *path_end = strrchr(psz_url, '/');
-    if (path_end == NULL)
+    size_t len = strlen(psz_path);
+
+    char *new_url = strdup(psz_url);
+    if (unlikely(!new_url))
         return NULL;
-    unsigned int    url_length = path_end - psz_url + 1;
-    char    *psz_res = malloc(url_length + strlen(psz_path) + 1);
-    strncpy(psz_res, psz_url, url_length);
-    psz_res[url_length] = 0;
-    strcat(psz_res, psz_path);
-    return psz_res;
+
+    if( psz_path[0] == '/' ) //Relative URL with absolute path
+    {
+        //Try to find separator for name and path, try to skip
+        //access and first ://
+        char *slash = strchr(&new_url[8], '/');
+        if (unlikely(slash == NULL))
+            goto end;
+        *slash = '\0';
+    } else {
+        int levels = 0;
+        while(len >= 3 && !strncmp(psz_path, "../", 3)) {
+            psz_path += 3;
+            len -= 3;
+            levels++;
+        }
+        do {
+            char *slash = strrchr(new_url, '/');
+            if (unlikely(slash == NULL))
+                goto end;
+            *slash = '\0';
+        } while (levels--);
+    }
+
+    if (asprintf(&ret, "%s/%s", new_url, psz_path) < 0)
+        ret = NULL;
+
+end:
+    free(new_url);
+    return ret;
 }
 
 static int parse_SegmentInformation(hls_stream_t *hls, char *p_read, int *duration)
@@ -775,7 +804,13 @@ static int parse_Key(stream_t *s, hls_stream_t *hls, char *p_read)
             if (end != NULL)
                 *end = 0;
         }
-        hls->psz_current_key_path = relative_URI(hls->url, uri);
+        /* For absolute URI, just duplicate it
+         * don't limit to HTTP, maybe some sanity checking
+         * should be done more in here? */
+        if( strstr( uri , "://" ) )
+            hls->psz_current_key_path = strdup( uri );
+        else
+            hls->psz_current_key_path = relative_URI(hls->url, uri);
         free(value);
 
         value = iv = parse_Attributes(p_read, "IV");
@@ -986,30 +1021,30 @@ static int parse_M3U8(stream_t *s, vlc_array_t *streams, uint8_t *buffer, const 
 
                         free(uri);
 
-                        /* Download playlist file from server */
-                        uint8_t *buf = NULL;
-                        ssize_t len = read_M3U8_from_url(s, hls->url, &buf);
-                        if (len < 0)
-                        {
-                            msg_Warn(s, "failed to read %s, continue for other streams", hls->url);
-                            failed_to_download_stream_m3u8 = true;
-
-                            /* remove stream just added */
-                            if (new_stream_added)
-                                vlc_array_remove(streams, vlc_array_count(streams) - 1);
-
-                            /* ignore download error, so we have chance to try other streams */
-                            err = VLC_SUCCESS;
-                        }
-                        else
-                        {
-                            /* Parse HLS m3u8 content. */
-                            err = parse_M3U8(s, streams, buf, len);
-                            free(buf);
-                        }
-
                         if (hls)
                         {
+                            /* Download playlist file from server */
+                            uint8_t *buf = NULL;
+                            ssize_t len = read_M3U8_from_url(s, hls->url, &buf);
+                            if (len < 0)
+                            {
+                                msg_Warn(s, "failed to read %s, continue for other streams", hls->url);
+                                failed_to_download_stream_m3u8 = true;
+
+                                /* remove stream just added */
+                                if (new_stream_added)
+                                    vlc_array_remove(streams, vlc_array_count(streams) - 1);
+
+                                /* ignore download error, so we have chance to try other streams */
+                                err = VLC_SUCCESS;
+                            }
+                            else
+                            {
+                                /* Parse HLS m3u8 content. */
+                                err = parse_M3U8(s, streams, buf, len);
+                                free(buf);
+                            }
+
                             hls->version = version;
                             if (!p_sys->b_live)
                                 hls->size = hls_GetStreamSize(hls); /* Stream size (approximate) */
@@ -2478,6 +2513,11 @@ static int Control(stream_t *s, int i_query, va_list args)
     {
         case STREAM_CAN_SEEK:
             *(va_arg (args, bool *)) = hls_MaySeek(s);
+            break;
+        case STREAM_CAN_FASTSEEK:
+        case STREAM_CAN_PAUSE: /* TODO */
+        case STREAM_CAN_CONTROL_PACE:
+            *(va_arg (args, bool *)) = false;
             break;
         case STREAM_GET_POSITION:
             *(va_arg (args, uint64_t *)) = p_sys->playback.offset;

@@ -49,11 +49,8 @@
     IBOutlet id o_progress_bar;
 
     IBOutlet id o_time_fld;
-
     IBOutlet id o_fullscreen_btn;
-
     IBOutlet id o_resize_view;
-
 
     NSImage * o_pause_img;
     NSImage * o_pause_pressed_img;
@@ -67,10 +64,12 @@
 
     BOOL b_nativeFullscreenMode;
     BOOL b_dark_interface;
-    
+
 }
 
 @property (readonly) id bottomBarView;
+
+- (CGFloat)height;
 
 - (IBAction)play:(id)sender;
 - (IBAction)bwd:(id)sender;
@@ -144,12 +143,12 @@
 - (void)setShuffle;
 - (IBAction)shuffle:(id)sender;
 
+- (void)toggleEffectsButton;
 - (void)toggleJumpButtons;
 - (void)togglePlaymodeButtons;
 
 - (void)updateVolumeSlider;
 - (void)updateControls;
-- (void)updatePosAndTimeInFSPanel:(VLCFSPanel *)o_fspanel;
 
 @end
 

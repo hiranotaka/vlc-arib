@@ -1,13 +1,11 @@
-SOURCES_flacsys = flac.c
-SOURCES_ogg = ogg.c ogg.h oggseek.c oggseek.h vorbis.h kate_categories.c \
-	kate_categories.h xiph.h
+SOURCES_flacsys = flac.c xiph_metadata.h xiph_metadata.c
+SOURCES_ogg = ogg.c ogg.h oggseek.c oggseek.h xiph_metadata.h xiph.h xiph_metadata.c
 SOURCES_demuxdump = demuxdump.c
 SOURCES_rawdv = rawdv.c rawdv.h
 SOURCES_rawvid = rawvid.c
 SOURCES_au = au.c
 SOURCES_rawaud = rawaud.c
 SOURCES_wav = wav.c
-SOURCES_live555 = live555.cpp ../access/mms/asf.c ../access/mms/buffer.c
 SOURCES_nsv = nsv.c
 SOURCES_real = real.c
 SOURCES_ps = ps.c ps.h
@@ -46,6 +44,7 @@ libavformat_plugin_la_SOURCES = avformat/demux.c \
 	../codec/avcodec/chroma.c \
 	../codec/avcodec/cpu.c \
 	../codec/avcodec/avcommon.h \
+	../codec/avcodec/avcommon_compat.h \
 	vobsub.h \
 	avformat/avformat.c avformat/avformat.h
 if ENABLE_SOUT
@@ -65,7 +64,7 @@ endif
 libvlc_LTLIBRARIES += $(LTLIBavformat)
 EXTRA_LTLIBRARIES += libavformat_plugin.la
 
-libes_plugin_la_SOURCES  = mpeg/es.c
+libes_plugin_la_SOURCES  = mpeg/es.c ../codec/dts_header.c ../codec/dts_header.h ../codec/a52.h
 libes_plugin_la_CFLAGS = $(AM_CFLAGS)
 libes_plugin_la_LIBADD = $(AM_LIBADD)
 
@@ -134,7 +133,7 @@ libplaylist_plugin_la_SOURCES = \
 libplaylist_plugin_la_CFLAGS = $(AM_CFLAGS)
 libplaylist_plugin_la_LIBADD = $(AM_LIBADD)
 
-libts_plugin_la_SOURCES = ts.c ../mux/mpeg/csa.c dvb-text.h
+libts_plugin_la_SOURCES = ts.c ../mux/mpeg/csa.c ../mux/mpeg/dvbpsi_compat.h dvb-text.h
 libts_plugin_la_CFLAGS = $(AM_CFLAGS) $(DVBPSI_CFLAGS)
 libts_plugin_la_LIBADD = $(AM_LIBADD) $(DVBPSI_LIBS) $(SOCKET_LIBS)
 if HAVE_ARIB

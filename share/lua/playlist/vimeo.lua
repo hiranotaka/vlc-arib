@@ -42,14 +42,30 @@ end
 
 -- Parse function.
 function parse()
+    agent = vlc.var.inherit(nil,"http-user-agent")
+
+    if string.match( string.lower(agent), ".*vlc.*" ) then
+        vlc.msg.dbg("Wrong agent, adapting...")
+        return { { path = vlc.access .. "://" .. vlc.path; options = {":http-user-agent=Mozilla/5.0" } } }
+    end
+
     _,_,id = string.find( vlc.path, "vimeo.com/([0-9]*)")
     prefres = get_prefres()
     ishd = false
     quality = "sd"
     codec = nil
+    line2 = ""
     while true do
         line = vlc.readline()
         if not line then break end
+        if string.match( line, "{config:.*") then
+                line2 = line;
+                while not string.match( line2, "}};") do
+                        line2 = vlc.readline()
+                        if not line2 then break end
+                        line = line .. line2;
+                end
+        end
         -- Try to find the video's title
         if string.match( line, "<meta property=\"og:title\"" ) then
             _,_,name = string.find (line, "content=\"(.*)\">" )
@@ -93,6 +109,7 @@ function parse()
         if string.match( line, "{config:.*\"height\":" ) then
             _,_,height = string.find (line, "\"height\":([0-9]*)," )
         end
+        if not line2 then break end
     end
 
     if not codec then

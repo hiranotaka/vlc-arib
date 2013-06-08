@@ -71,23 +71,6 @@
 
     [self loadButtonIcons];
     [[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(controlTintChanged:) name: NSControlTintDidChangeNotification object: nil];
-
-    [o_red_btn setImage: o_red_img];
-    [o_red_btn setAlternateImage: o_red_on_img];
-    [[o_red_btn cell] setShowsBorderOnlyWhileMouseInside: YES];
-    [[o_red_btn cell] setTag: 0];
-    [o_yellow_btn setImage: o_yellow_img];
-    [o_yellow_btn setAlternateImage: o_yellow_on_img];
-    [[o_yellow_btn cell] setShowsBorderOnlyWhileMouseInside: YES];
-    [[o_yellow_btn cell] setTag: 1];
-    [o_green_btn setImage: o_green_img];
-    [o_green_btn setAlternateImage: o_green_on_img];
-    [[o_green_btn cell] setShowsBorderOnlyWhileMouseInside: YES];
-    [[o_green_btn cell] setTag: 2];
-    [o_fullscreen_btn setImage: [NSImage imageNamed:@"window-fullscreen"]];
-    [o_fullscreen_btn setAlternateImage: [NSImage imageNamed:@"window-fullscreen-on"]];
-    [[o_fullscreen_btn cell] setShowsBorderOnlyWhileMouseInside: YES];
-    [[o_fullscreen_btn cell] setTag: 3];
 }
 
 - (void)controlTintChanged:(NSNotification *)notification
@@ -158,6 +141,23 @@
             o_green_on_img = [[NSImage imageNamed:@"snowleo-window-zoom-on-graphite"] retain];
         }
     }
+
+    [o_red_btn setImage: o_red_img];
+    [o_red_btn setAlternateImage: o_red_on_img];
+    [[o_red_btn cell] setShowsBorderOnlyWhileMouseInside: YES];
+    [[o_red_btn cell] setTag: 0];
+    [o_yellow_btn setImage: o_yellow_img];
+    [o_yellow_btn setAlternateImage: o_yellow_on_img];
+    [[o_yellow_btn cell] setShowsBorderOnlyWhileMouseInside: YES];
+    [[o_yellow_btn cell] setTag: 1];
+    [o_green_btn setImage: o_green_img];
+    [o_green_btn setAlternateImage: o_green_on_img];
+    [[o_green_btn cell] setShowsBorderOnlyWhileMouseInside: YES];
+    [[o_green_btn cell] setTag: 2];
+    [o_fullscreen_btn setImage: [NSImage imageNamed:@"window-fullscreen"]];
+    [o_fullscreen_btn setAlternateImage: [NSImage imageNamed:@"window-fullscreen-on"]];
+    [[o_fullscreen_btn cell] setShowsBorderOnlyWhileMouseInside: YES];
+    [[o_fullscreen_btn cell] setTag: 3];
 }
 
 - (BOOL)mouseDownCanMoveWindow
@@ -174,14 +174,8 @@
     else if (sender == o_green_btn)
         [[self window] performZoom: sender];
     else if (sender == o_fullscreen_btn) {
-        // set fs directly to true, as the vars can be already true in some configs
-        vout_thread_t *p_vout = getVout();
-        if (p_vout) {
-            var_SetBool(p_vout, "fullscreen", true);
-            vlc_object_release(p_vout);
-        } else { // e.g. lion fullscreen toggle
-            [[VLCMain sharedInstance] setFullscreen:true forWindow:nil];
-        }
+        // same action as native fs button
+        [[self window] toggleFullScreen:self];
 
     } else
         msg_Err(VLCIntf, "unknown button action sender");
@@ -417,7 +411,7 @@
 }
 
 - (NSNumber*)extendedAccessibilityIsAttributeSettable: (NSString*)theAttributeName {
-    return ([theAttributeName isEqualToString: NSAccessibilitySubroleAttribute] ? [NSNumber numberWithBool: NO] : nil); // make the Subrole attribute we added non-settable
+    return ([theAttributeName isEqualToString: NSAccessibilitySubroleAttribute] ? @NO : nil); // make the Subrole attribute we added non-settable
 }
 
 - (void)accessibilityPerformAction: (NSString*)theActionName {
@@ -510,7 +504,7 @@
         [currentItem setImage: icon];
     }
 
-    if ([[pathComponents objectAtIndex: 1] isEqualToString:@"Volumes"]) {
+    if ([[pathComponents objectAtIndex:1] isEqualToString:@"Volumes"]) {
         /* we don't want to show the Volumes item, since the Cocoa does it neither */
         currentItem = [contextMenu itemWithTitle:[[NSFileManager defaultManager] displayNameAtPath: @"/Volumes"]];
         if (currentItem)

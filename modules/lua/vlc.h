@@ -131,7 +131,7 @@ int vlclua_scripts_batch_execute( vlc_object_t *p_this, const char * luadirname,
         void * user_data );
 int vlclua_dir_list( const char *luadirname, char ***pppsz_dir_list );
 void vlclua_dir_list_free( char **ppsz_dir_list );
-char *vlclua_find_file( vlc_object_t *p_this, const char *psz_luadirname, const char *psz_name );
+char *vlclua_find_file( const char *psz_luadirname, const char *psz_name );
 
 /*****************************************************************************
  * Replace Lua file reader by VLC input. Allows loadings scripts in Zip pkg.
@@ -152,8 +152,7 @@ int vlclua_playlist_add_internal( vlc_object_t *, lua_State *, playlist_t *,
                                   input_item_t *, bool );
 #define vlclua_playlist_add_internal( a, b, c, d, e ) vlclua_playlist_add_internal( VLC_OBJECT( a ), b, c, d, e )
 
-int vlclua_add_modules_path( vlc_object_t *, lua_State *, const char *psz_filename );
-#define vlclua_add_modules_path( a, b, c ) vlclua_add_modules_path( VLC_OBJECT( a ), b, c )
+int vlclua_add_modules_path( lua_State *, const char *psz_filename );
 
 /**
  * Per-interface private state

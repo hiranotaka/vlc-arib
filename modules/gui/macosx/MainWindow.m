@@ -1,13 +1,14 @@
 /*****************************************************************************
  * MainWindow.m: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2002-2012 VLC authors and VideoLAN
+ * Copyright (C) 2002-2013 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
  *          Jon Lech Johansen <jon-vl@nanocrew.net>
  *          Christophe Massiot <massiot@via.ecp.fr>
  *          Derk-Jan Hartman <hartman at videolan.org>
+ *          David Fuhrmann <david dot fuhrmann at googlemail dot com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,17 +46,17 @@
 #import "VLCVoutWindowController.h"
 
 
-@interface VLCMainWindow ()
+@interface VLCMainWindow (Internal)
 - (void)resizePlaylistAfterCollapse;
 - (void)makeSplitViewVisible;
 - (void)makeSplitViewHidden;
-
+- (void)showPodcastControls;
+- (void)hidePodcastControls;
 @end
 
 
 @implementation VLCMainWindow
 
-@synthesize fullscreen=b_fullscreen;
 @synthesize nativeFullscreenMode=b_nativeFullscreenMode;
 @synthesize nonembedded=b_nonembedded;
 @synthesize fsPanel=o_fspanel;
@@ -121,7 +122,11 @@ static VLCMainWindow *_o_sharedInstance = nil;
     // these are key events which should be handled by vlc core, but are attached to a main menu item
     if (![self isEvent: o_event forKey: "key-vol-up"] &&
         ![self isEvent: o_event forKey: "key-vol-down"] &&
-        ![self isEvent: o_event forKey: "key-vol-mute"]) {
+        ![self isEvent: o_event forKey: "key-vol-mute"] &&
+        ![self isEvent: o_event forKey: "key-prev"] &&
+        ![self isEvent: o_event forKey: "key-next"] &&
+        ![self isEvent: o_event forKey: "key-jump+short"] &&
+        ![self isEvent: o_event forKey: "key-jump-short"]) {
         /* We indeed want to prioritize some Cocoa key equivalent against libvlc,
          so we perform the menu equivalent now. */
         if ([[NSApp mainMenu] performKeyEquivalent:o_event])
@@ -147,6 +152,9 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
 - (void)awakeFromNib
 {
+    // sets lion fullscreen behaviour
+    [super awakeFromNib];
+
     BOOL b_splitviewShouldBeHidden = NO;
 
     /* setup the styled interface */
@@ -155,9 +163,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
     if (!OSX_SNOW_LEOPARD)
         b_nativeFullscreenMode = var_InheritBool(VLCIntf, "macosx-nativefullscreenmode");
 #endif
-    t_hide_mouse_timer = nil;
     [self useOptimizedDrawing: YES];
-    
+
     [[o_search_fld cell] setPlaceholderString: _NS("Search")];
     [[o_search_fld cell] accessibilitySetOverrideValue:_NS("Enter a term to search the playlist. Results will be selected in the table.") forAttribute:NSAccessibilityDescriptionAttribute];
 
@@ -177,7 +184,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [o_podcast_unsubscribe_cancel_btn setTitle: _NS("Cancel")];
 
     /* interface builder action */
-    float f_threshold_height = f_min_video_height + [[o_controls_bar bottomBarView] frame].size.height;
+    float f_threshold_height = f_min_video_height + [o_controls_bar height];
     if (b_dark_interface)
         f_threshold_height += [o_titlebar_view frame].size.height;
     if ([[self contentView] frame].size.height < f_threshold_height)
@@ -187,23 +194,16 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [self setExcludedFromWindowsMenu: YES];
     [self setAcceptsMouseMovedEvents: YES];
     // Set that here as IB seems to be buggy
-    if (b_dark_interface) {
+    if (b_dark_interface)
         [self setContentMinSize:NSMakeSize(604., 288. + [o_titlebar_view frame].size.height)];
-    } else {
+    else
         [self setContentMinSize:NSMakeSize(604., 288.)];
-    }
 
     [self setTitle: _NS("VLC media player")];
 
     b_dropzone_active = YES;
     [o_dropzone_view setFrame: [o_playlist_table frame]];
     [o_left_split_view setFrame: [o_sidebar_view frame]];
-    
-    if (b_nativeFullscreenMode) {
-        [self setCollectionBehavior: NSWindowCollectionBehaviorFullScreenPrimary];
-    } else {
-        [o_titlebar_view setFullscreenButtonHidden: YES];
-    }
 
     if (!OSX_SNOW_LEOPARD) {
         /* the default small size of the search field is slightly different on Lion, let's work-around that */
@@ -249,19 +249,19 @@ static VLCMainWindow *_o_sharedInstance = nil;
                     else
                         [[internetItems lastObject] setIcon: [NSImage imageNamed:@"NSApplicationIcon"]];
                     [[internetItems lastObject] setSdtype: SD_CAT_INTERNET];
-                    [[internetItems lastObject] setUntranslatedTitle: [NSString stringWithUTF8String: *ppsz_longname]];
+                    [[internetItems lastObject] setUntranslatedTitle: @(*ppsz_longname)];
                 break;
             case SD_CAT_DEVICES:
                     [devicesItems addObject: [SideBarItem itemWithTitle: _NS(*ppsz_longname) identifier: o_identifier]];
                     [[devicesItems lastObject] setIcon: [NSImage imageNamed:@"NSApplicationIcon"]];
                     [[devicesItems lastObject] setSdtype: SD_CAT_DEVICES];
-                    [[devicesItems lastObject] setUntranslatedTitle: [NSString stringWithUTF8String: *ppsz_longname]];
+                    [[devicesItems lastObject] setUntranslatedTitle: @(*ppsz_longname)];
                 break;
             case SD_CAT_LAN:
                     [lanItems addObject: [SideBarItem itemWithTitle: _NS(*ppsz_longname) identifier: o_identifier]];
                     [[lanItems lastObject] setIcon: [NSImage imageNamed:@"sidebar-local"]];
                     [[lanItems lastObject] setSdtype: SD_CAT_LAN];
-                    [[lanItems lastObject] setUntranslatedTitle: [NSString stringWithUTF8String: *ppsz_longname]];
+                    [[lanItems lastObject] setUntranslatedTitle: @(*ppsz_longname)];
                 break;
             case SD_CAT_MYCOMPUTER:
                     [mycompItems addObject: [SideBarItem itemWithTitle: _NS(*ppsz_longname) identifier: o_identifier]];
@@ -273,7 +273,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
                         [[mycompItems lastObject] setIcon: [NSImage imageNamed:@"sidebar-pictures"]];
                     else
                         [[mycompItems lastObject] setIcon: [NSImage imageNamed:@"NSApplicationIcon"]];
-                    [[mycompItems lastObject] setUntranslatedTitle: [NSString stringWithUTF8String: *ppsz_longname]];
+                    [[mycompItems lastObject] setUntranslatedTitle: @(*ppsz_longname)];
                     [[mycompItems lastObject] setSdtype: SD_CAT_MYCOMPUTER];
                 break;
             default:
@@ -296,7 +296,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     free(ppsz_longnames);
     free(p_categories);
 
-    [libraryItem setChildren: [NSArray arrayWithObjects: playlistItem, medialibraryItem, nil]];
+    [libraryItem setChildren: @[playlistItem, medialibraryItem]];
     [o_sidebaritems addObject: libraryItem];
     if ([mycompItem hasChildren])
         [o_sidebaritems addObject: mycompItem];
@@ -310,7 +310,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [o_sidebar_view reloadData];
     [o_sidebar_view selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
     [o_sidebar_view setDropItem:playlistItem dropChildIndex:NSOutlineViewDropOnItemIndex];
-    [o_sidebar_view registerForDraggedTypes:[NSArray arrayWithObjects: NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil]];
+    [o_sidebar_view registerForDraggedTypes:@[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
 
     [o_sidebar_view setAutosaveName:@"mainwindow-sidebar"];
     [(PXSourceList *)o_sidebar_view setDataSource:self];
@@ -326,7 +326,9 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
         NSUInteger i_sidebaritem_count = [o_sidebaritems count];
         for (NSUInteger x = 0; x < i_sidebaritem_count; x++)
-            [o_sidebar_view expandItem: [o_sidebaritems objectAtIndex: x] expandChildren: YES];
+            [o_sidebar_view expandItem: [o_sidebaritems objectAtIndex:x] expandChildren: YES];
+
+        [o_fspanel center];
     }
 
     if (b_dark_interface) {
@@ -359,7 +361,6 @@ static VLCMainWindow *_o_sharedInstance = nil;
         o_color_backdrop = [[VLCColorView alloc] initWithFrame: [o_split_view frame]];
         [[self contentView] addSubview: o_color_backdrop positioned: NSWindowBelow relativeTo: o_split_view];
         [o_color_backdrop setAutoresizingMask:NSViewHeightSizable | NSViewWidthSizable];
-        
     } else {
         [o_video_view setFrame: [o_split_view frame]];
         [o_playlist_table setBorderType: NSNoBorder];
@@ -369,8 +370,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(someWindowWillClose:) name: NSWindowWillCloseNotification object: nil];
     [[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(someWindowWillMiniaturize:) name: NSWindowWillMiniaturizeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(applicationWillTerminate:) name: NSApplicationWillTerminateNotification object: nil];
+    [[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(mainSplitViewDidResizeSubviews:) name: NSSplitViewDidResizeSubviewsNotification object:o_split_view];
 
-    [o_split_view setAutosaveName:@"10thanniversary-splitview"];
     if (b_splitviewShouldBeHidden) {
         [self hideSplitView];
         i_lastSplitViewHeight = 300;
@@ -384,13 +385,19 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [self resizeWindow];
     }
 
-    // update fs button to reflect state for next startup
-    if (var_InheritBool(pl_Get(VLCIntf), "fullscreen")) {
+    /* update fs button to reflect state for next startup */
+    if (var_InheritBool(pl_Get(VLCIntf), "fullscreen"))
         [o_controls_bar setFullscreenState:YES];
-    }
+
+    /* restore split view */
+    i_lastLeftSplitViewWidth = 200;
+    /* trick NSSplitView implementation, which pretends to know better than us */
+    if (!config_GetInt(VLCIntf, "macosx-show-sidebar"))
+        [self performSelector:@selector(toggleLeftSubSplitView) withObject:nil afterDelay:0.05];
 }
 
 #pragma mark -
+#pragma mark appearance management
 
 - (VLCMainWindowControlsBar *)controlsBar;
 {
@@ -431,8 +438,12 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
     [o_video_view setHidden: YES];
     [o_split_view setHidden: NO];
-    [self makeFirstResponder: nil];
+    if ([self fullscreen]) {
+        [[o_controls_bar bottomBarView] setHidden: NO];
+        [o_fspanel setNonActive:nil];
+    }
 
+    [self makeFirstResponder: o_playlist_table];
 }
 
 - (void)makeSplitViewHidden
@@ -444,6 +455,10 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
     [o_split_view setHidden: YES];
     [o_video_view setHidden: NO];
+    if ([self fullscreen]) {
+        [[o_controls_bar bottomBarView] setHidden: YES];
+        [o_fspanel setActive:nil];
+    }
 
     if ([[o_video_view subviews] count] > 0)
         [self makeFirstResponder: [[o_video_view subviews] objectAtIndex:0]];
@@ -460,17 +475,16 @@ static VLCMainWindow *_o_sharedInstance = nil;
     BOOL b_activeVideo = [[VLCMain sharedInstance] activeVideoPlayback];
     BOOL b_restored = NO;
 
-    // TODO: implement toggle playlist in this situation (triggerd via menu item).
-    // but for now we block this case, to avoid displaying only the half
-    if (b_nativeFullscreenMode && b_fullscreen && b_activeVideo && sender != nil)
-        return;
+    BOOL b_have_alt_key = ([[NSApp currentEvent] modifierFlags] & NSAlternateKeyMask) != 0;
+    if (sender && [sender isKindOfClass: [NSMenuItem class]])
+        b_have_alt_key = NO;
 
-    if (b_dropzone_active && ([[NSApp currentEvent] modifierFlags] & NSAlternateKeyMask) != 0) {
+    if (b_dropzone_active && b_have_alt_key) {
         [self hideDropZone];
         return;
     }
 
-    if (!(b_nativeFullscreenMode && b_fullscreen) && !b_splitview_removed && ((([[NSApp currentEvent] modifierFlags] & NSAlternateKeyMask) != 0 && b_activeVideo)
+    if (!(b_nativeFullscreenMode && b_fullscreen) && !b_splitview_removed && ((b_have_alt_key && b_activeVideo)
                                                                               || (b_nonembedded && sender != nil)
                                                                               || (!b_activeVideo && sender != nil)
                                                                               || b_minimized_view))
@@ -497,9 +511,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
         } else {
             [o_split_view setHidden: NO];
             [o_playlist_table setHidden: NO];
-            [o_video_view setHidden: !b_activeVideo];
-            if (b_activeVideo && [[o_video_view subviews] count] > 0)
-                [[o_video_view window] makeFirstResponder: [[o_video_view subviews] objectAtIndex:0]];
+            [o_video_view setHidden: YES];
         }
     }
 }
@@ -519,6 +531,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
 - (void)applicationWillTerminate:(NSNotification *)notification
 {
+    config_PutInt(VLCIntf, "macosx-show-sidebar", ![o_split_view isSubviewCollapsed:o_left_split_view]);
+
     [self saveFrameUsingName: [self frameAutosaveName]];
 }
 
@@ -526,8 +540,9 @@ static VLCMainWindow *_o_sharedInstance = nil;
 - (void)someWindowWillClose:(NSNotification *)notification
 {
     id obj = [notification object];
-    
-    if ([obj class] == [VLCVideoWindowCommon class] || [obj class] == [VLCDetachedVideoWindow class] || ([obj class] == [VLCMainWindow class] && !b_nonembedded)) {
+
+    // hasActiveVideo is defined for VLCVideoWindowCommon and subclasses
+    if ([obj respondsToSelector:@selector(hasActiveVideo)] && [obj hasActiveVideo]) {
         if ([[VLCMain sharedInstance] activeVideoPlayback])
             [[VLCCoreInteraction sharedInstance] stop];
     }
@@ -571,11 +586,11 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [self setFrame: winrect display: YES animate: YES];
     [self performSelector:@selector(hideDropZone) withObject:nil afterDelay:0.1];
     if (b_dark_interface) {
-        [self setContentMinSize: NSMakeSize(604., [[o_controls_bar bottomBarView] frame].size.height + [o_titlebar_view frame].size.height)];
-        [self setContentMaxSize: NSMakeSize(FLT_MAX, [[o_controls_bar bottomBarView] frame].size.height + [o_titlebar_view frame].size.height)];
+        [self setContentMinSize: NSMakeSize(604., [o_controls_bar height] + [o_titlebar_view frame].size.height)];
+        [self setContentMaxSize: NSMakeSize(FLT_MAX, [o_controls_bar height] + [o_titlebar_view frame].size.height)];
     } else {
-        [self setContentMinSize: NSMakeSize(604., [[o_controls_bar bottomBarView] frame].size.height)];
-        [self setContentMaxSize: NSMakeSize(FLT_MAX, [[o_controls_bar bottomBarView] frame].size.height)];
+        [self setContentMinSize: NSMakeSize(604., [o_controls_bar height])];
+        [self setContentMaxSize: NSMakeSize(FLT_MAX, [o_controls_bar height])];
     }
 
     b_splitview_removed = YES;
@@ -604,7 +619,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 - (void)updateTimeSlider
 {
     [o_controls_bar updateTimeSlider];
-    [[self controlsBar] updatePosAndTimeInFSPanel:o_fspanel];
+    [o_fspanel updatePositionAndTime];
 
     [[[VLCMain sharedInstance] voutController] updateWindowsControlsBarWithSelector:@selector(updateTimeSlider)];
 }
@@ -615,15 +630,19 @@ static VLCMainWindow *_o_sharedInstance = nil;
     p_input = pl_CurrentInput(VLCIntf);
     if (p_input) {
         NSString *aString;
-        char *format = var_InheritString(VLCIntf, "input-title-format");
-        char *formated = str_format_meta(pl_Get(VLCIntf), format);
-        free(format);
-        aString = [NSString stringWithUTF8String:formated];
-        free(formated);
+
+        if (!config_GetPsz(VLCIntf, "video-title")) {
+            char *format = var_InheritString(VLCIntf, "input-title-format");
+            char *formated = str_format_meta(pl_Get(VLCIntf), format);
+            free(format);
+            aString = @(formated);
+            free(formated);
+        } else
+            aString = @(config_GetPsz(VLCIntf, "video-title"));
 
         char *uri = input_item_GetURI(input_GetItem(p_input));
 
-        NSURL * o_url = [NSURL URLWithString: [NSString stringWithUTF8String: uri]];
+        NSURL * o_url = [NSURL URLWithString: @(uri)];
         if ([o_url isFileURL]) {
             [self setRepresentedURL: o_url];
             [[[VLCMain sharedInstance] voutController] updateWindowsUsingBlock:^(VLCVideoWindowCommon *o_window) {
@@ -644,12 +663,18 @@ static VLCMainWindow *_o_sharedInstance = nil;
                 aString = [o_url absoluteString];
         }
 
-        [self setTitle: aString];
-        [[[VLCMain sharedInstance] voutController] updateWindowsUsingBlock:^(VLCVideoWindowCommon *o_window) {
-            [o_window setTitle:aString];
-        }];
+        if ([aString length] > 0) {
+            [self setTitle: aString];
+            [[[VLCMain sharedInstance] voutController] updateWindowsUsingBlock:^(VLCVideoWindowCommon *o_window) {
+                [o_window setTitle:aString];
+            }];
 
-        [o_fspanel setStreamTitle: aString];
+            [o_fspanel setStreamTitle: aString];
+        } else {
+            [self setTitle: _NS("VLC media player")];
+            [self setRepresentedURL: nil];
+        }
+
         vlc_object_release(p_input);
     } else {
         [self setTitle: _NS("VLC media player")];
@@ -728,191 +753,64 @@ static VLCMainWindow *_o_sharedInstance = nil;
             [o_controls_bar setFullscreenState:YES];
         }
 
-        [self makeFirstResponder: nil];
-
-        if ([self level] != NSNormalWindowLevel)
-            [self setLevel: NSNormalWindowLevel];
+        [self makeFirstResponder: o_playlist_table];
+        [[[VLCMain sharedInstance] voutController] updateWindowLevelForHelperWindows: NSNormalWindowLevel];
 
         // restore alpha value to 1 for the case that macosx-opaqueness is set to < 1
         [self setAlphaValue:1.0];
     }
 
     if (b_nativeFullscreenMode) {
-        if ([NSApp presentationOptions] & NSApplicationPresentationFullScreen)
+        if ([self hasActiveVideo] && [self fullscreen]) {
             [[o_controls_bar bottomBarView] setHidden: b_videoPlayback];
-        else
-            [[o_controls_bar bottomBarView] setHidden: NO];
-        if (b_videoPlayback && b_fullscreen)
             [o_fspanel setActive: nil];
-        if (!b_videoPlayback)
+        } else {
+            [[o_controls_bar bottomBarView] setHidden: NO];
             [o_fspanel setNonActive: nil];
+        }
     }
-}
-
-//  Called automatically if window's acceptsMouseMovedEvents property is true
-- (void)mouseMoved:(NSEvent *)theEvent
-{
-    if (b_fullscreen)
-        [self recreateHideMouseTimer];
-
-    [super mouseMoved: theEvent];
-}
-
-- (void)recreateHideMouseTimer
-{
-    if (t_hide_mouse_timer != nil) {
-        [t_hide_mouse_timer invalidate];
-        [t_hide_mouse_timer release];
-    }
-
-    t_hide_mouse_timer = [NSTimer scheduledTimerWithTimeInterval:2
-                                                          target:self
-                                                        selector:@selector(hideMouseCursor:)
-                                                        userInfo:nil
-                                                         repeats:NO];
-    [t_hide_mouse_timer retain];
-}
-
-//  NSTimer selectors require this function signature as per Apple's docs
-- (void)hideMouseCursor:(NSTimer *)timer
-{
-    [NSCursor setHiddenUntilMouseMoves: YES];
-}
-
-
-#pragma mark -
-#pragma mark Fullscreen support
-
-- (void)showFullscreenController
-{
-     if (b_fullscreen && [[VLCMain sharedInstance] activeVideoPlayback])
-        [o_fspanel fadeIn];
-}
-
-- (void)makeKeyAndOrderFront: (id)sender
-{
-    /* Hack
-     * when we exit fullscreen and fade out, we may endup in
-     * having a window that is faded. We can't have it fade in unless we
-     * animate again. */
-
-    if (!b_window_is_invisible) {
-        /* Make sure we don't do it too much */
-        [super makeKeyAndOrderFront: sender];
-        return;
-    }
-
-    [super setAlphaValue:0.0f];
-    [super makeKeyAndOrderFront: sender];
-
-    NSMutableDictionary * dict = [[NSMutableDictionary alloc] initWithCapacity:2];
-    [dict setObject:self forKey:NSViewAnimationTargetKey];
-    [dict setObject:NSViewAnimationFadeInEffect forKey:NSViewAnimationEffectKey];
-
-    o_makekey_anim = [[NSViewAnimation alloc] initWithViewAnimations:[NSArray arrayWithObject:dict]];
-    [dict release];
-
-    [o_makekey_anim setAnimationBlockingMode: NSAnimationNonblocking];
-    [o_makekey_anim setDuration: 0.1];
-    [o_makekey_anim setFrameRate: 30];
-    [o_makekey_anim setDelegate: self];
-
-    [o_makekey_anim startAnimation];
-    b_window_is_invisible = NO;
-
-    /* fullscreenAnimation will be unlocked when animation ends */
 }
 
 #pragma mark -
 #pragma mark Lion native fullscreen handling
 - (void)windowWillEnterFullScreen:(NSNotification *)notification
 {
-    // workaround, see #6668
-    [NSApp setPresentationOptions:(NSApplicationPresentationFullScreen | NSApplicationPresentationAutoHideDock | NSApplicationPresentationAutoHideMenuBar)];
+    [super windowWillEnterFullScreen:notification];
 
-    var_SetBool(pl_Get(VLCIntf), "fullscreen", true);
-
-    vout_thread_t *p_vout = getVout();
-    if (p_vout) {
-        var_SetBool(p_vout, "fullscreen", true);
-        vlc_object_release(p_vout);
-    }
-
-    [o_video_view setFrame: [[self contentView] frame]];
-    b_fullscreen = YES;
-
-    [self recreateHideMouseTimer];
-    i_originalLevel = [self level];
-    [self setLevel:NSNormalWindowLevel];
-
+    // update split view frame after removing title bar
     if (b_dark_interface) {
-        [o_titlebar_view removeFromSuperviewWithoutNeedingDisplay];
-
-        NSRect winrect;
-        CGFloat f_titleBarHeight = [o_titlebar_view frame].size.height;
-        winrect = [self frame];
-
-        winrect.size.height = winrect.size.height - f_titleBarHeight;
-        [self setFrame: winrect display:NO animate:NO];
-        winrect = [o_split_view frame];
-        winrect.size.height = winrect.size.height + f_titleBarHeight;
-        [o_split_view setFrame: winrect];
+        NSRect frame = [[self contentView] frame];
+        frame.origin.y += [o_controls_bar height];
+        frame.size.height -= [o_controls_bar height];
+        [o_split_view setFrame:frame];
     }
-
-    if ([[VLCMain sharedInstance] activeVideoPlayback])
-        [[o_controls_bar bottomBarView] setHidden: YES];
-
-    [self setMovableByWindowBackground: NO];
-}
-
-- (void)windowDidEnterFullScreen:(NSNotification *)notification
-{
-    // Indeed, we somehow can have an "inactive" fullscreen (but a visible window!).
-    // But this creates some problems when leaving fs over remote intfs, so activate app here.
-    [NSApp activateIgnoringOtherApps:YES];
-
-    [o_fspanel setVoutWasUpdated: self];
-    [o_fspanel setActive: nil];
 }
 
 - (void)windowWillExitFullScreen:(NSNotification *)notification
 {
+    [super windowWillExitFullScreen: notification];
 
-    var_SetBool(pl_Get(VLCIntf), "fullscreen", false);
-
-    vout_thread_t *p_vout = getVout();
-    if (p_vout) {
-        var_SetBool(p_vout, "fullscreen", false);
-        vlc_object_release(p_vout);
-    }
-
-    [o_video_view setFrame: [o_split_view frame]];
-    [NSCursor setHiddenUntilMouseMoves: NO];
-    [o_fspanel setNonActive: nil];
-    [self setLevel:i_originalLevel];
-    b_fullscreen = NO;
-
+    // update split view frame after readding title bar
     if (b_dark_interface) {
-        NSRect winrect;
-        CGFloat f_titleBarHeight = [o_titlebar_view frame].size.height;
-        winrect = [self frame];
+        NSRect frame = [o_split_view frame];
+        frame.size.height -= [o_titlebar_view frame].size.height;
+        [o_split_view setFrame:frame];
+    }
+}
+#pragma mark -
+#pragma mark Fullscreen support
 
-        [o_titlebar_view setFrame: NSMakeRect(0, winrect.size.height - f_titleBarHeight,
-                                              winrect.size.width, f_titleBarHeight)];
-        [[self contentView] addSubview: o_titlebar_view];
+- (void)showFullscreenController
+{
+    id currentWindow = [NSApp keyWindow];
+    if ([currentWindow respondsToSelector:@selector(hasActiveVideo)] && [currentWindow hasActiveVideo]) {
+        if ([currentWindow respondsToSelector:@selector(fullscreen)] && [currentWindow fullscreen] && ![[currentWindow videoView] isHidden]) {
 
-        winrect.size.height = winrect.size.height + f_titleBarHeight;
-        [self setFrame: winrect display:NO animate:NO];
-        winrect = [o_split_view frame];
-        winrect.size.height = winrect.size.height - f_titleBarHeight;
-        [o_split_view setFrame: winrect];
-        [o_video_view setFrame: winrect];
+            if ([[VLCMain sharedInstance] activeVideoPlayback])
+                [o_fspanel fadeIn];
+        }
     }
 
-    if ([[VLCMain sharedInstance] activeVideoPlayback])
-        [[o_controls_bar bottomBarView] setHidden: NO];
-
-    [self setMovableByWindowBackground: YES];
 }
 
 #pragma mark -
@@ -943,6 +841,23 @@ static VLCMainWindow *_o_sharedInstance = nil;
     if ([subview isEqual:o_left_split_view])
         return NO;
     return YES;
+}
+
+- (void)mainSplitViewDidResizeSubviews:(id)object
+{
+    i_lastLeftSplitViewWidth = [o_left_split_view frame].size.width;
+    config_PutInt(VLCIntf, "macosx-show-sidebar", ![o_split_view isSubviewCollapsed:o_left_split_view]);
+    [[[VLCMain sharedInstance] mainMenu] updateSidebarMenuItem];
+}
+
+- (void)toggleLeftSubSplitView
+{
+    [o_split_view adjustSubviews];
+    if ([o_split_view isSubviewCollapsed:o_left_split_view])
+        [o_split_view setPosition:i_lastLeftSplitViewWidth ofDividerAtIndex:0];
+    else
+        [o_split_view setPosition:[o_split_view minPossiblePositionOfDividerAtIndex:0] ofDividerAtIndex:0];
+    [[[VLCMain sharedInstance] mainMenu] updateSidebarMenuItem];
 }
 
 #pragma mark -
@@ -1116,6 +1031,10 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [self showPodcastControls];
     else
         [self hidePodcastControls];
+
+    [[NSNotificationCenter defaultCenter] postNotificationName: @"VLCMediaKeySupportSettingChanged"
+                                                        object: nil
+                                                      userInfo: nil];
 }
 
 - (NSDragOperation)sourceList:(PXSourceList *)aSourceList validateDrop:(id <NSDraggingInfo>)info proposedItem:(id)item proposedChildIndex:(NSInteger)index
@@ -1196,7 +1115,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
         return nil;
 
     for (NSUInteger x = 0; x < count; x++) {
-        id item = [array objectAtIndex: x]; // save one objc selector call
+        id item = [array objectAtIndex:x]; // save one objc selector call
         if ([[item identifier] isEqualToString:object])
             return item;
     }
@@ -1224,12 +1143,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
         [podcastConf appendString: [o_podcast_subscribe_url_fld stringValue]];
         config_PutPsz(VLCIntf, "podcast-urls", [podcastConf UTF8String]);
-
-        vlc_object_t *p_obj = (vlc_object_t*)vlc_object_find_name(VLCIntf->p_libvlc, "podcast");
-        if (p_obj) {
-            var_SetString(p_obj, "podcast-urls", [podcastConf UTF8String]);
-            vlc_object_release(p_obj);
-        }
+        var_SetString(pl_Get(VLCIntf), "podcast-urls", [podcastConf UTF8String]);
         [podcastConf release];
     }
 }
@@ -1238,7 +1152,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 {
     if (config_GetPsz(VLCIntf, "podcast-urls") != NULL) {
         [o_podcast_unsubscribe_pop removeAllItems];
-        [o_podcast_unsubscribe_pop addItemsWithTitles:[[NSString stringWithUTF8String:config_GetPsz(VLCIntf, "podcast-urls")] componentsSeparatedByString:@"|"]];
+        [o_podcast_unsubscribe_pop addItemsWithTitles:[@(config_GetPsz(VLCIntf, "podcast-urls")) componentsSeparatedByString:@"|"]];
         [NSApp beginSheet:o_podcast_unsubscribe_window modalForWindow:self modalDelegate:self didEndSelector:NULL contextInfo:nil];
     }
 }
@@ -1249,16 +1163,11 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [NSApp endSheet: o_podcast_unsubscribe_window];
 
     if (sender == o_podcast_unsubscribe_ok_btn) {
-        NSMutableArray * urls = [[NSMutableArray alloc] initWithArray:[[NSString stringWithUTF8String:config_GetPsz(VLCIntf, "podcast-urls")] componentsSeparatedByString:@"|"]];
+        NSMutableArray * urls = [[NSMutableArray alloc] initWithArray:[@(config_GetPsz(VLCIntf, "podcast-urls")) componentsSeparatedByString:@"|"]];
         [urls removeObjectAtIndex: [o_podcast_unsubscribe_pop indexOfSelectedItem]];
         config_PutPsz(VLCIntf, "podcast-urls", [[urls componentsJoinedByString:@"|"] UTF8String]);
+        var_SetString(pl_Get(VLCIntf), "podcast-urls", config_GetPsz(VLCIntf, "podcast-urls"));
         [urls release];
-
-        vlc_object_t *p_obj = (vlc_object_t*)vlc_object_find_name(VLCIntf->p_libvlc, "podcast");
-        if (p_obj) {
-            var_SetString(p_obj, "podcast-urls", config_GetPsz(VLCIntf, "podcast-urls"));
-            vlc_object_release(p_obj);
-        }
 
         /* reload the podcast module, since it won't update its list when removing podcasts */
         playlist_t * p_playlist = pl_Get(VLCIntf);
@@ -1311,6 +1220,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
 - (void)awakeFromNib
 {
+    // sets lion fullscreen behaviour
+    [super awakeFromNib];
     [self setAcceptsMouseMovedEvents: YES];
 
     if (b_dark_interface) {
@@ -1328,8 +1239,6 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [o_titlebar_view setFrame: NSMakeRect(0, winrect.size.height - f_titleBarHeight, winrect.size.width, f_titleBarHeight)];
         [[self contentView] addSubview: o_titlebar_view positioned: NSWindowAbove relativeTo: nil];
 
-        // native fs not supported with detached view yet
-        [o_titlebar_view setFullscreenButtonHidden: YES];
     } else {
         [self setBackgroundColor: [NSColor blackColor]];
     }
@@ -1337,7 +1246,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     NSRect videoViewRect = [[self contentView] bounds];
     if (b_dark_interface)
         videoViewRect.size.height -= [o_titlebar_view frame].size.height;
-    CGFloat f_bottomBarHeight = [[[self controlsBar] bottomBarView] frame].size.height;
+    CGFloat f_bottomBarHeight = [[self controlsBar] height];
     videoViewRect.size.height -= f_bottomBarHeight;
     videoViewRect.origin.y = f_bottomBarHeight;
     [o_video_view setFrame: videoViewRect];
@@ -1347,9 +1256,9 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [[self contentView] addSubview: o_color_backdrop positioned: NSWindowBelow relativeTo: o_video_view];
         [o_color_backdrop setAutoresizingMask:NSViewHeightSizable | NSViewWidthSizable];
 
-        [self setContentMinSize: NSMakeSize(363., f_min_video_height + [[[self controlsBar] bottomBarView] frame].size.height + [o_titlebar_view frame].size.height)];
+        [self setContentMinSize: NSMakeSize(363., f_min_video_height + [[self controlsBar] height] + [o_titlebar_view frame].size.height)];
     } else {
-        [self setContentMinSize: NSMakeSize(363., f_min_video_height + [[[self controlsBar] bottomBarView] frame].size.height)];
+        [self setContentMinSize: NSMakeSize(363., f_min_video_height + [[self controlsBar] height])];
     }
 }
 

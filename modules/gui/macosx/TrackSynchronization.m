@@ -63,12 +63,12 @@ static VLCTrackSynchronization *_o_sharedInstance = nil;
     [[o_av_value_fld formatter] setFormat:[NSString stringWithFormat:@"#,##0.000 %@", _NS("s")]];
     [o_av_value_fld setToolTip: _NS("A positive value means that the audio is ahead of the video")];
     [o_sv_lbl setStringValue: _NS("Subtitles/Video")];
-    [o_sv_advance_lbl setStringValue: _NS("Subtitle track syncronization:")];
+    [o_sv_advance_lbl setStringValue: _NS("Subtitle track synchronization:")];
     [[o_sv_advance_value_fld formatter] setFormat:[NSString stringWithFormat:@"#,##0.000 %@", _NS("s")]];
     [o_sv_advance_value_fld setToolTip: _NS("A positive value means that the subtitles are ahead of the video")];
-    [o_sv_speed_lbl setStringValue: _NS("Subtitles speed:")];
+    [o_sv_speed_lbl setStringValue: _NS("Subtitle speed:")];
     [[o_sv_speed_value_fld formatter] setFormat:[NSString stringWithFormat:@"#,##0.000 %@", _NS("fps")]];
-    [o_sv_dur_lbl setStringValue: _NS("Subtitles duration factor:")];
+    [o_sv_dur_lbl setStringValue: _NS("Subtitle duration factor:")];
 
     int i_mode = var_InheritInteger(p_intf, SUBSDELAY_CFG_MODE);
     NSString * o_toolTip, * o_suffix;
@@ -76,15 +76,15 @@ static VLCTrackSynchronization *_o_sharedInstance = nil;
     switch (i_mode) {
         default:
         case SUBSDELAY_MODE_ABSOLUTE:
-            o_toolTip = _NS("Extend subtitles duration by this value.\nSet 0 to disable.");
+            o_toolTip = _NS("Extend subtitle duration by this value.\nSet 0 to disable.");
             o_suffix = @" s";
             break;
         case SUBSDELAY_MODE_RELATIVE_SOURCE_DELAY:
-            o_toolTip = _NS("Multiply subtitles duration by this value.\nSet 0 to disable.");
+            o_toolTip = _NS("Multiply subtitle duration by this value.\nSet 0 to disable.");
             o_suffix = @"";
             break;
         case SUBSDELAY_MODE_RELATIVE_SOURCE_CONTENT:
-            o_toolTip = _NS("Recalculate subtitles duration according\nto their content and this value.\nSet 0 to disable.");
+            o_toolTip = _NS("Recalculate subtitle duration according\nto their content and this value.\nSet 0 to disable.");
             o_suffix = @"";
             break;
     }
@@ -98,12 +98,20 @@ static VLCTrackSynchronization *_o_sharedInstance = nil;
     [self resetValues:self];
 }
 
+- (void)updateCocoaWindowLevel:(NSInteger)i_level
+{
+    if (o_window && [o_window isVisible] && [o_window level] != i_level)
+        [o_window setLevel: i_level];
+}
+
 - (IBAction)toggleWindow:(id)sender
 {
     if ([o_window isVisible])
         [o_window orderOut:sender];
-    else
+    else {
+        [o_window setLevel: [[[VLCMain sharedInstance] voutController] currentWindowLevel]];
         [o_window makeKeyAndOrderFront:sender];
+    }
 }
 
 - (IBAction)resetValues:(id)sender

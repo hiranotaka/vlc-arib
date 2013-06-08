@@ -95,10 +95,12 @@ public:
     /// Indicate whether the embedded video output is currently used
     bool isVoutUsed() const { return m_pVout != NULL; }
 
-    /// update equalizer
-    void update_equalizer( );
+    /// initialize equalizer
+    void init_equalizer( );
 
-    void on_item_current_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+    /// update global variables for the current input
+    void update_current_input( );
+
     void on_intf_event_changed( vlc_object_t* p_obj, vlc_value_t newVal );
     void on_bit_rate_changed( vlc_object_t* p_obj, vlc_value_t newVal );
     void on_sample_rate_changed( vlc_object_t* p_obj, vlc_value_t newVal );
@@ -109,6 +111,7 @@ public:
     void on_repeat_changed( vlc_object_t* p_obj, vlc_value_t newVal );
 
     void on_volume_changed( vlc_object_t* p_obj, vlc_value_t newVal );
+    void on_mute_changed( vlc_object_t* p_obj, vlc_value_t newVal );
     void on_audio_filter_changed( vlc_object_t* p_obj, vlc_value_t newVal );
 
     void on_intf_show_changed( vlc_object_t* p_obj, vlc_value_t newVal );
@@ -161,9 +164,6 @@ private:
 
     /// Vout thread
     vout_thread_t *m_pVout;
-    /// Audio output
-    audio_output_t *m_pAout;
-    bool m_bEqualizer_started;
 
     // reset variables when input is over
     void reset_input();

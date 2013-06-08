@@ -275,8 +275,15 @@ void WindowManager::resize( GenericLayout &rLayout,
     int xNewOffset = newWidth - rLayout.getWidth();
     int yNewOffset = newHeight - rLayout.getHeight();
 
+    // Resize the window
+    TopWindow *pWindow = rLayout.getWindow();
+    pWindow->resize( newWidth, newHeight );
+
     // Do the actual resizing
     rLayout.resize( newWidth, newHeight );
+
+    // refresh content
+    rLayout.refreshAll();
 
     // Move all the anchored windows
     WinSet_t::const_iterator it;
@@ -289,7 +296,7 @@ void WindowManager::resize( GenericLayout &rLayout,
                          (*it)->getTop() );
         }
     }
-    if( m_direction == kResizeE ||
+    if( m_direction == kResizeS ||
         m_direction == kResizeSE )
     {
         for( it = m_resizeMovingS.begin(); it != m_resizeMovingS.end(); ++it )

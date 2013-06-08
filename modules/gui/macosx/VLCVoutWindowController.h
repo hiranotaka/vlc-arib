@@ -1,7 +1,7 @@
 /*****************************************************************************
  * VLCVoutWindowController.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2012 VLC authors and VideoLAN
+ * Copyright (C) 2012-2013 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -33,16 +33,25 @@
 @interface VLCVoutWindowController : NSObject
 {
     NSMutableDictionary *o_vout_dict;
+
+    NSPoint top_left_point;
+
+    // save the status level if at least one video window is on status level
+    NSUInteger i_statusLevelWindowCounter;
+    NSInteger i_currentWindowLevel;
 }
+
+@property (readonly, nonatomic) NSInteger currentWindowLevel;
 
 - (VLCVoutView *)setupVoutForWindow:(vout_window_t *)p_wnd withProposedVideoViewPosition:(NSRect)videoViewPosition;
 - (void)removeVoutforDisplay:(NSValue *)o_key;
+- (void)setNativeVideoSize:(NSSize)size forWindow:(vout_window_t *)p_wnd;
+- (void)setWindowLevel:(NSInteger)i_level forWindow:(vout_window_t *)p_wnd;
+- (void)setFullscreen:(int)i_full forWindow:(vout_window_t *)p_wnd;
 
 - (void)updateWindowsControlsBarWithSelector:(SEL)aSel;
 - (void)updateWindowsUsingBlock:(void (^)(VLCVideoWindowCommon *o_window))windowUpdater;
 
-- (void)updateWindow:(vout_window_t *)p_wnd withSelector:(SEL)aSel;
-
-- (void)setNativeVideoSize:(NSSize)size forWindow:(vout_window_t *)p_wnd;
+- (void)updateWindowLevelForHelperWindows:(NSInteger)i_level;
 
 @end

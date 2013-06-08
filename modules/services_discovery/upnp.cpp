@@ -259,14 +259,44 @@ IXML_Document* parseBrowseResult( IXML_Document* p_doc )
 {
     assert( p_doc );
 
-    const char* psz_result_string = xml_getChildElementValue( p_doc, "Result" );
+    /* Missing namespaces confuse the ixml parser. This is a very ugly
+     * hack but it is needeed until devices start sending valid XML.
+     *
+     * It works that way:
+     *
+     * The DIDL document is extracted from the Result tag, then wrapped into
+     * a valid XML header and a new root tag which contains missing namespace
+     * definitions so the ixml parser understands it.
+     *
+     * If you know of a better workaround, please oh please fix it */
+    const char* psz_xml_result_fmt = "<?xml version=\"1.0\" ?>"
+        "<Result xmlns:sec=\"urn:samsung:metadata:2009\">%s</Result>";
 
-    if( !psz_result_string )
+    char* psz_xml_result_string = NULL;
+    const char* psz_raw_didl = xml_getChildElementValue( p_doc, "Result" );
+
+    if( !psz_raw_didl )
         return NULL;
 
-    IXML_Document* p_browse_doc = ixmlParseBuffer( psz_result_string );
+    if( -1 == asprintf( &psz_xml_result_string,
+                         psz_xml_result_fmt,
+                         psz_raw_didl) )
+        return NULL;
 
-    return p_browse_doc;
+
+    IXML_Document* p_result_doc = ixmlParseBuffer( psz_xml_result_string );
+    free( psz_xml_result_string );
+
+    if( !p_result_doc )
+        return NULL;
+
+    IXML_NodeList *p_elems = ixmlDocument_getElementsByTagName( p_result_doc,
+                                                                "DIDL-Lite" );
+
+    IXML_Node *p_node = ixmlNodeList_item( p_elems, 0 );
+    ixmlNodeList_free( p_elems );
+
+    return (IXML_Document*)p_node;
 }
 
 /*
@@ -791,7 +821,8 @@ bool MediaServer::_fetchContents( Container* p_parent, int i_offset )
 
     IXML_Document* p_response = _browseAction( p_parent->getObjectID(),
                                       "BrowseDirectChildren",
-                                      "*", /* Filter */
+                                      "id,dc:title,res," /* Filter */
+                                      "sec:CaptionInfo,sec:CaptionInfoEx",
                                       psz_starting_index, /* StartingIndex */
                                       "0", /* RequestedCount */
                                       "" /* SortCriteria */
@@ -874,31 +905,43 @@ bool MediaServer::_fetchContents( Container* p_parent, int i_offset )
             if ( !title )
                 continue;
 
-            const char* resource =
-                        xml_getChildElementValue( itemElement, "res" );
+            const char* psz_subtitles = xml_getChildElementValue( itemElement,
+                    "sec:CaptionInfo" );
 
-            if ( !resource )
-                continue;
+            if ( !psz_subtitles )
+                psz_subtitles = xml_getChildElementValue( itemElement,
+                        "sec:CaptionInfoEx" );
 
-            const char* psz_duration = xml_getChildElementAttributeValue( itemElement,
-                                                                    "res",
-                                                                    "duration" );
-
-            mtime_t i_duration = -1;
-            int i_hours, i_minutes, i_seconds, i_decis;
-
-            if ( psz_duration )
+            /* Try to extract all resources in DIDL */
+            IXML_NodeList* p_resource_list = ixmlDocument_getElementsByTagName( (IXML_Document*) itemElement, "res" );
+            if ( p_resource_list )
             {
-                if( sscanf( psz_duration, "%02d:%02d:%02d.%d",
-                        &i_hours, &i_minutes, &i_seconds, &i_decis ))
-                    i_duration = INT64_C(1000000) * ( i_hours*3600 +
-                                                      i_minutes*60 +
-                                                      i_seconds ) +
-                                 INT64_C(100000) * i_decis;
-            }
+                int i_length = ixmlNodeList_length( p_resource_list );
+                for ( int i = 0; i < i_length; i++ )
+                {
+                    mtime_t i_duration = -1;
+                    int i_hours, i_minutes, i_seconds;
+                    IXML_Element* p_resource = ( IXML_Element* ) ixmlNodeList_item( p_resource_list, i );
+                    const char* psz_resource_url = xml_getChildElementValue( p_resource, "res" );
+                    if( !psz_resource_url )
+                        continue;
+                    const char* psz_duration = ixmlElement_getAttribute( p_resource, "duration" );
 
-            Item* item = new Item( p_parent, objectID, title, resource, i_duration );
-            p_parent->addItem( item );
+                    if ( psz_duration )
+                    {
+                        if( sscanf( psz_duration, "%d:%02d:%02d",
+                            &i_hours, &i_minutes, &i_seconds ) )
+                            i_duration = INT64_C(1000000) * ( i_hours*3600 +
+                                                              i_minutes*60 +
+                                                              i_seconds );
+                    }
+
+                    Item* item = new Item( p_parent, objectID, title, psz_resource_url, psz_subtitles, i_duration );
+                    p_parent->addItem( item );
+                }
+                ixmlNodeList_free( p_resource_list );
+            }
+            else continue;
         }
         ixmlNodeList_free( itemNodeList );
     }
@@ -971,14 +1014,32 @@ void MediaServer::_buildPlaylist( Container* p_parent, input_item_node_t *p_inpu
     {
         Item* p_item = p_parent->getItem( i );
 
+        char **ppsz_opts = NULL;
+        char *psz_input_slave = p_item->buildInputSlaveOption();
+        if( psz_input_slave )
+        {
+            ppsz_opts = (char**)malloc( 2 * sizeof( char* ) );
+            ppsz_opts[0] = psz_input_slave;
+            ppsz_opts[1] = p_item->buildSubTrackIdOption();
+        }
+
         input_item_t* p_input_item = input_item_NewExt( p_item->getResource(),
-                                               p_item->getTitle(),
-                                               0,
-                                               NULL,
-                                               0,
-                                               p_item->getDuration() );
+                                           p_item->getTitle(),
+                                           psz_input_slave ? 2 : 0,
+                                           psz_input_slave ? ppsz_opts : NULL,
+                                           VLC_INPUT_OPTION_TRUSTED, /* XXX */
+                                           p_item->getDuration() );
 
         assert( p_input_item );
+        if( ppsz_opts )
+        {
+            free( ppsz_opts[0] );
+            free( ppsz_opts[1] );
+            free( ppsz_opts );
+
+            psz_input_slave = NULL;
+        }
+
         input_item_node_AppendItem( p_input_node, p_input_item );
         p_item->setInputItem( p_input_item );
     }
@@ -1103,14 +1164,17 @@ void MediaServerList::removeServer( const char* psz_udn )
 /*
  * Item class
  */
-Item::Item( Container* p_parent, const char* psz_object_id, const char* psz_title,
-           const char* psz_resource, mtime_t i_duration )
+Item::Item( Container* p_parent,
+        const char* psz_object_id, const char* psz_title,
+        const char* psz_resource, const char* psz_subtitles,
+        mtime_t i_duration )
 {
     _parent = p_parent;
 
     _objectID = psz_object_id;
     _title = psz_title;
     _resource = psz_resource;
+    _subtitles = psz_subtitles ? psz_subtitles : "";
     _duration = i_duration;
 
     _p_input_item = NULL;
@@ -1137,9 +1201,73 @@ const char* Item::getResource() const
     return _resource.c_str();
 }
 
+const char* Item::getSubtitles() const
+{
+    if( !_subtitles.size() )
+        return NULL;
+
+    return _subtitles.c_str();
+}
+
 mtime_t Item::getDuration() const
 {
     return _duration;
+}
+
+char* Item::buildInputSlaveOption() const
+{
+    const char *psz_subtitles    = getSubtitles();
+
+    const char *psz_scheme_delim = "://";
+    const char *psz_sub_opt_fmt  = ":input-slave=%s/%s://%s";
+    const char *psz_demux        = "subtitle";
+
+    char       *psz_uri_scheme   = NULL;
+    const char *psz_scheme_end   = NULL;
+    const char *psz_uri_location = NULL;
+    char       *psz_input_slave  = NULL;
+
+    size_t i_scheme_len;
+
+    if( !psz_subtitles )
+        return NULL;
+
+    psz_scheme_end = strstr( psz_subtitles, psz_scheme_delim );
+
+    /* subtitles not being an URI would make no sense */
+    if( !psz_scheme_end )
+        return NULL;
+
+    i_scheme_len   = psz_scheme_end - psz_subtitles;
+    psz_uri_scheme = (char*)malloc( i_scheme_len + 1 );
+
+    if( !psz_uri_scheme )
+        return NULL;
+
+    memcpy( psz_uri_scheme, psz_subtitles, i_scheme_len );
+    psz_uri_scheme[i_scheme_len] = '\0';
+
+    /* If the subtitles try to force a vlc demux,
+     * then something is very wrong */
+    if( strchr( psz_uri_scheme, '/' ) )
+    {
+        free( psz_uri_scheme );
+        return NULL;
+    }
+
+    psz_uri_location = psz_scheme_end + strlen( psz_scheme_delim );
+
+    if( -1 == asprintf( &psz_input_slave, psz_sub_opt_fmt,
+            psz_uri_scheme, psz_demux, psz_uri_location ) )
+        psz_input_slave = NULL;
+
+    free( psz_uri_scheme );
+    return psz_input_slave;
+}
+
+char* Item::buildSubTrackIdOption() const
+{
+    return strdup( ":sub-track-id=2" );
 }
 
 void Item::setInputItem( input_item_t* p_input_item )
