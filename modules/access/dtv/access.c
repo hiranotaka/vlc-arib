@@ -950,7 +950,7 @@ static int isdbs_setup (vlc_object_t *obj, dvb_device_t *dev, uint64_t freq)
     uint16_t ts_id = var_InheritInteger (obj, "dvb-ts-id");
 
     int ret = dvb_set_isdbs (dev, freq, ts_id);
-    if (ret == 0)
+    if (ret < 0)
         ret = sec_setup (obj, dev, freq);
     return ret;
 }
