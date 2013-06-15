@@ -766,7 +766,7 @@ known:
 
     /*** LNB selection / DiSEqC ***/
     unsigned voltage = dvb_parse_polarization (pol);
-    if (dvb_set_props (d, 1, DTV_VOLTAGE, voltage))
+    if (dvb_set_props (d, 2, DTV_TONE, SEC_TONE_OFF, DTV_VOLTAGE, voltage))
         return -1;
 
     unsigned satno = var_InheritInteger (d->obj, "dvb-satno");
@@ -842,7 +842,7 @@ known:
     }
 
     /* Continuous tone (to select high oscillator frequency) */
-    return dvb_set_props (d, 1, DTV_FREQUENCY, freq);
+    return dvb_set_props (d, 2, DTV_FREQUENCY, freq, DTV_TONE, tone);
 }
 
 int dvb_set_dvbs (dvb_device_t *d, uint64_t freq_Hz,
