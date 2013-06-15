@@ -916,8 +916,7 @@ error:
 static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
 {
     encoder_sys_t *p_sys = p_enc->p_sys;
-    int i_out, i_plane, i_got_packet=1;
-
+    int i_plane;
     /* Initialize the video output buffer the first time.
      * This is done here instead of OpenEncoder() because we need the actual
      * bits_per_pixel value, without having to assume anything.
@@ -926,16 +925,13 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
                          p_enc->fmt_out.video.i_bits_per_pixel / 8 : 3;
     const int blocksize = __MAX( FF_MIN_BUFFER_SIZE,bytesPerPixel * p_sys->p_context->height * p_sys->p_context->width + 200 );
     block_t *p_block = block_Alloc( blocksize );
+    if( unlikely(p_block == NULL) )
+        return NULL;
 
-#if (LIBAVCODEC_VERSION_MAJOR >= 54)
-    AVPacket av_pkt;
-    /*We don't use av_pkt with major_version < 54, so no point init it*/
-    av_init_packet( &av_pkt );
-    av_pkt.data = p_block->p_buffer;
-    av_pkt.size = p_block->i_buffer;
-#endif
+    AVFrame *frame = NULL;
     if( likely(p_pict) ) {
-        avcodec_get_frame_defaults( p_sys->frame );
+        frame = p_sys->frame;
+        avcodec_get_frame_defaults( frame );
         for( i_plane = 0; i_plane < p_pict->i_planes; i_plane++ )
         {
             p_sys->frame->data[i_plane] = p_pict->p[i_plane].p_pixels;
@@ -943,20 +939,20 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
         }
 
         /* Let libavcodec select the frame type */
-        p_sys->frame->pict_type = 0;
+        frame->pict_type = 0;
 
-        p_sys->frame->repeat_pict = p_pict->i_nb_fields - 2;
-        p_sys->frame->interlaced_frame = !p_pict->b_progressive;
-        p_sys->frame->top_field_first = !!p_pict->b_top_field_first;
+        frame->repeat_pict = p_pict->i_nb_fields - 2;
+        frame->interlaced_frame = !p_pict->b_progressive;
+        frame->top_field_first = !!p_pict->b_top_field_first;
 
         /* Set the pts of the frame being encoded */
-        p_sys->frame->pts = p_pict->date ? p_pict->date : (int64_t)AV_NOPTS_VALUE;
+        frame->pts = p_pict->date ? p_pict->date : (int64_t)AV_NOPTS_VALUE;
 
-        if ( p_sys->b_hurry_up && p_sys->frame->pts != (int64_t)AV_NOPTS_VALUE )
+        if ( p_sys->b_hurry_up && frame->pts != (int64_t)AV_NOPTS_VALUE )
         {
             mtime_t current_date = mdate();
 
-            if ( current_date + HURRY_UP_GUARD3 > p_sys->frame->pts )
+            if ( current_date + HURRY_UP_GUARD3 > frame->pts )
             {
                 p_sys->p_context->mb_decision = FF_MB_DECISION_SIMPLE;
                 p_sys->p_context->trellis = 0;
@@ -966,11 +962,11 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
             {
                 p_sys->p_context->mb_decision = p_sys->i_hq;
 
-                if ( current_date + HURRY_UP_GUARD2 > p_sys->frame->pts )
+                if ( current_date + HURRY_UP_GUARD2 > frame->pts )
                 {
                     p_sys->p_context->trellis = 0;
                     p_sys->p_context->noise_reduction = p_sys->i_noise_reduction
-                        + (HURRY_UP_GUARD2 + current_date - p_sys->frame->pts) / 500;
+                        + (HURRY_UP_GUARD2 + current_date - frame->pts) / 500;
                     msg_Dbg( p_enc, "hurry up mode 2" );
                 }
                 else
@@ -982,59 +978,66 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
                 }
             }
 
-            if ( current_date + HURRY_UP_GUARD1 > p_sys->frame->pts )
+            if ( current_date + HURRY_UP_GUARD1 > frame->pts )
             {
-                p_sys->frame->pict_type = AV_PICTURE_TYPE_P;
+                frame->pict_type = AV_PICTURE_TYPE_P;
                 /* msg_Dbg( p_enc, "hurry up mode 1 %lld", current_date + HURRY_UP_GUARD1 - frame.pts ); */
             }
         }
 
-        if ( p_sys->frame->pts != (int64_t)AV_NOPTS_VALUE && p_sys->frame->pts != 0 )
+        if ( frame->pts != (int64_t)AV_NOPTS_VALUE && frame->pts != 0 )
         {
-            if ( p_sys->i_last_pts == p_sys->frame->pts )
+            if ( p_sys->i_last_pts == frame->pts )
             {
-                msg_Warn( p_enc, "almost fed libavcodec with two frames with the "
-                         "same PTS (%"PRId64 ")", p_sys->frame->pts );
+                msg_Warn( p_enc, "almost fed libavcodec with two frames with "
+                          "the same PTS (%"PRId64 ")", frame->pts );
                 return NULL;
             }
-            else if ( p_sys->i_last_pts > p_sys->frame->pts )
+            else if ( p_sys->i_last_pts > frame->pts )
             {
                 msg_Warn( p_enc, "almost fed libavcodec with a frame in the "
                          "past (current: %"PRId64 ", last: %"PRId64")",
-                         p_sys->frame->pts, p_sys->i_last_pts );
+                         frame->pts, p_sys->i_last_pts );
                 return NULL;
             }
             else
-            {
-                p_sys->i_last_pts = p_sys->frame->pts;
-            }
+                p_sys->i_last_pts = frame->pts;
         }
 
-        p_sys->frame->quality = p_sys->i_quality;
-
-#if (LIBAVCODEC_VERSION_MAJOR < 54)
-        i_out = avcodec_encode_video( p_sys->p_context, p_block->p_buffer, p_block->i_buffer, p_sys->frame );
-#else
-        i_out = avcodec_encode_video2( p_sys->p_context, &av_pkt, p_sys->frame, &i_got_packet );
-#endif
-    }
-    else
-    {
-#if (LIBAVCODEC_VERSION_MAJOR < 54)
-        i_out = avcodec_encode_video( p_sys->p_context, p_block->p_buffer, p_block->i_buffer, NULL);
-#else
-        i_out = avcodec_encode_video2( p_sys->p_context, &av_pkt, NULL, &i_got_packet );
-#endif
+        frame->quality = p_sys->i_quality;
     }
 
-    if( unlikely( i_out < 0 || i_got_packet == 0 ) )
+#if (LIBAVCODEC_VERSION_MAJOR >= 54)
+    AVPacket av_pkt;
+    int is_data;
+
+    av_init_packet( &av_pkt );
+    av_pkt.data = p_block->p_buffer;
+    av_pkt.size = p_block->i_buffer;
+
+    if( avcodec_encode_video2( p_sys->p_context, &av_pkt, frame, &is_data ) < 0
+     || is_data == 0 )
     {
         block_Release( p_block );
         return NULL;
     }
 
+    p_block->i_buffer = av_pkt.size;
+    p_block->i_length = av_pkt.duration / p_sys->p_context->time_base.den;
+    p_block->i_pts = av_pkt.pts;
+    p_block->i_dts = av_pkt.dts;
+    if( unlikely( av_pkt.flags & AV_PKT_FLAG_CORRUPT ) )
+        p_block->i_flags |= BLOCK_FLAG_CORRUPTED;
 
-#if (LIBAVCODEC_VERSION_MAJOR < 54)
+#else
+    int i_out = avcodec_encode_video( p_sys->p_context, p_block->p_buffer,
+                                      p_block->i_buffer, frame );
+    if( i_out <= 0 )
+    {
+        block_Release( p_block );
+        return NULL;
+    }
+
     p_block->i_buffer = i_out;
 
     /* FIXME, 3-2 pulldown is not handled correctly */
@@ -1082,15 +1085,6 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
          * correctly */
         p_block->i_dts = p_block->i_pts = p_pict->date;
     }
-#else
-    p_block->i_buffer = av_pkt.size;
-
-    p_block->i_length = av_pkt.duration / p_sys->p_context->time_base.den;
-
-    p_block->i_pts = av_pkt.pts;
-    p_block->i_dts = av_pkt.dts;
-    if( unlikely( av_pkt.flags & AV_PKT_FLAG_CORRUPT ) )
-        p_block->i_flags |= BLOCK_FLAG_CORRUPTED;
 #endif
 
     switch ( p_sys->p_context->coded_frame->pict_type )

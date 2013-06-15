@@ -13,6 +13,43 @@
   <property name="windowTitle">
    <string>Dialog</string>
   </property>
+  <property name="styleSheet">
+   <string notr="true"> QScrollBar:vertical {
+     border: 1px solid #999999;
+     background: white;
+     width: 12px;
+     margin: 5px 0 5px 2;
+ }
+ QScrollBar::handle:vertical {
+     background: #777777;
+     min-height: 12px;
+ }
+ QScrollBar::add-line:vertical {
+     border: none;
+     background: none;
+     height: 0px;
+     subcontrol-position: bottom;
+     subcontrol-origin: margin;
+ }
+
+ QScrollBar::sub-line:vertical {
+     border: none;
+     background: none;
+     height: 0px;
+     subcontrol-position: top;
+     subcontrol-origin: margin;
+ }
+ QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
+     border: none;
+     width: 0px;
+     height: 0px;
+     background: none;
+ }
+
+ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+     background: none;
+ }</string>
+  </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="spacing">
     <number>0</number>
@@ -23,20 +60,13 @@
    <item>
     <widget class="QFrame" name="horizontalFrame">
      <property name="sizePolicy">
-      <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+      <sizepolicy hsizetype="Minimum" vsizetype="MinimumExpanding">
        <horstretch>0</horstretch>
        <verstretch>0</verstretch>
       </sizepolicy>
      </property>
-     <property name="minimumSize">
-      <size>
-       <width>0</width>
-       <height>300</height>
-      </size>
-     </property>
      <property name="styleSheet">
-      <string notr="true">background-color: rgb(222, 222, 222);
-background-color: rgb(245, 245, 245);</string>
+      <string notr="true">background-color: rgb(245, 245, 245);</string>
      </property>
      <layout class="QGridLayout" name="gridLayout">
       <item row="2" column="2" rowspan="4">
@@ -258,8 +288,7 @@ margin-bottom: 6px;</string>
       </size>
      </property>
      <property name="styleSheet">
-      <string notr="true">background-color: rgb(201, 201, 201);
-background-color: rgb(230, 230, 230);</string>
+      <string notr="true">background-color: rgb(230, 230, 230);</string>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_2">
       <property name="margin">

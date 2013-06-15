@@ -1972,7 +1972,6 @@ then
   LIBS="${SAVED_LIBS}"
   if test "${have_avfoundation}" != "no"
   then
-    VLC_ADD_LIBS([macosx],[-Wl,-framework,AVFoundation])
     VLC_ADD_PLUGIN([avcapture])
   fi
 fi
@@ -2855,6 +2854,11 @@ if test "${enable_x264}" != "no"; then
       ])
   fi
 fi
+
+dnl
+dnl Intel QuickSync (aka MediaSDK) H264/H262 encoder
+dnl
+PKG_ENABLE_MODULES_VLC([QUICKSYNC], [qsv], [libmfx], [Intel QuickSync MPEG4-Part10/MPEG2 (aka H.264/H.262) encoder], [auto])
 
 dnl
 dnl libfluidsynth (MIDI synthetizer) plugin

@@ -914,7 +914,6 @@ static picture_t *ffmpeg_dr_GetFrameBuf(struct AVCodecContext *p_context)
 {
     decoder_t *p_dec = (decoder_t *)p_context->opaque;
     decoder_sys_t *p_sys = p_dec->p_sys;
-    vlc_va_t *p_va = p_sys->p_va;
 
     int i_width = p_context->width;
     int i_height = p_context->height;
@@ -1024,6 +1023,7 @@ static int ffmpeg_GetFrameBuf( struct AVCodecContext *p_context,
     }
 
     p_context->draw_horiz_band = NULL;
+    post_mt( p_sys );
 
     p_ff_pic->opaque = (void*)p_pic;
     p_ff_pic->type = FF_BUFFER_TYPE_USER;
@@ -1037,7 +1037,6 @@ static int ffmpeg_GetFrameBuf( struct AVCodecContext *p_context,
     p_ff_pic->linesize[2] = p_pic->p[2].i_pitch;
     p_ff_pic->linesize[3] = 0;
 
-    post_mt( p_sys );
     return 0;
 }
 

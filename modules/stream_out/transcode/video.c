@@ -261,34 +261,25 @@ int transcode_video_new( sout_stream_t *p_stream, sout_stream_id_t *id )
 static void transcode_video_filter_init( sout_stream_t *p_stream,
                                          sout_stream_id_t *id )
 {
+    const es_format_t *p_fmt_out = &id->p_decoder->fmt_out;
 
     id->p_f_chain = filter_chain_New( p_stream, "video filter2",
-                                     false,
-                                     transcode_video_filter_allocation_init,
-                                     transcode_video_filter_allocation_clear,
-                                     p_stream->p_sys );
+                                      false,
+                                      transcode_video_filter_allocation_init,
+                                      transcode_video_filter_allocation_clear,
+                                      p_stream->p_sys );
+    filter_chain_Reset( id->p_f_chain, p_fmt_out, p_fmt_out );
+
     /* Deinterlace */
     if( p_stream->p_sys->b_deinterlace )
     {
-       filter_chain_AppendFilter( id->p_f_chain,
-                                  p_stream->p_sys->psz_deinterlace,
-                                  p_stream->p_sys->p_deinterlace_cfg,
-                                  &id->p_decoder->fmt_out,
-                                  &id->p_decoder->fmt_out );
-    }
+        filter_chain_AppendFilter( id->p_f_chain,
+                                   p_stream->p_sys->psz_deinterlace,
+                                   p_stream->p_sys->p_deinterlace_cfg,
+                                   &id->p_decoder->fmt_out,
+                                   &id->p_decoder->fmt_out );
 
-    /* Take care of the scaling and chroma conversions */
-    if( ( id->p_decoder->fmt_out.video.i_chroma !=
-          id->p_encoder->fmt_in.video.i_chroma ) ||
-        ( id->p_decoder->fmt_out.video.i_width !=
-          id->p_encoder->fmt_in.video.i_width ) ||
-        ( id->p_decoder->fmt_out.video.i_height !=
-          id->p_encoder->fmt_in.video.i_height ) )
-    {
-       filter_chain_AppendFilter( id->p_f_chain,
-                                  NULL, NULL,
-                                  &id->p_decoder->fmt_out,
-                                  &id->p_encoder->fmt_in );
+        p_fmt_out = filter_chain_GetFmtOut( id->p_f_chain );
     }
 
     if( p_stream->p_sys->psz_vf2 )
@@ -316,15 +307,45 @@ static void transcode_video_filter_init( sout_stream_t *p_stream,
 
 }
 
+/* Take care of the scaling and chroma conversions.
+ *
+ * XXX: Shouldn't this really be after p_uf_chain, not p_f_chain,
+ * in case p_uf_chain changes the format?
+ */
+static void conversion_video_filter_append( sout_stream_id_t *id )
+{
+    const es_format_t *p_fmt_out = &id->p_decoder->fmt_out;
+    if( id->p_f_chain )
+        p_fmt_out = filter_chain_GetFmtOut( id->p_f_chain );
+
+    if( ( p_fmt_out->video.i_chroma != id->p_encoder->fmt_in.video.i_chroma ) ||
+        ( p_fmt_out->video.i_width != id->p_encoder->fmt_in.video.i_width ) ||
+        ( p_fmt_out->video.i_height != id->p_encoder->fmt_in.video.i_height ) )
+    {
+        filter_chain_AppendFilter( id->p_f_chain,
+                                   NULL, NULL,
+                                   p_fmt_out,
+                                   &id->p_encoder->fmt_in );
+    }
+}
+
 static void transcode_video_encoder_init( sout_stream_t *p_stream,
                                           sout_stream_id_t *id )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
 
+    const es_format_t *p_fmt_out = &id->p_decoder->fmt_out;
+    if( id->p_f_chain ) {
+        p_fmt_out = filter_chain_GetFmtOut( id->p_f_chain );
+    }
+    if( id->p_uf_chain ) {
+        p_fmt_out = filter_chain_GetFmtOut( id->p_uf_chain );
+    }
+
     /* Calculate scaling
      * width/height of source */
-    int i_src_width = id->p_decoder->fmt_out.video.i_width;
-    int i_src_height = id->p_decoder->fmt_out.video.i_height;
+    int i_src_width = p_fmt_out->video.i_width;
+    int i_src_height = p_fmt_out->video.i_height;
 
     /* with/height scaling */
     float f_scale_width = 1;
@@ -335,10 +356,10 @@ static void transcode_video_encoder_init( sout_stream_t *p_stream,
     int i_dst_height;
 
     /* aspect ratio */
-    float f_aspect = (double)id->p_decoder->fmt_out.video.i_sar_num *
-                     id->p_decoder->fmt_out.video.i_width /
-                     id->p_decoder->fmt_out.video.i_sar_den /
-                     id->p_decoder->fmt_out.video.i_height;
+    float f_aspect = (double)p_fmt_out->video.i_sar_num *
+                     p_fmt_out->video.i_width /
+                     p_fmt_out->video.i_sar_den /
+                     p_fmt_out->video.i_height;
 
     msg_Dbg( p_stream, "decoder aspect is %f:1", f_aspect );
 
@@ -437,13 +458,13 @@ static void transcode_video_encoder_init( sout_stream_t *p_stream,
     if( !id->p_encoder->fmt_out.video.i_frame_rate ||
         !id->p_encoder->fmt_out.video.i_frame_rate_base )
     {
-        if( id->p_decoder->fmt_out.video.i_frame_rate &&
-            id->p_decoder->fmt_out.video.i_frame_rate_base )
+        if( p_fmt_out->video.i_frame_rate &&
+            p_fmt_out->video.i_frame_rate_base )
         {
             id->p_encoder->fmt_out.video.i_frame_rate =
-                id->p_decoder->fmt_out.video.i_frame_rate;
+                p_fmt_out->video.i_frame_rate;
             id->p_encoder->fmt_out.video.i_frame_rate_base =
-                id->p_decoder->fmt_out.video.i_frame_rate_base;
+                p_fmt_out->video.i_frame_rate_base;
         }
         else
         {
@@ -468,8 +489,8 @@ static void transcode_video_encoder_init( sout_stream_t *p_stream,
     {
         vlc_ureduce( &id->p_encoder->fmt_out.video.i_sar_num,
                      &id->p_encoder->fmt_out.video.i_sar_den,
-                     (uint64_t)id->p_decoder->fmt_out.video.i_sar_num * i_src_width  * i_dst_height,
-                     (uint64_t)id->p_decoder->fmt_out.video.i_sar_den * i_src_height * i_dst_width,
+                     (uint64_t)p_fmt_out->video.i_sar_num * i_src_width  * i_dst_height,
+                     (uint64_t)p_fmt_out->video.i_sar_den * i_src_height * i_dst_width,
                      0 );
     }
     else
@@ -566,12 +587,121 @@ void transcode_video_close( sout_stream_t *p_stream,
         filter_chain_Delete( id->p_uf_chain );
 }
 
+static void OutputFrame( sout_stream_sys_t *p_sys, picture_t *p_pic, bool b_need_duplicate, sout_stream_t *p_stream, sout_stream_id_t *id, block_t **out )
+{
+    picture_t *p_pic2 = NULL;
+
+    /*
+     * Encoding
+     */
+
+    /* Check if we have a subpicture to overlay */
+    if( p_sys->p_spu )
+    {
+        video_format_t fmt = id->p_encoder->fmt_in.video;
+        if( fmt.i_visible_width <= 0 || fmt.i_visible_height <= 0 )
+        {
+            fmt.i_visible_width  = fmt.i_width;
+            fmt.i_visible_height = fmt.i_height;
+            fmt.i_x_offset       = 0;
+            fmt.i_y_offset       = 0;
+        }
+
+        subpicture_t *p_subpic = spu_Render( p_sys->p_spu, NULL, &fmt, &fmt,
+                                             p_pic->date, p_pic->date, false );
+
+        /* Overlay subpicture */
+        if( p_subpic )
+        {
+            if( picture_IsReferenced( p_pic ) && !filter_chain_GetLength( id->p_f_chain ) )
+            {
+                /* We can't modify the picture, we need to duplicate it,
+                 * in this point the picture is already p_encoder->fmt.in format*/
+                picture_t *p_tmp = video_new_buffer_encoder( id->p_encoder );
+                if( likely( p_tmp ) )
+                {
+                    picture_Copy( p_tmp, p_pic );
+                    picture_Release( p_pic );
+                    p_pic = p_tmp;
+                }
+            }
+            if( unlikely( !p_sys->p_spu_blend ) )
+                p_sys->p_spu_blend = filter_NewBlend( VLC_OBJECT( p_sys->p_spu ), &fmt );
+            if( likely( p_sys->p_spu_blend ) )
+                picture_BlendSubpicture( p_pic, p_sys->p_spu_blend, p_subpic );
+            subpicture_Delete( p_subpic );
+        }
+    }
+
+    if( p_sys->i_threads == 0 )
+    {
+        block_t *p_block;
+
+        p_block = id->p_encoder->pf_encode_video( id->p_encoder, p_pic );
+        block_ChainAppend( out, p_block );
+    }
+
+    if( p_sys->b_master_sync )
+    {
+        mtime_t i_pts = date_Get( &id->interpolated_pts ) + 1;
+        mtime_t i_video_drift = p_pic->date - i_pts;
+        if (unlikely ( i_video_drift  > MASTER_SYNC_MAX_DRIFT
+              || i_video_drift < -MASTER_SYNC_MAX_DRIFT ) )
+        {
+            msg_Dbg( p_stream,
+                "drift is too high (%"PRId64"), resetting master sync",
+                i_video_drift );
+            date_Set( &id->interpolated_pts, p_pic->date );
+            i_pts = p_pic->date + 1;
+        }
+        date_Increment( &id->interpolated_pts, 1 );
+
+        if( unlikely( b_need_duplicate ) )
+        {
+
+           if( p_sys->i_threads >= 1 )
+           {
+               /* We can't modify the picture, we need to duplicate it */
+               p_pic2 = video_new_buffer_encoder( id->p_encoder );
+               if( likely( p_pic2 != NULL ) )
+               {
+                   picture_Copy( p_pic2, p_pic );
+                   p_pic2->date = i_pts;
+               }
+           }
+           else
+           {
+               block_t *p_block;
+               p_pic->date = i_pts;
+               p_block = id->p_encoder->pf_encode_video(id->p_encoder, p_pic);
+               block_ChainAppend( out, p_block );
+           }
+       }
+    }
+
+    if( p_sys->i_threads == 0 )
+    {
+        picture_Release( p_pic );
+    }
+    else
+    {
+        vlc_mutex_lock( &p_sys->lock_out );
+        picture_fifo_Push( p_sys->pp_pics, p_pic );
+        if( p_pic2 != NULL )
+        {
+            picture_fifo_Push( p_sys->pp_pics, p_pic2 );
+        }
+        vlc_cond_signal( &p_sys->cond );
+        vlc_mutex_unlock( &p_sys->lock_out );
+    }
+}
+
 int transcode_video_process( sout_stream_t *p_stream, sout_stream_id_t *id,
                                     block_t *in, block_t **out )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
     bool b_need_duplicate = false;
-    picture_t *p_pic, *p_pic2 = NULL;
+    picture_t *p_pic;
     *out = NULL;
 
     if( unlikely( in == NULL ) )
@@ -672,17 +802,24 @@ int transcode_video_process( sout_stream_t *p_stream, sout_stream_id_t *id,
             id->p_encoder->fmt_out.video.i_height = p_sys->i_height & ~1;
             id->p_encoder->fmt_out.video.i_sar_num = id->p_encoder->fmt_out.video.i_sar_den = 0;
 
-            transcode_video_encoder_init( p_stream, id );
             transcode_video_filter_init( p_stream, id );
+            transcode_video_encoder_init( p_stream, id );
+            conversion_video_filter_append( id );
             memcpy( &p_sys->fmt_input_video, &id->p_decoder->fmt_out.video, sizeof(video_format_t));
         }
 
 
         if( unlikely( !id->p_encoder->p_module ) )
         {
-            transcode_video_encoder_init( p_stream, id );
+            if( id->p_f_chain )
+                filter_chain_Delete( id->p_f_chain );
+            if( id->p_uf_chain )
+                filter_chain_Delete( id->p_uf_chain );
+            id->p_f_chain = id->p_uf_chain = NULL;
 
             transcode_video_filter_init( p_stream, id );
+            transcode_video_encoder_init( p_stream, id );
+            conversion_video_filter_append( id );
             memcpy( &p_sys->fmt_input_video, &id->p_decoder->fmt_out.video, sizeof(video_format_t));
 
             if( transcode_video_encoder_open( p_stream, id ) != VLC_SUCCESS )
@@ -694,123 +831,45 @@ int transcode_video_process( sout_stream_t *p_stream, sout_stream_id_t *id,
             }
         }
 
-        /* Run filter chain */
-        if( id->p_f_chain )
-            p_pic = filter_chain_VideoFilter( id->p_f_chain, p_pic );
-        if( !p_pic )
-            continue;
-
-        /* Run user specified filter chain */
-        if( id->p_uf_chain )
-            p_pic = filter_chain_VideoFilter( id->p_uf_chain, p_pic );
-        if( !p_pic )
-            continue;
-
-        /*
-         * Encoding
+        /* Run the filter and output chains; first with the picture,
+         * and then with NULL as many times as we need until they
+         * stop outputting frames.
          */
+        for ( ;; ) {
+            picture_t *p_filtered_pic = p_pic;
 
-        /* Check if we have a subpicture to overlay */
-        if( p_sys->p_spu )
-        {
-            video_format_t fmt = id->p_encoder->fmt_in.video;
-            if( fmt.i_visible_width <= 0 || fmt.i_visible_height <= 0 )
-            {
-                fmt.i_visible_width  = fmt.i_width;
-                fmt.i_visible_height = fmt.i_height;
-                fmt.i_x_offset       = 0;
-                fmt.i_y_offset       = 0;
+            /* Run filter chain */
+            if( id->p_f_chain )
+                p_filtered_pic = filter_chain_VideoFilter( id->p_f_chain, p_filtered_pic );
+            if( !p_filtered_pic )
+                break;
+
+            for ( ;; ) {
+                picture_t *p_user_filtered_pic = p_filtered_pic;
+
+                /* Run user specified filter chain */
+                if( id->p_uf_chain )
+                    p_user_filtered_pic = filter_chain_VideoFilter( id->p_uf_chain, p_user_filtered_pic );
+                if( !p_user_filtered_pic )
+                    break;
+
+                OutputFrame( p_sys, p_user_filtered_pic, b_need_duplicate, p_stream, id, out );
+                b_need_duplicate = false;
+
+                p_filtered_pic = NULL;
             }
 
-            subpicture_t *p_subpic = spu_Render( p_sys->p_spu, NULL, &fmt, &fmt,
-                                                 p_pic->date, p_pic->date, false );
-
-            /* Overlay subpicture */
-            if( p_subpic )
-            {
-                if( picture_IsReferenced( p_pic ) && !filter_chain_GetLength( id->p_f_chain ) )
-                {
-                    /* We can't modify the picture, we need to duplicate it,
-                     * in this point the picture is already p_encoder->fmt.in format*/
-                    picture_t *p_tmp = video_new_buffer_encoder( id->p_encoder );
-                    if( likely( p_tmp ) )
-                    {
-                        picture_Copy( p_tmp, p_pic );
-                        picture_Release( p_pic );
-                        p_pic = p_tmp;
-                    }
-                }
-                if( unlikely( !p_sys->p_spu_blend ) )
-                    p_sys->p_spu_blend = filter_NewBlend( VLC_OBJECT( p_sys->p_spu ), &fmt );
-                if( likely( p_sys->p_spu_blend ) )
-                    picture_BlendSubpicture( p_pic, p_sys->p_spu_blend, p_subpic );
-                subpicture_Delete( p_subpic );
-            }
+            p_pic = NULL;
         }
+    }
 
-        if( p_sys->i_threads == 0 )
-        {
-            block_t *p_block;
-
-            p_block = id->p_encoder->pf_encode_video( id->p_encoder, p_pic );
-            block_ChainAppend( out, p_block );
-        }
-
-        if( p_sys->b_master_sync )
-        {
-            mtime_t i_pts = date_Get( &id->interpolated_pts ) + 1;
-            mtime_t i_video_drift = p_pic->date - i_pts;
-            if (unlikely ( i_video_drift  > MASTER_SYNC_MAX_DRIFT
-                  || i_video_drift < -MASTER_SYNC_MAX_DRIFT ) )
-            {
-                msg_Dbg( p_stream,
-                    "drift is too high (%"PRId64"), resetting master sync",
-                    i_video_drift );
-                date_Set( &id->interpolated_pts, p_pic->date );
-                i_pts = p_pic->date + 1;
-            }
-            date_Increment( &id->interpolated_pts, 1 );
-
-            if( unlikely( b_need_duplicate ) )
-            {
-
-               if( p_sys->i_threads >= 1 )
-               {
-                   /* We can't modify the picture, we need to duplicate it */
-                   p_pic2 = video_new_buffer_encoder( id->p_encoder );
-                   if( likely( p_pic2 != NULL ) )
-                   {
-                       picture_Copy( p_pic2, p_pic );
-                       p_pic2->date = i_pts;
-                   }
-               }
-               else
-               {
-                   block_t *p_block;
-                   p_pic->date = i_pts;
-                   p_block = id->p_encoder->pf_encode_video(id->p_encoder, p_pic);
-                   block_ChainAppend( out, p_block );
-               }
-           }
-        }
-
-        if( p_sys->i_threads == 0 )
-        {
-            picture_Release( p_pic );
-        }
-        else
-        {
-            vlc_mutex_lock( &p_sys->lock_out );
-            picture_fifo_Push( p_sys->pp_pics, p_pic );
-            *out = p_sys->p_buffers;
-            p_sys->p_buffers = NULL;
-            if( p_pic2 != NULL )
-            {
-                picture_fifo_Push( p_sys->pp_pics, p_pic2 );
-            }
-            vlc_cond_signal( &p_sys->cond );
-            vlc_mutex_unlock( &p_sys->lock_out );
-        }
+    if( p_sys->i_threads >= 1 )
+    {
+        /* Pick up any return data the encoder thread wants to output. */
+        vlc_mutex_lock( &p_sys->lock_out );
+        *out = p_sys->p_buffers;
+        p_sys->p_buffers = NULL;
+        vlc_mutex_unlock( &p_sys->lock_out );
     }
 
     return VLC_SUCCESS;

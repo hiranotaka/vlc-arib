@@ -45,6 +45,7 @@ static int SetupStandard (vlc_object_t *obj, int fd,
     if (!(input->capabilities & V4L2_IN_CAP_STD))
     {
         msg_Dbg (obj, "no video standard selection");
+        *std = V4L2_STD_UNKNOWN;
         return 0;
     }
 
@@ -356,7 +357,7 @@ static int FindMaxRate (vlc_object_t *obj, int fd,
         case V4L2_FRMIVAL_TYPE_STEPWISE:
         case V4L2_FRMIVAL_TYPE_CONTINUOUS:
             msg_Dbg (obj, "  frame intervals from %"PRIu32"/%"PRIu32
-                     "to %"PRIu32"/%"PRIu32" supported",
+                     " to %"PRIu32"/%"PRIu32" supported",
                      fie.stepwise.min.numerator, fie.stepwise.min.denominator,
                      fie.stepwise.max.numerator, fie.stepwise.max.denominator);
             if (fie.type == V4L2_FRMIVAL_TYPE_STEPWISE)
