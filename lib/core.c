@@ -69,8 +69,6 @@ libvlc_instance_t * libvlc_new( int argc, const char *const *argv )
     p_new->ref_count = 1;
     p_new->p_callback_list = NULL;
     vlc_mutex_init(&p_new->instance_lock);
-    var_Create( p_libvlc_int, "http-user-agent",
-                VLC_VAR_STRING|VLC_VAR_DOINHERIT );
     return p_new;
 
 error:
@@ -147,6 +145,16 @@ void libvlc_set_user_agent (libvlc_instance_t *p_i,
         var_SetString (p_libvlc, "http-user-agent", str);
         free (str);
     }
+}
+
+void libvlc_set_app_id(libvlc_instance_t *p_i, const char *id,
+                       const char *version, const char *icon)
+{
+    libvlc_int_t *p_libvlc = p_i->p_libvlc_int;
+
+    var_SetString(p_libvlc, "app-id", id ? id : "");
+    var_SetString(p_libvlc, "app-version", version ? version : "");
+    var_SetString(p_libvlc, "app-version", icon ? icon : "");
 }
 
 const char * libvlc_get_version(void)

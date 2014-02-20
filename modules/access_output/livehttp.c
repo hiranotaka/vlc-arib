@@ -166,6 +166,7 @@ typedef struct output_segment
     char *psz_uri;
     char *psz_key_uri;
     char *psz_duration;
+    float f_seglength;
     uint32_t i_segment_number;
     uint8_t aes_ivs[16];
 } output_segment_t;
@@ -235,6 +236,7 @@ static int Open( vlc_object_t *p_this )
     p_sys->segments_t = vlc_array_new();
 
     p_sys->stuffing_size = 0;
+    p_sys->i_opendts = VLC_TS_INVALID;
 
     p_sys->psz_indexPath = NULL;
     psz_idx = var_GetNonEmptyString( p_access, SOUT_CFG_PREFIX "index" );
@@ -489,6 +491,48 @@ static void destroySegment( output_segment_t *segment )
 }
 
 /************************************************************************
+ * segmentAmountNeeded: check that playlist has atleast 3*p_sys->i_seglength of segments
+ * return how many segments are needed for that (max of p_sys->i_segment )
+ ************************************************************************/
+static uint32_t segmentAmountNeeded( sout_access_out_sys_t *p_sys )
+{
+    float duration = .0f;
+    for( unsigned index = 1; index <= vlc_array_count( p_sys->segments_t ) ; index++ )
+    {
+        output_segment_t* segment = vlc_array_item_at_index( p_sys->segments_t, vlc_array_count( p_sys->segments_t ) - index );
+        duration += segment->f_seglength;
+
+        if( duration >= (float)( 3 * p_sys->i_seglen ) )
+            return __MAX(index, p_sys->i_numsegs);
+    }
+    return vlc_array_count( p_sys->segments_t )-1;
+
+}
+
+
+/************************************************************************
+ * isFirstItemRemovable: Check for draft 11 section 6.2.2 
+ * check that the first item has been around outside playlist 
+ * segment->f_seglength + p_sys->i_seglen before it is removed.
+ ************************************************************************/
+static bool isFirstItemRemovable( sout_access_out_sys_t *p_sys, uint32_t i_firstseg, uint32_t i_index_offset )
+{
+    float duration = .0f;
+
+    /* Check that segment has been out of playlist for seglenght + p_sys->i_seglen amount
+     * We check this by calculating duration of the items that replaced first item in playlist
+     */
+    for(int index=0; index < i_index_offset; index++ )
+    {
+        output_segment_t *segment = vlc_array_item_at_index( p_sys->segments_t, p_sys->i_segment - i_firstseg + index );
+        duration += segment->f_seglength;
+    }
+    output_segment_t *first = vlc_array_item_at_index( p_sys->segments_t, 0 );
+
+    return duration >= (first->f_seglength + (float)p_sys->i_seglen);
+}
+
+/************************************************************************
  * updateIndexAndDel: If necessary, update index file & delete old segments
  ************************************************************************/
 static int updateIndexAndDel( sout_access_out_t *p_access, sout_access_out_sys_t *p_sys, bool b_isend )
@@ -501,8 +545,9 @@ static int updateIndexAndDel( sout_access_out_t *p_access, sout_access_out_sys_t
         i_firstseg = 1;
     else
     {
-        i_firstseg = ( p_sys->i_segment - p_sys->i_numsegs ) + 1;
-        i_index_offset = vlc_array_count( p_sys->segments_t ) - p_sys->i_numsegs;
+        unsigned numsegs = segmentAmountNeeded( p_sys );
+        i_firstseg = ( p_sys->i_segment - numsegs ) + 1;
+        i_index_offset = vlc_array_count( p_sys->segments_t ) - numsegs;
     }
 
     // First update index
@@ -607,15 +652,22 @@ static int updateIndexAndDel( sout_access_out_t *p_access, sout_access_out_sys_t
     }
 
     // Then take care of deletion
-    while( p_sys->b_delsegs && p_sys->i_numsegs && ( (vlc_array_count( p_sys->segments_t ) ) > p_sys->i_numsegs ) )
+    // Try to follow pantos draft 11 section 6.2.2
+    while( p_sys->b_delsegs && p_sys->i_numsegs &&
+           isFirstItemRemovable( p_sys, i_firstseg, i_index_offset )
+         )
     {
          output_segment_t *segment = vlc_array_item_at_index( p_sys->segments_t, 0 );
+         msg_Dbg( p_access, "Removing segment number %d", segment->i_segment_number );
          vlc_array_remove( p_sys->segments_t, 0 );
+
          if ( segment->psz_filename )
          {
              vlc_unlink( segment->psz_filename );
          }
+
          destroySegment( segment );
+         i_index_offset -=1;
     }
 
 
@@ -656,6 +708,7 @@ static void closeCurrentSegment( sout_access_out_t *p_access, sout_access_out_sy
             msg_Err( p_access, "Couldn't set duration on closed segment");
             return;
         }
+        segment->f_seglength = p_sys->f_seglen;
 
         segment->i_segment_number = p_sys->i_segment;
 
@@ -866,6 +919,10 @@ static ssize_t Write( sout_access_out_t *p_access, block_t *p_buffer )
             if ( p_sys->i_handle < 0 )
             {
                 p_sys->i_opendts = output ? output->i_dts : p_buffer->i_dts;
+                //For first segment we can get negative duration otherwise...?
+                if( ( p_sys->i_opendts != VLC_TS_INVALID ) &&
+                    ( p_buffer->i_dts < p_sys->i_opendts ) )
+                    p_sys->i_opendts = p_buffer->i_dts;
                 if ( openNextFile( p_access, p_sys ) < 0 )
                    return -1;
             }

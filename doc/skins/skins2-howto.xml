@@ -10,7 +10,7 @@
 <title>HowTo create your own skin</title>
 
 <copyright>
-<year>2004-2012</year>
+<year>2004-2013</year>
 <holder>
 the VideoLAN project
 </holder>
@@ -493,24 +493,24 @@ difficulty to understand how VLC skins work.</para>
     <para>Relative placement of windows or widget within their respective container(screen for windows, layout or panel for widgets). This placement is given with a geographical qualifier. Possible values are "Center", "North", "NorthWest", ....The skin engine computes the size of the element (from the width and height parameters) then places it at the center or sticks it to a given border depending on the geographical qualifer.</para>
     <para>Default value: -1(N/A)</para>
   </sect3>
-  <sect3 id="x-margin">
-    <title>x-margin</title>
-    <para>Coupled with position, x-margin allows for a horizontal margin instead of just sticking to the border. It can be given in pixels or in percentage of the width of the container.</para>
+  <sect3 id="xmargin">
+    <title>xmargin</title>
+    <para>Coupled with position, xmargin allows for a horizontal margin instead of just sticking to the border. It can be given in pixels or in percentage of the width of the container.</para>
     <para>Default value: 0</para>
   </sect3>
-  <sect3 id="y-margin">
-    <title>y-margin</title>
-    <para>Coupled with position, y-margin allows for a vertical margin instead of just sticking to the border. It can be given in pixels or in percentage of the height of the container.</para>
+  <sect3 id="ymargin">
+    <title>ymargin</title>
+    <para>Coupled with position, ymargin allows for a vertical margin instead of just sticking to the border. It can be given in pixels or in percentage of the height of the container.</para>
     <para>Default value: 0</para>
   </sect3>
-  <sect3 id="x-offset">
-    <title>x-offset</title>
-    <para>Coupled with position and x-margin, this parameter moves the widget horizontally by this offset from the position computed above.</para>
+  <sect3 id="xoffset">
+    <title>xoffset</title>
+    <para>Coupled with position and xmargin, this parameter moves the widget horizontally by this offset from the position computed above. From VLC2.1.0 on, xoffset can directly be used without position, in which case percentage is computed against the current object instead of the upper container</para>
     <para>Default value: 0</para>
   </sect3>
-  <sect3 id="y-offset">
-    <title>y-offset</title>
-    <para>Coupled with position and y-margin, this parameter moves the widget vertically by this offset from the position computed above.</para>
+  <sect3 id="yoffset">
+    <title>yoffset</title>
+    <para>Coupled with position and ymargin, this parameter moves the widget vertically by this offset from the position computed above. From VLC2.1.0 on, yoffset can directly be used without position, in which case percentage is computed against the current object instead of the upper container</para>
     <para>Default value: 0</para>
   </sect3>
 </sect2>
@@ -523,6 +523,16 @@ difficulty to understand how VLC skins work.</para>
     <title>image</title>
     <para>Identifiant of a <link linkend="Bitmap">Bitmap</link>.</para>
     <para><emphasis>Required.</emphasis></para>
+  </sect3>
+  <sect3 id="imagewidth">
+    <title>width</title>
+    <para>Width of the image. If set, this width supersedes the actual width of the image. The initial resizing takes the resize policy into account</para>
+    <para>Default value: -1</para>
+  </sect3>
+  <sect3 id="imageheight">
+    <title>height</title>
+    <para>Height of the image. If set, this height supersedes the actual height of the image. The initial resizing takes the resize policy into account</para>
+    <para>Default value: -1</para>
   </sect3>
   <sect3 id="imageresize">
     <title>resize</title>
@@ -713,6 +723,16 @@ difficulty to understand how VLC skins work.</para>
     <title>value</title>
     <para>Variable controlled by the slider. This must be a <link linkend="percent">percentage variable</link>, e.g "volume" or "time" (only exception: the <link linkend="Slider">Slider</link> defined inside the <link linkend="Playtree">Playtree</link> tag does not need to set this attribute).</para>
     <para>Default value: none</para>
+  </sect3>
+  <sect3 id="sliderwidth">
+    <title>width</title>
+    <para>Width of the slider. If set, this width supersedes the actual width of the slider computed from the curve width. (new after VLC 2.1.0)</para>
+    <para>Default value: -1</para>
+  </sect3>
+  <sect3 id="sliderheight">
+    <title>height</title>
+    <para>Height of the slider. If set, this height supersedes the actual height of the slider computed from the curve height. (new after VLC 2.1.0)</para>
+    <para>Default value: -1</para>
   </sect3>
   <sect3 id="slidertooltiptext">
     <title>tooltiptext</title>
@@ -1180,7 +1200,7 @@ difficulty to understand how VLC skins work.</para>
     <emphasis>WindowID.isVisible</emphasis>: True when the window whose <link linkend="windowid">id</link> is "WindowID" is visible, false otherwise.
   </para></listitem>
   <listitem><para>
-    <emphasis>LayoutID.isVisible</emphasis>: True when the layout whose <link linkend="layoutid">id</link> is "LayoutID" is the active layout in its window (even if the window is hidden), false otherwise (since VLC 0.8.6).
+    <emphasis>LayoutID.isActive</emphasis>: True when the layout whose <link linkend="layoutid">id</link> is "LayoutID" is the active layout in its window (even if the window is hidden), false otherwise (since VLC 0.8.6).
   </para></listitem>
 </itemizedlist>
 

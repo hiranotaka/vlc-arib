@@ -385,8 +385,22 @@ dbus_out:
 
     /* some default internal settings */
     var_Create( p_libvlc, "window", VLC_VAR_STRING );
+    /* NOTE: Because the playlist and interfaces start before this function
+     * returns control to the application (DESIGN BUG!), all these variables
+     * must be created (in place of libvlc_new()) and set to VLC defaults
+     * (in place of VLC main()) *here*. */
     var_Create( p_libvlc, "user-agent", VLC_VAR_STRING );
-    var_SetString( p_libvlc, "user-agent", "(LibVLC "VERSION")" );
+    var_SetString( p_libvlc, "user-agent",
+                   "VLC media player (LibVLC "VERSION")" );
+    var_Create( p_libvlc, "http-user-agent", VLC_VAR_STRING );
+    var_SetString( p_libvlc, "http-user-agent",
+                   "VLC/"PACKAGE_VERSION" LibVLC/"PACKAGE_VERSION );
+    var_Create( p_libvlc, "app-icon-name", VLC_VAR_STRING );
+    var_SetString( p_libvlc, "app-icon-name", PACKAGE_NAME );
+    var_Create( p_libvlc, "app-id", VLC_VAR_STRING );
+    var_SetString( p_libvlc, "app-id", "org.VideoLAN.VLC" );
+    var_Create( p_libvlc, "app-version", VLC_VAR_STRING );
+    var_SetString( p_libvlc, "app-version", PACKAGE_VERSION );
 
     /* System specific configuration */
     system_Configure( p_libvlc, i_argc - vlc_optind, ppsz_argv + vlc_optind );

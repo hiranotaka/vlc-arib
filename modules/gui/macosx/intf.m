@@ -178,25 +178,6 @@ int WindowOpen(vout_window_t *p_wnd, const vout_window_cfg_t *cfg)
     msg_Dbg(VLCIntf, "returning videoview with proposed position x=%i, y=%i, width=%i, height=%i", cfg->x, cfg->y, cfg->width, cfg->height);
     p_wnd->handle.nsobject = videoView;
 
-    // TODO: find a cleaner way for "start in fullscreen"
-    // either prefs settings, or fullscreen button was pressed before
-    if (var_InheritBool(VLCIntf, "fullscreen") || var_GetBool(pl_Get(VLCIntf), "fullscreen")) {
-
-        // this is not set when we start in fullscreen because of
-        // fullscreen settings in video prefs the second time
-        var_SetBool(p_wnd->p_parent, "fullscreen", 1);
-
-        int i_full = 1;
-
-        SEL sel = @selector(setFullscreen:forWindow:);
-        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:[o_vout_controller methodSignatureForSelector:sel]];
-        [inv setTarget:o_vout_controller];
-        [inv setSelector:sel];
-        [inv setArgument:&i_full atIndex:2];
-        [inv setArgument:&p_wnd atIndex:3];
-        [inv performSelectorOnMainThread:@selector(invoke) withObject:nil
-                           waitUntilDone:NO];
-    }
     [o_vout_provider_lock unlock];
 
     [[VLCMain sharedInstance] setActiveVideoPlayback: YES];
@@ -801,8 +782,18 @@ static VLCMain *_o_sharedMainInstance = nil;
     nib_main_loaded = TRUE;
 }
 
+- (void)applicationWillFinishLaunching:(NSNotification *)aNotification
+{
+    playlist_t * p_playlist = pl_Get(VLCIntf);
+    PL_LOCK;
+    items_at_launch = p_playlist->p_local_category->i_children;
+    PL_UNLOCK;
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
+    launched = YES;
+
     if (!p_intf)
         return;
 
@@ -1066,8 +1057,18 @@ static VLCMain *_o_sharedMainInstance = nil;
 
 - (void)application:(NSApplication *)o_app openFiles:(NSArray *)o_names
 {
-    BOOL b_autoplay = config_GetInt(VLCIntf, "macosx-autoplay");
     char *psz_uri = vlc_path2uri([[o_names objectAtIndex:0] UTF8String], "file");
+
+    if (launched == NO) {
+        if (items_at_launch) {
+            int items = [o_names count];
+            if (items > items_at_launch)
+                items_at_launch = 0;
+            else
+                items_at_launch -= items;
+            return;
+        }
+    }
 
     // try to add file as subtitle
     if ([o_names count] == 1 && psz_uri) {
@@ -1096,10 +1097,7 @@ static VLCMain *_o_sharedMainInstance = nil;
         [o_result addObject: o_dic];
     }
 
-    if (b_autoplay)
-        [o_playlist appendArray: o_result atPos: -1 enqueue: NO];
-    else
-        [o_playlist appendArray: o_result atPos: -1 enqueue: YES];
+    [o_playlist appendArray: o_result atPos: -1 enqueue: !config_GetInt(VLCIntf, "macosx-autoplay")];
 
     return;
 }

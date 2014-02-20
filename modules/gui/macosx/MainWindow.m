@@ -227,8 +227,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
     SideBarItem *internetItem = [SideBarItem itemWithTitle:_NS("INTERNET") identifier:@"internet"];
 
     /* SD subnodes, inspired by the Qt4 intf */
-    char **ppsz_longnames;
-    int *p_categories;
+    char **ppsz_longnames = NULL;
+    int *p_categories = NULL;
     char **ppsz_names = vlc_sd_GetNames(pl_Get(VLCIntf), &ppsz_longnames, &p_categories);
     if (!ppsz_names)
         msg_Err(VLCIntf, "no sd item found"); //TODO
@@ -239,7 +239,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     NSMutableArray *lanItems = [[NSMutableArray alloc] init];
     NSMutableArray *mycompItems = [[NSMutableArray alloc] init];
     NSString *o_identifier;
-    for (; *ppsz_name; ppsz_name++, ppsz_longname++, p_category++) {
+    for (; ppsz_name && *ppsz_name; ppsz_name++, ppsz_longname++, p_category++) {
         o_identifier = [NSString stringWithCString: *ppsz_name encoding: NSUTF8StringEncoding];
         switch (*p_category) {
             case SD_CAT_INTERNET:
@@ -737,19 +737,22 @@ static VLCMainWindow *_o_sharedInstance = nil;
 #pragma mark -
 #pragma mark Video Output handling
 
+- (void)videoplayWillBeStarted
+{
+    if (!b_fullscreen)
+        frameBeforePlayback = [self frame];
+}
+
 - (void)setVideoplayEnabled
 {
     BOOL b_videoPlayback = [[VLCMain sharedInstance] activeVideoPlayback];
-
-    if (b_videoPlayback) {
-        if (!b_fullscreen)
-            frameBeforePlayback = [self frame];
-    } else {
+        
+    if (!b_videoPlayback) {
         if (!b_nonembedded && (!b_nativeFullscreenMode || (b_nativeFullscreenMode && !b_fullscreen)) && frameBeforePlayback.size.width > 0 && frameBeforePlayback.size.height > 0)
             [[self animator] setFrame:frameBeforePlayback display:YES];
 
         // update fs button to reflect state for next startup
-        if (var_InheritBool(pl_Get(VLCIntf), "fullscreen")) {
+        if (var_InheritBool(VLCIntf, "fullscreen") || var_GetBool(pl_Get(VLCIntf), "fullscreen")) {
             [o_controls_bar setFullscreenState:YES];
         }
 
@@ -911,7 +914,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 - (NSInteger)sourceList:(PXSourceList*)aSourceList badgeValueForItem:(id)item
 {
     playlist_t * p_playlist = pl_Get(VLCIntf);
-    NSInteger i_playlist_size;
+    NSInteger i_playlist_size = 0;
 
     if ([[item identifier] isEqualToString: @"playlist"]) {
         PL_LOCK;
@@ -922,7 +925,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
     }
     if ([[item identifier] isEqualToString: @"medialibrary"]) {
         PL_LOCK;
-        i_playlist_size = p_playlist->p_ml_category->i_children;
+        if (p_playlist->p_ml_category)
+            i_playlist_size = p_playlist->p_ml_category->i_children;
         PL_UNLOCK;
 
         return i_playlist_size;
@@ -1011,7 +1015,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
     if ([[item identifier] isEqualToString:@"playlist"]) {
         [[[VLCMain sharedInstance] playlist] setPlaylistRoot:p_playlist->p_local_category];
     } else if ([[item identifier] isEqualToString:@"medialibrary"]) {
-        [[[VLCMain sharedInstance] playlist] setPlaylistRoot:p_playlist->p_ml_category];
+        if (p_playlist->p_ml_category)
+            [[[VLCMain sharedInstance] playlist] setPlaylistRoot:p_playlist->p_ml_category];
     } else {
         playlist_item_t * pl_item;
         PL_LOCK;

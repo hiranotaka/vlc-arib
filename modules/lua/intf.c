@@ -33,6 +33,7 @@
 
 #include <vlc_common.h>
 #include <vlc_interface.h>
+#include <vlc_fs.h>
 
 #include "vlc.h"
 #include "libs.h"
@@ -238,7 +239,6 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
     }
 
     vlclua_set_this( L, p_intf );
-    vlclua_set_intf( L, p_sys );
 
     luaL_openlibs( L );
 
@@ -361,8 +361,16 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
 
     p_sys->L = L;
 
+    if( vlc_pipe( p_sys->fd ) )
+    {
+        lua_close( p_sys->L );
+        goto error;
+    }
+
     if( vlc_clone( &p_sys->thread, Run, p_intf, VLC_THREAD_PRIORITY_LOW ) )
     {
+        close( p_sys->fd[1] );
+        close( p_sys->fd[0] );
         lua_close( p_sys->L );
         goto error;
     }
@@ -381,10 +389,11 @@ void Close_LuaIntf( vlc_object_t *p_this )
     intf_thread_t *p_intf = (intf_thread_t*)p_this;
     intf_sys_t *p_sys = p_intf->p_sys;
 
-    vlc_cancel( p_sys->thread );
+    close( p_sys->fd[1] );
     vlc_join( p_sys->thread, NULL );
-    lua_close( p_sys->L );
 
+    lua_close( p_sys->L );
+    close( p_sys->fd[0] );
     free( p_sys->psz_filename );
     free( p_sys );
 }

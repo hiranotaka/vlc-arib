@@ -67,7 +67,8 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 #pragma mark -
 #pragma mark Initialization
 
-+ (void)initialize{
++ (void)initialize
+{
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
 
     /* We are using the same format as the Qt4 intf here:
@@ -86,11 +87,11 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
                                  @"ts;1;1;0;mp2v;800;1;0;0;0;mpga;128;2;44100;0;0",
                                  @"asf;1;1;0;WMV2;800;1;0;0;0;wma2;128;2;44100;0;0",
                                  @"asf;1;1;0;DIV3;800;1;0;0;0;mp3;128;2;44100;0;0",
-                                 @"ogg;1;1;0;none;800;1;0;0;0;vorb;128;2;44100;none;0",
-                                 @"raw;1;1;0;none;800;1;0;0;0;mp3;128;2;44100;none;0",
-                                 @"mp4;1;1;0;none;800;1;0;0;0;mpga;128;2;44100;none;0",
-                                 @"raw;1;1;0;none;800;1;0;0;0;flac;128;2;44100;none;0",
-                                 @"wav;1;1;0;none;800;1;0;0;0;s16l;128;2;44100;none;0", nil];
+                                 @"ogg;0;1;0;none;800;1;0;0;0;vorb;128;2;44100;none;0",
+                                 @"raw;0;1;0;none;800;1;0;0;0;mp3;128;2;44100;none;0",
+                                 @"mp4;0;1;0;none;800;1;0;0;0;mpga;128;2;44100;none;0",
+                                 @"raw;0;1;0;none;800;1;0;0;0;flac;128;2;44100;none;0",
+                                 @"wav;0;1;0;none;800;1;0;0;0;s16l;128;2;44100;none;0", nil];
 
     NSArray * defaultProfileNames = [[NSArray alloc] initWithObjects:
                                      @"Video - H.264 + MP3 (MP4)",
@@ -338,7 +339,8 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 - (IBAction)switchProfile:(id)sender
 {
     NSUInteger index = [_profile_pop indexOfSelectedItem];
-    if (index < ([self.profileValueList count] - 1))
+    // last index is "custom"
+    if (index <= ([self.profileValueList count] - 1))
         [self resetCustomizationSheetBasedOnProfile:[self.profileValueList objectAtIndex:index]];
 }
 
@@ -600,8 +602,9 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
             [workArray addObject:text];
             [self setProfileNames:[[[NSArray alloc] initWithArray:workArray] autorelease]];
             [workArray release];
+
             workArray = [[NSMutableArray alloc] initWithArray:self.profileValueList];
-            [workArray addObject:[[[NSArray alloc] initWithArray:self.currentProfile] autorelease]];
+            [workArray addObject:[self.currentProfile componentsJoinedByString:@";"]];
             [self setProfileValueList:[[[NSArray alloc] initWithArray:workArray] autorelease]];
             [workArray release];
 
@@ -630,13 +633,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
         [workArray release];
 
         /* update UI */
-        [_profile_pop removeAllItems];
-        [_profile_pop addItemsWithTitles:self.profileNames];
-        [_profile_pop addItemWithTitle:_NS("Custom")];
-        [[_profile_pop menu] addItem:[NSMenuItem separatorItem]];
-        [_profile_pop addItemWithTitle:_NS("Organize Profiles...")];
-        [[_profile_pop lastItem] setTarget: self];
-        [[_profile_pop lastItem] setAction: @selector(deleteProfileAction:)];
+        [self recreateProfilePopup];
 
         /* update internals */
         [self switchProfile:self];
@@ -710,7 +707,9 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     NSArray * tempArray = [_videoCodecs objectAtIndex:1];
     NSUInteger count = [tempArray count];
     NSString * searchString = [components objectAtIndex:4];
-    if ([searchString isEqualToString:@"none"] || [searchString isEqualToString:@"0"]) {
+    int videoKeep = [searchString isEqualToString:@"copy"];
+    [_customize_vid_keep_ckb setState:videoKeep];
+    if ([searchString isEqualToString:@"none"] || [searchString isEqualToString:@"0"] || videoKeep) {
         [_customize_vid_codec_pop selectItemAtIndex:-1];
     } else {
         for (NSUInteger x = 0; x < count; x++) {
@@ -724,7 +723,9 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     tempArray = [_audioCodecs objectAtIndex:1];
     count = [tempArray count];
     searchString = [components objectAtIndex:10];
-    if ([searchString isEqualToString:@"none"] || [searchString isEqualToString:@"0"]) {
+    int audioKeep = [searchString isEqualToString:@"copy"];
+    [_customize_aud_keep_ckb setState:audioKeep];
+    if ([searchString isEqualToString:@"none"] || [searchString isEqualToString:@"0"] || audioKeep) {
         [_customize_aud_codec_pop selectItemAtIndex:-1];
     } else {
         for (NSUInteger x = 0; x < count; x++) {
@@ -861,10 +862,11 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 - (NSString *)composedOptions
 {
     NSMutableString *composedOptions = [[NSMutableString alloc] initWithString:@":sout=#transcode{"];
+    BOOL haveVideo = YES;
     if ([[self.currentProfile objectAtIndex:1] intValue]) {
         // video is enabled
+        if (![[self.currentProfile objectAtIndex:4] isEqualToString:@"copy"]) {
         [composedOptions appendFormat:@"vcodec=%@", [self.currentProfile objectAtIndex:4]];
-        if (![[self.currentProfile objectAtIndex:4] isEqualToString:@"none"]) {
             if ([[self.currentProfile objectAtIndex:5] intValue] > 0) // bitrate
                 [composedOptions appendFormat:@",vb=%@", [self.currentProfile objectAtIndex:5]];
             if ([[self.currentProfile objectAtIndex:6] floatValue] > 0.) // scale
@@ -875,25 +877,40 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
                 [composedOptions appendFormat:@",width=%@", [self.currentProfile objectAtIndex:8]];
             if ([[self.currentProfile objectAtIndex:9] intValue] > 0) // height
                 [composedOptions appendFormat:@",height=%@", [self.currentProfile objectAtIndex:9]];
+        } else {
+            haveVideo = NO;
         }
+    } else {
+        [composedOptions appendString:@"vcodec=none"];
     }
+
+    BOOL haveAudio = YES;
     if ([[self.currentProfile objectAtIndex:2] intValue]) {
         // audio is enabled
+        if (![[self.currentProfile objectAtIndex:10] isEqualToString:@"copy"]) {
+            if(haveVideo)
+                [composedOptions appendString:@","];
+            [composedOptions appendFormat:@"acodec=%@", [self.currentProfile objectAtIndex:10]];
 
-        // add another comma in case video is enabled
-        if ([[self.currentProfile objectAtIndex:1] intValue])
-            [composedOptions appendString:@","];
 
-        [composedOptions appendFormat:@"acodec=%@", [self.currentProfile objectAtIndex:10]];
-        if (![[self.currentProfile objectAtIndex:10] isEqualToString:@"none"]) {
+            [composedOptions appendFormat:@"acodec=%@", [self.currentProfile objectAtIndex:10]];
             [composedOptions appendFormat:@",ab=%@", [self.currentProfile objectAtIndex:11]]; // bitrate
             [composedOptions appendFormat:@",channels=%@", [self.currentProfile objectAtIndex:12]]; // channel number
             [composedOptions appendFormat:@",samplerate=%@", [self.currentProfile objectAtIndex:13]]; // sample rate
+        } else {
+            haveAudio = NO;
         }
+    } else {
+        if(haveVideo)
+            [composedOptions appendString:@","];
+
+        [composedOptions appendString:@"acodec=none"];
     }
     if ([self.currentProfile objectAtIndex:3]) {
+        if(haveVideo || haveAudio)
+            [composedOptions appendString:@","];
         // subtitles enabled
-        [composedOptions appendFormat:@",scodec=%@", [self.currentProfile objectAtIndex:14]];
+        [composedOptions appendFormat:@"scodec=%@", [self.currentProfile objectAtIndex:14]];
         if ([[self.currentProfile objectAtIndex:15] intValue])
             [composedOptions appendFormat:@",soverlay"];
     }
@@ -952,21 +969,37 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [self.currentProfile addObject: [NSString stringWithFormat:@"%li", [_customize_vid_ckb state]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%li", [_customize_aud_ckb state]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%li", [_customize_subs_ckb state]]];
-    i = [_customize_vid_codec_pop indexOfSelectedItem];
-    if (i >= 0)
-        [self.currentProfile addObject: [[_videoCodecs objectAtIndex:1] objectAtIndex:i]];
-    else
-        [self.currentProfile addObject: @"none"];
+    
+    NSString *videoCodec;
+    if([_customize_vid_keep_ckb state] == NSOnState)
+        videoCodec = @"copy";
+    else {
+        i = [_customize_vid_codec_pop indexOfSelectedItem];
+        if (i >= 0)
+            videoCodec = [[_videoCodecs objectAtIndex:1] objectAtIndex:i];
+        else
+            videoCodec = @"none";
+    }
+    [self.currentProfile addObject: videoCodec];
+
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [self vidBitrate]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [[[_customize_vid_scale_pop selectedItem] title] intValue]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [self vidFramerate]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [_customize_vid_width_fld intValue]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [_customize_vid_height_fld intValue]]];
-    i = [_customize_aud_codec_pop indexOfSelectedItem];
-    if (i >= 0)
-        [self.currentProfile addObject: [[_audioCodecs objectAtIndex:1] objectAtIndex:i]];
-    else
-        [self.currentProfile addObject: @"none"];
+
+    NSString *audioCodec;
+    if([_customize_aud_keep_ckb state] == NSOnState)
+        audioCodec = @"copy";
+    else {
+        i = [_customize_aud_codec_pop indexOfSelectedItem];
+        if (i >= 0)
+            audioCodec = [[_audioCodecs objectAtIndex:1] objectAtIndex:i];
+        else
+            audioCodec = @"none";
+    }
+    [self.currentProfile addObject: audioCodec];
+    
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [self audBitrate]]];
     [self.currentProfile addObject: [NSString stringWithFormat:@"%i", [self audChannels]]];
     [self.currentProfile addObject: [[_customize_aud_samplerate_pop selectedItem] title]];
