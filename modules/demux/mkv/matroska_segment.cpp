@@ -138,6 +138,12 @@ void matroska_segment_c::LoadCues( KaxCues *cues )
                     KaxCueTime &ctime = *(KaxCueTime*)el;
                     try
                     {
+                        if( unlikely( ctime.GetSize() >= SIZE_MAX ) )
+                        {
+                            msg_Err( &sys.demuxer, "CueTime size too big");
+                            b_invalid_cue = true;
+                            break;
+                        }
                         ctime.ReadData( es.I_O() );
                     }
                     catch(...)
@@ -155,10 +161,17 @@ void matroska_segment_c::LoadCues( KaxCues *cues )
                     {
                         while( ( el = ep->Get() ) != NULL )
                         {
+                            if( unlikely( el->GetSize() >= SIZE_MAX ) )
+                            {
+                                ep->Up();
+                                msg_Err( &sys.demuxer, "Error %s too big, aborting", typeid(*el).name() );
+                                b_invalid_cue = true;
+                                break;
+                            }
+
                             if( MKV_IS_ID( el, KaxCueTrack ) )
                             {
                                 KaxCueTrack &ctrack = *(KaxCueTrack*)el;
-
                                 ctrack.ReadData( es.I_O() );
                                 idx.i_track = uint16( ctrack );
                             }
@@ -255,6 +268,8 @@ SimpleTag * matroska_segment_c::ParseSimpleTags( KaxTagSimple *tag, int target_t
     EbmlElement *el;
     EbmlParser *ep = new EbmlParser( &es, tag, &sys.demuxer );
     SimpleTag * p_simple = new SimpleTag;
+    size_t max_size = tag->GetSize();
+    size_t size = 0;
 
     if( !p_simple )
     {
@@ -268,8 +283,15 @@ SimpleTag * matroska_segment_c::ParseSimpleTags( KaxTagSimple *tag, int target_t
     msg_Dbg( &sys.demuxer, "|   + Simple Tag ");
     try
     {
-        while( ( el = ep->Get() ) != NULL )
+        while( ( el = ep->Get() ) != NULL && size < max_size)
         {
+            if( unlikely( el->GetSize() >= SIZE_MAX ) )
+            {
+                msg_Err( &sys.demuxer, "Error %s too big ignoring the tag", typeid(*el).name() );
+                delete ep;
+                delete p_simple;
+                return NULL;
+            }
             if( MKV_IS_ID( el, KaxTagName ) )
             {
                 KaxTagName &key = *(KaxTagName*)el;
@@ -302,6 +324,7 @@ SimpleTag * matroska_segment_c::ParseSimpleTags( KaxTagSimple *tag, int target_t
                     p_simple->sub_tags.push_back( p_st );
             }
             /*TODO Handle binary tags*/
+            size += el->HeadSize() + el->GetSize();
         }
     }
     catch(...)
@@ -319,7 +342,6 @@ SimpleTag * matroska_segment_c::ParseSimpleTags( KaxTagSimple *tag, int target_t
         delete p_simple;
         return NULL;
     }
-
     for( int i = 0; metadata_map[i].key; i++ )
     {
         if( !strcmp( p_simple->psz_tag_name, metadata_map[i].key ) &&
@@ -376,6 +398,11 @@ void matroska_segment_c::LoadTags( KaxTags *tags )
                     {
                         try
                         {
+                            if( unlikely( el->GetSize() >= SIZE_MAX ) )
+                            {
+                                msg_Err( &sys.demuxer, "Invalid size while reading tag");
+                                break;
+                            }
                             if( MKV_IS_ID( el, KaxTagTargetTypeValue ) )
                             {
                                 KaxTagTargetTypeValue &value = *(KaxTagTargetTypeValue*)el;
@@ -421,11 +448,10 @@ void matroska_segment_c::LoadTags( KaxTags *tags )
                         catch(...)
                         {
                             msg_Err( &sys.demuxer, "Error while reading tag");
-                            ep->Up();
                             break;
                         }
-                        ep->Up();
                     }
+                    ep->Up();
                 }
                 else if( MKV_IS_ID( el, KaxTagSimple ) )
                 {
@@ -891,8 +917,7 @@ void matroska_segment_c::Seek( mtime_t i_date, mtime_t i_time_offset, int64_t i_
         i_seek_time = p_indexes[i_idx].i_time;
     }
 
-    msg_Dbg( &sys.demuxer, "seek got %"PRId64" (%d%%)",
-                i_seek_time, (int)( 100 * i_seek_position / stream_Size( sys.demuxer.s ) ) );
+    msg_Dbg( &sys.demuxer, "seek got %"PRId64" - %"PRId64, i_seek_time, i_seek_position );
 
     es.I_O().setFilePointer( i_seek_position, seek_beginning );
 
@@ -905,10 +930,22 @@ void matroska_segment_c::Seek( mtime_t i_date, mtime_t i_time_offset, int64_t i_
     /* now parse until key frame */
     const int es_types[3] = { VIDEO_ES, AUDIO_ES, SPU_ES };
     i_cat = es_types[0];
+    mtime_t i_seek_preroll = 0;
     for( int i = 0; i < 2; i_cat = es_types[++i] )
     {
         for( i_track = 0; i_track < tracks.size(); i_track++ )
         {
+            if( tracks[i_track]->i_seek_preroll )
+            {
+                bool b_enabled;
+                if( es_out_Control( sys.demuxer.out,
+                                    ES_OUT_GET_ES_STATE,
+                                    tracks[i_track]->p_es,
+                                    &b_enabled ) == VLC_SUCCESS &&
+                    b_enabled )
+                    i_seek_preroll = __MAX( i_seek_preroll,
+                                            tracks[i_track]->i_seek_preroll );
+            }
             if( tracks[i_track]->fmt.i_cat == i_cat )
             {
                 spoint * seekpoint = new spoint(i_track, i_seek_time, i_seek_position, i_seek_position);
@@ -944,7 +981,7 @@ void matroska_segment_c::Seek( mtime_t i_date, mtime_t i_time_offset, int64_t i_
         es_out_Control( sys.demuxer.out, ES_OUT_SET_NEXT_DISPLAY_TIME, i_date );
         return;
     }
-
+    i_date -= i_seek_preroll;
     for(;;)
     {
         do
@@ -1095,13 +1132,13 @@ void matroska_segment_c::ComputeTrackPriority()
             b_has_default_audio = true;
         }
         if( unlikely( !p_tk->b_enabled ) )
-            p_tk->fmt.i_priority = -2;
+            p_tk->fmt.i_priority = ES_PRIORITY_NOT_SELECTABLE;
         else if( p_tk->b_forced )
-            p_tk->fmt.i_priority = 2;
+            p_tk->fmt.i_priority = ES_PRIORITY_SELECTABLE_MIN + 2;
         else if( p_tk->b_default )
-            p_tk->fmt.i_priority = 1;
+            p_tk->fmt.i_priority = ES_PRIORITY_SELECTABLE_MIN + 1;
         else
-            p_tk->fmt.i_priority = 0;
+            p_tk->fmt.i_priority = ES_PRIORITY_SELECTABLE_MIN;
 
         /* Avoid multivideo tracks when unnecessary */
         if( p_tk->fmt.i_cat == VIDEO_ES )
@@ -1177,6 +1214,7 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
     *pb_key_picture         = true;
     *pb_discardable_picture = false;
     size_t i_tk;
+    *pi_duration = 0;
 
     for( ;; )
     {
@@ -1191,7 +1229,7 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
             /* Check blocks validity to protect againts broken files */
             if( BlockFindTrackIndex( &i_tk, pp_block , pp_simpleblock ) )
             {
-                delete pp_block;
+                ep->Unkeep();
                 pp_simpleblock = NULL;
                 pp_block = NULL;
                 continue;
@@ -1296,6 +1334,12 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
                     }
                     break;
                 case 2:
+                    if( unlikely( el->GetSize() >= SIZE_MAX ) )
+                    {
+                        msg_Err( &sys.demuxer, "Error while reading %s... upping level", typeid(*el).name());
+                        ep->Up();
+                        break;
+                    }
                     if( MKV_IS_ID( el, KaxClusterTimecode ) )
                     {
                         KaxClusterTimecode &ctc = *(KaxClusterTimecode*)el;
@@ -1327,6 +1371,15 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
                     }
                     break;
                 case 3:
+                    if( unlikely( el->GetSize() >= SIZE_MAX ) )
+                    {
+                        msg_Err( &sys.demuxer, "Error while reading %s... upping level", typeid(*el).name());
+                        ep->Up();
+                        ep->Unkeep();
+                        pp_simpleblock = NULL;
+                        pp_block = NULL;
+                        break;
+                    }
                     if( MKV_IS_ID( el, KaxBlock ) )
                     {
                         pp_block = (KaxBlock*)el;
@@ -1368,6 +1421,13 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
                             }
                         }
                     }
+#if LIBMATROSKA_VERSION >= 0x010401
+                    else if( MKV_IS_ID( el, KaxDiscardPadding ) )
+                    {
+                        KaxDiscardPadding &dp = *(KaxDiscardPadding*) el;
+                        *pi_duration -= int64(dp);
+                    }
+#endif
                     break;
                 default:
                     msg_Err( &sys.demuxer, "invalid level = %d", i_level );
@@ -1378,6 +1438,9 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
         {
             msg_Err( &sys.demuxer, "Error while reading %s... upping level", typeid(*el).name());
             ep->Up();
+            ep->Unkeep();
+            pp_simpleblock = NULL;
+            pp_block = NULL;
         }
     }
 }

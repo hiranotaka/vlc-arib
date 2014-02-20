@@ -332,7 +332,7 @@ void DialogsProvider::openFileGenericDialog( intf_dialog_args_t *p_arg )
         foreach( const QString &file, files )
             p_arg->psz_results[i++] = strdup( qtu( toNativeSepNoSlash( file ) ) );
         if(i == 0)
-            p_intf->p_sys->filepath = QString::fromAscii("");
+            p_intf->p_sys->filepath = QString::fromLatin1("");
         else
             p_intf->p_sys->filepath = qfu( p_arg->psz_results[i-1] );
     }
@@ -458,16 +458,6 @@ void DialogsProvider::simpleOpenDialog()
     addFromSimple( true, true ); /* Playlist and Go */
 }
 
-void DialogsProvider::simplePLAppendDialog()
-{
-    addFromSimple( true, false );
-}
-
-void DialogsProvider::simpleMLAppendDialog()
-{
-    addFromSimple( false, false );
-}
-
 /* Url & Clipboard */
 /**
  * Open a MRL.
@@ -514,9 +504,9 @@ static void openDirectory( intf_thread_t *p_intf, bool pl, bool go )
     p_intf->p_sys->filepath = dir;
 
     const char *scheme = "directory";
-    if( dir.endsWith( "/VIDEO_TS", Qt::CaseInsensitive ) )
+    if( dir.endsWith( DIR_SEP "VIDEO_TS", Qt::CaseInsensitive ) )
         scheme = "dvd";
-    else if( dir.endsWith( "/BDMV", Qt::CaseInsensitive ) )
+    else if( dir.endsWith( DIR_SEP "BDMV", Qt::CaseInsensitive ) )
     {
         scheme = "bluray";
         dir.remove( "BDMV" );
@@ -540,6 +530,33 @@ static void openDirectory( intf_thread_t *p_intf, bool pl, bool go )
     vlc_gc_decref( p_input );
 }
 
+QString DialogsProvider::getDirectoryDialog()
+{
+    QString dir = QFileDialog::getExistingDirectory( NULL, qtr( I_OP_DIR_WINTITLE ), p_intf->p_sys->filepath );
+
+    if( dir.isEmpty() ) return QString();
+
+    p_intf->p_sys->filepath = dir;
+
+    const char *scheme = "directory";
+    if( dir.endsWith( DIR_SEP "VIDEO_TS", Qt::CaseInsensitive ) )
+        scheme = "dvd";
+    else if( dir.endsWith( DIR_SEP "BDMV", Qt::CaseInsensitive ) )
+    {
+        scheme = "bluray";
+        dir.remove( "BDMV" );
+    }
+
+    char *uri = vlc_path2uri( qtu( toNativeSeparators( dir ) ), scheme );
+    if( unlikely(uri == NULL) ) return QString();
+    dir = qfu( uri );
+    free( uri );
+
+    RecentsMRL::getInstance( p_intf )->addRecent( dir );
+
+    return dir;
+}
+
 void DialogsProvider::PLOpenDir()
 {
     openDirectory( p_intf, true, true );
@@ -548,11 +565,6 @@ void DialogsProvider::PLOpenDir()
 void DialogsProvider::PLAppendDir()
 {
     openDirectory( p_intf, true, false );
-}
-
-void DialogsProvider::MLAppendDir()
-{
-    openDirectory( p_intf, false , false );
 }
 
 /****************
@@ -568,7 +580,7 @@ void DialogsProvider::openAPlaylist()
     }
 }
 
-void DialogsProvider::saveAPlaylist()
+void DialogsProvider::saveAPlaylist(playlist_t *p_playlist, playlist_item_t *p_node)
 {
     static const struct
     {
@@ -634,10 +646,29 @@ void DialogsProvider::saveAPlaylist()
 
     if ( psz_selected_module )
     {
-        playlist_Export( THEPL, qtu( toNativeSeparators( file ) ),
-                         THEPL->p_playing, psz_selected_module );
+        playlist_Export( p_playlist, qtu( toNativeSeparators( file ) ),
+                         p_node, psz_selected_module );
         getSettings()->setValue( "last-playlist-ext", psz_last_playlist_ext );
     }
+}
+
+void DialogsProvider::savePlayingToPlaylist()
+{
+    saveAPlaylist(THEPL, THEPL->p_playing);
+}
+
+void DialogsProvider::saveRecentsToPlaylist()
+{
+    playlist_item_t *p_node_recents = RecentsMRL::getInstance(p_intf)->toPlaylist(0);
+
+    if (p_node_recents == NULL)
+    {
+        msg_Warn(p_intf, "cannot create playlist from recents");
+        return;
+    }
+
+    saveAPlaylist(THEPL, p_node_recents);
+    playlist_NodeDelete(THEPL, p_node_recents, true, false);
 }
 
 /****************************************************************************

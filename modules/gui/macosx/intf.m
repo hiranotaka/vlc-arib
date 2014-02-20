@@ -64,11 +64,11 @@
 #import "TrackSynchronization.h"
 #import "VLCVoutWindowController.h"
 #import "ExtensionsManager.h"
+#import "BWQuincyManager.h"
 
 #import "VideoEffects.h"
 #import "AudioEffects.h"
 
-#import <AddressBook/AddressBook.h>         /* for crashlog send mechanism */
 #import <Sparkle/Sparkle.h>                 /* we're the update delegate */
 
 #import "iTunes.h"
@@ -81,8 +81,6 @@ static void Run (intf_thread_t *p_intf);
 static void updateProgressPanel (void *, const char *, float);
 static bool checkProgressPanel (void *);
 static void destroyProgressPanel (void *);
-
-static void MsgCallback(void *data, int type, const vlc_log_t *item, const char *format, va_list ap);
 
 static int InputEvent(vlc_object_t *, const char *,
                       vlc_value_t, vlc_value_t, void *);
@@ -285,6 +283,13 @@ void WindowClose(vout_window_t *p_wnd)
     [o_pool release];
 }
 
+/* Used to abort the app.exec() on OSX after libvlc_Quit is called */
+#include "../../../lib/libvlc_internal.h" /* libvlc_SetExitHandler */
+static void QuitVLC( void *obj )
+{
+    [[VLCApplication sharedApplication] performSelectorOnMainThread:@selector(terminate:) withObject:nil waitUntilDone:NO];
+}
+
 /*****************************************************************************
  * Run: main loop
  *****************************************************************************/
@@ -299,6 +304,8 @@ static void Run(intf_thread_t *p_intf)
     o_appLock = [[NSLock alloc] init];
     o_plItemChangedLock = [[NSLock alloc] init];
     o_vout_provider_lock = [[NSLock alloc] init];
+
+    libvlc_SetExitHandler(p_intf->p_libvlc, QuitVLC, p_intf);
 
     [[VLCMain sharedInstance] setIntf: p_intf];
 
@@ -317,29 +324,6 @@ static void Run(intf_thread_t *p_intf)
 
 #pragma mark -
 #pragma mark Variables Callback
-
-/*****************************************************************************
- * MsgCallback: Callback triggered by the core once a new debug message is
- * ready to be displayed. We store everything in a NSArray in our Cocoa part
- * of this file.
- *****************************************************************************/
-static void MsgCallback(void *data, int type, const vlc_log_t *item, const char *format, va_list ap)
-{
-    int canc = vlc_savecancel();
-    char *str;
-
-    if (vasprintf(&str, format, ap) == -1) {
-        vlc_restorecancel(canc);
-        return;
-    }
-
-    NSAutoreleasePool *o_pool = [[NSAutoreleasePool alloc] init];
-    [[VLCMain sharedInstance] processReceivedlibvlcMessage: item ofType: type withStr: str];
-    [o_pool release];
-
-    vlc_restorecancel(canc);
-    free(str);
-}
 
 static int InputEvent(vlc_object_t *p_this, const char *psz_var,
                        vlc_value_t oldval, vlc_value_t new_val, void *param)
@@ -413,7 +397,6 @@ static int InputEvent(vlc_object_t *p_this, const char *psz_var,
             break;
 
         default:
-            //msg_Warn(p_this, "unhandled input event (%lld)", new_val.i_int);
             break;
     }
 
@@ -430,8 +413,8 @@ static int PLItemChanged(vlc_object_t *p_this, const char *psz_var,
      * and other issues, we need to wait for -PlaylistItemChanged to finish and
      * then -informInputChanged on this non-main thread. */
     [o_plItemChangedLock lock];
-    [[VLCMain sharedInstance] performSelectorOnMainThread:@selector(PlaylistItemChanged) withObject:nil waitUntilDone:YES];
-    [[VLCMain sharedInstance] performSelectorOnMainThread:@selector(informInputChanged) withObject:nil waitUntilDone:YES];
+    [[VLCMain sharedInstance] performSelectorOnMainThread:@selector(PlaylistItemChanged) withObject:nil waitUntilDone:YES]; // MUST BE ON MAIN THREAD
+    [[VLCMain sharedInstance] informInputChanged]; // DO NOT MOVE TO MAIN THREAD
     [o_plItemChangedLock unlock];
 
     [o_pool release];
@@ -519,7 +502,7 @@ static int DialogCallback(vlc_object_t *p_this, const char *type, vlc_value_t pr
     NSAutoreleasePool * o_pool = [[NSAutoreleasePool alloc] init];
     VLCMain *interface = (VLCMain *)data;
 
-    if ([@(type) isEqualToString: @"dialog-progress-bar"]) {
+    if ([[NSString stringWithUTF8String:type] isEqualToString: @"dialog-progress-bar"]) {
         /* the progress panel needs to update itself and therefore wants special treatment within this context */
         dialog_progress_bar_t *p_dialog = (dialog_progress_bar_t *)value.p_address;
 
@@ -542,7 +525,7 @@ void updateProgressPanel (void *priv, const char *text, float value)
 
     NSString *o_txt;
     if (text != NULL)
-        o_txt = @(text);
+        o_txt = [NSString stringWithUTF8String:text];
     else
         o_txt = @"";
 
@@ -618,7 +601,7 @@ audio_output_t *getAout(void)
 #pragma mark -
 #pragma mark Private
 
-@interface VLCMain ()
+@interface VLCMain () <BWQuincyManagerDelegate>
 - (void)removeOldPreferences;
 @end
 
@@ -658,16 +641,12 @@ static VLCMain *_o_sharedMainInstance = nil;
     p_intf = NULL;
     p_current_input = p_input_changed = NULL;
 
-    o_msg_lock = [[NSLock alloc] init];
-    o_msg_arr = [[NSMutableArray arrayWithCapacity: 600] retain];
-
     o_open = [[VLCOpen alloc] init];
     o_coredialogs = [[VLCCoreDialogProvider alloc] init];
     o_info = [[VLCInfo alloc] init];
     o_mainmenu = [[VLCMainMenu alloc] init];
     o_coreinteraction = [[VLCCoreInteraction alloc] init];
     o_eyetv = [[VLCEyeTVController alloc] init];
-    o_mainwindow = [[VLCMainWindow alloc] init];
 
     /* announce our launch to a potential eyetv plugin */
     [[NSDistributedNotificationCenter defaultCenter] postNotificationName: @"VLCOSXGUIInit"
@@ -705,9 +684,6 @@ static VLCMain *_o_sharedMainInstance = nil;
      because VLCMain is the owner */
     if (nib_main_loaded)
         return;
-
-    [o_msgs_panel setExcludedFromWindowsMenu: YES];
-    [o_msgs_panel setDelegate: self];
 
     p_playlist = pl_Get(p_intf);
 
@@ -754,8 +730,6 @@ static VLCMain *_o_sharedMainInstance = nil;
     [o_remote setClickCountEnabledButtons: kRemoteButtonPlay];
     [o_remote setDelegate: _o_sharedMainInstance];
 
-    [o_msgs_refresh_btn setImage: [NSImage imageNamed: NSImageNameRefreshTemplate]];
-
     /* yeah, we are done */
     b_nativeFullscreenMode = NO;
 #ifdef MAC_OS_X_VERSION_10_7
@@ -777,8 +751,6 @@ static VLCMain *_o_sharedMainInstance = nil;
             [[VLCApplication sharedApplication] setApplicationIconImage: [NSImage imageNamed:@"vlc-xmas"]];
     }
 
-    [self initStrings];
-
     nib_main_loaded = TRUE;
 }
 
@@ -788,6 +760,11 @@ static VLCMain *_o_sharedMainInstance = nil;
     PL_LOCK;
     items_at_launch = p_playlist->p_local_category->i_children;
     PL_UNLOCK;
+
+    [NSBundle loadNibNamed:@"MainWindow" owner: self];
+    [o_mainwindow makeKeyAndOrderFront:nil];
+
+    [[SUUpdater sharedUpdater] setDelegate:self];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
@@ -796,6 +773,17 @@ static VLCMain *_o_sharedMainInstance = nil;
 
     if (!p_intf)
         return;
+
+    NSString *appVersion = [[[NSBundle mainBundle] infoDictionary] valueForKey: @"CFBundleVersion"];
+    NSRange endRande = [appVersion rangeOfString:@"-"];
+    if (endRande.location != NSNotFound)
+        appVersion = [appVersion substringToIndex:endRande.location];
+
+    BWQuincyManager *quincyManager = [BWQuincyManager sharedQuincyManager];
+    [quincyManager setApplicationVersion:appVersion];
+    [quincyManager setSubmissionURL:@"http://crash.videolan.org/crash_v200.php"];
+    [quincyManager setDelegate:self];
+    [quincyManager setCompanyName:@"VideoLAN"];
 
     [self updateCurrentlyUsedHotkeys];
 
@@ -815,8 +803,6 @@ static VLCMain *_o_sharedMainInstance = nil;
     [[[NSWorkspace sharedWorkspace] notificationCenter] addObserver:self selector:@selector(computerWillSleep:)
            name:NSWorkspaceWillSleepNotification object:nil];
 
-    [[VLCMain sharedInstance] performSelectorOnMainThread:@selector(lookForCrashLog) withObject:nil waitUntilDone:NO];
-
     /* we will need this, so let's load it here so the interface appears to be more responsive */
     nib_open_loaded = [NSBundle loadNibNamed:@"Open" owner: NSApp];
 
@@ -824,27 +810,13 @@ static VLCMain *_o_sharedMainInstance = nil;
     [o_mainwindow updateWindow];
     [o_mainwindow updateTimeSlider];
     [o_mainwindow updateVolumeSlider];
-}
 
-- (void)initStrings
-{
-    if (!p_intf)
-        return;
-
-    /* messages panel */
-    [o_msgs_panel setTitle: _NS("Messages")];
-    [o_msgs_crashlog_btn setTitle: _NS("Open CrashLog...")];
-    [o_msgs_save_btn setTitle: _NS("Save this Log...")];
-
-    /* crash reporter panel */
-    [o_crashrep_send_btn setTitle: _NS("Send")];
-    [o_crashrep_dontSend_btn setTitle: _NS("Don't Send")];
-    [o_crashrep_title_txt setStringValue: _NS("VLC crashed previously")];
-    [o_crashrep_win setTitle: _NS("VLC crashed previously")];
-    [o_crashrep_desc_txt setStringValue: _NS("Do you want to send details on the crash to VLC's development team?\n\nIf you want, you can enter a few lines on what you did before VLC crashed along with other helpful information: a link to download a sample file, a URL of a network stream, ...")];
-    [o_crashrep_includeEmail_ckb setTitle: _NS("I agree to be possibly contacted about this bugreport.")];
-    [o_crashrep_includeEmail_txt setStringValue: _NS("Only your default E-Mail address will be submitted, including no further information.")];
-    [o_crashrep_dontaskagain_ckb setTitle: _NS("Don't ask again")];
+    playlist_t * p_playlist = pl_Get(VLCIntf);
+    PL_LOCK;
+    BOOL kidsAround = p_playlist->p_local_category->i_children;
+    PL_UNLOCK;
+    if (kidsAround && var_GetBool(p_playlist, "playlist-autostart"))
+        [[self playlist] playItem:nil];
 }
 
 #pragma mark -
@@ -874,7 +846,7 @@ static VLCMain *_o_sharedMainInstance = nil;
     int returnedValue = 0;
 
     /* always exit fullscreen on quit, otherwise we get ugly artifacts on the next launch */
-    if (b_nativeFullscreenMode) {
+    if (b_nativeFullscreenMode && [o_mainwindow fullscreen]) {
         [o_mainwindow toggleFullScreen: self];
         [NSApp setPresentationOptions:(NSApplicationPresentationDefault)];
     }
@@ -942,34 +914,24 @@ static VLCMain *_o_sharedMainInstance = nil;
     if (o_wizard)
         [o_wizard release];
 
-    [crashLogURLConnection cancel];
-    [crashLogURLConnection release];
-
     [o_coredialogs release];
     [o_eyetv release];
 
     /* unsubscribe from libvlc's debug messages */
     vlc_LogSet(p_intf->p_libvlc, NULL, NULL);
 
-    [o_msg_arr removeAllObjects];
-    [o_msg_arr release];
-    o_msg_arr = NULL;
     [o_usedHotkeys release];
     o_usedHotkeys = NULL;
 
     [o_mediaKeyController release];
 
-    [o_msg_lock release];
-
     /* write cached user defaults to disk */
     [[NSUserDefaults standardUserDefaults] synchronize];
-
 
     [o_mainmenu release];
 
     libvlc_Quit(p_intf->p_libvlc);
 
-    [o_mainwindow release];
     o_mainwindow = NULL;
 
     [self setIntf:nil];
@@ -983,6 +945,15 @@ static VLCMain *_o_sharedMainInstance = nil;
     [NSApp activateIgnoringOtherApps:YES];
     [o_remote stopListening: self];
     [[VLCCoreInteraction sharedInstance] stop];
+}
+
+/* don't be enthusiastic about an update if we currently play a video */
+- (BOOL)updaterMayCheckForUpdates:(SUUpdater *)bundle
+{
+    if ([self activeVideoPlayback])
+        return NO;
+
+    return YES;
 }
 
 #pragma mark -
@@ -1057,7 +1028,7 @@ static VLCMain *_o_sharedMainInstance = nil;
 
 - (void)application:(NSApplication *)o_app openFiles:(NSArray *)o_names
 {
-    char *psz_uri = vlc_path2uri([[o_names objectAtIndex:0] UTF8String], "file");
+    char *psz_uri = vlc_path2uri([[o_names objectAtIndex:0] UTF8String], NULL);
 
     if (launched == NO) {
         if (items_at_launch) {
@@ -1075,7 +1046,7 @@ static VLCMain *_o_sharedMainInstance = nil;
         input_thread_t * p_input = pl_CurrentInput(VLCIntf);
         if (p_input) {
             BOOL b_returned = NO;
-            b_returned = input_AddSubtitle(p_input, psz_uri, true);
+            b_returned = input_AddSubtitle(p_input, [[o_names objectAtIndex:0] UTF8String], true);
             vlc_object_release(p_input);
             if (!b_returned) {
                 free(psz_uri);
@@ -1195,7 +1166,7 @@ static VLCMain *_o_sharedMainInstance = nil;
             /* simulate an event as long as the user holds the button */
             b_remote_button_hold = pressedDown;
             if (pressedDown) {
-                NSNumber* buttonIdentifierNumber = @(buttonIdentifier);
+                NSNumber* buttonIdentifierNumber = [NSNumber numberWithInt:buttonIdentifier];
                 [self performSelector:@selector(executeHoldActionForRemoteButton:)
                            withObject:buttonIdentifierNumber];
             }
@@ -1313,7 +1284,7 @@ static VLCMain *_o_sharedMainInstance = nil;
            && !strncmp(p_item->psz_name , "key-", 4)
            && !EMPTY_STR(p_item->psz_text)) {
             if (p_item->value.psz)
-                [o_tempArray addObject: @(p_item->value.psz)];
+                [o_tempArray addObject: [NSString stringWithUTF8String:p_item->value.psz]];
         }
     }
     module_config_free (p_config);
@@ -1326,7 +1297,7 @@ static VLCMain *_o_sharedMainInstance = nil;
 
 #pragma mark -
 #pragma mark Interface updaters
-
+// This must be called on main thread
 - (void)PlaylistItemChanged
 {
     if (p_current_input && (p_current_input->b_dead || !vlc_object_alive(p_current_input))) {
@@ -1343,8 +1314,11 @@ static VLCMain *_o_sharedMainInstance = nil;
             var_AddCallback(p_current_input, "intf-event", InputEvent, [VLCMain sharedInstance]);
             [self playbackStatusUpdated];
             [o_mainmenu setRateControlsEnabled: YES];
-            if ([self activeVideoPlayback] && [[o_mainwindow videoView] isHidden])
-                [o_mainwindow performSelectorOnMainThread:@selector(togglePlaylist:) withObject: nil waitUntilDone:NO];
+
+            if ([self activeVideoPlayback] && [[o_mainwindow videoView] isHidden]) {
+                [o_mainwindow changePlaylistState: psPlaylistItemChangedEvent];
+            }
+
             p_input_changed = vlc_object_hold(p_current_input);
         }
     }
@@ -1504,7 +1478,7 @@ static VLCMain *_o_sharedMainInstance = nil;
 
         IOReturn success;
         /* work-around a bug in 10.7.4 and 10.7.5, so check for 10.7.x < 10.7.4, 10.8 and 10.6 */
-        if ((NSAppKitVersionNumber >= 1115.2 && NSAppKitVersionNumber < 1138.45) || OSX_MOUNTAIN_LION || OSX_SNOW_LEOPARD) {
+        if ((NSAppKitVersionNumber >= 1115.2 && NSAppKitVersionNumber < 1138.45) || OSX_MOUNTAIN_LION || OSX_MAVERICKS || OSX_SNOW_LEOPARD) {
             CFStringRef reasonForActivity = CFStringCreateWithCString(kCFAllocatorDefault, _("VLC media playback"), kCFStringEncodingUTF8);
             if ([self activeVideoPlayback])
                 success = IOPMAssertionCreateWithName(kIOPMAssertionTypeNoDisplaySleep, kIOPMAssertionLevelOn, reasonForActivity, &systemSleepAssertionID);
@@ -1593,7 +1567,6 @@ static VLCMain *_o_sharedMainInstance = nil;
     b_active_videoplayback = b_value;
     if (o_mainwindow) {
         [o_mainwindow performSelectorOnMainThread:@selector(setVideoplayEnabled) withObject:nil waitUntilDone:YES];
-        [o_mainwindow performSelectorOnMainThread:@selector(togglePlaylist:) withObject:nil waitUntilDone:NO];
     }
 
     // update sleep blockers
@@ -1723,161 +1696,26 @@ static VLCMain *_o_sharedMainInstance = nil;
 }
 
 #pragma mark -
-#pragma mark Crash Log
-- (void)sendCrashLog:(NSString *)crashLog withUserComment:(NSString *)userComment
-{
-    NSString *urlStr = @"http://crash.videolan.org/crashlog/sendcrashreport.php";
-    NSURL *url = [NSURL URLWithString:urlStr];
-
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
-    [req setHTTPMethod:@"POST"];
-
-    NSString * email;
-    if ([o_crashrep_includeEmail_ckb state] == NSOnState) {
-        ABPerson * contact = [[ABAddressBook sharedAddressBook] me];
-        ABMultiValue *emails = [contact valueForProperty:kABEmailProperty];
-        email = [emails valueAtIndex:[emails indexForIdentifier:
-                    [emails primaryIdentifier]]];
-    }
-    else
-        email = [NSString string];
-
-    NSString *postBody;
-    postBody = [NSString stringWithFormat:@"CrashLog=%@&Comment=%@&Email=%@\r\n",
-            [crashLog stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding],
-            [userComment stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding],
-            [email stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]];
-
-    [req setHTTPBody:[postBody dataUsingEncoding:NSUTF8StringEncoding]];
-
-    /* Released from delegate */
-    crashLogURLConnection = [[NSURLConnection alloc] initWithRequest:req delegate:self];
-}
-
-- (void)connectionDidFinishLoading:(NSURLConnection *)connection
-{
-    msg_Dbg(p_intf, "crash report successfully sent");
-    [crashLogURLConnection release];
-    crashLogURLConnection = nil;
-}
-
-- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
-{
-    msg_Warn (p_intf, "Error when sending the crash report: %s (%li)", [[error localizedDescription] UTF8String], [error code]);
-    [crashLogURLConnection release];
-    crashLogURLConnection = nil;
-}
-
-- (NSString *)latestCrashLogPathPreviouslySeen:(BOOL)previouslySeen
-{
-    NSString * crashReporter;
-    if (OSX_MOUNTAIN_LION)
-        crashReporter = [@"~/Library/Logs/DiagnosticReports" stringByExpandingTildeInPath];
-    else
-        crashReporter = [@"~/Library/Logs/CrashReporter" stringByExpandingTildeInPath];
-    NSDirectoryEnumerator *direnum = [[NSFileManager defaultManager] enumeratorAtPath:crashReporter];
-    NSString *fname;
-    NSString * latestLog = nil;
-    NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
-    int year  = !previouslySeen ? [defaults integerForKey:@"LatestCrashReportYear"] : 0;
-    int month = !previouslySeen ? [defaults integerForKey:@"LatestCrashReportMonth"]: 0;
-    int day   = !previouslySeen ? [defaults integerForKey:@"LatestCrashReportDay"]  : 0;
-    int hours = !previouslySeen ? [defaults integerForKey:@"LatestCrashReportHours"]: 0;
-
-    while (fname = [direnum nextObject]) {
-        [direnum skipDescendents];
-        if ([fname hasPrefix:@"VLC"] && [fname hasSuffix:@"crash"]) {
-            NSArray * compo = [fname componentsSeparatedByString:@"_"];
-            if ([compo count] < 3)
-                continue;
-            compo = [[compo objectAtIndex:1] componentsSeparatedByString:@"-"];
-            if ([compo count] < 4)
-                continue;
-
-            // Dooh. ugly.
-            if (year < [[compo objectAtIndex:0] intValue] ||
-                (year ==[[compo objectAtIndex:0] intValue] &&
-                 (month < [[compo objectAtIndex:1] intValue] ||
-                  (month ==[[compo objectAtIndex:1] intValue] &&
-                   (day   < [[compo objectAtIndex:2] intValue] ||
-                    (day   ==[[compo objectAtIndex:2] intValue] &&
-                      hours < [[compo objectAtIndex:3] intValue])))))) {
-                year  = [[compo objectAtIndex:0] intValue];
-                month = [[compo objectAtIndex:1] intValue];
-                day   = [[compo objectAtIndex:2] intValue];
-                hours = [[compo objectAtIndex:3] intValue];
-                latestLog = [crashReporter stringByAppendingPathComponent:fname];
-            }
-        }
-    }
-
-    if (!(latestLog && [[NSFileManager defaultManager] fileExistsAtPath:latestLog]))
-        return nil;
-
-    if (!previouslySeen) {
-        [defaults setInteger:year  forKey:@"LatestCrashReportYear"];
-        [defaults setInteger:month forKey:@"LatestCrashReportMonth"];
-        [defaults setInteger:day   forKey:@"LatestCrashReportDay"];
-        [defaults setInteger:hours forKey:@"LatestCrashReportHours"];
-    }
-    return latestLog;
-}
-
-- (NSString *)latestCrashLogPath
-{
-    return [self latestCrashLogPathPreviouslySeen:YES];
-}
-
-- (void)lookForCrashLog
-{
-    NSAutoreleasePool *o_pool = [[NSAutoreleasePool alloc] init];
-    // This pref key doesn't exists? this VLC is an upgrade, and this crash log come from previous version
-    NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
-    BOOL areCrashLogsTooOld = ![defaults integerForKey:@"LatestCrashReportYear"];
-    NSString * latestLog = [self latestCrashLogPathPreviouslySeen:NO];
-    if (latestLog && !areCrashLogsTooOld) {
-        if ([defaults integerForKey:@"AlwaysSendCrashReports"] > 0)
-            [self sendCrashLog:[NSString stringWithContentsOfFile: [self latestCrashLogPath] encoding: NSUTF8StringEncoding error: NULL] withUserComment: [o_crashrep_fld string]];
-        else if ([defaults integerForKey:@"AlwaysSendCrashReports"] == 0)
-            [NSApp runModalForWindow: o_crashrep_win];
-        // bail out, the user doesn't want us to send reports
-    }
-
-    [o_pool release];
-}
-
-- (IBAction)crashReporterAction:(id)sender
-{
-    if (sender == o_crashrep_send_btn) {
-        [self sendCrashLog:[NSString stringWithContentsOfFile: [self latestCrashLogPath] encoding: NSUTF8StringEncoding error: NULL] withUserComment: [o_crashrep_fld string]];
-        if ([o_crashrep_dontaskagain_ckb state])
-            [[NSUserDefaults standardUserDefaults] setInteger:1 forKey:@"AlwaysSendCrashReports"];
-    } else {
-        if ([o_crashrep_dontaskagain_ckb state])
-            [[NSUserDefaults standardUserDefaults] setInteger:-1 forKey:@"AlwaysSendCrashReports"];
-    }
-
-    [NSApp stopModal];
-    [o_crashrep_win orderOut: sender];
-}
-
-- (IBAction)openCrashLog:(id)sender
-{
-    NSString * latestLog = [self latestCrashLogPath];
-    if (latestLog) {
-        [[NSWorkspace sharedWorkspace] openFile: latestLog withApplication: @"Console"];
-    } else {
-        NSBeginInformationalAlertSheet(_NS("No CrashLog found"), _NS("Continue"), nil, nil, o_msgs_panel, self, NULL, NULL, nil, @"%@", _NS("Couldn't find any trace of a previous crash."));
-    }
-}
-
-#pragma mark -
 #pragma mark Remove old prefs
+
+
+static NSString * kVLCPreferencesVersion = @"VLCPreferencesVersion";
+static const int kCurrentPreferencesVersion = 3;
+
+- (void)resetAndReinitializeUserDefaults
+{
+    // note that [NSUserDefaults resetStandardUserDefaults] will NOT correctly reset to the defaults
+
+    NSString *appDomain = [[NSBundle mainBundle] bundleIdentifier];
+    [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:appDomain];
+
+    // set correct version to avoid question about outdated config
+    [[NSUserDefaults standardUserDefaults] setInteger:kCurrentPreferencesVersion forKey:kVLCPreferencesVersion];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
 
 - (void)removeOldPreferences
 {
-    static NSString * kVLCPreferencesVersion = @"VLCPreferencesVersion";
-    static const int kCurrentPreferencesVersion = 3;
     NSUserDefaults * defaults = [NSUserDefaults standardUserDefaults];
     int version = [defaults integerForKey:kVLCPreferencesVersion];
     if (version >= kCurrentPreferencesVersion)
@@ -1894,10 +1732,8 @@ static VLCMain *_o_sharedMainInstance = nil;
     } else if (version == 2) {
         /* version 2 (used by VLC 2.0.x and early versions of 2.1) can lead to exceptions within 2.1 or later
          * so we reset the OS X specific prefs here - in practice, no user will notice */
-        [NSUserDefaults resetStandardUserDefaults];
+        [self resetAndReinitializeUserDefaults];
 
-        [defaults setInteger:kCurrentPreferencesVersion forKey:kVLCPreferencesVersion];
-        [defaults synchronize];
     } else {
         NSArray *libraries = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory,
             NSUserDomainMask, YES);
@@ -1919,16 +1755,17 @@ static VLCMain *_o_sharedMainInstance = nil;
             return;
         }
 
-        NSArray * ourPreferences = @[@"org.videolan.vlc.plist", @"VLC", @"org.videolan.vlc"];
+        // Do NOT add the current plist file here as this would conflict with caching.
+        // Instead, just reset below.
+        NSArray * ourPreferences = [NSArray arrayWithObjects:@"org.videolan.vlc", @"VLC", nil];
 
-        /* Move the file to trash so that user can find them later */
-        [[NSWorkspace sharedWorkspace] performFileOperation:NSWorkspaceRecycleOperation source:preferences destination:nil files:ourPreferences tag:0];
+        /* Move the file to trash one by one. Using above array the method would stop after first file
+           not found. */
+        for (NSString *file in ourPreferences) {
+            [[NSWorkspace sharedWorkspace] performFileOperation:NSWorkspaceRecycleOperation source:preferences destination:@"" files:[NSArray arrayWithObject:file] tag:nil];
+        }
 
-        /* really reset the defaults from now on */
-        [NSUserDefaults resetStandardUserDefaults];
-
-        [defaults setInteger:kCurrentPreferencesVersion forKey:kVLCPreferencesVersion];
-        [defaults synchronize];
+        [self resetAndReinitializeUserDefaults];
     }
 
     /* Relaunch now */
@@ -1940,118 +1777,6 @@ static VLCMain *_o_sharedMainInstance = nil;
         return;
     }
     execl(path, path, NULL);
-}
-
-#pragma mark -
-#pragma mark Errors, warnings and messages
-- (IBAction)updateMessagesPanel:(id)sender
-{
-    [self windowDidBecomeKey:nil];
-}
-
-- (IBAction)showMessagesPanel:(id)sender
-{
-    /* subscribe to LibVLCCore's messages */
-    vlc_LogSet(p_intf->p_libvlc, MsgCallback, NULL);
-
-    /* show panel */
-    [o_msgs_panel makeKeyAndOrderFront: sender];
-}
-
-- (void)windowDidBecomeKey:(NSNotification *)o_notification
-{
-    [o_msgs_table reloadData];
-    [o_msgs_table scrollRowToVisible: [o_msg_arr count] - 1];
-}
-
-- (void)windowWillClose:(NSNotification *)o_notification
-{
-    /* unsubscribe from LibVLCCore's messages */
-    vlc_LogSet( p_intf->p_libvlc, NULL, NULL );
-}
-
-- (NSInteger)numberOfRowsInTableView:(NSTableView *)aTableView
-{
-    if (aTableView == o_msgs_table)
-        return [o_msg_arr count];
-    return 0;
-}
-
-- (id)tableView:(NSTableView *)aTableView objectValueForTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex
-{
-    NSMutableAttributedString *result = NULL;
-
-    [o_msg_lock lock];
-    if (rowIndex < [o_msg_arr count])
-        result = [o_msg_arr objectAtIndex:rowIndex];
-    [o_msg_lock unlock];
-
-    if (result != NULL)
-        return result;
-    else
-        return @"";
-}
-
-- (void)processReceivedlibvlcMessage:(const vlc_log_t *) item ofType: (int)i_type withStr: (char *)str
-{
-    if (o_msg_arr) {
-        NSColor *o_white = [NSColor whiteColor];
-        NSColor *o_red = [NSColor redColor];
-        NSColor *o_yellow = [NSColor yellowColor];
-        NSColor *o_gray = [NSColor grayColor];
-        NSString * firstString, * secondString;
-
-        NSColor * pp_color[4] = { o_white, o_red, o_yellow, o_gray };
-        static const char * ppsz_type[4] = { ": ", " error: ", " warning: ", " debug: " };
-
-        NSDictionary *o_attr;
-        NSMutableAttributedString *o_msg_color;
-
-        [o_msg_lock lock];
-
-        if ([o_msg_arr count] > 600) {
-            [o_msg_arr removeObjectAtIndex: 0];
-            [o_msg_arr removeObjectAtIndex: 1];
-        }
-        firstString = [NSString stringWithFormat:@"%s%s", item->psz_module, ppsz_type[i_type]];
-        secondString = [NSString stringWithFormat:@"%@%s\n", firstString, str];
-
-        o_attr = [NSDictionary dictionaryWithObject: pp_color[i_type]  forKey: NSForegroundColorAttributeName];
-        o_msg_color = [[NSMutableAttributedString alloc] initWithString: secondString attributes: o_attr];
-        o_attr = [NSDictionary dictionaryWithObject: pp_color[3] forKey: NSForegroundColorAttributeName];
-        [o_msg_color setAttributes: o_attr range: NSMakeRange(0, [firstString length])];
-        [o_msg_arr addObject: [o_msg_color autorelease]];
-
-        b_msg_arr_changed = YES;
-        [o_msg_lock unlock];
-    }
-}
-
-- (IBAction)saveDebugLog:(id)sender
-{
-    NSSavePanel * saveFolderPanel = [[NSSavePanel alloc] init];
-
-    [saveFolderPanel setCanSelectHiddenExtension: NO];
-    [saveFolderPanel setCanCreateDirectories: YES];
-    [saveFolderPanel setAllowedFileTypes: @[@"rtf"]];
-    [saveFolderPanel setNameFieldStringValue:[NSString stringWithFormat: _NS("VLC Debug Log (%s).rtf"), VERSION_MESSAGE]];
-    [saveFolderPanel beginSheetModalForWindow: o_msgs_panel completionHandler:^(NSInteger returnCode) {
-        if (returnCode == NSOKButton) {
-            NSUInteger count = [o_msg_arr count];
-            NSMutableAttributedString * string = [[NSMutableAttributedString alloc] init];
-            for (NSUInteger i = 0; i < count; i++)
-                [string appendAttributedString: [o_msg_arr objectAtIndex:i]];
-
-            NSData *data = [string RTFFromRange:NSMakeRange(0, [string length])
-                             documentAttributes:[NSDictionary dictionaryWithObject: NSRTFTextDocumentType forKey: NSDocumentTypeDocumentAttribute]];
-
-            if ([data writeToFile: [[saveFolderPanel URL] path] atomically: YES] == NO)
-                msg_Warn(p_intf, "Error while saving the debug log");
-
-            [string release];
-        }
-    }];
-    [saveFolderPanel release];
 }
 
 #pragma mark -

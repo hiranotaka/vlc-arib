@@ -103,7 +103,14 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
 
 - (void)pause
 {
-    playlist_Pause(pl_Get(VLCIntf));
+    playlist_t *p_playlist = pl_Get(VLCIntf);
+
+    PL_LOCK;
+    bool b_playlist_playing = playlist_Status(p_playlist) == PLAYLIST_RUNNING;
+    PL_UNLOCK;
+
+    if (b_playlist_playing)
+        playlist_Pause(p_playlist);
 }
 
 - (void)stop
@@ -233,7 +240,7 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     }
 
     NSURL *o_url;
-    o_url = [NSURL URLWithString:@(psz_uri)];
+    o_url = [NSURL URLWithString:[NSString stringWithUTF8String:psz_uri]];
     vlc_object_release(p_input);
 
     return o_url;
@@ -263,17 +270,17 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
 
     NSString *o_name;
     char *format = var_InheritString(VLCIntf, "input-title-format");
-    char *formated = str_format_meta(pl_Get(VLCIntf), format);
+    char *formated = str_format_meta(p_input, format);
     free(format);
-    o_name = @(formated);
+    o_name = [NSString stringWithUTF8String:formated];
     free(formated);
 
-    NSURL * o_url = [NSURL URLWithString: @(psz_uri)];
+    NSURL * o_url = [NSURL URLWithString:[NSString stringWithUTF8String:psz_uri]];
     free(psz_uri);
 
     if ([o_name isEqualToString:@""]) {
         if ([o_url isFileURL])
-            o_name = [[NSFileManager defaultManager] displayNameAtPath: [o_url path]];
+            o_name = [[NSFileManager defaultManager] displayNameAtPath:[o_url path]];
         else
             o_name = [o_url absoluteString];
     }
@@ -503,15 +510,6 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     playlist_MuteToggle(pl_Get(p_intf));
 }
 
-- (void)setMute:(BOOL)b_value
-{
-    intf_thread_t *p_intf = VLCIntf;
-    if (!p_intf)
-        return;
-
-    playlist_MuteSet(pl_Get(p_intf), b_value);
-}
-
 - (BOOL)mute
 {
     intf_thread_t *p_intf = VLCIntf;
@@ -541,17 +539,29 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     if (!p_intf)
         return;
 
+    if (i_value >= self.maxVolume)
+        i_value = self.maxVolume;
+
     float f_value = i_value / (float)AOUT_VOLUME_DEFAULT;
 
     playlist_VolumeSet(pl_Get(p_intf), f_value);
 }
 
+- (float)maxVolume
+{
+    if (f_maxVolume == 0.) {
+        f_maxVolume = (float)var_InheritInteger(VLCIntf, "macosx-max-volume") / 100. * AOUT_VOLUME_DEFAULT;
+    }
+
+    return f_maxVolume;
+}
+
 #pragma mark -
-#pragma mark drag and drop support for VLCVoutView, VLBrushedMetalImageView and VLCThreePartDropView
+#pragma mark drag and drop support for VLCVoutView, VLCDragDropView and VLCThreePartDropView
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
 {
     NSPasteboard *o_paste = [sender draggingPasteboard];
-    NSArray *o_types = @[NSFilenamesPboardType];
+    NSArray *o_types = [NSArray arrayWithObject:NSFilenamesPboardType];
     NSString *o_desired_type = [o_paste availableTypeFromArray:o_types];
     NSData *o_carried_data = [o_paste dataForType:o_desired_type];
     BOOL b_autoplay = config_GetInt(VLCIntf, "macosx-autoplay");

@@ -95,9 +95,10 @@ static void DoWork( filter_t * p_filter,
                        p_in_buf->i_buffer );
     if ( mad_frame_decode( &p_sys->mad_frame, &p_sys->mad_stream ) == -1 )
     {
-        msg_Dbg( p_filter, "libmad error: %s",
+        msg_Err( p_filter, "libmad error: %s",
                   mad_stream_errorstr( &p_sys->mad_stream ) );
-        p_sys->i_reject_count = 3;
+        if( !MAD_RECOVERABLE( p_sys->mad_stream.error ) )
+            p_sys->i_reject_count = 3;
     }
     else if( p_in_buf->i_flags & BLOCK_FLAG_DISCONTINUITY )
     {
@@ -155,6 +156,7 @@ static int OpenFilter( vlc_object_t *p_this )
     filter_sys_t *p_sys;
 
     if( p_filter->fmt_in.audio.i_format != VLC_CODEC_MPGA &&
+        p_filter->fmt_in.audio.i_format != VLC_CODEC_MP3 &&
         p_filter->fmt_in.audio.i_format != VLC_FOURCC('m','p','g','3') )
         return VLC_EGENERIC;
 

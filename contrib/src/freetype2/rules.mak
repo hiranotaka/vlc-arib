@@ -1,6 +1,6 @@
 # freetype2
 
-FREETYPE2_VERSION := 2.4.11
+FREETYPE2_VERSION := 2.5.0.1
 FREETYPE2_URL := $(SF)/freetype/freetype2/$(FREETYPE2_VERSION)/freetype-$(FREETYPE2_VERSION).tar.gz
 
 PKGS += freetype2
@@ -19,6 +19,6 @@ freetype: freetype-$(FREETYPE2_VERSION).tar.gz .sum-freetype2
 
 .freetype2: freetype
 	sed -i.orig s/-ansi// $</builds/unix/configure
-	cd $< && GNUMAKE=$(MAKE) $(HOSTVARS) ./configure $(HOSTCONF)
-	cd $< && $(MAKE) install
+	cd $< && GNUMAKE=$(MAKE) $(HOSTVARS) ./configure --without-png $(HOSTCONF)
+	cd $< && $(MAKE) && $(MAKE) install
 	touch $@

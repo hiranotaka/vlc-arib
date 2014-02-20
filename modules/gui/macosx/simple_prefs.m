@@ -40,6 +40,135 @@
 
 #import <Sparkle/Sparkle.h>                        //for o_intf_last_update_lbl
 
+static const char *const ppsz_language[] =
+{
+    "auto",
+    "en",
+    "ar",
+    "bn",
+    "pt_BR",
+    "en_GB",
+    "el",
+    "bg",
+    "ca",
+    "zh_TW",
+    "cs",
+    "cy",
+    "da",
+    "nl",
+    "fi",
+    "et",
+    "eu",
+    "fr",
+    "ga",
+    "gd",
+    "gl",
+    "ka",
+    "de",
+    "he",
+    "hr",
+    "hu",
+    "hy",
+    "is",
+    "id",
+    "it",
+    "ja",
+    "ko",
+    "lt",
+    "mn",
+    "ms",
+    "nb",
+    "nn",
+    "kk",
+    "km",
+    "ne",
+    "oc",
+    "fa",
+    "pl",
+    "pt_PT",
+    "pa",
+    "ro",
+    "ru",
+    "zh_CN",
+    "si",
+    "sr",
+    "sk",
+    "sl",
+    "ckb",
+    "es",
+    "sv",
+    "te",
+    "tr",
+    "uk",
+    "vi",
+    "wa",
+    NULL,
+};
+
+static const char *const ppsz_language_text[] =
+{
+    N_("Auto"),
+    "American English",
+    "ﻉﺮﺒﻳ",
+    "বাংলা",
+    "Português Brasileiro",
+    "British English",
+    "Νέα Ελληνικά",
+    "български език",
+    "Català",
+    "正體中文",
+    "Čeština",
+    "Cymraeg",
+    "Dansk",
+    "Nederlands",
+    "Suomi",
+    "eesti keel",
+    "Euskara",
+    "Français",
+    "Gaeilge",
+    "Gàidhlig",
+    "Galego",
+    "ქართული",
+    "Deutsch",
+    "עברית",
+    "hrvatski",
+    "Magyar",
+    "հայերեն",
+    "íslenska",
+    "Bahasa Indonesia",
+    "Italiano",
+    "日本語",
+    "한국어",
+    "lietuvių",
+    "Монгол хэл",
+    "Melayu",
+    "Bokmål",
+    "Nynorsk",
+    "Қазақ тілі",
+    "ភាសាខ្មែរ",
+    "नेपाली",
+    "Occitan",
+    "ﻑﺍﺮﺳی",
+    "Polski",
+    "Português",
+    "ਪੰਜਾਬੀ",
+    "Română",
+    "Русский",
+    "简体中文",
+    "සිංහල",
+    "српски",
+    "Slovensky",
+    "slovenščina",
+    "کوردیی سۆرانی",
+    "Español",
+    "Svenska",
+    "తెలుగు",
+    "Türkçe",
+    "украї́нська мо́ва",
+    "tiếng Việt",
+    "Walon",
+};
+
 static NSString* VLCSPrefsToolbarIdentifier = @"Our Simple Preferences Toolbar Identifier";
 static NSString* VLCIntfSettingToolbarIdentifier = @"Intf Settings Item Identifier";
 static NSString* VLCAudioSettingToolbarIdentifier = @"Audio Settings Item Identifier";
@@ -105,7 +234,7 @@ static VLCSimplePrefs *_o_sharedInstance = nil;
     [o_hotkeys_listbox setDoubleAction:@selector(hotkeyTableDoubleClick:)];
 
     /* setup useful stuff */
-    o_hotkeysNonUseableKeys = [@[@"Command-c", @"Command-x", @"Command-v", @"Command-a", @"Command-," , @"Command-h", @"Command-Alt-h", @"Command-Shift-o", @"Command-o", @"Command-d", @"Command-n", @"Command-s", @"Command-z", @"Command-l", @"Command-r", @"Command-3", @"Command-m", @"Command-w", @"Command-Shift-w", @"Command-Shift-c", @"Command-Shift-p", @"Command-i", @"Command-e", @"Command-Shift-e", @"Command-b", @"Command-Shift-m", @"Command-Ctrl-m", @"Command-?", @"Command-Alt-?"] retain];
+    o_hotkeysNonUseableKeys = [[NSArray arrayWithObjects:@"Command-c", @"Command-x", @"Command-v", @"Command-a", @"Command-," , @"Command-h", @"Command-Alt-h", @"Command-Shift-o", @"Command-o", @"Command-d", @"Command-n", @"Command-s", @"Command-z", @"Command-l", @"Command-r", @"Command-3", @"Command-m", @"Command-w", @"Command-Shift-w", @"Command-Shift-c", @"Command-Shift-p", @"Command-i", @"Command-e", @"Command-Shift-e", @"Command-b", @"Command-Shift-m", @"Command-Ctrl-m", @"Command-?", @"Command-Alt-?", nil] retain];
 }
 
 #define CreateToolbarItem(o_name, o_desc, o_img, sel) \
@@ -155,22 +284,22 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
 
 - (NSArray *)toolbarDefaultItemIdentifiers: (NSToolbar *)toolbar
 {
-    return @[VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
+    return [NSArray arrayWithObjects:VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
              VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier,
-             NSToolbarFlexibleSpaceItemIdentifier];
+             NSToolbarFlexibleSpaceItemIdentifier, nil];
 }
 
 - (NSArray *)toolbarAllowedItemIdentifiers: (NSToolbar *)toolbar
 {
-    return @[VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
+    return [NSArray arrayWithObjects:VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
              VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier,
-             NSToolbarFlexibleSpaceItemIdentifier];
+             NSToolbarFlexibleSpaceItemIdentifier, nil];
 }
 
 - (NSArray *)toolbarSelectableItemIdentifiers:(NSToolbar *)toolbar
 {
-    return @[VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
-             VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier];
+    return [NSArray arrayWithObjects:VLCIntfSettingToolbarIdentifier, VLCAudioSettingToolbarIdentifier, VLCVideoSettingToolbarIdentifier,
+             VLCOSDSettingToolbarIdentifier, VLCInputSettingToolbarIdentifier, VLCHotkeysSettingToolbarIdentifier, nil];
 }
 
 - (void)initStrings
@@ -223,6 +352,7 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_urlhandler_cancel_btn setTitle: _NS("Cancel")];
 
     /* interface */
+    [o_intf_language_txt setStringValue: _NS("Language")];
     [o_intf_style_txt setStringValue: _NS("Interface style")];
     [o_intf_style_dark_bcell setTitle: _NS("Dark")];
     [o_intf_style_bright_bcell setTitle: _NS("Bright")];
@@ -239,6 +369,9 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_intf_enableGrowl_ckb setTitle: _NS("Enable Growl notifications (on playlist item change)")];
     [o_intf_autoresize_ckb setTitle: _NS("Resize interface to the native video size")];
     [o_intf_pauseminimized_ckb setTitle: _NS("Pause the video playback when minimized")];
+    [o_intf_luahttp_box setTitle:_NS("Lua HTTP")];
+    [o_intf_luahttppwd_lbl setStringValue:_NS("Password")];
+    [o_intf_pauseitunes_lbl setStringValue:_NS("Control iTunes during playback")];
 
     /* Subtitles and OSD */
     [o_osd_encoding_txt setStringValue: _NS("Default Encoding")];
@@ -317,28 +450,47 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
 
     [object removeAllItems];
     p_item = config_FindConfig(VLC_OBJECT(p_intf), name);
-
     /* serious problem, if no item found */
     assert(p_item);
 
-    for (int i = 0; i < p_item->list_count; i++) {
-        NSMenuItem *mi;
-        if (p_item->list_text != NULL)
-            mi = [[NSMenuItem alloc] initWithTitle: _NS(p_item->list_text[i]) action:NULL keyEquivalent: @""];
-        else if (p_item->list.psz[i] && strcmp(p_item->list.psz[i],"") == 0) {
-            [[object menu] addItem: [NSMenuItem separatorItem]];
-            continue;
-        }
-        else if (p_item->list.psz[i])
-            mi = [[NSMenuItem alloc] initWithTitle: @(p_item->list.psz[i]) action:NULL keyEquivalent: @""];
-        else
-            msg_Err(p_intf, "item %d of pref %s failed to be created", i, name);
-        [mi setRepresentedObject:@(p_item->list.psz[i])];
-        [[object menu] addItem: [mi autorelease]];
-        if (p_item->value.psz && !strcmp(p_item->value.psz, p_item->list.psz[i]))
-            [object selectItem:[object lastItem]];
+    char **values, **texts;
+    ssize_t count = config_GetPszChoices(VLC_OBJECT(VLCIntf), name,
+                                         &values, &texts);
+    if (count < 0) {
+        msg_Err(p_intf, "Cannot get choices for %s", name);
+        return;
     }
-    [object setToolTip: _NS(p_item->psz_longtext)];
+    for (ssize_t i = 0; i < count && texts; i++) {
+        if (texts[i] == NULL || values[i] == NULL)
+            continue;
+
+        if (strcmp(texts[i], "") != 0) {
+            NSMenuItem *mi = [[NSMenuItem alloc] initWithTitle: toNSStr(texts[i]) action: NULL keyEquivalent: @""];
+            [mi setRepresentedObject: toNSStr(values[i])];
+            [[object menu] addItem: [mi autorelease]];
+
+            if (p_item->value.psz && !strcmp(p_item->value.psz, values[i]))
+                [object selectItem: [object lastItem]];
+            
+        } else {
+            [[object menu] addItem: [NSMenuItem separatorItem]];
+        }
+
+        free(texts[i]);
+        free(values[i]);
+    }
+
+    free(texts);
+    free(values);
+
+    if (p_item->psz_longtext)
+        [object setToolTip: _NS(p_item->psz_longtext)];
+}
+
+// just for clarification that this is a module list
+- (void)setupButton: (NSPopUpButton *)object forModuleList: (const char *)name
+{
+    [self setupButton: object forStringList: name];
 }
 
 - (void)setupButton: (NSPopUpButton *)object forIntList: (const char *)name
@@ -351,50 +503,23 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     /* serious problem, if no item found */
     assert(p_item);
 
-    for (int i = 0; i < p_item->list_count; i++) {
-        NSMenuItem *mi;
-        if (p_item->list_text != NULL)
-            mi = [[NSMenuItem alloc] initWithTitle: _NS(p_item->list_text[i]) action:NULL keyEquivalent: @""];
-        else if (p_item->list.i[i])
-            mi = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"%d", p_item->list.i[i]] action:NULL keyEquivalent: @""];
-        else
-            msg_Err(p_intf, "item %d of pref %s failed to be created", i, name);
-        [mi setRepresentedObject:@(p_item->list.i[i])];
+    int64_t *values;
+    char **texts;
+    ssize_t count = config_GetIntChoices(VLC_OBJECT(VLCIntf), name, &values, &texts);
+    for (ssize_t i = 0; i < count; i++) {
+        NSMenuItem *mi = [[NSMenuItem alloc] initWithTitle: toNSStr(texts[i]) action: NULL keyEquivalent: @""];
+        [mi setRepresentedObject:[NSNumber numberWithInt:values[i]]];
         [[object menu] addItem: [mi autorelease]];
-        if (p_item->value.i == p_item->list.i[i])
+
+        if (p_item->value.i == values[i])
             [object selectItem:[object lastItem]];
+
+        free(texts[i]);
     }
-    [object setToolTip: _NS(p_item->psz_longtext)];
-}
+    free(texts);
 
-- (void)setupButton: (NSPopUpButton *)object forModuleList: (const char *)name
-{
-    module_config_t *p_item;
-    module_t *p_parser, **p_list;
-    int y = 0;
-
-    [object removeAllItems];
-
-    p_item = config_FindConfig(VLC_OBJECT(p_intf), name);
-    size_t count;
-    p_list = module_list_get(&count);
-    if (!p_item ||!p_list) {
-        if (p_list) module_list_free(p_list);
-        msg_Err(p_intf, "serious problem, item or list not found");
-        return;
-    }
-
-    [object addItemWithTitle: _NS("Default")];
-    for (size_t i_index = 0; i_index < count; i_index++) {
-        p_parser = p_list[i_index];
-        if (module_provides(p_parser, p_item->psz_type)) {
-            [object addItemWithTitle: @(_(module_GetLongName(p_parser)) ?: "")];
-            if (p_item->value.psz && !strcmp(p_item->value.psz, module_get_name(p_parser, false)))
-                [object selectItem: [object lastItem]];
-        }
-    }
-    module_list_free(p_list);
-    [object setToolTip: _NS(p_item->psz_longtext)];
+    if (p_item->psz_longtext)
+        [object setToolTip: _NS(p_item->psz_longtext)];
 }
 
 - (void)setupButton: (NSButton *)object forBoolValue: (const char *)name
@@ -406,7 +531,7 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
 - (void)setupField:(NSTextField *)o_object forOption:(const char *)psz_option
 {
     char *psz_tmp = config_GetPsz(p_intf, psz_option);
-    [o_object setStringValue: @(psz_tmp ?: "")];
+    [o_object setStringValue: [NSString stringWithUTF8String:psz_tmp ?: ""]];
     [o_object setToolTip: _NS(config_GetLabel(p_intf, psz_option))];
     free(psz_tmp);
 }
@@ -420,6 +545,18 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     /**********************
      * interface settings *
      **********************/
+    NSUInteger sel = 0;
+    const char *pref = NULL;
+    pref = [[[NSUserDefaults standardUserDefaults] objectForKey:@"language"] UTF8String];
+    for (int x = 0; ppsz_language[x] != NULL; x++) {
+        [o_intf_language_pop addItemWithTitle:[NSString stringWithUTF8String:ppsz_language_text[x]]];
+        if (pref) {
+            if (!strcmp(ppsz_language[x], pref))
+                sel = x;
+        }
+    }
+    [o_intf_language_pop selectItemAtIndex:sel];
+
     [self setupButton: o_intf_art_pop forIntList: "album-art"];
 
     [self setupButton: o_intf_fspanel_ckb forBoolValue: "macosx-fspanel"];
@@ -459,6 +596,8 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     }
     [self setupButton: o_intf_autoresize_ckb forBoolValue: "macosx-video-autoresize"];
     [self setupButton: o_intf_pauseminimized_ckb forBoolValue: "macosx-pause-minimized"];
+    [self setupField: o_intf_luahttppwd_fld forOption: "http-password"];
+    [self setupButton: o_intf_pauseitunes_pop forIntList: "macosx-control-itunes"];
 
     /******************
      * audio settings *
@@ -560,8 +699,8 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     [self setupButton: o_input_mkv_preload_dir_ckb forBoolValue: "mkv-preload-local-dir"];
 
     [o_input_cachelevel_pop removeAllItems];
-    [o_input_cachelevel_pop addItemsWithTitles: @[_NS("Custom"), _NS("Lowest latency"),
-     _NS("Low latency"), _NS("Normal"), _NS("High latency"), _NS("Higher latency")]];
+    [o_input_cachelevel_pop addItemsWithTitles: [NSArray arrayWithObjects:_NS("Custom"), _NS("Lowest latency"),
+     _NS("Low latency"), _NS("Normal"), _NS("High latency"), _NS("Higher latency"), nil]];
     [[o_input_cachelevel_pop itemAtIndex: 0] setTag: 0];
     [[o_input_cachelevel_pop itemAtIndex: 1] setTag: 100];
     [[o_input_cachelevel_pop itemAtIndex: 2] setTag: 200];
@@ -633,9 +772,9 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
            && !strncmp(p_item->psz_name , "key-", 4)
            && !EMPTY_STR(p_item->psz_text)) {
             [o_tempArray_desc addObject: _NS(p_item->psz_text)];
-            [o_tempArray_names addObject: @(p_item->psz_name)];
+            [o_tempArray_names addObject: [NSString stringWithUTF8String:p_item->psz_name]];
             if (p_item->value.psz)
-                [o_hotkeySettings addObject: @(p_item->value.psz)];
+                [o_hotkeySettings addObject: [NSString stringWithUTF8String:p_item->value.psz]];
             else
                 [o_hotkeySettings addObject: [NSString string]];
         }
@@ -716,8 +855,7 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
         config_SaveConfigFile(p_intf);
 
         /* reset OS X defaults */
-        [NSUserDefaults resetStandardUserDefaults];
-        [[NSUserDefaults standardUserDefaults] synchronize];
+        [[VLCMain sharedInstance] resetAndReinitializeUserDefaults];
 
         /* Relaunch now */
         const char * path = [[[NSBundle mainBundle] executablePath] UTF8String];
@@ -733,52 +871,19 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
 
 static inline void save_int_list(intf_thread_t * p_intf, id object, const char * name)
 {
-    NSNumber *p_valueobject;
-    module_config_t *p_item;
-    p_item = config_FindConfig(VLC_OBJECT(p_intf), name);
-    p_valueobject = (NSNumber *)[[object selectedItem] representedObject];
-    assert([p_valueobject isKindOfClass:[NSNumber class]]);
-    if (p_valueobject) config_PutInt(p_intf, name, [p_valueobject intValue]);
+    NSNumber *p_valueobject = (NSNumber *)[[object selectedItem] representedObject];
+    if (p_valueobject) {
+        assert([p_valueobject isKindOfClass:[NSNumber class]]);
+        config_PutInt(p_intf, name, [p_valueobject intValue]);
+    }
 }
 
 static inline void save_string_list(intf_thread_t * p_intf, id object, const char * name)
 {
-    NSString *p_stringobject;
-    module_config_t *p_item;
-    p_item = config_FindConfig(VLC_OBJECT(p_intf), name);
-    p_stringobject = (NSString *)[[object selectedItem] representedObject];
-    assert([p_stringobject isKindOfClass:[NSString class]]);
+    NSString *p_stringobject = (NSString *)[[object selectedItem] representedObject];
     if (p_stringobject) {
+        assert([p_stringobject isKindOfClass:[NSString class]]);
         config_PutPsz(p_intf, name, [p_stringobject UTF8String]);
-    }
-}
-
-static inline void save_module_list(intf_thread_t * p_intf, id object, const char * name)
-{
-    module_config_t *p_item;
-    module_t *p_parser, **p_list;
-    NSString * objectTitle = [[object selectedItem] title];
-
-    p_item = config_FindConfig(VLC_OBJECT(p_intf), name);
-
-    size_t count;
-    p_list = module_list_get(&count);
-    for (size_t i_module_index = 0; i_module_index < count; i_module_index++) {
-        p_parser = p_list[i_module_index];
-
-        if (p_item->i_type == CONFIG_ITEM_MODULE && module_provides(p_parser, p_item->psz_type)) {
-            if ([objectTitle isEqualToString: _NS(module_GetLongName(p_parser))]) {
-                config_PutPsz(p_intf, name, strdup(module_get_name(p_parser, false)));
-                break;
-            }
-        }
-    }
-    module_list_free(p_list);
-    if ([objectTitle isEqualToString: _NS("Default")]) {
-        if (!strcmp(name, "vout"))
-            config_PutPsz(p_intf, name, "");
-        else
-            config_PutPsz(p_intf, name, "none");
     }
 }
 
@@ -790,8 +895,7 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
 #define SaveIntList(object, name) save_int_list(p_intf, object, name)
 
 #define SaveStringList(object, name) save_string_list(p_intf, object, name)
-
-#define SaveModuleList(object, name) save_module_list(p_intf, object, name)
+#define SaveModuleList(object, name) SaveStringList(object, name)
 
 #define getString(name) [NSString stringWithFormat:@"%s", config_GetPsz(p_intf, name)]
 
@@ -799,6 +903,11 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
      * interface settings *
      **********************/
     if (b_intfSettingChanged) {
+        NSUInteger index = [o_intf_language_pop indexOfSelectedItem];
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        [defaults setObject:[NSString stringWithUTF8String:ppsz_language[index]] forKey:@"language"];
+        [defaults synchronize];
+
         SaveIntList(o_intf_art_pop, "album-art");
 
         config_PutInt(p_intf, "macosx-fspanel", [o_intf_fspanel_ckb state]);
@@ -831,6 +940,9 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
                 config_PutPsz(p_intf, "control", [tmpString UTF8String]);
             }
         }
+        config_PutPsz(p_intf, "http-password", [[o_intf_luahttppwd_fld stringValue] UTF8String]);
+
+        SaveIntList(o_intf_pauseitunes_pop, "macosx-control-itunes");
 
         /* activate stuff without restart */
         if ([o_intf_appleremote_ckb state] == YES)
@@ -1109,12 +1221,14 @@ static inline void save_module_list(intf_thread_t * p_intf, id object, const cha
     else if (notificationObject == o_video_snap_folder_fld ||
             notificationObject == o_video_snap_prefix_fld)
         b_videoSettingChanged = YES;
+    else if (notificationObject == o_intf_luahttppwd_fld)
+        b_intfSettingChanged = YES;
 }
 
 - (IBAction)showFontPicker:(id)sender
 {
     char * font = config_GetPsz(p_intf, "freetype-font");
-    NSString * fontName = font ? @(font) : nil;
+    NSString * fontName = font ? [NSString stringWithUTF8String:font] : nil;
     free(font);
     if (fontName) {
         NSFont * font = [NSFont fontWithName:fontName size:0.0];

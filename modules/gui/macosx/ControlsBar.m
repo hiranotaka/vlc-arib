@@ -1,7 +1,7 @@
 /*****************************************************************************
  * ControlsBar.m: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2012-2013 VLC authors and VideoLAN
+ * Copyright (C) 2012-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -27,6 +27,7 @@
 #import "CoreInteraction.h"
 #import "MainMenu.h"
 #import "fspanel.h"
+#import "CompatibilityFixes.h"
 
 /*****************************************************************************
  * VLCControlsBarCommon
@@ -156,11 +157,34 @@
         [o_fullscreen_btn removeFromSuperviewWithoutNeedingDisplay];
     }
 
+    if (config_GetInt(VLCIntf, "macosx-show-playback-buttons"))
+        [self toggleForwardBackwardMode: YES];
+
 }
 
 - (CGFloat)height
 {
     return [o_bottombar_view frame].size.height;
+}
+
+- (void)toggleForwardBackwardMode:(BOOL)b_alt
+{
+    if (b_alt == YES) {
+        /* change the accessibility help for the backward/forward buttons accordingly */
+        [[o_bwd_btn cell] accessibilitySetOverrideValue:_NS("Click and hold to skip backward through the current media.") forAttribute:NSAccessibilityDescriptionAttribute];
+        [[o_fwd_btn cell] accessibilitySetOverrideValue:_NS("Click and hold to skip forward through the current media.") forAttribute:NSAccessibilityDescriptionAttribute];
+
+        [o_fwd_btn setAction:@selector(alternateForward:)];
+        [o_bwd_btn setAction:@selector(alternateBackward:)];
+
+    } else {
+        /* change the accessibility help for the backward/forward buttons accordingly */
+        [[o_bwd_btn cell] accessibilitySetOverrideValue:_NS("Click to go to the previous playlist item. Hold to skip backward through the current media.") forAttribute:NSAccessibilityDescriptionAttribute];
+        [[o_fwd_btn cell] accessibilitySetOverrideValue:_NS("Click to go to the next playlist item. Hold to skip forward through the current media.") forAttribute:NSAccessibilityDescriptionAttribute];
+
+        [o_fwd_btn setAction:@selector(fwd:)];
+        [o_bwd_btn setAction:@selector(bwd:)];
+    }
 }
 
 #pragma mark -
@@ -239,6 +263,17 @@
                        afterDelay:0.40];
         }
     }
+}
+
+// alternative actions for forward / backward buttons when next / prev are activated
+- (IBAction)alternateForward:(id)sender
+{
+    [[VLCCoreInteraction sharedInstance] forwardExtraShort];
+}
+
+- (IBAction)alternateBackward:(id)sender
+{
+    [[VLCCoreInteraction sharedInstance] backwardExtraShort];
 }
 
 - (IBAction)timeSliderAction:(id)sender
@@ -483,6 +518,7 @@
         [o_volume_down_btn setImage: [NSImage imageNamed:@"volume-low"]];
         [o_volume_track_view setImage: [NSImage imageNamed:@"volume-slider-track"]];
         [o_volume_up_btn setImage: [NSImage imageNamed:@"volume-high"]];
+        [o_volume_sld setUsesBrightArtwork: YES];
 
         if (b_nativeFullscreenMode) {
             [o_effects_btn setImage: [NSImage imageNamed:@"effects-one-button"]];
@@ -514,6 +550,7 @@
         [o_volume_down_btn setImage: [NSImage imageNamed:@"volume-low_dark"]];
         [o_volume_track_view setImage: [NSImage imageNamed:@"volume-slider-track_dark"]];
         [o_volume_up_btn setImage: [NSImage imageNamed:@"volume-high_dark"]];
+        [o_volume_sld setUsesBrightArtwork: NO];
 
         if (b_nativeFullscreenMode) {
             [o_effects_btn setImage: [NSImage imageNamed:@"effects-one-button_dark"]];
@@ -533,8 +570,8 @@
 
     BOOL b_mute = ![[VLCCoreInteraction sharedInstance] mute];
     [o_volume_sld setEnabled: b_mute];
+    [o_volume_sld setMaxValue: [[VLCCoreInteraction sharedInstance] maxVolume]];
     [o_volume_up_btn setEnabled: b_mute];
-
 
     // remove fullscreen button for lion fullscreen
     if (b_nativeFullscreenMode) {
@@ -738,10 +775,6 @@ else \
         [o_next_btn setAlternateImage: [NSImage imageNamed:@"next-6btns-pressed"]];
     }
 
-    /* change the accessibility help for the backward/forward buttons accordingly */
-    [[o_bwd_btn cell] accessibilitySetOverrideValue:_NS("Click and hold to skip backward through the current media.") forAttribute:NSAccessibilityDescriptionAttribute];
-    [[o_fwd_btn cell] accessibilitySetOverrideValue:_NS("Click and hold to skip forward through the current media.") forAttribute:NSAccessibilityDescriptionAttribute];
-
     NSRect frame;
     frame = [o_bwd_btn frame];
     frame.size.width--;
@@ -802,8 +835,7 @@ else \
         [o_bottombar_view performSelector:@selector(addSubview:) withObject:o_next_btn afterDelay:.2];
     }
 
-    [o_fwd_btn setAction:@selector(forward:)];
-    [o_bwd_btn setAction:@selector(backward:)];
+    [self toggleForwardBackwardMode: YES];
 }
 
 - (void)removeJumpButtons:(BOOL)b_fast
@@ -824,10 +856,6 @@ else \
     o_prev_btn = NULL;
     [o_next_btn release];
     o_next_btn = NULL;
-
-    /* change the accessibility help for the backward/forward buttons accordingly */
-    [[o_bwd_btn cell] accessibilitySetOverrideValue:_NS("Click to go to the previous playlist item. Hold to skip backward through the current media.") forAttribute:NSAccessibilityDescriptionAttribute];
-    [[o_fwd_btn cell] accessibilitySetOverrideValue:_NS("Click to go to the next playlist item. Hold to skip forward through the current media.") forAttribute:NSAccessibilityDescriptionAttribute];
 
     NSRect frame;
     frame = [o_bwd_btn frame];
@@ -877,10 +905,9 @@ else \
         [[o_bwd_btn animator] setAlternateImage:[NSImage imageNamed:@"backward-3btns-pressed"]];
     }
 
-    [o_bottombar_view setNeedsDisplay:YES];
+    [self toggleForwardBackwardMode: NO];
 
-    [o_fwd_btn setAction:@selector(fwd:)];
-    [o_bwd_btn setAction:@selector(bwd:)];
+    [o_bottombar_view setNeedsDisplay:YES];
 }
 
 - (void)togglePlaymodeButtons
@@ -972,17 +999,6 @@ else \
     [[VLCCoreInteraction sharedInstance] next];
 }
 
-// alternative actions for forward / backward buttons when next / prev are activated
-- (IBAction)forward:(id)sender
-{
-    [[VLCCoreInteraction sharedInstance] forwardExtraShort];
-}
-
-- (IBAction)backward:(id)sender
-{
-    [[VLCCoreInteraction sharedInstance] backwardExtraShort];
-}
-
 - (void)setRepeatOne
 {
     [o_repeat_btn setImage: o_repeat_one_img];
@@ -1045,6 +1061,11 @@ else \
 {
     [[VLCCoreInteraction sharedInstance] shuffle];
     [self setShuffle];
+}
+
+- (IBAction)togglePlaylist:(id)sender
+{
+    [[[VLCMain sharedInstance] mainWindow] changePlaylistState: psUserEvent];
 }
 
 - (IBAction)volumeAction:(id)sender

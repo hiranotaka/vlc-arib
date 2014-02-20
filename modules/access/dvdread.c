@@ -50,11 +50,8 @@
 
 #include "../demux/ps.h"
 
-#ifdef HAVE_UNISTD_H
-#   include <unistd.h>
-#endif
-
 #include <sys/types.h>
+#include <unistd.h>
 
 #include <dvdread/dvd_reader.h>
 #include <dvdread/ifo_types.h>
@@ -394,7 +391,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
             /* Duplicate title infos */
             *pi_int = p_sys->i_titles;
-            *ppp_title = malloc( sizeof(input_title_t **) * p_sys->i_titles );
+            *ppp_title = malloc( p_sys->i_titles * sizeof(input_title_t *) );
             for( i = 0; i < p_sys->i_titles; i++ )
             {
                 (*ppp_title)[i] = vlc_input_title_Duplicate(p_sys->titles[i]);

@@ -41,7 +41,6 @@
 
 #include "../vlc.h"
 #include "input.h"
-#include "playlist.h"
 #include "../libs.h"
 #include "../extension.h"
 
@@ -62,9 +61,16 @@ input_thread_t * vlclua_get_input_internal( lua_State *L )
             return p_input;
         }
     }
+
     playlist_t *p_playlist = vlclua_get_playlist_internal( L );
-    input_thread_t *p_input = playlist_CurrentInput( p_playlist );
-    return p_input;
+    if( p_playlist != NULL )
+    {
+        input_thread_t *p_input = playlist_CurrentInput( p_playlist );
+        if( p_input )
+            return p_input;
+    }
+
+    return NULL;
 }
 
 static int vlclua_input_item_info( lua_State *L )
@@ -267,7 +273,7 @@ static int vlclua_input_item_get( lua_State *L, input_item_t *p_item )
 static int vlclua_input_item_get_current( lua_State *L )
 {
     input_thread_t *p_input = vlclua_get_input_internal( L );
-    input_item_t *p_item = ( p_input && p_input->p ) ? input_GetItem( p_input ) : NULL;
+    input_item_t *p_item = p_input ? input_GetItem( p_input ) : NULL;
     if( !p_item )
     {
         lua_pushnil( L );

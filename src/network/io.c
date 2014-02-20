@@ -42,9 +42,7 @@
 #include <assert.h>
 
 #include <fcntl.h>
-#ifdef HAVE_UNISTD_H
-#   include <unistd.h>
-#endif
+#include <unistd.h>
 #ifdef HAVE_POLL
 #   include <poll.h>
 #endif
@@ -61,6 +59,10 @@
 #if defined(_WIN32)
 # undef EAFNOSUPPORT
 # define EAFNOSUPPORT WSAEAFNOSUPPORT
+# undef EWOULDBLOCK
+# define EWOULDBLOCK WSAEWOULDBLOCK
+# undef EAGAIN
+# define EAGAIN WSAEWOULDBLOCK
 #endif
 
 #ifdef HAVE_LINUX_DCCP_H
@@ -81,7 +83,8 @@ int net_Socket (vlc_object_t *p_this, int family, int socktype,
     if (fd == -1)
     {
         if (net_errno != EAFNOSUPPORT)
-            msg_Err (p_this, "cannot create socket: %m");
+            msg_Err (p_this, "cannot create socket: %s",
+                     vlc_strerror_c(net_errno));
         return -1;
     }
 
@@ -154,7 +157,7 @@ int *net_Listen (vlc_object_t *p_this, const char *psz_host,
                              ptr->ai_protocol);
         if (fd == -1)
         {
-            msg_Dbg (p_this, "socket error: %m");
+            msg_Dbg (p_this, "socket error: %s", vlc_strerror_c(net_errno));
             continue;
         }
 
@@ -194,7 +197,8 @@ int *net_Listen (vlc_object_t *p_this, const char *psz_host,
             else
 #endif
             {
-                msg_Err (p_this, "socket bind error (%m)");
+                msg_Err (p_this, "socket bind error: %s",
+                         vlc_strerror_c(net_errno));
                 continue;
             }
         }
@@ -219,7 +223,8 @@ int *net_Listen (vlc_object_t *p_this, const char *psz_host,
 #endif
                 if (listen (fd, INT_MAX))
                 {
-                    msg_Err (p_this, "socket listen error (%m)");
+                    msg_Err (p_this, "socket listen error: %s",
+                             vlc_strerror_c(net_errno));
                     net_Close (fd);
                     continue;
                 }
@@ -256,135 +261,107 @@ ssize_t
 net_Read (vlc_object_t *restrict p_this, int fd, const v_socket_t *vs,
           void *restrict p_buf, size_t i_buflen, bool waitall)
 {
+    struct pollfd ufd[2];
+
+    ufd[0].fd = fd;
+    ufd[0].events = POLLIN;
+    ufd[1].fd = vlc_object_waitpipe (p_this);
+    ufd[1].events = POLLIN;
+
     size_t i_total = 0;
-    struct pollfd ufd[2] = {
-        { .fd = fd,                           .events = POLLIN },
-        { .fd = vlc_object_waitpipe (p_this), .events = POLLIN },
-    };
-
-    if (ufd[1].fd == -1)
-        return -1; /* vlc_object_waitpipe() sets errno */
-
-    while (i_buflen > 0)
+#if VLC_WINSTORE_APP
+    /* With winrtsock winsocks emulation library, the first call to read()
+     * before poll() starts an asynchronous transfer and returns 0.
+     * Always call poll() first.
+     *
+     * However if we have a virtual socket handler, try to read() first.
+     * See bug #8972 for details.
+     */
+    if (vs == NULL)
+        goto do_poll;
+#endif
+    do
     {
-        if (poll (ufd, sizeof (ufd) / sizeof (ufd[0]), -1) < 0)
-        {
-            if (errno != EINTR)
-                goto error;
-            continue;
-        }
-
-        if (i_total > 0)
-        {
-            /* Errors (-1) and EOF (0) will be returned on next call,
-             * otherwise we'd "hide" the error from the caller, which is a
-             * bad idea™. */
-            if (ufd[0].revents & (POLLERR|POLLNVAL))
-                break;
-            if (ufd[1].revents)
-                break;
-        }
-        else
-        {
-            if (ufd[1].revents)
-            {
-                msg_Dbg (p_this, "socket %d polling interrupted", fd);
-#if defined(_WIN32)
-                WSASetLastError (WSAEINTR);
-#else
-                errno = EINTR;
-#endif
-                goto silent;
-            }
-        }
-
-        assert (ufd[0].revents);
-
         ssize_t n;
-#if defined(_WIN32)
-        int error;
-#endif
         if (vs != NULL)
         {
             int canc = vlc_savecancel ();
             n = vs->pf_recv (vs->p_sys, p_buf, i_buflen);
-#if defined(_WIN32)
-            /* We must read last error immediately, because vlc_restorecancel()
-             * access thread local storage, and TlsGetValue() will call
-             * SetLastError() to indicate that the function succeeded, thus
-             * overwriting the error code coming from pf_recv().
-             * WSAGetLastError is just an alias for GetLastError these days.
-             */
-            error = WSAGetLastError();
-#endif
             vlc_restorecancel (canc);
         }
         else
         {
 #ifdef _WIN32
             n = recv (fd, p_buf, i_buflen, 0);
-            error = WSAGetLastError();
 #else
             n = read (fd, p_buf, i_buflen);
 #endif
         }
 
-        if (n == -1)
+        if (n < 0)
         {
-#if defined(_WIN32)
-            switch (error)
+            switch (net_errno)
             {
-                case WSAEWOULDBLOCK:
-                case WSAEINTR:
-                /* only happens with vs != NULL (TLS) - not really an error */
-                    continue;
-
-                case WSAEMSGSIZE:
-                /* For UDP only */
-                /* On Win32, recv() fails if the datagram doesn't fit inside
-                 * the passed buffer, even though the buffer will be filled
-                 * with the first part of the datagram. */
-                    msg_Err (p_this, "Receive error: "
-                                     "Increase the mtu size (--mtu option)");
-                    n = i_buflen;
-                    break;
-            }
-#else
-            switch (errno)
-            {
-                case EAGAIN: /* spurious wakeup or no TLS data */
+                case EAGAIN: /* no data */
 #if (EAGAIN != EWOULDBLOCK)
                 case EWOULDBLOCK:
 #endif
+                    break;
+#ifndef _WIN32
                 case EINTR:  /* asynchronous signal */
                     continue;
-            }
+#else
+                case WSAEMSGSIZE: /* datagram too big */
+                    n = i_buflen;
+                    break;
 #endif
+                default:
+                    goto error;
+            }
+        }
+        else
+        if (n > 0)
+        {
+            i_total += n;
+            p_buf = (char *)p_buf + n;
+            i_buflen -= n;
+
+            if (!waitall || i_buflen == 0)
+                break;
+        }
+        else /* n == 0 */
+            break;/* end of stream or empty packet */
+
+        if (ufd[1].fd == -1)
+        {
+            errno = EINTR;
+            return -1;
+        }
+#if VLC_WINSTORE_APP
+do_poll:
+#endif
+        /* Wait for more data */
+        if (poll (ufd, sizeof (ufd) / sizeof (ufd[0]), -1) < 0)
+        {
+            if (errno == EINTR)
+                continue;
             goto error;
         }
 
-        if (n == 0)
-            /* For streams, this means end of file, and there will not be any
-             * further data ever on the stream. For datagram sockets, this
-             * means empty datagram, and there could be more data coming.
-             * However, it makes no sense to set <waitall> with datagrams in the
-             * first place.
-             */
-            break; // EOF
+        if (ufd[1].revents)
+        {
+            msg_Dbg (p_this, "socket %d polling interrupted", fd);
+            errno = EINTR;
+            return -1;
+        }
 
-        i_total += n;
-        p_buf = (char *)p_buf + n;
-        i_buflen -= n;
-
-        if (!waitall)
-            break;
+        assert (ufd[0].revents);
     }
+    while (i_buflen > 0);
 
     return i_total;
-
 error:
-    msg_Err (p_this, "Read error: %m");
-silent:
+    msg_Err (p_this, "read error: %s", vlc_strerror_c(errno));
     return -1;
 }
 
@@ -424,7 +401,7 @@ ssize_t net_Write( vlc_object_t *p_this, int fd, const v_socket_t *p_vs,
         {
             if (errno == EINTR)
                 continue;
-            msg_Err (p_this, "Polling error: %m");
+            msg_Err (p_this, "Polling error: %s", vlc_strerror_c(errno));
             return -1;
         }
 
@@ -459,7 +436,7 @@ ssize_t net_Write( vlc_object_t *p_this, int fd, const v_socket_t *p_vs,
         {
             if (errno == EINTR)
                 continue;
-            msg_Err (p_this, "Write error: %m");
+            msg_Err (p_this, "Write error: %s", vlc_strerror_c(errno));
             break;
         }
 
@@ -484,46 +461,47 @@ error:
  * This function is not thread-safe; the same file descriptor I/O cannot be
  * read by another thread at the same time (although it can be written to).
  *
+ * @note This only works with stream-oriented file descriptors, not with
+ * datagram or packet-oriented ones.
+ *
  * @return nul-terminated heap-allocated string, or NULL on I/O error.
  */
-char *net_Gets( vlc_object_t *p_this, int fd, const v_socket_t *p_vs )
+char *net_Gets(vlc_object_t *obj, int fd, const v_socket_t *vs)
 {
-    char *psz_line = NULL, *ptr = NULL;
-    size_t  i_line = 0, i_max = 0;
+    char *buf = NULL;
+    size_t bufsize = 0, buflen = 0;
 
-
-    for( ;; )
+    for (;;)
     {
-        if( i_line == i_max )
+        if (buflen == bufsize)
         {
-            i_max += 1024;
-            psz_line = xrealloc( psz_line, i_max );
-            ptr = psz_line + i_line;
+            if (unlikely(bufsize >= (1 << 16)))
+                goto error; /* put sane buffer size limit */
+
+            char *newbuf = realloc(buf, bufsize + 1024);
+            if (unlikely(newbuf == NULL))
+                goto error;
+            buf = newbuf;
+            bufsize += 1024;
         }
 
-        if( net_Read( p_this, fd, p_vs, ptr, 1, true ) != 1 )
-        {
-            if( i_line == 0 )
-            {
-                free( psz_line );
-                return NULL;
-            }
-            break;
-        }
+        ssize_t val = net_Read(obj, fd, vs, buf + buflen, 1, false);
+        if (val < 1)
+            goto error;
 
-        if ( *ptr == '\n' )
+        if (buf[buflen] == '\n')
             break;
 
-        i_line++;
-        ptr++;
+        buflen++;
     }
 
-    *ptr-- = '\0';
-
-    if( ( ptr >= psz_line ) && ( *ptr == '\r' ) )
-        *ptr = '\0';
-
-    return psz_line;
+    buf[buflen] = '\0';
+    if (buflen > 0 && buf[buflen - 1] == '\r')
+        buf[buflen - 1] = '\0';
+    return buf;
+error:
+    free(buf);
+    return NULL;
 }
 
 #undef net_Printf

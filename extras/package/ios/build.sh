@@ -3,7 +3,7 @@ set -e
 
 PLATFORM=OS
 VERBOSE=no
-SDK_VERSION=6.1
+SDK_VERSION=7.0
 SDK_MIN=5.1
 ARCH=armv7
 
@@ -13,7 +13,7 @@ cat << EOF
 usage: $0 [-s] [-k sdk]
 
 OPTIONS
-   -k <sdk>      Specify which sdk to use ('xcodebuild -showsdks', current: ${SDK})
+   -k <sdk version>      Specify which sdk to use ('xcodebuild -showsdks', current: ${SDK_VERSION})
    -s            Build for simulator
    -a <arch>     Specify which arch to use (current: ${ARCH})
 EOF
@@ -48,10 +48,9 @@ do
              ;;
          s)
              PLATFORM=Simulator
-             SDK=${SDK_MIN}
              ;;
          k)
-             SDK=$OPTARG
+             SDK_VERSION=$OPTARG
              ;;
          a)
              ARCH=$OPTARG
@@ -77,8 +76,7 @@ fi
 info "Building libvlc for iOS"
 
 if [ "$PLATFORM" = "Simulator" ]; then
-    TARGET="i686-apple-darwin11"
-    ARCH="i386"
+    TARGET="${ARCH}-apple-darwin11"
     OPTIM="-O3 -g"
 else
     TARGET="arm-apple-darwin11"
@@ -111,9 +109,6 @@ PREFIX="${VLCROOT}/install-ios-${PLATFORM}/${ARCH}"
 
 export PATH="${VLCROOT}/extras/tools/build/bin:${VLCROOT}/contrib/${TARGET}/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/X11/bin"
 
-# contains gas-processor.pl
-export PATH=$PATH:${VLCROOT}/extras/package/ios/resources
-
 info "Building tools"
 spushd "${VLCROOT}/extras/tools"
 ./bootstrap
@@ -132,10 +127,14 @@ export CXX="xcrun clang++"
 export LD="xcrun ld"
 export STRIP="xcrun strip"
 
+export PLATFORM=$PLATFORM
+export SDK_VERSION=$SDK_VERSION
 
-export SDKROOT
 if [ "$PLATFORM" = "OS" ]; then
-export CFLAGS="-isysroot ${SDKROOT} -arch ${ARCH} -mcpu=cortex-a8 -miphoneos-version-min=${SDK_MIN} ${OPTIM}"
+export CFLAGS="-isysroot ${SDKROOT} -arch ${ARCH} -miphoneos-version-min=${SDK_MIN} ${OPTIM}"
+if [ "$ARCH" != "arm64" ]; then
+export CFLAGS="${CFLAGS} -mcpu=cortex-a8"
+fi
 else
 export CFLAGS="-isysroot ${SDKROOT} -arch ${ARCH} -miphoneos-version-min=${SDK_MIN} ${OPTIM}"
 fi
@@ -153,19 +152,21 @@ if [ "$PLATFORM" = "Simulator" ]; then
     export OBJCFLAGS="-fobjc-abi-version=2 -fobjc-legacy-dispatch ${OBJCFLAGS}"
 fi
 
-if [ "$PLATFORM" = "OS" ]; then
-  export LDFLAGS="-L${SDKROOT}/usr/lib -arch ${ARCH} -isysroot ${SDKROOT} -miphoneos-version-min=${SDK_MIN}"
-else
-  export LDFLAGS="-syslibroot=${SDKROOT}/ -arch ${ARCH} -miphoneos-version-min=${SDK_MIN}"
-fi
+export LDFLAGS="-L${SDKROOT}/usr/lib -arch ${ARCH} -isysroot ${SDKROOT} -miphoneos-version-min=${SDK_MIN}"
 
 if [ "$PLATFORM" = "OS" ]; then
-    EXTRA_CFLAGS="-arch ${ARCH} -mcpu=cortex-a8"
+    EXTRA_CFLAGS="-arch ${ARCH}"
+if [ "$ARCH" != "arm64" ]; then
+    EXTRA_CFLAGS+=" -mcpu=cortex-a8"
+fi
     EXTRA_LDFLAGS="-arch ${ARCH}"
 else
-    EXTRA_CFLAGS="-m32"
-    EXTRA_LDFLAGS="-m32"
+    EXTRA_CFLAGS="-arch ${ARCH}"
+    EXTRA_LDFLAGS="-arch ${ARCH}"
 fi
+
+EXTRA_CFLAGS+=" -miphoneos-version-min=${SDK_MIN}"
+EXTRA_LDFLAGS+=" -miphoneos-version-min=${SDK_MIN}"
 
 info "LD FLAGS SELECTED = '${LDFLAGS}'"
 
@@ -176,21 +177,22 @@ mkdir -p "${VLCROOT}/contrib/iPhone${PLATFORM}-${ARCH}"
 cd "${VLCROOT}/contrib/iPhone${PLATFORM}-${ARCH}"
 
 if [ "$PLATFORM" = "OS" ]; then
-      export AS="gas-preprocessor.pl ${CC}"
-      export ASCPP="gas-preprocessor.pl ${CC}"
-      export CCAS="gas-preprocessor.pl ${CC}"
+    export AS="gas-preprocessor.pl ${CC}"
+    export ASCPP="gas-preprocessor.pl ${CC}"
+    export CCAS="gas-preprocessor.pl ${CC}"
+    if [ "$ARCH" = "arm64" ]; then
+        export GASPP_FIX_XCODE5=1
+    fi
 else
-  export AS="xcrun as"
-  export ASCPP="xcrun as"
+    export ASCPP="xcrun as"
 fi
 
-../bootstrap --host=${TARGET} --build="i686-apple-darwin10" --prefix=${VLCROOT}/contrib/${TARGET}-${ARCH} --disable-gpl \
+../bootstrap --host=x86_64-apple-darwin11 --build=${TARGET} --prefix=${VLCROOT}/contrib/${TARGET}-${ARCH} --disable-gpl \
     --disable-disc --disable-sout \
-    --enable-small \
     --disable-sdl \
     --disable-SDL_image \
     --disable-iconv \
-    --disable-zvbi \
+    --enable-zvbi \
     --disable-kate \
     --disable-caca \
     --disable-gettext \
@@ -202,8 +204,7 @@ fi
     --disable-sidplay2 \
     --disable-samplerate \
     --disable-goom \
-    --disable-gcrypt \
-    --disable-gnutls \
+    --disable-vncserver \
     --disable-orc \
     --disable-schroedinger \
     --disable-libmpeg2 \
@@ -214,10 +215,13 @@ fi
     --enable-freetype2 \
     --enable-ass \
     --disable-fontconfig \
-    --disable-taglib > ${out}
+    --disable-gpg-error \
+    --disable-lua \
+    --enable-taglib > ${out}
 
 echo "EXTRA_CFLAGS += ${EXTRA_CFLAGS}" >> config.mak
 echo "EXTRA_LDFLAGS += ${EXTRA_LDFLAGS}" >> config.mak
+make fetch
 make
 spopd
 
@@ -261,10 +265,9 @@ ${VLCROOT}/configure \
     --disable-macosx-avfoundation \
     --enable-audioqueue \
     --enable-ios-audio \
-    --enable-ios-vout \
     --enable-ios-vout2 \
     --disable-shared \
-    --disable-macosx-quartztext \
+    --enable-macosx-quartztext \
     --enable-avcodec \
     --enable-mkv \
     --enable-opus \
@@ -275,7 +278,6 @@ ${VLCROOT}/configure \
     --enable-fribidi \
     --disable-macosx-audio \
     --disable-qt --disable-skins2 \
-    --disable-libgcrypt \
     --disable-vcd \
     --disable-vlc \
     --disable-vlm \
@@ -311,7 +313,7 @@ ${VLCROOT}/configure \
     --enable-flac \
     --disable-screen \
     --enable-freetype \
-    --disable-taglib \
+    --enable-taglib \
     --disable-mmx \
     --disable-mad > ${out} # MMX and SSE support requires llvm which is broken on Simulator
 fi
@@ -326,6 +328,7 @@ info "Installing libvlc"
 make install > ${out}
 
 find ${PREFIX}/lib/vlc/plugins -name *.a -type f -exec cp '{}' ${PREFIX}/lib/vlc/plugins \;
+rm -rf "${PREFIX}/contribs"
 cp -R "${VLCROOT}/contrib/${TARGET}-${ARCH}" "${PREFIX}/contribs"
 
 info "Removing unneeded modules"
@@ -338,7 +341,6 @@ oldrc
 real
 hotkeys
 gestures
-sap
 dynamicoverlay
 rss
 ball

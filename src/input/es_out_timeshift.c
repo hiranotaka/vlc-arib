@@ -35,9 +35,7 @@
 #  include <direct.h>
 #endif
 #include <sys/stat.h>
-#ifdef HAVE_UNISTD_H
-# include <unistd.h>
-#endif
+#include <unistd.h>
 
 #include <vlc_common.h>
 #include <vlc_fs.h>
@@ -1199,7 +1197,7 @@ static void TsStoragePopCmd( ts_storage_t *p_storage, ts_cmd_t *p_cmd, bool b_fl
         }
         else
         {
-            //fprintf( stderr, "TsStoragePopCmd: %m\n" );
+            //perror( "TsStoragePopCmd" );
             p_cmd->u.send.p_block = block_Alloc( 1 );
         }
     }

@@ -122,7 +122,7 @@ static const uint32_t pi_channels_guessed[MAX_CHANNEL_POSITIONS] =
 static int Open( vlc_object_t *p_this )
 {
     decoder_t *p_dec = (decoder_t*)p_this;
-    decoder_sys_t *p_sys = p_dec->p_sys;
+    decoder_sys_t *p_sys;
     faacDecConfiguration *cfg;
 
     if( p_dec->fmt_in.i_codec != VLC_CODEC_MP4A )
@@ -147,7 +147,6 @@ static int Open( vlc_object_t *p_this )
     p_dec->fmt_out.i_cat = AUDIO_ES;
 
     p_dec->fmt_out.i_codec = HAVE_FPU ? VLC_CODEC_FL32 : VLC_CODEC_S16N;
-    p_dec->pf_decode_audio = DecodeBlock;
 
     p_dec->fmt_out.audio.i_physical_channels =
         p_dec->fmt_out.audio.i_original_channels = 0;
@@ -195,6 +194,8 @@ static int Open( vlc_object_t *p_this )
     p_dec->b_need_packetized = true;
 
     p_sys->b_sbr = p_sys->b_ps = false;
+
+    p_dec->pf_decode_audio = DecodeBlock;
     return VLC_SUCCESS;
 }
 

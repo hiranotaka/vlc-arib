@@ -29,10 +29,6 @@
 /* for the icon in our custom error panel */
 #import <ApplicationServices/ApplicationServices.h>
 
-NSString *toNSStr(const char *str) {
-    return str != NULL ? @(str) : @"";
-}
-
 /*****************************************************************************
  * VLCCoreDialogProvider implementation
  *****************************************************************************/
@@ -71,7 +67,7 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
 
 -(void)performEventWithObject: (NSValue *)o_value ofType: (const char*)type
 {
-    NSString *o_type = @(type);
+    NSString *o_type = [NSString stringWithUTF8String:type];
 
     if ([o_type isEqualToString: @"dialog-error"])
         [self performSelectorOnMainThread:@selector(showFatalDialog:) withObject:o_value waitUntilDone:YES];
@@ -100,7 +96,7 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     dialog_fatal_t *p_dialog = [o_value pointerValue];
     NSAlert *o_alert;
 
-    o_alert = [NSAlert alertWithMessageText: toNSStr(p_dialog->title) defaultButton: _NS("OK") alternateButton: nil otherButton: nil informativeTextWithFormat: @"%s", p_dialog->message];
+    o_alert = [NSAlert alertWithMessageText: toNSStr(p_dialog->title) defaultButton: _NS("OK") alternateButton: nil otherButton: nil informativeTextWithFormat: @"%@", toNSStr(p_dialog->message)];
     [o_alert setAlertStyle: NSCriticalAlertStyle];
     [o_alert runModal];
 }
@@ -111,7 +107,7 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     NSAlert *o_alert;
     NSInteger i_returnValue = 0;
   
-    o_alert = [NSAlert alertWithMessageText: toNSStr(p_dialog->title) defaultButton: toNSStr(p_dialog->yes) alternateButton: toNSStr(p_dialog->no) otherButton: toNSStr(p_dialog->cancel) informativeTextWithFormat: @"%s", p_dialog->message];
+    o_alert = [NSAlert alertWithMessageText: toNSStr(p_dialog->title) defaultButton: toNSStr(p_dialog->yes) alternateButton: toNSStr(p_dialog->no) otherButton: toNSStr(p_dialog->cancel) informativeTextWithFormat:@"%@", toNSStr(p_dialog->message)];
     [o_alert setAlertStyle: NSInformationalAlertStyle];
     i_returnValue = [o_alert runModal];
 
@@ -167,7 +163,7 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     [o_prog_title_txt setStringValue: toNSStr(p_dialog->title)];
 
     if (p_dialog->cancel != NULL)
-        [o_prog_cancel_btn setTitle: @(p_dialog->cancel)];
+        [o_prog_cancel_btn setTitle: [NSString stringWithUTF8String:p_dialog->cancel]];
     else
         [o_prog_cancel_btn setTitle: _NS("Cancel")];
 
@@ -246,7 +242,6 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     /* init strings */
     [o_window setTitle: _NS("Errors and Warnings")];
     [o_cleanup_button setTitle: _NS("Clean up")];
-    [o_messages_btn setTitle: _NS("Show Details")];
 }
 
 -(void)dealloc
@@ -286,11 +281,6 @@ static VLCCoreDialogProvider *_o_sharedInstance = nil;
     [o_errors removeAllObjects];
     [o_icons removeAllObjects];
     [o_error_table reloadData];
-}
-
--(IBAction)showMessages:(id)sender
-{
-    [[VLCMain sharedInstance] showMessagesPanel: sender];
 }
 
 /*----------------------------------------------------------------------------

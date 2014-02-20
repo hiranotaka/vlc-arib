@@ -146,7 +146,7 @@ public:
         QPixmap *icon;
     };
 
-    ExtensionListModel( QListView *view, intf_thread_t *p_intf );
+    ExtensionListModel( QObject *parent, intf_thread_t *p_intf );
     virtual ~ExtensionListModel();
 
     enum
@@ -175,7 +175,7 @@ private:
 class ExtensionItemDelegate : public QStyledItemDelegate
 {
 public:
-    ExtensionItemDelegate( intf_thread_t *p_intf, QListView *view );
+    ExtensionItemDelegate( QObject *parent );
     virtual ~ExtensionItemDelegate();
 
     virtual void paint( QPainter *painter,
@@ -183,10 +183,11 @@ public:
                         const QModelIndex &index ) const;
     virtual QSize sizeHint( const QStyleOptionViewItem &option,
                             const QModelIndex &index ) const;
+    virtual void initStyleOption( QStyleOptionViewItem *option,
+                                  const QModelIndex &index ) const;
 
 private:
-    QListView *view;
-    intf_thread_t *p_intf;
+    QMargins margins;
 };
 
 class ExtensionInfoDialog : public QVLCDialog

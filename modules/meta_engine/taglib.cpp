@@ -69,6 +69,10 @@
 # endif
 #endif
 
+#if TAGLIB_VERSION >= VERSION_INT(1,9,0)
+# include <opusfile.h>
+#endif
+
 #include <apetag.h>
 #include <flacfile.h>
 #include <mpcfile.h>
@@ -173,6 +177,7 @@ static void ReadMetaFromAPE( APE::Tag* tag, demux_meta_t* p_demux_meta, vlc_meta
     SET( "COPYRIGHT", Copyright );
     SET( "LANGUAGE", Language );
     SET( "PUBLISHER", Publisher );
+    SET( "MUSICBRAINZ_TRACKID", TrackID );
 
 #undef SET
 
@@ -185,7 +190,6 @@ static void ReadMetaFromAPE( APE::Tag* tag, demux_meta_t* p_demux_meta, vlc_meta
 }
 
 
-#ifdef TAGLIB_HAVE_ASFPICTURE_H
 /**
  * Read meta information from APE tags
  * @param tag: the APE tag
@@ -194,8 +198,22 @@ static void ReadMetaFromAPE( APE::Tag* tag, demux_meta_t* p_demux_meta, vlc_meta
  */
 static void ReadMetaFromASF( ASF::Tag* tag, demux_meta_t* p_demux_meta, vlc_meta_t* p_meta )
 {
+
+    ASF::AttributeList list;
+#define SET( keyName, metaName )                                                     \
+    if( tag->attributeListMap().contains(keyName) )                                  \
+    {                                                                                \
+        list = tag->attributeListMap()[keyName];                                     \
+        vlc_meta_Set##metaName( p_meta, list.front().toString().toCString( true ) ); \
+    }
+
+    SET("MusicBrainz/Track Id", TrackID );
+
+#undef SET
+
+#ifdef TAGLIB_HAVE_ASFPICTURE_H
     // List the pictures
-    ASF::AttributeList list = tag->attributeListMap()["WM/Picture"];
+    list = tag->attributeListMap()["WM/Picture"];
     ASF::AttributeList::Iterator iter;
     for( iter = list.begin(); iter != list.end(); iter++ )
     {
@@ -233,8 +251,8 @@ static void ReadMetaFromASF( ASF::Tag* tag, demux_meta_t* p_demux_meta, vlc_meta
         vlc_meta_SetArtURL( p_meta, psz_url );
         free( psz_url );
     }
-}
 #endif
+}
 
 
 /**
@@ -425,13 +443,48 @@ static void ReadMetaFromId3v2( ID3v2::Tag* tag, demux_meta_t* p_demux_meta, vlc_
 static void ReadMetaFromXiph( Ogg::XiphComment* tag, demux_meta_t* p_demux_meta, vlc_meta_t* p_meta )
 {
     StringList list;
+    bool hasTrackTotal = false;
 #define SET( keyName, metaName )                                               \
     list = tag->fieldListMap()[keyName];                                       \
     if( !list.isEmpty() )                                                      \
         vlc_meta_Set##metaName( p_meta, (*list.begin()).toCString( true ) );
 
     SET( "COPYRIGHT", Copyright );
+    SET( "ORGANIZATION", Publisher );
+    SET( "DATE", Date );
+    SET( "ENCODER", EncodedBy );
+    SET( "RATING", Rating );
+    SET( "LANGUAGE", Language );
+    SET( "MUSICBRAINZ_TRACKID", TrackID );
 #undef SET
+
+    list = tag->fieldListMap()["TRACKNUMBER"];
+    if( !list.isEmpty() )
+    {
+        const char *psz_value;
+        unsigned short u_track;
+        unsigned short u_total;
+        psz_value = (*list.begin()).toCString( true );
+        if( sscanf( psz_value, "%hu/%hu", &u_track, &u_total ) == 2)
+        {
+            char str[6];
+            snprintf(str, 6, "%u", u_track);
+            vlc_meta_SetTrackNum( p_meta, str);
+            snprintf(str, 6, "%u", u_total);
+            vlc_meta_SetTrackTotal( p_meta, str);
+            hasTrackTotal = true;
+        }
+        else
+            vlc_meta_SetTrackNum( p_meta, psz_value);
+    }
+    if( !hasTrackTotal )
+    {
+        list = tag->fieldListMap()["TRACKTOTAL"];
+        if( list.isEmpty() )
+            list = tag->fieldListMap()["TOTALTRACKS"];
+        if( !list.isEmpty() )
+            vlc_meta_SetTrackTotal( p_meta, (*list.begin()).toCString( true ) );
+    }
 
     // Try now to get embedded art
     StringList mime_list = tag->fieldListMap()[ "COVERARTMIME" ];
@@ -500,6 +553,18 @@ static void ReadMetaFromXiph( Ogg::XiphComment* tag, demux_meta_t* p_demux_meta,
  */
 static void ReadMetaFromMP4( MP4::Tag* tag, demux_meta_t *p_demux_meta, vlc_meta_t* p_meta )
 {
+    MP4::Item list;
+#define SET( keyName, metaName )                                                             \
+    if( tag->itemListMap().contains(keyName) )                                               \
+    {                                                                                        \
+        list = tag->itemListMap()[keyName];                                                  \
+        vlc_meta_Set##metaName( p_meta, list.toStringList().front().toCString( true ) );     \
+    }
+
+    SET("----:com.apple.iTunes:MusicBrainz Track Id", TrackID );
+
+#undef SET
+
     if( tag->itemListMap().contains("covr") )
     {
         MP4::CoverArtList list = tag->itemListMap()["covr"].toCoverArtList();
@@ -601,7 +666,7 @@ static int ReadMeta( vlc_object_t* p_this)
     }
     else
 #endif
-#ifdef TAGLIB_HAVE_ASFPICTURE_H
+#ifdef TAGLIB_WITH_ASF
     if( ASF::File* asf = dynamic_cast<ASF::File*>(f.file()) )
     {
         if( asf->tag() )
@@ -643,6 +708,10 @@ static int ReadMeta( vlc_object_t* p_this)
             ReadMetaFromXiph( ogg_speex->tag(), p_demux_meta, p_meta );
         else if( Ogg::Vorbis::File* ogg_vorbis = dynamic_cast<Ogg::Vorbis::File*>(f.file()) )
             ReadMetaFromXiph( ogg_vorbis->tag(), p_demux_meta, p_meta );
+#if defined(TAGLIB_OPUSFILE_H)
+        else if( Ogg::Opus::File* ogg_opus = dynamic_cast<Ogg::Opus::File*>(f.file()) )
+            ReadMetaFromXiph( ogg_opus->tag(), p_demux_meta, p_meta );
+#endif
     }
     else if( dynamic_cast<RIFF::File*>(f.file()) )
     {
@@ -838,7 +907,14 @@ static void WriteMetaToXiph( Ogg::XiphComment* tag, input_item_t* p_item )
     }                                                   \
     free( psz_meta );
 
+    WRITE( TrackNum, "TRACKNUMBER" );
+    WRITE( TrackTotal, "TRACKTOTAL" );
     WRITE( Copyright, "COPYRIGHT" );
+    WRITE( Publisher, "ORGANIZATION" );
+    WRITE( Date, "DATE" );
+    WRITE( EncodedBy, "ENCODER" );
+    WRITE( Rating, "RATING" );
+    WRITE( Language, "LANGUAGE" );
 
 #undef WRITE
 }
@@ -952,6 +1028,10 @@ static int WriteMeta( vlc_object_t *p_this )
             WriteMetaToXiph( ogg_speex->tag(), p_item );
         else if( Ogg::Vorbis::File* ogg_vorbis = dynamic_cast<Ogg::Vorbis::File*>(f.file()) )
             WriteMetaToXiph( ogg_vorbis->tag(), p_item );
+#if defined(TAGLIB_OPUSFILE_H)
+        else if( Ogg::Opus::File* ogg_opus = dynamic_cast<Ogg::Opus::File*>(f.file()) )
+            WriteMetaToXiph( ogg_opus->tag(), p_item );
+#endif
     }
     else if( dynamic_cast<RIFF::File*>(f.file()) )
     {

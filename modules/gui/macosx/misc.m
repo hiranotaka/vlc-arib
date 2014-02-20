@@ -1,7 +1,7 @@
 /*****************************************************************************
  * misc.m: code not specific to vlc
  *****************************************************************************
- * Copyright (C) 2003-2013 VLC authors and VideoLAN
+ * Copyright (C) 2003-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
@@ -22,6 +22,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+#import "CompatibilityFixes.h"
 #import "misc.h"
 #import "intf.h"                                          /* VLCApplication */
 #import "MainWindow.h"
@@ -165,10 +166,22 @@ static NSMapTable *VLCAdditions_userInfo = NULL;
 
 static NSMutableArray *blackoutWindows = NULL;
 
+static bool b_old_spaces_style = YES;
+
 + (void)load
 {
     /* init our fake object attribute */
     blackoutWindows = [[NSMutableArray alloc] initWithCapacity:1];
+
+    if (OSX_MAVERICKS) {
+        NSUserDefaults *userDefaults = [[NSUserDefaults alloc] init];
+        [userDefaults addSuiteNamed:@"com.apple.spaces"];
+        /* this is system settings -> mission control -> monitors using different spaces */
+        NSNumber *o_span_displays = [userDefaults objectForKey:@"spans-displays"];
+
+        b_old_spaces_style = [o_span_displays boolValue];
+        [userDefaults release];
+    }
 }
 
 + (NSScreen *)screenWithDisplayID: (CGDirectDisplayID)displayID
@@ -185,7 +198,10 @@ static NSMutableArray *blackoutWindows = NULL;
 
 - (BOOL)hasMenuBar
 {
-    return ([self displayID] == [[[NSScreen screens] objectAtIndex:0] displayID]);
+    if (b_old_spaces_style)
+        return ([self displayID] == [[[NSScreen screens] objectAtIndex:0] displayID]);
+    else
+        return YES;
 }
 
 - (BOOL)hasDock
@@ -239,6 +255,7 @@ static NSMutableArray *blackoutWindows = NULL;
                 backing: NSBackingStoreBuffered defer: NO screen: screen];
         [blackoutWindow setBackgroundColor:[NSColor blackColor]];
         [blackoutWindow setLevel: NSFloatingWindowLevel]; /* Disappear when Expose is triggered */
+        [blackoutWindow setReleasedWhenClosed:NO]; // window is released when deleted from array above
 
         [blackoutWindow displayIfNeeded];
         [blackoutWindow orderFront: self animate: YES];
@@ -284,10 +301,30 @@ static NSMutableArray *blackoutWindows = NULL;
 @end
 
 /*****************************************************************************
- * VLBrushedMetalImageView
+ * VLCDragDropView
  *****************************************************************************/
 
-@implementation VLBrushedMetalImageView
+@implementation VLCDropDisabledImageView
+
+- (void)awakeFromNib
+{
+    [self unregisterDraggedTypes];
+}
+
+@end
+
+/*****************************************************************************
+ * VLCDragDropView
+ *****************************************************************************/
+
+@implementation VLCDragDropView
+
+@synthesize dropHandler=_dropHandler;
+
+- (void)enablePlaylistItems
+{
+    [self registerForDraggedTypes:[NSArray arrayWithObjects:NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil]];
+}
 
 - (BOOL)mouseDownCanMoveWindow
 {
@@ -302,18 +339,31 @@ static NSMutableArray *blackoutWindows = NULL;
 
 - (void)awakeFromNib
 {
-    [self registerForDraggedTypes:@[NSFilenamesPboardType]];
-    [self setImageScaling: NSScaleToFit];
-    [self setImageFrameStyle: NSImageFrameNone];
-    [self setImageAlignment: NSImageAlignCenter];
+    [self registerForDraggedTypes:[NSArray arrayWithObject:NSFilenamesPboardType]];
 }
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
 {
-    if ((NSDragOperationGeneric & [sender draggingSourceOperationMask]) == NSDragOperationGeneric)
-        return NSDragOperationGeneric;
+    if ((NSDragOperationGeneric & [sender draggingSourceOperationMask]) == NSDragOperationGeneric) {
+        b_activeDragAndDrop = YES;
+        [self setNeedsDisplay:YES];
+
+        return NSDragOperationCopy;
+    }
 
     return NSDragOperationNone;
+}
+
+- (void)draggingEnded:(id < NSDraggingInfo >)sender
+{
+    b_activeDragAndDrop = NO;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)draggingExited:(id < NSDraggingInfo >)sender
+{
+    b_activeDragAndDrop = NO;
+    [self setNeedsDisplay:YES];
 }
 
 - (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)sender
@@ -324,7 +374,11 @@ static NSMutableArray *blackoutWindows = NULL;
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
 {
     BOOL b_returned;
-    b_returned = [[VLCCoreInteraction sharedInstance] performDragOperation: sender];
+
+    if (_dropHandler && [_dropHandler respondsToSelector:@selector(performDragOperation:)])
+        b_returned = [_dropHandler performDragOperation: sender];
+    else // default
+        b_returned = [[VLCCoreInteraction sharedInstance] performDragOperation: sender];
 
     [self setNeedsDisplay:YES];
     return b_returned;
@@ -333,6 +387,19 @@ static NSMutableArray *blackoutWindows = NULL;
 - (void)concludeDragOperation:(id <NSDraggingInfo>)sender
 {
     [self setNeedsDisplay:YES];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+
+    if (b_activeDragAndDrop) {
+        NSRect frameRect = [self bounds];
+
+        [[NSColor selectedControlColor] set];
+        NSFrameRectWithWidthUsingOperation(frameRect, 2., NSCompositeHighlight);
+    }
+
+    [super drawRect:dirtyRect];
 }
 
 @end
@@ -547,26 +614,56 @@ void _drawFrameInRect(NSRect frameRect)
 
 - (void)drawFullVolumeMarker
 {
-    NSRect frame = [self frame];
+    CGFloat maxAudioVol = self.maxValue / AOUT_VOLUME_DEFAULT;
+    if (maxAudioVol < 1.)
+        return;
 
     NSColor *drawingColor;
+    // for bright artwork, a black color is used and vice versa
     if (_usesBrightArtwork)
-        drawingColor = [[NSColor whiteColor] colorWithAlphaComponent:.8];
+        drawingColor = [[NSColor blackColor] colorWithAlphaComponent:.4];
     else
-        drawingColor = [[NSColor blackColor] colorWithAlphaComponent:.6];
+        drawingColor = [[NSColor whiteColor] colorWithAlphaComponent:.4];
 
     NSBezierPath* bezierPath = [NSBezierPath bezierPath];
-
-    float fullVolPos = frame.size.width / 2.;
-    [bezierPath moveToPoint:NSMakePoint(fullVolPos, frame.size.height - 3.)];
-    [bezierPath lineToPoint:NSMakePoint(fullVolPos, 3.)];
+    [self drawFullVolBezierPath:bezierPath];
     [bezierPath closePath];
 
     bezierPath.lineWidth = 1.;
     [drawingColor setStroke];
     [bezierPath stroke];
-    [drawingColor setFill];
-    [bezierPath fill];
+}
+
+- (CGFloat)fullVolumePos
+{
+    CGFloat maxAudioVol = self.maxValue / AOUT_VOLUME_DEFAULT;
+    CGFloat sliderRange = [self frame].size.width - [self knobThickness];
+    CGFloat sliderOrigin = [self knobThickness] / 2.;
+
+    return 1. / maxAudioVol * sliderRange + sliderOrigin;
+}
+
+- (void)drawFullVolBezierPath:(NSBezierPath*)bezierPath
+{
+    CGFloat fullVolPos = [self fullVolumePos];
+    [bezierPath moveToPoint:NSMakePoint(fullVolPos, [self frame].size.height - 3.)];
+    [bezierPath lineToPoint:NSMakePoint(fullVolPos, 2.)];
+}
+
+@end
+
+@implementation VolumeSliderCell
+
+- (BOOL)continueTracking:(NSPoint)lastPoint at:(NSPoint)currentPoint inView:(NSView *)controlView
+{
+    VLCVolumeSliderCommon *o_slider = (VLCVolumeSliderCommon *)controlView;
+    CGFloat fullVolumePos = [o_slider fullVolumePos] + 2.;
+
+    CGPoint snapToPoint = currentPoint;
+    if (ABS(fullVolumePos - currentPoint.x) <= 4.)
+        snapToPoint.x = fullVolumePos;
+
+    return [super continueTracking:lastPoint at:snapToPoint inView:controlView];
 }
 
 @end
@@ -632,7 +729,7 @@ void _drawFrameInRect(NSRect frameRect)
                                  @"NO", @"DisplayTimeAsTimeRemaining",
                                  @"YES", @"DisplayFullscreenTimeAsTimeRemaining",
                                  nil];
-    
+
     [defaults registerDefaults:appDefaults];
 }
 
@@ -642,7 +739,7 @@ void _drawFrameInRect(NSRect frameRect)
         textAlignment = NSCenterTextAlignment;
         o_remaining_identifier = @"";
     }
-    
+
     return self;
 }
 
@@ -784,7 +881,7 @@ void _drawFrameInRect(NSRect frameRect)
 
 - (void)awakeFromNib
 {
-    [self registerForDraggedTypes:@[NSFilenamesPboardType]];
+    [self registerForDraggedTypes:[NSArray arrayWithObject:NSFilenamesPboardType]];
 }
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
@@ -837,7 +934,12 @@ void _drawFrameInRect(NSRect frameRect)
 
 - (NSString*)stringForObjectValue:(id)obj
 {
-    return obj;
+    if([obj isKindOfClass:[NSString class]])
+        return obj;
+    if([obj isKindOfClass:[NSNumber class]])
+        return [obj stringValue];
+
+    return nil;
 }
 
 - (BOOL)getObjectValue:(id*)obj forString:(NSString*)string errorDescription:(NSString**)error
@@ -855,5 +957,103 @@ void _drawFrameInRect(NSRect frameRect)
     }
 }
 
+
+@end
+
+@implementation NSView (EnableSubviews)
+
+- (void)enableSubviews:(BOOL)b_enable
+{
+    for (NSView *o_view in [self subviews]) {
+        [o_view enableSubviews:b_enable];
+
+        // enable NSControl
+        if ([o_view respondsToSelector:@selector(setEnabled:)]) {
+            [(NSControl *)o_view setEnabled:b_enable];
+        }
+        // also "enable / disable" text views
+        if ([o_view respondsToSelector:@selector(setTextColor:)]) {
+            if (b_enable == NO) {
+                [(NSTextField *)o_view setTextColor:[NSColor disabledControlTextColor]];
+            } else {
+                [(NSTextField *)o_view setTextColor:[NSColor controlTextColor]];
+            }
+        }
+
+    }
+}
+
+@end
+
+/*****************************************************************************
+ * VLCByteCountFormatter addition
+ *****************************************************************************/
+
+#ifndef MAC_OS_X_VERSION_10_8
+@interface NSByteCountFormatter (IntroducedInMountainLion)
++ (NSString *)stringFromByteCount:(long long)byteCount countStyle:(NSByteCountFormatterCountStyle)countStyle;
+@end
+#endif
+
+
+@implementation VLCByteCountFormatter
+
++ (NSString *)stringFromByteCount:(long long)byteCount countStyle:(NSByteCountFormatterCountStyle)countStyle
+{
+    if (OSX_MAVERICKS || OSX_MOUNTAIN_LION)
+        return [NSByteCountFormatter stringFromByteCount:byteCount countStyle:NSByteCountFormatterCountStyleFile];
+
+    float devider = 0.;
+    float returnValue = 0.;
+    NSString *suffix;
+
+    NSNumberFormatter *theFormatter = [[NSNumberFormatter alloc] init];
+    [theFormatter setLocale:[NSLocale currentLocale]];
+    [theFormatter setAllowsFloats:YES];
+
+    NSString *returnString = @"";
+
+    if (countStyle != NSByteCountFormatterCountStyleDecimal)
+        devider = 1024.;
+    else
+        devider = 1000.;
+
+    if (byteCount < 1000) {
+        returnValue = byteCount;
+        suffix = _NS("B");
+        [theFormatter setMaximumFractionDigits:0];
+        goto end;
+    }
+
+    if (byteCount < 1000000) {
+        returnValue = byteCount / devider;
+        suffix = _NS("KB");
+        [theFormatter setMaximumFractionDigits:0];
+        goto end;
+    }
+
+    if (byteCount < 1000000000) {
+        returnValue = byteCount / devider / devider;
+        suffix = _NS("MB");
+        [theFormatter setMaximumFractionDigits:1];
+        goto end;
+    }
+
+    [theFormatter setMaximumFractionDigits:2];
+    if (byteCount < 1000000000000) {
+        returnValue = byteCount / devider / devider / devider;
+        suffix = _NS("GB");
+        goto end;
+    }
+
+    returnValue = byteCount / devider / devider / devider / devider;
+    suffix = _NS("TB");
+
+end:
+    returnString = [NSString stringWithFormat:@"%@ %@", [theFormatter stringFromNumber:[NSNumber numberWithFloat:returnValue]], suffix];
+    [theFormatter release];
+
+    return returnString;
+}
 
 @end

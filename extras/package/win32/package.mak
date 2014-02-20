@@ -77,7 +77,9 @@ endif
 	cd $(prefix)/lib && cp -rv libvlc.dll.a "$(win32_destdir)/sdk/lib/libvlc.lib"
 	cd $(prefix)/lib && cp -rv libvlccore.dll.a "$(win32_destdir)/sdk/lib/libvlccore.lib"
 	$(DLLTOOL) -D libvlc.dll -l "$(win32_destdir)/sdk/lib/libvlc.lib" -d "$(top_builddir)/lib/.libs/libvlc.dll.def" "$(prefix)/bin/libvlc.dll"
+	echo "INPUT(libvlc.lib)" > "$(win32_destdir)/sdk/lib/vlc.lib"
 	$(DLLTOOL) -D libvlccore.dll -l "$(win32_destdir)/sdk/lib/libvlccore.lib" -d "$(top_builddir)/src/.libs/libvlccore.dll.def" "$(prefix)/bin/libvlccore.dll"
+	echo "INPUT(libvlccore.lib)" > "$(win32_destdir)/sdk/lib/vlccore.lib"
 
 	mkdir -p "$(win32_destdir)/sdk/activex/"
 	cd $(top_builddir)/npapi-vlc && cp activex/README.TXT share/test/test.html $(win32_destdir)/sdk/activex/
@@ -130,16 +132,26 @@ else
 	$(CXX) $^ -D_WIN32_IE=0x0601 -D__forceinline=inline -shared -o $@ -lole32 -static-libstdc++ -static-libgcc
 	$(STRIP) $@
 endif
+$(win32_destdir)/NSIS/nsProcess.dll: extras/package/win32/NSIS/nsProcess/nsProcess.c extras/package/win32/NSIS/nsProcess/pluginapi.c
+	mkdir -p "$(win32_destdir)/NSIS/"
+if HAVE_WIN64
+	i686-w64-mingw32-gcc $^ -shared -o $@ -lole32 -static-libgcc
+	i686-w64-mingw32-strip $@
+else
+	$(CC) $^ -D_WIN32_IE=0x0601 -shared -o $@ -lole32 -static-libgcc
+	$(STRIP) $@
+endif
 
 
-package-win32-exe: package-win-strip $(win32_destdir)/NSIS/UAC.dll
+package-win32-exe: package-win-strip $(win32_destdir)/NSIS/UAC.dll $(win32_destdir)/NSIS/nsProcess.dll
 # Script installer
 	cp    $(top_builddir)/extras/package/win32/NSIS/vlc.win32.nsi "$(win32_destdir)/"
 	cp    $(top_builddir)/extras/package/win32/NSIS/spad.nsi      "$(win32_destdir)/"
-	cp -r $(srcdir)/extras/package/win32/NSIS/languages/    "$(win32_destdir)/"
-	cp -r $(srcdir)/extras/package/win32/NSIS/helpers/      "$(win32_destdir)/"
+	cp -r $(srcdir)/extras/package/win32/NSIS/languages    "$(win32_destdir)/"
+	cp -r $(srcdir)/extras/package/win32/NSIS/helpers      "$(win32_destdir)/"
 	mkdir -p "$(win32_destdir)/NSIS/"
 	cp "$(top_srcdir)/extras/package/win32/NSIS/UAC.nsh" "$(win32_destdir)/NSIS/"
+	cp "$(top_srcdir)/extras/package/win32/NSIS/nsProcess.nsh" "$(win32_destdir)/NSIS/"
 
 # Create package
 	if makensis -VERSION >/dev/null 2>&1; then \

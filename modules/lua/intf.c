@@ -30,6 +30,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <vlc_common.h>
 #include <vlc_interface.h>
@@ -198,7 +199,6 @@ static const luaL_Reg p_reg[] = { { NULL, NULL } };
 static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
 {
     intf_thread_t *p_intf = (intf_thread_t*)p_this;
-    intf_sys_t *p_sys;
     lua_State *L;
 
     config_ChainParse( p_intf, "lua-", ppsz_intf_options, p_intf->p_cfg );
@@ -214,14 +214,17 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
         /* Cleaned up by vlc_object_release() */
         p_intf->psz_header = strdup( name );
 
-    p_intf->p_sys = (intf_sys_t*)malloc( sizeof(intf_sys_t) );
-    if( !p_intf->p_sys )
+    intf_sys_t *p_sys = malloc( sizeof(*p_sys) );
+    if( unlikely(p_sys == NULL) )
     {
         free( p_intf->psz_header );
         p_intf->psz_header = NULL;
         return VLC_ENOMEM;
     }
-    p_sys = p_intf->p_sys;
+    p_intf->p_sys = p_sys;
+
+    vlclua_fd_init( p_sys );
+
     p_sys->psz_filename = vlclua_find_file( "intf", name );
     if( !p_sys->psz_filename )
     {
@@ -239,6 +242,7 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
     }
 
     vlclua_set_this( L, p_intf );
+    vlclua_set_playlist_internal( L, pl_Get(p_intf) );
 
     luaL_openlibs( L );
 
@@ -247,12 +251,11 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
 
     /* register submodules */
     luaopen_config( L );
-    luaopen_volume( L );
     luaopen_httpd( L );
     luaopen_input( L );
     luaopen_msg( L );
     luaopen_misc( L );
-    luaopen_net( L );
+    luaopen_net_intf( L );
     luaopen_object( L );
     luaopen_osd( L );
     luaopen_playlist( L );
@@ -361,11 +364,15 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
 
     p_sys->L = L;
 
+#ifndef _WIN32
     if( vlc_pipe( p_sys->fd ) )
     {
         lua_close( p_sys->L );
         goto error;
     }
+#else
+# define close(fd) (void)0
+#endif
 
     if( vlc_clone( &p_sys->thread, Run, p_intf, VLC_THREAD_PRIORITY_LOW ) )
     {
@@ -394,6 +401,7 @@ void Close_LuaIntf( vlc_object_t *p_this )
 
     lua_close( p_sys->L );
     close( p_sys->fd[0] );
+    vlclua_fd_destroy( p_sys );
     free( p_sys->psz_filename );
     free( p_sys );
 }

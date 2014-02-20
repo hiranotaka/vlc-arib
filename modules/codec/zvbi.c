@@ -42,12 +42,15 @@
 # include "config.h"
 #endif
 
+#include <ctype.h>
+
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <assert.h>
 #include <libzvbi.h>
 
 #include <vlc_codec.h>
+#include "substext.h"
 
 /*****************************************************************************
  * Module descriptor.
@@ -60,8 +63,8 @@ static void Close( vlc_object_t * );
         "Default page is index 100")
 
 #define OPAQUE_TEXT N_("Teletext transparency")
-#define OPAQUE_LONGTEXT N_("Setting vbi-opaque to false " \
-        "makes the boxed text transparent." )
+#define OPAQUE_LONGTEXT N_("Setting vbi-opaque to true " \
+        "makes the text to be boxed and maybe easier to read." )
 
 #define POS_TEXT N_("Teletext alignment")
 #define POS_LONGTEXT N_( \
@@ -88,11 +91,11 @@ vlc_module_begin ()
 
     add_integer( "vbi-page", 100,
                  PAGE_TEXT, PAGE_LONGTEXT, false )
-    add_bool( "vbi-opaque", true,
+    add_bool( "vbi-opaque", false,
                  OPAQUE_TEXT, OPAQUE_LONGTEXT, false )
-    add_integer( "vbi-position", 4, POS_TEXT, POS_LONGTEXT, false )
+    add_integer( "vbi-position", 8, POS_TEXT, POS_LONGTEXT, false )
         change_integer_list( pi_pos_values, ppsz_pos_descriptions );
-    add_bool( "vbi-text", false,
+    add_bool( "vbi-text", true,
               TELX_TEXT, TELX_LONGTEXT, false )
 vlc_module_end ()
 
@@ -132,23 +135,6 @@ typedef enum {
     ZVBI_KEY_BLUE   = 'b' << 16,
     ZVBI_KEY_INDEX  = 'i' << 16,
 } ttxt_key_id;
-
-typedef enum {
-    DATA_UNIT_EBU_TELETEXT_NON_SUBTITLE     = 0x02,
-    DATA_UNIT_EBU_TELETEXT_SUBTITLE         = 0x03,
-    DATA_UNIT_EBU_TELETEXT_INVERTED         = 0x0C,
-
-    DATA_UNIT_ZVBI_WSS_CPR1204              = 0xB4,
-    DATA_UNIT_ZVBI_CLOSED_CAPTION_525       = 0xB5,
-    DATA_UNIT_ZVBI_MONOCHROME_SAMPLES_525   = 0xB6,
-
-    DATA_UNIT_VPS                           = 0xC3,
-    DATA_UNIT_WSS                           = 0xC4,
-    DATA_UNIT_CLOSED_CAPTION                = 0xC5,
-    DATA_UNIT_MONOCHROME_SAMPLES            = 0xC6,
-
-    DATA_UNIT_STUFFING                      = 0xFF,
-} data_unit_id;
 
 #define MAX_SLICES 32
 
@@ -211,7 +197,6 @@ static int Open( vlc_object_t *p_this )
     if( p_dec->fmt_in.i_codec != VLC_CODEC_TELETEXT )
         return VLC_EGENERIC;
 
-    p_dec->pf_decode_sub = Decode;
     p_sys = p_dec->p_sys = calloc( 1, sizeof(decoder_sys_t) );
     if( p_sys == NULL )
         return VLC_ENOMEM;
@@ -278,6 +263,8 @@ static int Open( vlc_object_t *p_this )
         p_dec->fmt_out.video.i_chroma = VLC_CODEC_TEXT;
     else
         p_dec->fmt_out.video.i_chroma = VLC_CODEC_RGBA;
+
+    p_dec->pf_decode_sub = Decode;
     return VLC_SUCCESS;
 }
 
@@ -362,7 +349,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
         }
 
         if( i_lines > 0 )
-            vbi_decode( p_sys->p_vbi_dec, p_sliced, i_lines, (double)p_block->i_pts / 1000000 );
+            vbi_decode( p_sys->p_vbi_dec, p_sliced, i_lines, 0 );
     }
 
     /* */
@@ -393,7 +380,8 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
                                 i_align, p_block->i_pts );
             if( !p_spu )
                 goto error;
-            p_spu->p_region->psz_text = strdup("");
+            subpicture_updater_sys_t *p_spu_sys = p_spu->updater.p_sys;
+            p_spu_sys->text = strdup("");
 
             p_sys->b_update = true;
             p_sys->i_last_page = i_wanted_page;
@@ -430,15 +418,30 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     if( p_sys->b_text )
     {
         unsigned int i_textsize = 7000;
-        int i_total;
+        int i_total,offset;
         char p_text[i_textsize+1];
 
         i_total = vbi_print_page_region( &p_page, p_text, i_textsize,
                         "UTF-8", 0, 0, 0, i_first_row, p_page.columns, i_num_rows );
-        p_text[i_total] = '\0';
-        p_spu->p_region->psz_text = strdup( p_text );
+
+        for( offset=1; offset<i_total && isspace( p_text[i_total-offset ] ); offset++)
+           p_text[i_total-offset] = '\0';
+
+        i_total -= offset;
+
+        offset=0;
+        while( offset < i_total && isspace( p_text[offset] ) )
+           offset++;
+
+        subpicture_updater_sys_t *p_spu_sys = p_spu->updater.p_sys;
+        p_spu_sys->text = strdup( &p_text[offset] );
+
+        p_spu_sys->align = i_align;
+        p_spu_sys->i_font_height_percent = 5;
+        p_spu_sys->renderbg = b_opaque;
+
 #ifdef ZVBI_DEBUG
-        msg_Info( p_dec, "page %x-%x(%d)\n%s", p_page.pgno, p_page.subno, i_total, p_text );
+        msg_Info( p_dec, "page %x-%x(%d)\n\"%s\"", p_page.pgno, p_page.subno, i_total, &p_text[offset] );
 #endif
     }
     else
@@ -488,11 +491,14 @@ static subpicture_t *Subpicture( decoder_t *p_dec, video_format_t *p_fmt,
                                  mtime_t i_pts )
 {
     video_format_t fmt;
-    subpicture_t *p_spu;
+    subpicture_t *p_spu=NULL;
 
     /* If there is a page or sub to render, then we do that here */
     /* Create the subpicture unit */
-    p_spu = decoder_NewSubpicture( p_dec, NULL );
+    if( b_text )
+        p_spu = decoder_NewSubpictureText( p_dec );
+    else
+        p_spu = decoder_NewSubpicture( p_dec, NULL );
     if( !p_spu )
     {
         msg_Warn( p_dec, "can't get spu buffer" );
@@ -525,18 +531,16 @@ static subpicture_t *Subpicture( decoder_t *p_dec, video_format_t *p_fmt,
 
     p_spu->p_region->i_x = 0;
     p_spu->p_region->i_y = 0;
-    p_spu->p_region->i_align = i_align;
 
     p_spu->i_start = i_pts;
-    p_spu->i_stop = 0;
+    p_spu->i_stop = i_pts + 10000000;
     p_spu->b_ephemer = true;
-    p_spu->b_absolute = true;
+    p_spu->b_absolute = b_text ? false : true;
 
     if( !b_text )
-    {
-        p_spu->i_original_picture_width = fmt.i_width;
-        p_spu->i_original_picture_height = fmt.i_height;
-    }
+        p_spu->p_region->i_align = i_align;
+    p_spu->i_original_picture_width = fmt.i_width;
+    p_spu->i_original_picture_height = fmt.i_height;
 
     /* */
     *p_fmt = fmt;

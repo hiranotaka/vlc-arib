@@ -68,8 +68,8 @@ struct access_sys_t
 {
     int fd;
 
-    /* */
     bool b_pace_control;
+    uint64_t size;
 };
 
 #if !defined (_WIN32) && !defined (__OS2__)
@@ -172,9 +172,11 @@ int FileOpen( vlc_object_t *p_this )
         fd = vlc_open (path, O_RDONLY | O_NONBLOCK);
         if (fd == -1)
         {
-            msg_Err (p_access, "cannot open file %s (%m)", path);
+            msg_Err (p_access, "cannot open file %s (%s)", path,
+                     vlc_strerror_c(errno));
             dialog_Fatal (p_access, _("File reading failed"),
-                          _("VLC could not open the file \"%s\" (%m)."), path);
+                          _("VLC could not open the file \"%s\" (%s)."), path,
+                          vlc_strerror(errno));
         }
     }
     if (fd == -1)
@@ -183,7 +185,7 @@ int FileOpen( vlc_object_t *p_this )
     struct stat st;
     if (fstat (fd, &st))
     {
-        msg_Err (p_access, "failed to read (%m)");
+        msg_Err (p_access, "read error: %s", vlc_strerror_c(errno));
         goto error;
     }
 
@@ -226,8 +228,8 @@ int FileOpen( vlc_object_t *p_this )
     {
         p_access->pf_read = FileRead;
         p_access->pf_seek = FileSeek;
-        p_access->info.i_size = st.st_size;
         p_sys->b_pace_control = true;
+        p_sys->size = st.st_size;
 
         /* Demuxers will need the beginning of the file for probing. */
         posix_fadvise (fd, 0, 4096, POSIX_FADV_WILLNEED);
@@ -245,6 +247,7 @@ int FileOpen( vlc_object_t *p_this )
         p_access->pf_read = StreamRead;
         p_access->pf_seek = NoSeek;
         p_sys->b_pace_control = strcasecmp (p_access->psz_access, "stream");
+        p_sys->size = 0;
     }
 
     return VLC_SUCCESS;
@@ -294,20 +297,21 @@ static ssize_t FileRead (access_t *p_access, uint8_t *p_buffer, size_t i_len)
                 return -1;
         }
 
-        msg_Err (p_access, "read error: %m");
+        msg_Err (p_access, "read error: %s", vlc_strerror_c(errno));
         dialog_Fatal (p_access, _("File reading failed"),
-                      _("VLC could not read the file (%m)."));
+                      _("VLC could not read the file (%s)."),
+                      vlc_strerror(errno));
         val = 0;
     }
 
     p_access->info.i_pos += val;
     p_access->info.b_eof = !val;
-    if (p_access->info.i_pos >= p_access->info.i_size)
+    if (p_access->info.i_pos >= p_sys->size)
     {
         struct stat st;
 
         if (fstat (fd, &st) == 0)
-            p_access->info.i_size = st.st_size;
+            p_sys->size = st.st_size;
     }
     return val;
 }
@@ -347,7 +351,7 @@ static ssize_t StreamRead (access_t *p_access, uint8_t *p_buffer, size_t i_len)
             case EAGAIN:
                 return -1;
         }
-        msg_Err (p_access, "read error: %m");
+        msg_Err (p_access, "read error: %s", vlc_strerror_c(errno));
         val = 0;
     }
 
@@ -374,7 +378,6 @@ static int FileControl( access_t *p_access, int i_query, va_list args )
 
     switch( i_query )
     {
-        /* */
         case ACCESS_CAN_SEEK:
         case ACCESS_CAN_FASTSEEK:
             pb_bool = (bool*)va_arg( args, bool* );
@@ -387,7 +390,16 @@ static int FileControl( access_t *p_access, int i_query, va_list args )
             *pb_bool = p_sys->b_pace_control;
             break;
 
-        /* */
+        case ACCESS_GET_SIZE:
+        {
+            struct stat st;
+
+            if (fstat (p_sys->fd, &st) == 0)
+                p_sys->size = st.st_size;
+            *va_arg( args, uint64_t * ) = p_sys->size;
+            break;
+        }
+
         case ACCESS_GET_PTS_DELAY:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
             if (IsRemote (p_sys->fd, p_access->psz_filepath))
@@ -397,22 +409,11 @@ static int FileControl( access_t *p_access, int i_query, va_list args )
             *pi_64 *= 1000;
             break;
 
-        /* */
         case ACCESS_SET_PAUSE_STATE:
             /* Nothing to do */
             break;
 
-        case ACCESS_GET_TITLE_INFO:
-        case ACCESS_SET_TITLE:
-        case ACCESS_SET_SEEKPOINT:
-        case ACCESS_SET_PRIVATE_ID_STATE:
-        case ACCESS_GET_META:
-        case ACCESS_GET_PRIVATE_ID_STATE:
-        case ACCESS_GET_CONTENT_TYPE:
-            return VLC_EGENERIC;
-
         default:
-            msg_Warn( p_access, "unimplemented query %d in control", i_query );
             return VLC_EGENERIC;
 
     }

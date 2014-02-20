@@ -49,14 +49,14 @@
 
 #include "avcodec.h"
 #include "va.h"
-#include "copy.h"
+#include "../../video_chroma/copy.h"
 
 static int Open(vlc_va_t *, int, const es_format_t *);
 static void Close(vlc_va_t *);
 
 vlc_module_begin()
     set_description(N_("DirectX Video Acceleration (DXVA) 2.0"))
-    set_capability("hw decoder", 50)
+    set_capability("hw decoder", 0)
     set_category(CAT_INPUT)
     set_subcategory(SUBCAT_INPUT_VCODEC)
     set_callbacks(Open, Close)
@@ -362,10 +362,11 @@ ok:
     return VLC_SUCCESS;
 }
 
-static int Extract(vlc_va_t *external, picture_t *picture, AVFrame *ff)
+static int Extract(vlc_va_t *external, picture_t *picture, void *opaque,
+                    uint8_t *data)
 {
     vlc_va_dxva2_t *va = vlc_va_dxva2_Get(external);
-    LPDIRECT3DSURFACE9 d3d = (LPDIRECT3DSURFACE9)(uintptr_t)ff->data[3];
+    LPDIRECT3DSURFACE9 d3d = (LPDIRECT3DSURFACE9)(uintptr_t)data;
 
     if (!va->surface_cache.buffer)
         return VLC_EGENERIC;
@@ -423,10 +424,12 @@ static int Extract(vlc_va_t *external, picture_t *picture, AVFrame *ff)
 
     /* */
     IDirect3DSurface9_UnlockRect(d3d);
+    (void) opaque;
     return VLC_SUCCESS;
 }
+
 /* FIXME it is nearly common with VAAPI */
-static int Get(vlc_va_t *external, AVFrame *ff)
+static int Get(vlc_va_t *external, void **opaque, uint8_t **data)
 {
     vlc_va_dxva2_t *va = vlc_va_dxva2_Get(external);
 
@@ -459,29 +462,19 @@ static int Get(vlc_va_t *external, AVFrame *ff)
 
     surface->refcount = 1;
     surface->order = va->surface_order++;
-
-    /* */
-    for (int i = 0; i < 4; i++) {
-        ff->data[i] = NULL;
-        ff->linesize[i] = 0;
-
-        if (i == 0 || i == 3)
-            ff->data[i] = (void*)surface->d3d;/* Yummie */
-    }
+    *data = (void *)surface->d3d;
+    *opaque = surface;
     return VLC_SUCCESS;
 }
-static void Release(vlc_va_t *external, AVFrame *ff)
+
+static void Release(void *opaque, uint8_t *data)
 {
-    vlc_va_dxva2_t *va = vlc_va_dxva2_Get(external);
-    LPDIRECT3DSURFACE9 d3d = (LPDIRECT3DSURFACE9)(uintptr_t)ff->data[3];
+    vlc_va_surface_t *surface = opaque;
 
-    for (unsigned i = 0; i < va->surface_count; i++) {
-        vlc_va_surface_t *surface = &va->surface[i];
-
-        if (surface->d3d == d3d)
-            surface->refcount--;
-    }
+    surface->refcount--;
+    (void) data;
 }
+
 static void Close(vlc_va_t *external)
 {
     vlc_va_dxva2_t *va = vlc_va_dxva2_Get(external);
@@ -559,7 +552,7 @@ static int Open(vlc_va_t *external, int codec_id, const es_format_t *fmt)
     return VLC_SUCCESS;
 
 error:
-    Close(va);
+    Close(external);
     return VLC_EGENERIC;
 }
 /* */

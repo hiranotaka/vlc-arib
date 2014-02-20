@@ -286,18 +286,24 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
             break;
         }
         case ACTIONID_VOL_MUTE:
-            if( playlist_MuteToggle( p_playlist ) == 0 )
+        {
+            int mute = playlist_MuteGet( p_playlist );
+            if( mute < 0 )
+                break;
+            mute = !mute;
+            if( playlist_MuteSet( p_playlist, mute ) )
+                break;
+
+            float vol = playlist_VolumeGet( p_playlist );
+            if( mute || vol == 0.f )
             {
-                float vol = playlist_VolumeGet( p_playlist );
-                if( playlist_MuteGet( p_playlist ) > 0 || vol == 0.f )
-                {
-                    ClearChannels( p_intf, p_vout );
-                    DisplayIcon( p_vout, OSD_MUTE_ICON );
-                }
-                else
-                    DisplayVolume( p_intf, p_vout, vol );
+                ClearChannels( p_intf, p_vout );
+                DisplayIcon( p_vout, OSD_MUTE_ICON );
             }
+            else
+                DisplayVolume( p_intf, p_vout, vol );
             break;
+        }
 
         case ACTIONID_AUDIODEVICE_CYCLE:
         {
@@ -363,10 +369,10 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
 
         /* Playlist + video output actions */
         case ACTIONID_WALLPAPER:
-        {   /* FIXME: this is invalid if not using DirectX output!!! */
-            vlc_object_t *obj = p_vout ? VLC_OBJECT(p_vout)
-                                       : VLC_OBJECT(p_playlist);
-            var_ToggleBool( obj, "video-wallpaper" );
+        {
+            bool wp = var_ToggleBool( p_playlist, "video-wallpaper" );
+            if( p_vout )
+                var_SetBool( p_vout, "video-wallpaper", wp );
             break;
         }
 
@@ -727,9 +733,13 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
 
         case ACTIONID_TOGGLE_FULLSCREEN:
         {
-            bool fs = var_ToggleBool( p_playlist, "fullscreen" );
             if( p_vout )
-                var_SetBool( p_vout, "fullscreen", fs );
+            {
+                bool fs = var_ToggleBool( p_vout, "fullscreen" );
+                var_SetBool( p_playlist, "fullscreen", fs );
+            }
+            else
+                var_ToggleBool( p_playlist, "fullscreen" );
             break;
         }
 
@@ -939,7 +949,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
 
                     char *psz_mode = var_GetString( p_vout, "deinterlace-mode" );
                     vlc_value_t vlist, tlist;
-                    if( psz_mode && !var_Change( p_vout, "deinterlace-mode", VLC_VAR_GETCHOICES, &vlist, &tlist ) >= 0 )
+                    if( psz_mode && !var_Change( p_vout, "deinterlace-mode", VLC_VAR_GETCHOICES, &vlist, &tlist ) )
                     {
                         const char *psz_text = NULL;
                         for( int i = 0; i < vlist.p_list->i_count; i++ )
@@ -964,7 +974,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
             {
                 char *psz_mode = var_GetString( p_vout, "deinterlace-mode" );
                 vlc_value_t vlist, tlist;
-                if( psz_mode && !var_Change( p_vout, "deinterlace-mode", VLC_VAR_GETCHOICES, &vlist, &tlist ) >= 0 )
+                if( psz_mode && !var_Change( p_vout, "deinterlace-mode", VLC_VAR_GETCHOICES, &vlist, &tlist ))
                 {
                     const char *psz_text = NULL;
                     int i;

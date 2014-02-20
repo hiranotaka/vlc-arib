@@ -37,7 +37,6 @@
 #include <vlc_picture.h>
 #include <vlc_image.h>
 #include <vlc_block.h>
-#include <vlc_atomic.h>
 
 /**
  * Allocate a new picture in the heap.
@@ -54,7 +53,7 @@ static int AllocatePicture( picture_t *p_pic )
     {
         const plane_t *p = &p_pic->p[i];
 
-        if( p->i_pitch <= 0 || p->i_lines <= 0 ||
+        if( p->i_pitch < 0 || p->i_lines <= 0 ||
             (size_t)p->i_pitch > (SIZE_MAX - i_bytes)/p->i_lines )
         {
             p_pic->i_planes = 0;
@@ -64,7 +63,7 @@ static int AllocatePicture( picture_t *p_pic )
     }
 
     uint8_t *p_data = vlc_memalign( 16, i_bytes );
-    if( !p_data )
+    if( i_bytes > 0 && p_data == NULL )
     {
         p_pic->i_planes = 0;
         return VLC_EGENERIC;
@@ -85,10 +84,22 @@ static int AllocatePicture( picture_t *p_pic )
 /*****************************************************************************
  *
  *****************************************************************************/
+
+static void PictureDestroyContext( picture_t *p_picture )
+{
+    void (**context)( void * ) = p_picture->context;
+    if( context != NULL )
+    {
+        void (*context_destroy)( void * ) = *context;
+        context_destroy( context );
+        p_picture->context = NULL;
+    }
+}
+
 static void PictureDestroy( picture_t *p_picture )
 {
     assert( p_picture &&
-            vlc_atomic_get( &p_picture->gc.refcount ) == 0 );
+            atomic_load( &p_picture->gc.refcount ) == 0 );
 
     vlc_free( p_picture->gc.p_sys );
     free( p_picture->p_sys );
@@ -106,6 +117,7 @@ void picture_Reset( picture_t *p_picture )
     p_picture->b_progressive = false;
     p_picture->i_nb_fields = 2;
     p_picture->b_top_field_first = false;
+    PictureDestroyContext( p_picture );
 }
 
 /*****************************************************************************
@@ -128,7 +140,7 @@ int picture_Setup( picture_t *p_picture, vlc_fourcc_t i_chroma,
         p->i_pixel_pitch = 0;
     }
 
-    vlc_atomic_set( &p_picture->gc.refcount, 0 );
+    atomic_init( &p_picture->gc.refcount, 0 );
     p_picture->gc.pf_destroy = NULL;
     p_picture->gc.p_sys = NULL;
 
@@ -213,6 +225,7 @@ picture_t *picture_NewFromResource( const video_format_t *p_fmt, const picture_r
     if( p_resource )
     {
         p_picture->p_sys = p_resource->p_sys;
+        p_picture->gc.pf_destroy = p_resource->pf_destroy;
         assert( p_picture->gc.p_sys == NULL );
 
         for( int i = 0; i < p_picture->i_planes; i++ )
@@ -229,20 +242,23 @@ picture_t *picture_NewFromResource( const video_format_t *p_fmt, const picture_r
             free( p_picture );
             return NULL;
         }
-        assert( p_picture->gc.p_sys != NULL );
     }
+
     /* */
     p_picture->format = fmt;
 
-    vlc_atomic_set( &p_picture->gc.refcount, 1 );
-    p_picture->gc.pf_destroy = PictureDestroy;
+    atomic_init( &p_picture->gc.refcount, 1 );
+    if( p_picture->gc.pf_destroy == NULL )
+        p_picture->gc.pf_destroy = PictureDestroy;
 
     return p_picture;
 }
+
 picture_t *picture_NewFromFormat( const video_format_t *p_fmt )
 {
     return picture_NewFromResource( p_fmt, NULL );
 }
+
 picture_t *picture_New( vlc_fourcc_t i_chroma, int i_width, int i_height, int i_sar_num, int i_sar_den )
 {
     video_format_t fmt;
@@ -260,20 +276,25 @@ picture_t *picture_New( vlc_fourcc_t i_chroma, int i_width, int i_height, int i_
 
 picture_t *picture_Hold( picture_t *p_picture )
 {
-    vlc_atomic_inc( &p_picture->gc.refcount );
+    atomic_fetch_add( &p_picture->gc.refcount, 1 );
     return p_picture;
 }
 
 void picture_Release( picture_t *p_picture )
 {
-    if( vlc_atomic_dec( &p_picture->gc.refcount ) == 0 &&
-        p_picture->gc.pf_destroy )
-        p_picture->gc.pf_destroy( p_picture );
+    uintptr_t refs = atomic_fetch_sub( &p_picture->gc.refcount, 1 );
+    assert( refs != 0 );
+    if( refs > 1 )
+        return;
+
+    PictureDestroyContext( p_picture );
+    assert( p_picture->gc.pf_destroy != NULL );
+    p_picture->gc.pf_destroy( p_picture );
 }
 
 bool picture_IsReferenced( picture_t *p_picture )
 {
-    return vlc_atomic_get( &p_picture->gc.refcount ) > 1;
+    return atomic_load( &p_picture->gc.refcount ) > 1;
 }
 
 /*****************************************************************************
@@ -417,21 +438,24 @@ int picture_Export( vlc_object_t *p_obj,
     return VLC_SUCCESS;
 }
 
-void picture_BlendSubpicture(picture_t *dst,
-                             filter_t *blend, subpicture_t *src)
+unsigned picture_BlendSubpicture(picture_t *dst,
+                                 filter_t *blend, subpicture_t *src)
 {
+    unsigned done = 0;
+
     assert(src && !src->b_fade && src->b_absolute);
 
     for (subpicture_region_t *r = src->p_region; r != NULL; r = r->p_next) {
         assert(r->p_picture && r->i_align == 0);
-        if (filter_ConfigureBlend(blend, dst->format.i_width, dst->format.i_height,
-                                  &r->fmt) ||
-            filter_Blend(blend, dst,
-                         r->i_x, r->i_y, r->p_picture,
-                         src->i_alpha * r->i_alpha / 255)) {
+        if (filter_ConfigureBlend(blend, dst->format.i_width,
+                                  dst->format.i_height,  &r->fmt)
+         || filter_Blend(blend, dst, r->i_x, r->i_y, r->p_picture,
+                         src->i_alpha * r->i_alpha / 255))
             msg_Err(blend, "blending %4.4s to %4.4s failed",
                     (char *)&blend->fmt_in.video.i_chroma,
                     (char *)&blend->fmt_out.video.i_chroma );
-        }
+        else
+            done++;
     }
+    return done;
 }

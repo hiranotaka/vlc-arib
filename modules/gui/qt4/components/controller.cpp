@@ -770,6 +770,8 @@ FullscreenControllerWidget::FullscreenControllerWidget( intf_thread_t *_p_i, QWi
     f_opacity = var_InheritFloat( p_intf, "qt-fs-opacity" );
 #endif
 
+    i_sensitivity = var_InheritInteger( p_intf, "qt-fs-sensitivity" );
+
     vlc_mutex_init_recursive( &lock );
 
     DCONNECT( THEMIM->getIM(), voutListChanged( vout_thread_t **, int ),
@@ -822,11 +824,6 @@ void FullscreenControllerWidget::restoreFSC()
         /* Dock at the bottom of the screen */
         updateFullwidthGeometry( targetScreen() );
     }
-
-#ifdef Q_WS_X11
-    // Tell kwin that we do not want a shadow around the fscontroller
-    setMask( QRegion( 0, 0, width(), height() ) );
-#endif
 }
 
 void FullscreenControllerWidget::centerFSC( int number )
@@ -1190,8 +1187,8 @@ void FullscreenControllerWidget::mouseChanged( vout_thread_t *, int i_mousex, in
 
     b_toShow = false;
     if( ( i_mouse_last_move_x == -1 || i_mouse_last_move_y == -1 ) ||
-        ( abs( i_mouse_last_move_x - i_mousex ) > 2 ||
-          abs( i_mouse_last_move_y - i_mousey ) > 2 ) )
+        ( abs( i_mouse_last_move_x - i_mousex ) > i_sensitivity ||
+          abs( i_mouse_last_move_y - i_mousey ) > i_sensitivity ) )
     {
         i_mouse_last_move_x = i_mousex;
         i_mouse_last_move_y = i_mousey;

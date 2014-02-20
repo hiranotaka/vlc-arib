@@ -195,7 +195,7 @@ static int VideoSplitterCallback( vlc_object_t *p_this, char const *psz_cmd,
  * \param p_parent the vlc object that is to be the parent of this playlist
  * \return a pointer to the created playlist, or NULL on error
  */
-static playlist_t *playlist_Create( vlc_object_t *p_parent )
+playlist_t *playlist_Create( vlc_object_t *p_parent )
 {
     playlist_t *p_playlist;
     playlist_private_t *p;
@@ -233,13 +233,8 @@ static playlist_t *playlist_Create( vlc_object_t *p_parent )
     pl_priv(p_playlist)->b_auto_preparse =
         var_InheritBool( p_parent, "auto-preparse" );
 
-    /* Fetcher */
-    p->p_fetcher = playlist_fetcher_New( VLC_OBJECT(p_playlist) );
-    if( unlikely(p->p_fetcher == NULL) )
-        msg_Err( p_playlist, "cannot create fetcher" );
-   /* Preparser */
-   p->p_preparser = playlist_preparser_New( VLC_OBJECT(p_playlist),
-                                            p->p_fetcher );
+   /* Preparser (and meta retriever) */
+   p->p_preparser = playlist_preparser_New( VLC_OBJECT(p_playlist) );
    if( unlikely(p->p_preparser == NULL) )
        msg_Err( p_playlist, "cannot create preparser" );
 
@@ -341,8 +336,6 @@ void playlist_Destroy( playlist_t *p_playlist )
     playlist_Deactivate( p_playlist );
     if( p_sys->p_preparser )
         playlist_preparser_Delete( p_sys->p_preparser );
-    if( p_sys->p_fetcher )
-        playlist_fetcher_Delete( p_sys->p_fetcher );
 
     /* Release input resources */
     assert( p_sys->p_input == NULL );
@@ -379,26 +372,6 @@ void playlist_Destroy( playlist_t *p_playlist )
     ARRAY_RESET( p_playlist->current );
 
     vlc_object_release( p_playlist );
-}
-
-#undef pl_Get
-playlist_t *pl_Get (vlc_object_t *obj)
-{
-    static vlc_mutex_t lock = VLC_STATIC_MUTEX;
-    libvlc_int_t *p_libvlc = obj->p_libvlc;
-    playlist_t *pl;
-
-    vlc_mutex_lock (&lock);
-    pl = libvlc_priv (p_libvlc)->p_playlist;
-    if (unlikely(pl == NULL))
-    {
-        pl = playlist_Create (VLC_OBJECT(p_libvlc));
-        if (unlikely(pl == NULL))
-            abort();
-        libvlc_priv (p_libvlc)->p_playlist = pl;
-    }
-    vlc_mutex_unlock (&lock);
-    return pl;
 }
 
 /** Get current playing input.
@@ -483,8 +456,6 @@ static void VariablesInit( playlist_t *p_playlist )
 
     /* Variables to control playback */
     var_Create( p_playlist, "playlist-autostart", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
-    var_Create( p_playlist, "play-and-stop", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
-    var_Create( p_playlist, "play-and-exit", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
     var_Create( p_playlist, "random", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
     var_AddCallback( p_playlist, "random", RandomCallback, NULL );
     var_Create( p_playlist, "repeat", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
@@ -508,6 +479,7 @@ static void VariablesInit( playlist_t *p_playlist )
     /* Variables to preserve video output parameters */
     var_Create( p_playlist, "fullscreen", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
     var_Create( p_playlist, "video-on-top", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
+    var_Create( p_playlist, "video-wallpaper", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
 
     /* Audio output parameters */
     var_Create( p_playlist, "mute", VLC_VAR_BOOL );

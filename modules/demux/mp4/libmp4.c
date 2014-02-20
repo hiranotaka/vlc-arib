@@ -1104,7 +1104,7 @@ static int MP4_ReadBox_stts( stream_t *p_stream, MP4_Box_t *p_box )
     p_box->data.p_stts->i_sample_count =
         calloc( p_box->data.p_stts->i_entry_count, sizeof(uint32_t) );
     p_box->data.p_stts->i_sample_delta =
-        calloc( p_box->data.p_stts->i_entry_count, sizeof(uint32_t) );
+        calloc( p_box->data.p_stts->i_entry_count, sizeof(int32_t) );
     if( p_box->data.p_stts->i_sample_count == NULL
      || p_box->data.p_stts->i_sample_delta == NULL )
     {
@@ -1143,7 +1143,7 @@ static int MP4_ReadBox_ctts( stream_t *p_stream, MP4_Box_t *p_box )
     p_box->data.p_ctts->i_sample_count =
         calloc( p_box->data.p_ctts->i_entry_count, sizeof(uint32_t) );
     p_box->data.p_ctts->i_sample_offset =
-        calloc( p_box->data.p_ctts->i_entry_count, sizeof(uint32_t) );
+        calloc( p_box->data.p_ctts->i_entry_count, sizeof(int32_t) );
     if( ( p_box->data.p_ctts->i_sample_count == NULL )
      || ( p_box->data.p_ctts->i_sample_offset == NULL ) )
     {
@@ -1301,6 +1301,29 @@ static int MP4_ReadBox_esds( stream_t *p_stream, MP4_Box_t *p_box )
 
     MP4_READBOX_EXIT( 1 );
 #undef es_descriptor
+}
+
+static void MP4_FreeBox_hvcC(MP4_Box_t *p_box )
+{
+    MP4_Box_data_hvcC_t *p_hvcC =  p_box->data.p_hvcC;
+    if( p_hvcC->i_hvcC > 0 ) FREENULL( p_hvcC->p_hvcC) ;
+}
+
+static int MP4_ReadBox_hvcC( stream_t *p_stream, MP4_Box_t *p_box )
+{
+    MP4_Box_data_hvcC_t *p_hvcC;
+
+    MP4_READBOX_ENTER( MP4_Box_data_hvcC_t );
+    p_hvcC = p_box->data.p_hvcC;
+
+    p_hvcC->i_hvcC = i_read;
+    if( p_hvcC->i_hvcC > 0 )
+    {
+        uint8_t * p = p_hvcC->p_hvcC = malloc( p_hvcC->i_hvcC );
+        if( p )
+            memcpy( p, p_peek, i_read );
+    }
+    MP4_READBOX_EXIT( 1 );
 }
 
 static void MP4_FreeBox_avcC( MP4_Box_t *p_box )
@@ -2198,7 +2221,7 @@ static int MP4_ReadBox_elst( stream_t *p_stream, MP4_Box_t *p_box )
     p_box->data.p_elst->i_segment_duration =
         calloc( p_box->data.p_elst->i_entry_count, sizeof(uint64_t) );
     p_box->data.p_elst->i_media_time =
-        calloc( p_box->data.p_elst->i_entry_count, sizeof(uint64_t) );
+        calloc( p_box->data.p_elst->i_entry_count, sizeof(int64_t) );
     p_box->data.p_elst->i_media_rate_integer =
         calloc( p_box->data.p_elst->i_entry_count, sizeof(uint16_t) );
     p_box->data.p_elst->i_media_rate_fraction =
@@ -3180,6 +3203,7 @@ static const struct
     { ATOM_dcom,    MP4_ReadBox_dcom,         MP4_FreeBox_Common },
     { ATOM_cmvd,    MP4_ReadBox_cmvd,         MP4_FreeBox_cmvd },
     { ATOM_avcC,    MP4_ReadBox_avcC,         MP4_FreeBox_avcC },
+    { ATOM_hvcC,    MP4_ReadBox_hvcC,         MP4_FreeBox_hvcC },
     { ATOM_dac3,    MP4_ReadBox_dac3,         MP4_FreeBox_Common },
     { ATOM_dvc1,    MP4_ReadBox_dvc1,         MP4_FreeBox_Common },
     { ATOM_enda,    MP4_ReadBox_enda,         MP4_FreeBox_Common },
@@ -3644,12 +3668,12 @@ static void MP4_BoxDumpStructure_Internal( stream_t *s,
         }
         if( MP4_BOX_TYPE_ASCII() )
             snprintf( &str[i_level * 4], sizeof(str) - 4*i_level,
-                      "+ %4.4s size %d",
-                        (char*)&p_box->i_type, (uint32_t)p_box->i_size );
+                      "+ %4.4s size %"PRIu64" offset %ld",
+                        (char*)&p_box->i_type, p_box->i_size, p_box->i_pos );
         else
             snprintf( &str[i_level * 4], sizeof(str) - 4*i_level,
-                      "+ c%3.3s size %d",
-                        (char*)&p_box->i_type+1, (uint32_t)p_box->i_size );
+                      "+ c%3.3s size %"PRIu64" offset %ld",
+                        (char*)&p_box->i_type+1, p_box->i_size, p_box->i_pos );
         msg_Dbg( s, "%s", str );
     }
     p_child = p_box->p_first;

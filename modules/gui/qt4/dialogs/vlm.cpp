@@ -290,7 +290,7 @@ void VLMDialog::mediasPopulator()
         int i_nMedias;
         QString typeShortName;
         int vlmItemCount;
-        vlm_media_t ***ppp_dsc = (vlm_media_t ***)malloc( sizeof( vlm_media_t ) );
+        vlm_media_t ***ppp_dsc = (vlm_media_t ***)malloc( sizeof( vlm_media_t** ) );
 
         /* Get medias information and numbers */
         vlm_Control( p_vlm, VLM_GET_MEDIAS, ppp_dsc, &i_nMedias );
@@ -752,7 +752,7 @@ void VLMWrapper::ControlBroadcast( const QString& name, int BroadcastStatus,
         command += " stop";
         break;
     case ControlBroadcastSeek:
-        command += " seek" + seek;
+        command += " seek " + QString::number( seek );
         break;
     }
     vlm_ExecuteCommand( p_vlm, qtu( command ), &message );

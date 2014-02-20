@@ -42,3 +42,7 @@ int  RarProbe(stream_t *);
 void RarFileDelete(rar_file_t *);
 int  RarParse(stream_t *, int *, rar_file_t ***);
 
+int RarAccessOpen(vlc_object_t *);
+void RarAccessClose(vlc_object_t *);
+int RarStreamOpen(vlc_object_t *);
+void RarStreamClose(vlc_object_t *);

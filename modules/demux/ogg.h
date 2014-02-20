@@ -26,7 +26,22 @@
  * Definitions of structures and functions used by this plugin
  *****************************************************************************/
 
+//#define OGG_DEMUX_DEBUG 1
+#ifdef OGG_DEMUX_DEBUG
+  #define DemuxDebug(code) code
+#else
+  #define DemuxDebug(code)
+#endif
+
+/* Some defines from OggDS http://svn.xiph.org/trunk/oggds/ */
+#define PACKET_TYPE_HEADER   0x01
+#define PACKET_TYPE_BITS     0x07
+#define PACKET_LEN_BITS01    0xc0
+#define PACKET_LEN_BITS2     0x02
+#define PACKET_IS_SYNCPOINT  0x08
+
 typedef struct oggseek_index_entry demux_index_entry_t;
+typedef struct ogg_skeleton_t ogg_skeleton_t;
 
 typedef struct logical_stream_s
 {
@@ -44,6 +59,7 @@ typedef struct logical_stream_s
      * them to the decoder. */
     bool             b_force_backup;
     int              i_packets_backup;
+    int32_t          i_extra_headers_packets;
     void             *p_headers;
     int              i_headers;
     ogg_int64_t      i_previous_granulepos;
@@ -55,7 +71,10 @@ typedef struct logical_stream_s
     mtime_t          i_previous_pcr;
 
     /* Misc */
+    bool b_initializing;
+    bool b_finished;
     bool b_reinit;
+    bool b_oggds;
     int i_granule_shift;
 
     /* Opus has a starting offset in the headers. */
@@ -64,10 +83,13 @@ typedef struct logical_stream_s
     int i_end_trim;
 
     /* offset of first keyframe for theora; can be 0 or 1 depending on version number */
-    int64_t i_keyframe_offset;
+    int8_t i_keyframe_offset;
 
     /* keyframe index for seeking, created as we discover keyframes */
     demux_index_entry_t *idx;
+
+    /* Skeleton data */
+    ogg_skeleton_t *p_skel;
 
     /* skip some frames after a seek */
     int i_skip_frames;
@@ -81,7 +103,20 @@ typedef struct logical_stream_s
     /* for Annodex logical bitstreams */
     int i_secondary_header_packets;
 
+    block_t *p_preparse_block;
 } logical_stream_t;
+
+struct ogg_skeleton_t
+{
+    int            i_messages;
+    char         **ppsz_messages;
+    unsigned char *p_index;
+    uint64_t       i_index;
+    uint64_t       i_index_size;
+    int64_t        i_indexstampden;/* time denominator */
+    int64_t        i_indexfirstnum;/* first sample time numerator */
+    int64_t        i_indexlastnum;
+};
 
 struct demux_sys_t
 {
@@ -89,19 +124,24 @@ struct demux_sys_t
 
     int i_streams;                           /* number of logical bitstreams */
     logical_stream_t **pp_stream;  /* pointer to an array of logical streams */
+    logical_stream_t *p_skelstream; /* pointer to skeleton stream if any */
 
     logical_stream_t *p_old_stream; /* pointer to a old logical stream to avoid recreating it */
 
     /* program clock reference (in units of 90kHz) derived from the pcr of
      * the sub-streams */
     mtime_t i_pcr;
+    mtime_t i_pcr_offset;
+    /* informative only */
+    mtime_t i_pcr_jitter;
+    int64_t i_access_delay;
 
-    /* stream state */
-    int     i_bos; /* Begnning of stream, tell the demux to look for elementary streams. */
-    int     i_eos;
+    /* new stream or starting from a chain */
+    bool b_chained_boundary;
 
     /* bitrate */
     int     i_bitrate;
+    bool    b_partial_bitrate;
 
     /* after reading all headers, the first data page is stuffed into the relevant stream, ready to use */
     bool    b_page_waiting;
@@ -123,10 +163,30 @@ struct demux_sys_t
     int                 i_seekpoints;
     seekpoint_t         **pp_seekpoints;
 
+    /* skeleton */
+    struct
+    {
+        uint16_t major;
+        uint16_t minor;
+    } skeleton;
+
     /* */
     int                 i_attachments;
     input_attachment_t  **attachments;
 
+    /* preparsing info */
+    bool b_preparsing_done;
+    bool b_es_created;
+
     /* Length, if available. */
     int64_t i_length;
+
+    DemuxDebug( bool b_seeked; )
 };
+
+
+unsigned const char * Read7BitsVariableLE( unsigned const char *,
+                                           unsigned const char *,
+                                           uint64_t * );
+bool Ogg_GetBoundsUsingSkeletonIndex( logical_stream_t *p_stream, int64_t i_time,
+                                      int64_t *pi_lower, int64_t *pi_upper );

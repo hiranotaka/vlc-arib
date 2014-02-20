@@ -117,13 +117,6 @@
         [[VLCCoreInteraction sharedInstance] repeatOff];
 }
 
-- (IBAction)quitAfterPlayback:(id)sender
-{
-    vlc_value_t val;
-    playlist_t * p_playlist = pl_Get(VLCIntf);
-    var_ToggleBool(p_playlist, "play-and-exit");
-}
-
 - (IBAction)forward:(id)sender
 {
     [[VLCCoreInteraction sharedInstance] forward];
@@ -146,7 +139,7 @@
 
 - (IBAction)mute:(id)sender
 {
-    [[VLCCoreInteraction sharedInstance] setMute: YES];
+    [[VLCCoreInteraction sharedInstance] toggleMute];
 }
 
 - (IBAction)volumeSliderUpdated:(id)sender

@@ -1,56 +1,56 @@
-StrCpy $Name_Section01 "VLC predvajalnik (obvezno)"
-StrCpy $Name_Section02a "Bli≈ænjica menija"
-StrCpy $Name_Section02b "Bli≈æjica namizja"
-StrCpy $Name_Section03 "Vstavek Mozilla "
+StrCpy $Name_Section01 "Predvajalnik datotek (obvezno)"
+StrCpy $Name_Section02a "Bliûnjica v meniju Start"
+StrCpy $Name_Section02b "Bliûnjica na namizju"
+StrCpy $Name_Section34 "Spletni vstavki"
+StrCpy $Name_Section03 "Vstavek Mozilla"
 StrCpy $Name_Section04 "Vstavek ActiveX"
-StrCpy $Name_Section05 "Predvajanje diskov"
-StrCpy $Name_Section06 "Zveze vrst datotek"
-StrCpy $Name_SectionGroupAudio "Zvoƒçne datoteke"
+StrCpy $Name_Section05 "Predvajanje ploöËkov"
+StrCpy $Name_Section06 "Povezave z vrstami datotek"
+StrCpy $Name_SectionGroupAudio "Zvokovne datoteke"
 StrCpy $Name_SectionGroupVideo "Video datoteke"
 StrCpy $Name_SectionGroupOther "Drugo"
-StrCpy $Name_Section07 "Vsebinski meni"
-StrCpy $Name_Section08 "Izbri≈°i lastnosti in predpomnilnik"
-
-StrCpy $Desc_Section01 \
-    "Sam predvajalnik VLC"
-StrCpy $Desc_Section02a \
-    "Doda ikone na osnovni meni za hitrej≈°i dostop"
-StrCpy $Desc_Section02b \
-    "Doda ikone na namizje za hiter dostop"
-StrCpy $Desc_Section03 \
-    "Vstavka VLC Mozilla in Mozilla Firefox"
-StrCpy $Desc_Section04 \
-    "Vstavek VLC ActiveX"
-StrCpy $Desc_Section05 \
-    "Registracija DVD in CD predvajanja"
-StrCpy $Desc_Section06 \
-    "Nastavi predvajalnik VLC kot privzeti program za zaganjanje doloƒçenih vrst datotek."
-StrCpy $Desc_Section07 \
-    "Doda mo≈ænosti ('Predvajaj z VLC' in 'Dodaj seznamu predvajanja VLC')na vsebinski meni"
-StrCpy $Desc_Section08 \
-    "Izbri≈°e lastnosti in datoteke predpomnilnika predhodne namestitve predvajalnika"
-
-StrCpy $Message_AlreadyInstalled  \
-"Predvajalnik VLC je ≈æe name≈°ƒçen. $\nAli ≈æelite odstraniti \
-predhodno razliƒçico pred name≈°ƒçanjem $(^Name) ?"
-
-StrCpy $Name_Section91 "Odstrani namestitev"
-StrCpy $Name_Section92 "Izbri≈°i vsebino predpomnilnika"
-
-StrCpy $Desc_Section91 \
-"Odstrani namestitev predvajalnika VLC in vseh njegovih vkljuƒçkov."
-StrCpy $Desc_Section92 \
-"Izbri≈°e lastnosti in datoteke predpomnilnika predvajalnika VLC."
-
+StrCpy $Name_Section07 "Kontekstni meniji"
+StrCpy $Name_Section08 "Izbriöi nastavitve in predpomnilnik"
+StrCpy $Desc_Section01 "Sam predvajalnik datotek"
+StrCpy $Desc_Section02a "Za laûji dostop v zaËetni meni postavi ikone"
+StrCpy $Desc_Section02b "Za laûji dostop na vaöe namizje postavi ikono"
+StrCpy $Desc_Section03 "Dodatek VLC Mozilla in Mozilla Firefox"
+StrCpy $Desc_Section04 "VtiËnik ActiveX VLC"
+StrCpy $Desc_Section05 "Registracija predvajanja DVD in CD"
+StrCpy $Desc_Section06 "Predvajalnik VLC naj bo privzeti program za navedeno vrsto datotek"
+StrCpy $Desc_Section07 "Dodaj ukaze v kontekstni meni (ªPredvajaj z VLC´ in ªDodaj v predvajalni seznam VLC´)"
+StrCpy $Desc_Section08 "Izbriöe nastavitve predvajalnika VLC in datoteke v predpomnilniku, ki so tam ostale od prejönjih namestitev"
+StrCpy $Name_Section91 "Odstrani"
+StrCpy $Name_Section92 "Izbriöi nastavitve in predpomnilnik"
+StrCpy $Desc_Section91 "Odstrani predvajalnik VLC in vse njegove dele"
+StrCpy $Desc_Section92 "Izbriöe nastavitve predvajalnika VLC in datoteke predpomnilnika"
 StrCpy $ShellAssociation_Play "Predvajaj"
-StrCpy $ContextMenuEntry_PlayWith "Predvajaj s predvajalnikom VLC."
-StrCpy $ContextMenuEntry_AddToPlaylist "Dodaj na seznam predvajanja predvajalnika VLC."
-
-StrCpy $Link_VisitWebsite "Obi≈°ƒçite spleti≈°ƒçe predvajalnika VideoLAN VLC."
-
-StrCpy $Name_InstTypeRecommended "Priporoƒçeno"
-StrCpy $Name_InstTypeMinimum "Osnovno"
-StrCpy $Name_InstTypeFull "Popolno"
-
-StrCpy $Action_OnArrivalDVD "Predvajaj DVD filma"
-StrCpy $Action_OnArrivalAudioCD "Predvajanje CD glasbe"
+StrCpy $ContextMenuEntry_PlayWith "Predvajaj s predvajalnikom VLC"
+StrCpy $ContextMenuEntry_AddToPlaylist "Dodaj na seznam predvajanja programa VLC"
+StrCpy $Link_VisitWebsite "ObiöËi spletiöËe predvajalnika VideoLAN VLC"
+StrCpy $Name_InstTypeRecommended "PriporoËena"
+StrCpy $Name_InstTypeMinimum "Osnovna"
+StrCpy $Name_InstTypeFull "Polna"
+StrCpy $Action_OnArrivalDVD "Predvajaj filmski DVD"
+StrCpy $Action_OnArrivalAudioCD "Predvajaj zvoËni CD"
+StrCpy $Action_OnArrivalVCDMovie "Predvajaj film VCD"
+StrCpy $Action_OnArrivalSVCDMovie "Predvajaj film SVCD"
+StrCpy $Action_OnArrivalVideoFiles "Predvajaj video datoteke"
+StrCpy $Action_OnArrivalMusicFiles "Predvajaj zvokovne datoteke"
+StrCpy $Action_OnArrivalDVDAudio "Predvajaj zvoËni DVD"
+StrCpy $License_NextText "Sedaj se zavedate svojih pravic. Kliknite Naprej za nadaljevanje."
+StrCpy $Detail_CheckProcesses "Preverjanje postopkov ..."
+StrCpy $MessageBox_VLCRunning "VLC je zagnan in bo zdaj zaprt."
+StrCpy $MessageBox_VLCUnableToClose "Namestitveni program ne more zapreti VLC, to storite roËno."
+StrCpy $MessageBox_InstallAborted "Namestitev prekinjena!"
+StrCpy $Reinstall_Headline "ée nameöËeno"
+StrCpy $Reinstall_HeadlineInstall "Izberite vrsto namestitve VLC."
+StrCpy $Reinstall_HeadlineMaintenance "Izberite funkcijo vzdrûevanja, ki se bo izvedla."
+StrCpy $Reinstall_MessageOlder "Na vaö sistem je nameöËena starejöa razliËica VLC. Izberite operacijo, ki jo ûelite izvröiti, in kliknite Naprej za nadaljevanje."
+StrCpy $Reinstall_MessageNewer "NameöËena je ûe novejöa razliËica VLC! Ne priporoËamo, da se povrnete na prejönjo razliËico. Izberite ûeleno operacijo in kliknite Naprej za nadaljevanje."
+StrCpy $Reinstall_MessageSame "VLC ${VERSION} je ûe nameöËen. Izberite operacijo, ki jo ûelite izvröiti, in kliknite Naprej za nadaljevanje."
+StrCpy $Reinstall_OptionUpgrade "Nadgradi VLC z obstojeËimi nastavitvami (priporoËeno)"
+StrCpy $Reinstall_OptionDowngrade "Povrni stari VLC z obstojeËimi nastavitvami (priporoËeno)"
+StrCpy $Reinstall_OptionComponents "Dodaj/odstrani/ponovno namesti komponente"
+StrCpy $Reinstall_OptionAdvanced "Spremeni nastavitve (napredno)"
+StrCpy $Reinstall_OptionUninstall "Odstrani VLC"

@@ -36,6 +36,7 @@
 
 #include "omxil.h"
 #include "qcom.h"
+#include "../../video_chroma/copy.h"
 
 /*****************************************************************************
  * Events utility functions
@@ -163,9 +164,47 @@ void PrintOmxEvent(vlc_object_t *p_this, OMX_EVENTTYPE event, OMX_U32 data_1,
 /*****************************************************************************
  * Picture utility functions
  *****************************************************************************/
+void ArchitectureSpecificCopyHooks( decoder_t *p_dec, int i_color_format,
+                                    int i_slice_height, int i_src_stride,
+                                    ArchitectureSpecificCopyData *p_architecture_specific )
+{
+    (void)i_slice_height;
+
+#ifdef CAN_COMPILE_SSE2
+    if( i_color_format == OMX_COLOR_FormatYUV420SemiPlanar && vlc_CPU_SSE2() )
+    {
+        copy_cache_t *p_surface_cache = malloc( sizeof(copy_cache_t) );
+        if( !p_surface_cache || CopyInitCache( p_surface_cache, i_src_stride ) )
+        {
+            free( p_surface_cache );
+            return;
+        }
+        p_architecture_specific->data = p_surface_cache;
+        p_dec->fmt_out.i_codec = VLC_CODEC_YV12;
+    }
+#endif
+}
+
+void ArchitectureSpecificCopyHooksDestroy( int i_color_format,
+                                           ArchitectureSpecificCopyData *p_architecture_specific )
+{
+    if (!p_architecture_specific->data)
+        return;
+#ifdef CAN_COMPILE_SSE2
+    if( i_color_format == OMX_COLOR_FormatYUV420SemiPlanar && vlc_CPU_SSE2() )
+    {
+        copy_cache_t *p_surface_cache = (copy_cache_t*)p_architecture_specific->data;
+        CopyCleanCache(p_surface_cache);
+    }
+#endif
+    free(p_architecture_specific->data);
+    p_architecture_specific->data = NULL;
+}
+
 void CopyOmxPicture( int i_color_format, picture_t *p_pic,
                      int i_slice_height,
-                     int i_src_stride, uint8_t *p_src, int i_chroma_div )
+                     int i_src_stride, uint8_t *p_src, int i_chroma_div,
+                     ArchitectureSpecificCopyData *p_architecture_specific )
 {
     uint8_t *p_dst;
     int i_dst_stride;
@@ -175,6 +214,17 @@ void CopyOmxPicture( int i_color_format, picture_t *p_pic,
         qcom_convert(p_src, p_pic);
         return;
     }
+#ifdef CAN_COMPILE_SSE2
+    if( i_color_format == OMX_COLOR_FormatYUV420SemiPlanar
+        && vlc_CPU_SSE2() && p_architecture_specific->data )
+    {
+        copy_cache_t *p_surface_cache = (copy_cache_t*)p_architecture_specific->data;
+        uint8_t *ppi_src_pointers[2] = { p_src, p_src + i_src_stride * i_slice_height };
+        size_t pi_src_strides[2] = { i_src_stride, i_src_stride };
+        CopyFromNv12( p_pic, ppi_src_pointers, pi_src_strides, i_src_stride, i_slice_height, p_surface_cache );
+        return;
+    }
+#endif
 
     for( i_plane = 0; i_plane < p_pic->i_planes; i_plane++ )
     {
@@ -428,8 +478,9 @@ static const struct
     { VLC_CODEC_I420, OMX_COLOR_FormatYUV420PackedPlanar, 3, 1, 2 },
     { VLC_CODEC_NV12, OMX_COLOR_FormatYUV420SemiPlanar, 3, 1, 1 },
     { VLC_CODEC_NV21, OMX_QCOM_COLOR_FormatYVU420SemiPlanar, 3, 1, 1 },
-    { VLC_CODEC_NV12, OMX_TI_COLOR_FormatYUV420PackedSemiPlanar, 3, 1, 2 },
+    { VLC_CODEC_NV12, OMX_TI_COLOR_FormatYUV420PackedSemiPlanar, 3, 1, 1 },
     { VLC_CODEC_NV12, QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka, 3, 1, 1 },
+    { VLC_CODEC_NV12, OMX_QCOM_COLOR_FormatYUV420PackedSemiPlanar32m, 3, 1, 1 },
     { VLC_CODEC_YUYV, OMX_COLOR_FormatYCbYCr, 4, 2, 0 },
     { VLC_CODEC_YVYU, OMX_COLOR_FormatYCrYCb, 4, 2, 0 },
     { VLC_CODEC_UYVY, OMX_COLOR_FormatCbYCrY, 4, 2, 0 },

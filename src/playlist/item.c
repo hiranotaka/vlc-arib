@@ -459,7 +459,11 @@ int playlist_AddInput( playlist_t* p_playlist, input_item_t *p_input,
     PL_LOCK_IF( !b_locked );
 
     p_item = playlist_ItemNewFromInput( p_playlist, p_input );
-    if( p_item == NULL ) return VLC_ENOMEM;
+    if( p_item == NULL )
+    {
+        PL_UNLOCK_IF( !b_locked );
+        return VLC_ENOMEM;
+    }
     AddItem( p_playlist, p_item,
              b_playlist ? p_playlist->p_playing :
                           p_playlist->p_media_library , i_mode, i_pos );
@@ -496,11 +500,13 @@ playlist_item_t * playlist_NodeAddInput( playlist_t *p_playlist,
     PL_LOCK_IF( !b_locked );
 
     p_item = playlist_ItemNewFromInput( p_playlist, p_input );
-    if( p_item == NULL ) return NULL;
+    if( p_item == NULL )
+        goto end;
     AddItem( p_playlist, p_item, p_parent, i_mode, i_pos );
 
     GoAndPreparse( p_playlist, i_mode, p_item );
 
+end:
     PL_UNLOCK_IF( !b_locked );
 
     return p_item;
@@ -727,7 +733,13 @@ mtime_t playlist_GetNodeDuration( playlist_item_t* node )
 
     if( node->i_children != -1 )
         for( int i = 0; i < node->i_children; i++ )
-            mt_duration += input_item_GetDuration( node->pp_children[i]->p_input );
+        {
+            input_item_t* p_input = node->pp_children[i]->p_input;
+            if ( p_input->i_type == ITEM_TYPE_NODE )
+                mt_duration += playlist_GetNodeDuration( node->pp_children[i] );
+            else
+                mt_duration += input_item_GetDuration( p_input );
+        }
 
     return mt_duration;
 }
@@ -760,7 +772,7 @@ static void GoAndPreparse( playlist_t *p_playlist, int i_mode,
         input_item_IsPreparsed( p_item->p_input ) == false &&
             ( EMPTY_STR( psz_artist ) || ( EMPTY_STR( psz_album ) ) )
           )
-        playlist_PreparseEnqueue( p_playlist, p_item->p_input );
+        libvlc_MetaRequest( p_playlist->p_libvlc, p_item->p_input );
     free( psz_artist );
     free( psz_album );
 }

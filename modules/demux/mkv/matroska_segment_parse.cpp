@@ -30,6 +30,8 @@
 
 extern "C" {
 #include "../vobsub.h"
+#include "../xiph.h"
+#include "../windows_audio_commons.h"
 }
 
 #include <vlc_codecs.h>
@@ -90,6 +92,11 @@ void matroska_segment_c::ParseSeekHead( KaxSeekHead *seekhead )
             {
                 while( ( l = ep->Get() ) != NULL )
                 {
+                    if( unlikely( l->GetSize() >= SIZE_MAX ) )
+                    {
+                        msg_Err( &sys.demuxer,"%s too big... skipping it",  typeid(*l).name() );
+                        continue;
+                    }
                     if( MKV_IS_ID( l, KaxSeekID ) )
                     {
                         KaxSeekID &sid = *(KaxSeekID*)l;
@@ -215,6 +222,7 @@ void matroska_segment_c::ParseTrackEntry( KaxTrackEntry *m )
     tk->psz_codec              = NULL;
     tk->b_dts_only             = false;
     tk->i_default_duration     = 0;
+    tk->b_no_duration          = false;
     tk->f_timecodescale        = 1.0;
 
     tk->b_inited               = false;
@@ -396,6 +404,21 @@ void matroska_segment_c::ParseTrackEntry( KaxTrackEntry *m )
 
             msg_Dbg( &sys.demuxer, "|   |   |   + Track Overlay=%u", uint32( tovr ) );
         }
+#if LIBMATROSKA_VERSION >= 0x010401
+        else if( MKV_IS_ID( l, KaxCodecDelay ) )
+        {
+            KaxCodecDelay &codecdelay = *(KaxCodecDelay*)l;
+            tk->i_codec_delay = uint64_t( codecdelay ) / 1000;
+            msg_Dbg( &sys.demuxer, "|   |   |   + Track Codec Delay =%"PRIu64,
+                     tk->i_codec_delay );
+        }
+        else if( MKV_IS_ID( l, KaxSeekPreRoll ) )
+        {
+            KaxSeekPreRoll &spr = *(KaxSeekPreRoll*)l;
+            tk->i_seek_preroll = uint64_t(spr) / 1000;
+            msg_Dbg( &sys.demuxer, "|   |   |   + Track Seek Preroll =%"PRIu64, tk->i_seek_preroll );
+        }
+#endif
         else if( MKV_IS_ID( l, KaxContentEncodings ) )
         {
             EbmlMaster *cencs = static_cast<EbmlMaster*>(l);
@@ -720,6 +743,11 @@ void matroska_segment_c::ParseTracks( KaxTracks *tracks )
     int i_upper_level = 0;
 
     /* Master elements */
+    if( unlikely( tracks->GetSize() >= SIZE_MAX ) )
+    {
+        msg_Err( &sys.demuxer, "Track too big, aborting" );
+        return;
+    }
     try
     {
         tracks->Read( es, EBML_CONTEXT(tracks), i_upper_level, el, true );
@@ -756,6 +784,11 @@ void matroska_segment_c::ParseInfo( KaxInfo *info )
 
     /* Master elements */
     m = static_cast<EbmlMaster *>(info);
+    if( unlikely( m->GetSize() >= SIZE_MAX ) )
+    {
+        msg_Err( &sys.demuxer, "Info too big, aborting" );
+        return;
+    }
     try
     {
         m->Read( es, EBML_CONTEXT(info), i_upper_level, el, true );
@@ -879,6 +912,12 @@ void matroska_segment_c::ParseInfo( KaxInfo *info )
             KaxChapterTranslate *p_trans = static_cast<KaxChapterTranslate*>( l );
             try
             {
+                if( unlikely( p_trans->GetSize() >= SIZE_MAX ) )
+                {
+                    msg_Err( &sys.demuxer, "Chapter translate too big, aborting" );
+                    continue;
+                }
+
                 p_trans->Read( es, EBML_CONTEXT(p_trans), i_upper_level, el, true );
                 chapter_translation_c *p_translate = new chapter_translation_c();
 
@@ -997,16 +1036,14 @@ void matroska_segment_c::ParseChapterAtom( int i_level, KaxChapterAtom *ca, chap
                 else if( MKV_IS_ID( l, KaxChapterLanguage ) )
                 {
                     KaxChapterLanguage &lang =*(KaxChapterLanguage*)l;
-                    const char *psz = string( lang ).c_str();
-
-                    msg_Dbg( &sys.demuxer, "|   |   |   |   |    + ChapterLanguage '%s'", psz );
+                    msg_Dbg( &sys.demuxer, "|   |   |   |   |    + ChapterLanguage '%s'",
+                             string( lang ).c_str() );
                 }
                 else if( MKV_IS_ID( l, KaxChapterCountry ) )
                 {
                     KaxChapterCountry &ct =*(KaxChapterCountry*)l;
-                    const char *psz = string( ct ).c_str();
-
-                    msg_Dbg( &sys.demuxer, "|   |   |   |   |    + ChapterCountry '%s'", psz );
+                    msg_Dbg( &sys.demuxer, "|   |   |   |   |    + ChapterCountry '%s'",
+                             string( ct ).c_str() );
                 }
             }
         }
@@ -1069,6 +1106,11 @@ void matroska_segment_c::ParseAttachments( KaxAttachments *attachments )
     EbmlElement *el;
     int i_upper_level = 0;
 
+    if( unlikely( attachments->GetSize() >= SIZE_MAX ) )
+    {
+        msg_Err( &sys.demuxer, "Attachments too big, aborting" );
+        return;
+    }
     try
     {
         attachments->Read( es, EBML_CONTEXT(attachments), i_upper_level, el, true );
@@ -1127,6 +1169,11 @@ void matroska_segment_c::ParseChapters( KaxChapters *chapters )
     int i_upper_level = 0;
 
     /* Master elements */
+    if( unlikely( chapters->GetSize() >= SIZE_MAX ) )
+    {
+        msg_Err( &sys.demuxer, "Chapters too big, aborting" );
+        return;
+    }
     try
     {
         chapters->Read( es, EBML_CONTEXT(chapters), i_upper_level, el, true );
@@ -1196,6 +1243,11 @@ void matroska_segment_c::ParseCluster( bool b_update_start_time )
 
     /* Master elements */
     m = static_cast<EbmlMaster *>( cluster );
+    if( unlikely( m->GetSize() >= SIZE_MAX ) )
+    {
+        msg_Err( &sys.demuxer, "Cluster too big, aborting" );
+        return;
+    }
     try
     {
         m->Read( es, EBML_CONTEXT(cluster), i_upper_level, el, true );
@@ -1227,6 +1279,14 @@ void matroska_segment_c::ParseCluster( bool b_update_start_time )
 int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
 {
     es_format_t *p_fmt = &p_tk->fmt;
+
+    if( p_tk->psz_codec == NULL )
+    {
+        msg_Err( &sys.demuxer, "Empty codec id" );
+        p_tk->fmt.i_codec = VLC_FOURCC( 'u', 'n', 'd', 'f' );
+        return 0;
+    }
+
     if( !strcmp( p_tk->psz_codec, "V_MS/VFW/FOURCC" ) )
     {
         if( p_tk->i_extra_data < (int)sizeof( VLC_BITMAPINFOHEADER ) )
@@ -1305,6 +1365,11 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
         p_tk->fmt.i_codec = VLC_CODEC_VP8;
         p_tk->b_pts_only = true;
     }
+    else if( !strncmp( p_tk->psz_codec, "V_VP9", 5 ) )
+    {
+        p_tk->fmt.i_codec = VLC_CODEC_VP9;
+        fill_extra_data( p_tk, 0 );
+    }
     else if( !strncmp( p_tk->psz_codec, "V_MPEG4", 7 ) )
     {
         if( !strcmp( p_tk->psz_codec, "V_MPEG4/MS/V3" ) )
@@ -1321,6 +1386,11 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
             fill_extra_data( p_tk, 0 );
         }
     }
+    else if( !strncmp( p_tk->psz_codec, "V_MPEGH/ISO/HEVC", 16) )
+    {
+        p_tk->fmt.i_codec = VLC_CODEC_HEVC;
+        fill_extra_data( p_tk, 0 );
+    } 
     else if( !strcmp( p_tk->psz_codec, "V_QUICKTIME" ) )
     {
         MP4_Box_t *p_box = (MP4_Box_t*)xmalloc( sizeof( MP4_Box_t ) );
@@ -1359,18 +1429,7 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
         else
         {
             WAVEFORMATEX *p_wf = (WAVEFORMATEX*)p_tk->p_extra_data;
-            if( p_wf->wFormatTag == WAVE_FORMAT_EXTENSIBLE && 
-                p_tk->i_extra_data >= sizeof(WAVEFORMATEXTENSIBLE) )
-            {
-                WAVEFORMATEXTENSIBLE * p_wext = (WAVEFORMATEXTENSIBLE*) p_wf;
-                sf_tag_to_fourcc( &p_wext->SubFormat,  &p_tk->fmt.i_codec, NULL);
-                /* FIXME should we use Samples and dwChannelMask?*/
-            }
-            else
-                wf_tag_to_fourcc( GetWLE( &p_wf->wFormatTag ), &p_tk->fmt.i_codec, NULL );
 
-            if( p_tk->fmt.i_codec == VLC_FOURCC( 'u', 'n', 'd', 'f' ) )
-                msg_Err( &sys.demuxer, "Unrecognized wf tag: 0x%x", GetWLE( &p_wf->wFormatTag ) );
             p_tk->fmt.audio.i_channels   = GetWLE( &p_wf->nChannels );
             p_tk->fmt.audio.i_rate = GetDWLE( &p_wf->nSamplesPerSec );
             p_tk->fmt.i_bitrate    = GetDWLE( &p_wf->nAvgBytesPerSec ) * 8;
@@ -1381,8 +1440,46 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
             if( p_tk->fmt.i_extra > 0 )
             {
                 p_tk->fmt.p_extra = xmalloc( p_tk->fmt.i_extra );
-                memcpy( p_tk->fmt.p_extra, &p_wf[1], p_tk->fmt.i_extra );
+                if( p_tk->fmt.p_extra )
+                    memcpy( p_tk->fmt.p_extra, &p_wf[1], p_tk->fmt.i_extra );
+                else
+                    p_tk->fmt.i_extra = 0;
             }
+
+            if( p_wf->wFormatTag == WAVE_FORMAT_EXTENSIBLE && 
+                p_tk->i_extra_data >= sizeof(WAVEFORMATEXTENSIBLE) )
+            {
+                WAVEFORMATEXTENSIBLE * p_wext = (WAVEFORMATEXTENSIBLE*) p_wf;
+                sf_tag_to_fourcc( &p_wext->SubFormat,  &p_tk->fmt.i_codec, NULL);
+                /* FIXME should we use Samples */
+
+                if( p_tk->fmt.audio.i_channels > 2 &&
+                    ( p_tk->fmt.i_codec != VLC_FOURCC( 'u', 'n', 'd', 'f' ) ) ) 
+                {
+                    uint32_t wfextcm = GetDWLE( &p_wext->dwChannelMask );
+                    int match;
+                    unsigned i_channel_mask = getChannelMask( &wfextcm,
+                                                              p_tk->fmt.audio.i_channels,
+                                                              &match );
+                    p_tk->fmt.i_codec = vlc_fourcc_GetCodecAudio( p_tk->fmt.i_codec,
+                                                                  p_tk->fmt.audio.i_bitspersample );
+                    if( i_channel_mask )
+                    {
+                        p_tk->i_chans_to_reorder = aout_CheckChannelReorder(
+                            pi_channels_aout, NULL,
+                            i_channel_mask,
+                            p_tk->pi_chan_table );
+
+                        p_tk->fmt.audio.i_physical_channels =
+                        p_tk->fmt.audio.i_original_channels = i_channel_mask;
+                    }
+                }
+            }
+            else
+                wf_tag_to_fourcc( GetWLE( &p_wf->wFormatTag ), &p_tk->fmt.i_codec, NULL );
+
+            if( p_tk->fmt.i_codec == VLC_FOURCC( 'u', 'n', 'd', 'f' ) )
+                msg_Err( &sys.demuxer, "Unrecognized wf tag: 0x%x", GetWLE( &p_wf->wFormatTag ) );
         }
     }
     else if( !strcmp( p_tk->psz_codec, "A_MPEG/L3" ) ||
@@ -1422,6 +1519,26 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
     {
         p_tk->fmt.i_codec = VLC_CODEC_VORBIS;
         fill_extra_data( p_tk, 0 );
+    }
+    else if( !strncmp( p_tk->psz_codec, "A_OPUS", 6 ) )
+    {
+        p_tk->fmt.i_codec = VLC_CODEC_OPUS;
+        if( !p_tk->fmt.audio.i_rate )
+        {
+            msg_Err( &sys.demuxer,"No sampling rate, defaulting to 48kHz");
+            p_tk->fmt.audio.i_rate = 48000;
+        }
+        const uint8_t tags[16] = {'O','p','u','s','T','a','g','s',
+                                   0, 0, 0, 0, 0, 0, 0, 0};
+        unsigned ps[2] = { p_tk->i_extra_data, 16 };
+        const void *pkt[2] = { (const void *)p_tk->p_extra_data,
+                              (const void *) tags };
+
+        if( xiph_PackHeaders( &p_tk->fmt.i_extra,
+                              &p_tk->fmt.p_extra,
+                              ps, pkt, 2 ) )
+            msg_Err( &sys.demuxer, "Couldn't pack OPUS headers");
+
     }
     else if( !strncmp( p_tk->psz_codec, "A_AAC/MPEG2/", strlen( "A_AAC/MPEG2/" ) ) ||
              !strncmp( p_tk->psz_codec, "A_AAC/MPEG4/", strlen( "A_AAC/MPEG4/" ) ) )
@@ -1486,6 +1603,11 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
     else if( !strcmp( p_tk->psz_codec, "A_AAC" ) )
     {
         p_tk->fmt.i_codec = VLC_CODEC_MP4A;
+        fill_extra_data( p_tk, 0 );
+    }
+    else if( !strcmp( p_tk->psz_codec, "A_ALAC" ) )
+    {
+        p_tk->fmt.i_codec =  VLC_CODEC_ALAC;
         fill_extra_data( p_tk, 0 );
     }
     else if( !strcmp( p_tk->psz_codec, "A_WAVPACK4" ) )
@@ -1625,6 +1747,7 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
     else if( !strcmp( p_tk->psz_codec, "S_VOBSUB" ) )
     {
         p_tk->fmt.i_codec = VLC_CODEC_SPU;
+        p_tk->b_no_duration = true;
         if( p_tk->i_extra_data )
         {
             char *psz_start;
@@ -1647,7 +1770,6 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
                 else
                 {
                     msg_Warn( &sys.demuxer, "reading original frame size for vobsub failed" );
-                    return 1;
                 }
 
                 psz_start = strstr( psz_buf, "palette:" );

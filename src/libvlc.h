@@ -157,16 +157,14 @@ typedef struct libvlc_priv_t
     bool               b_stats;     ///< Whether to collect stats
 
     /* Singleton objects */
-    playlist_t        *p_playlist; ///< the playlist singleton
     vlm_t             *p_vlm;  ///< the VLM singleton (or NULL)
     vlc_object_t      *p_dialog_provider; ///< dialog provider
 #ifdef ENABLE_SOUT
     sap_handler_t     *p_sap; ///< SAP SDP advertiser
 #endif
+    struct playlist_t *playlist; ///< Playlist for interfaces
+    struct playlist_preparser_t *parser; ///< Input item meta data handler
     struct vlc_actions *actions; ///< Hotkeys handler
-
-    /* Interfaces */
-    struct intf_thread_t *p_intf; ///< Interfaces linked-list
 
     /* Objects tree */
     vlc_mutex_t        structure_lock;
@@ -180,7 +178,8 @@ static inline libvlc_priv_t *libvlc_priv (libvlc_int_t *libvlc)
     return (libvlc_priv_t *)libvlc;
 }
 
-void playlist_ServicesDiscoveryKillAll( playlist_t *p_playlist );
+void intf_InsertItem(libvlc_int_t *, const char *mrl, unsigned optc,
+                     const char * const *optv, unsigned flags);
 void intf_DestroyAll( libvlc_int_t * );
 
 #define libvlc_stats( o ) (libvlc_priv((VLC_OBJECT(o))->p_libvlc)->b_stats)

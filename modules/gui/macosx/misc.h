@@ -1,7 +1,7 @@
 /*****************************************************************************
  * misc.h: code not specific to vlc
  *****************************************************************************
- * Copyright (C) 2003-2013 VLC authors and VideoLAN
+ * Copyright (C) 2003-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
@@ -23,7 +23,6 @@
  *****************************************************************************/
 
 #import <Cocoa/Cocoa.h>
-#import "CompatibilityFixes.h"
 
 /*****************************************************************************
  * NSSound (VLCAdditions)
@@ -70,12 +69,32 @@
 - (void)setNonFullscreenPresentationOptions;
 @end
 
-
 /*****************************************************************************
- * VLBrushedMetalImageView
+ * VLCDragDropView
+ *
+ * Disables default drag / drop behaviour of an NSImageView.
+ * set it for all sub image views withing an VLCDragDropView.
  *****************************************************************************/
 
-@interface VLBrushedMetalImageView : NSImageView
+
+@interface VLCDropDisabledImageView : NSImageView
+
+@end
+
+/*****************************************************************************
+ * VLCDragDropView
+ *****************************************************************************/
+
+@interface VLCDragDropView : NSView
+{
+    bool b_activeDragAndDrop;
+
+    id _dropHandler;
+}
+
+@property (nonatomic, assign) id dropHandler;
+
+- (void)enablePlaylistItems;
 
 @end
 
@@ -129,6 +148,11 @@
 - (void)scrollWheel:(NSEvent *)o_event;
 - (void)drawFullVolumeMarker;
 
+- (CGFloat)fullVolumePos;
+
+@end
+
+@interface VolumeSliderCell : NSSliderCell
 @end
 
 /*****************************************************************************
@@ -210,4 +234,34 @@
 
 - (bool)isPartialStringValid:(NSString*)partialString newEditingString:(NSString**)newString errorDescription:(NSString**)error;
 
+@end
+
+/*****************************************************************************
+ * NSView addition
+ *****************************************************************************/
+
+@interface NSView (EnableSubviews)
+- (void)enableSubviews:(BOOL)b_enable;
+@end
+
+/*****************************************************************************
+ * VLCByteCountFormatter addition
+ *****************************************************************************/
+
+#ifndef MAC_OS_X_VERSION_10_8
+typedef NS_ENUM(NSInteger, NSByteCountFormatterCountStyle) {
+    // Specifies display of file or storage byte counts. The actual behavior for this is platform-specific; on OS X 10.7 and less, this uses the binary style, but decimal style on 10.8 and above
+    NSByteCountFormatterCountStyleFile   = 0,
+    // Specifies display of memory byte counts. The actual behavior for this is platform-specific; on OS X 10.7 and less, this uses the binary style, but that may change over time.
+    NSByteCountFormatterCountStyleMemory = 1,
+    // The following two allow specifying the number of bytes for KB explicitly. It's better to use one of the above values in most cases.
+    NSByteCountFormatterCountStyleDecimal = 2,    // 1000 bytes are shown as 1 KB
+    NSByteCountFormatterCountStyleBinary  = 3     // 1024 bytes are shown as 1 KB
+};
+#endif
+
+@interface VLCByteCountFormatter : NSFormatter {
+}
+
++ (NSString *)stringFromByteCount:(long long)byteCount countStyle:(NSByteCountFormatterCountStyle)countStyle;
 @end

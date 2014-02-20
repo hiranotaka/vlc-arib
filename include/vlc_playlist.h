@@ -33,6 +33,8 @@ extern "C" {
 
 TYPEDEF_ARRAY(playlist_item_t*, playlist_item_array_t)
 
+struct intf_thread_t;
+
 /**
  * \file
  * This file contain structures and function prototypes related
@@ -251,9 +253,6 @@ enum pl_locked_state
 #define PL_UNLOCK playlist_Unlock( p_playlist )
 #define PL_ASSERT_LOCKED playlist_AssertLocked( p_playlist )
 
-VLC_API playlist_t * pl_Get( vlc_object_t * );
-#define pl_Get( a ) pl_Get( VLC_OBJECT(a) )
-
 /* Playlist control */
 #define playlist_Play(p) playlist_Control(p,PLAYLIST_PLAY, pl_Unlocked )
 #define playlist_Pause(p) playlist_Control(p,PLAYLIST_PAUSE, pl_Unlocked )
@@ -291,12 +290,6 @@ VLC_API mtime_t playlist_GetNodeDuration( playlist_item_t * );
  * \param b_locked TRUE if playlist is locked when entering this function
  */
 VLC_API void playlist_Clear( playlist_t *, bool );
-
-/** Enqueue an input item for preparsing */
-VLC_API int playlist_PreparseEnqueue(playlist_t *, input_item_t * );
-
-/** Request the art for an input item to be fetched */
-VLC_API int playlist_AskForArtEnqueue(playlist_t *, input_item_t * );
 
 /* Playlist sorting */
 VLC_API int playlist_TreeMove( playlist_t *, playlist_item_t *, playlist_item_t *, int );
@@ -397,13 +390,6 @@ VLC_API void playlist_EnableAudioFilter( playlist_t *, const char *, bool );
 /***********************************************************************
  * Inline functions
  ***********************************************************************/
-/** Small helper tp get current playing input or NULL. Release the input after use. */
-#define pl_CurrentInput(a) __pl_CurrentInput( VLC_OBJECT(a) )
-static  inline input_thread_t * __pl_CurrentInput( vlc_object_t * p_this )
-{
-    return playlist_CurrentInput( pl_Get( p_this ) );
-}
-
 /** Tell if the playlist is empty */
 static inline bool playlist_IsEmpty( playlist_t *p_playlist )
 {

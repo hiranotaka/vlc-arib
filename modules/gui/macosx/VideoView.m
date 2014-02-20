@@ -1,7 +1,7 @@
 /*****************************************************************************
  * VideoView.m: MacOS X video output module
  *****************************************************************************
- * Copyright (C) 2002-2013 VLC authors and VideoLAN
+ * Copyright (C) 2002-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Derk-Jan Hartman <hartman at videolan dot org>
@@ -32,6 +32,7 @@
 #import <stdlib.h>                                                 /* free() */
 #import <string.h>
 
+#import "CompatibilityFixes.h"
 #import "intf.h"
 #import "VideoView.h"
 #import "CoreInteraction.h"
@@ -62,7 +63,7 @@
 -(id)initWithFrame:(NSRect)frameRect
 {
     if (self = [super initWithFrame:frameRect]) {
-        [self registerForDraggedTypes:@[NSFilenamesPboardType]];
+        [self registerForDraggedTypes:[NSArray arrayWithObject:NSFilenamesPboardType]];
     }
 
     i_lastScrollWheelDirection = 0;

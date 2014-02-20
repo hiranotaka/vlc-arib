@@ -91,6 +91,8 @@ struct picture_t
     bool            b_progressive;          /**< is it a progressive frame ? */
     bool            b_top_field_first;             /**< which field is first */
     unsigned int    i_nb_fields;                  /**< # of displayed fields */
+    void          * context;          /**< video format-specific data pointer,
+             * must point to a (void (*)(void*)) pointer to free the context */
     /**@}*/
 
     /** Private data - the video output plugin might want to put stuff here to
@@ -100,7 +102,7 @@ struct picture_t
     /** This way the picture_Release can be overloaded */
     struct
     {
-        vlc_atomic_t refcount;
+        atomic_uintptr_t refcount;
         void (*pf_destroy)( picture_t * );
         picture_gc_sys_t *p_sys;
     } gc;
@@ -131,6 +133,7 @@ VLC_API picture_t * picture_NewFromFormat( const video_format_t *p_fmt ) VLC_USE
 typedef struct
 {
     picture_sys_t *p_sys;
+    void (*pf_destroy)(picture_t *);
 
     /* Plane resources
      * XXX all fields MUST be set to the right value.
@@ -243,8 +246,9 @@ VLC_API int picture_Setup( picture_t *, vlc_fourcc_t i_chroma, int i_width, int 
  *  - not be ephemere.
  *  - not have the fade flag.
  *  - contains only picture (no text rendering).
+ * \return the number of region(s) succesfully blent
  */
-VLC_API void picture_BlendSubpicture( picture_t *, filter_t *p_blend, subpicture_t * );
+VLC_API unsigned picture_BlendSubpicture( picture_t *, filter_t *p_blend, subpicture_t * );
 
 
 /*****************************************************************************

@@ -75,8 +75,8 @@ static picture_t *Filter( filter_t *, picture_t * );
  * Module descriptor
  *****************************************************************************/
 vlc_module_begin ()
-    set_shortname( N_("Cropadd") )
-    set_description( N_("Video scaling filter") )
+    set_shortname( N_("Croppadd") )
+    set_description( N_("Video cropping filter") )
     set_capability( "video filter2", 0 )
     set_callbacks( OpenFilter, CloseFilter )
 
@@ -143,6 +143,11 @@ static int OpenFilter( vlc_object_t *p_this )
          * to change the output format ... FIXME? */
         return VLC_EGENERIC;
     }
+
+    const vlc_chroma_description_t *p_chroma =
+        vlc_fourcc_GetChromaDescription( p_filter->fmt_in.video.i_chroma );
+    if( p_chroma == NULL || p_chroma->plane_count == 0 )
+        return VLC_EGENERIC;
 
     p_filter->p_sys = (filter_sys_t *)malloc( sizeof( filter_sys_t ) );
     if( !p_filter->p_sys ) return VLC_ENOMEM;

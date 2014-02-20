@@ -271,17 +271,15 @@ static int ScanDvbSNextFast( scan_t *p_scan, scan_configuration_t *p_cfg, double
 
         /* find the requested file in the directory */
         for( ; ; ) {
-            char *psz_filename;
+            const char *psz_filename = vlc_readdir( p_dir );
 
-            if( ! (psz_filename = vlc_readdir( p_dir ) ) )
+            if( psz_filename == NULL )
                 break;
 
             if( !strncmp( p_scan->parameter.sat_info.psz_name, psz_filename, 20 ) )
             {
                 if( asprintf( &p_scan->parameter.sat_info.psz_path, "%s" DIR_SEP "%s", psz_dir, psz_filename ) == -1 )
                     p_scan->parameter.sat_info.psz_path = NULL;
-
-                free( psz_filename );
                 break;
             }
         }
@@ -598,8 +596,6 @@ static int ScanDvbCNext( scan_t *p_scan, scan_configuration_t *p_cfg, double *pf
     p_cfg->i_modulation = p_scan->parameter.i_modulation;
     if( !p_cfg->i_symbolrate )
         p_cfg->i_symbolrate = var_GetInteger( p_scan->p_obj, "dvb-srate" );
-    if( !p_cfg->i_modulation )
-        p_cfg->i_modulation = var_GetInteger( p_scan->p_obj, "dvb-modulation" );
 
     if( p_scan->parameter.b_exhaustive )
         return ScanDvbNextExhaustive( p_scan, p_cfg, pf_pos );

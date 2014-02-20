@@ -171,7 +171,7 @@ m4: m4-$(M4_VERSION).tar.gz
 	$(UNPACK)
 	$(MOVE)
 
-.m4: m4 .autoconf
+.m4: m4
 	(cd $<; ./configure --prefix=$(PREFIX) && make && make install)
 	touch $@
 
@@ -216,10 +216,10 @@ CLEAN_PKG += openssl
 DISTCLEAN_PKG += openssl-$(OPENSSL_VERSION).tar.gz
 
 # gas-preprocessor
-libav-gas-preprocessor-$(GAS_VERSION).tar.gz:
+gas-preprocessor-$(GAS_VERSION).tar.gz:
 	$(call download,$(GAS_URL))
 
-gas: libav-gas-preprocessor-$(GAS_VERSION).tar.gz
+gas: gas-preprocessor-$(GAS_VERSION).tar.gz
 	$(UNPACK)
 	$(MOVE)
 
@@ -240,6 +240,7 @@ ragel: ragel-$(RAGEL_VERSION).tar.gz
 	$(MOVE)
 
 .ragel: ragel
+	$(APPLY) ragel-6.8-javacodegen.patch
 	(cd ragel; ./configure --prefix=$(PREFIX) --disable-shared --enable-static && make && make install)
 	touch $@
 

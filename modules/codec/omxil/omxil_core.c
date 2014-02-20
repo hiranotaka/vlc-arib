@@ -61,6 +61,7 @@ static const char *ppsz_dll_list[] =
     "libOMX_Core.so", /* TI OMAP IL core */
     "libOmxCore.so", /* Qualcomm IL core */
     "libomxil-bellagio.so",  /* Bellagio IL core */
+    "libnvomx.so", /* Tegra3 IL core */
 #endif
     0
 };
@@ -201,6 +202,7 @@ static const struct
 {
 #ifdef RPI_OMX
     { "video_decoder.avc", "OMX.broadcom.video_decode" },
+    { "video_decoder.mpeg2", "OMX.broadcom.video_decode" },
     { "iv_renderer", "OMX.broadcom.video_render" },
 #endif
     { 0, 0 }

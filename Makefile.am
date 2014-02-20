@@ -82,6 +82,7 @@ SUFFIXES =
 DISTCHECK_CONFIGURE_FLAGS = \
 	--enable-fast-install \
 	--disable-a52 \
+	--disable-alsa \
 	--disable-avcodec --disable-avformat \
 	--disable-postproc --disable-swscale \
 	--disable-dbus \
@@ -105,7 +106,7 @@ AUTOMAKE_OPTIONS = \
 ChangeLog: Makefile.am
 	rm -f -- "$@"
 	cd doc && $(MAKE) $(AM_MAKEFLAGS) changelogs
-	$(LN_S) -f doc/ChangeLog-2013 "$@"
+	$(LN_S) -f doc/ChangeLog-2014 "$@"
 
 ###############################################################################
 # Mac OS X project
@@ -121,12 +122,17 @@ EXTRA_DIST += \
 	extras/package/macosx/Resources/English.lproj/Bookmarks.xib \
 	extras/package/macosx/Resources/English.lproj/ConvertAndSave.xib \
 	extras/package/macosx/Resources/English.lproj/CoreDialogs.xib \
+	extras/package/macosx/Resources/English.lproj/DebugMessageVisualizer.xib \
 	extras/package/macosx/Resources/English.lproj/DetachedVideoWindow.xib \
 	extras/package/macosx/Resources/English.lproj/ErrorPanel.xib \
+	extras/package/macosx/Resources/English.lproj/FSPanel.xib \
 	extras/package/macosx/Resources/English.lproj/InfoPlist.strings.in \
 	extras/package/macosx/Resources/English.lproj/MainMenu.xib \
+	extras/package/macosx/Resources/English.lproj/MainWindow.xib \
 	extras/package/macosx/Resources/English.lproj/MediaInfo.xib \
 	extras/package/macosx/Resources/English.lproj/Open.xib \
+	extras/package/macosx/Resources/English.lproj/PlaylistAccessoryView.xib \
+	extras/package/macosx/Resources/English.lproj/PlaylistMenu.xib \
 	extras/package/macosx/Resources/English.lproj/Preferences.xib \
 	extras/package/macosx/Resources/English.lproj/SharedDialogs.xib \
 	extras/package/macosx/Resources/English.lproj/SyncTracks.xib \
@@ -540,13 +546,6 @@ EXTRA_DIST += \
 	extras/package/macosx/configure.sh \
 	extras/package/macosx/dmg_setup.scpt \
 	extras/package/macosx/vlc.xcodeproj/project.pbxproj \
-	extras/package/macosx/Delete_Preferences.app/Contents/Info.plist \
-	extras/package/macosx/Delete_Preferences.app/Contents/PkgInfo \
-	extras/package/macosx/Delete_Preferences.app/Contents/MacOS/applet \
-	extras/package/macosx/Delete_Preferences.app/Contents/Resources/description.rtfd/TXT.rtf \
-	extras/package/macosx/Delete_Preferences.app/Contents/Resources/applet.icns \
-	extras/package/macosx/Delete_Preferences.app/Contents/Resources/applet.rsrc \
-	extras/package/macosx/Delete_Preferences.app/Contents/Resources/Scripts/main.scpt \
 	extras/package/macosx/eyetvplugin/EyeTVPluginDefs.h \
 	extras/package/macosx/eyetvplugin/Info.plist \
 	extras/package/macosx/eyetvplugin/eyetvplugin.c \

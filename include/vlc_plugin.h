@@ -110,8 +110,6 @@ enum vlc_module_properties
 
 /* Configuration hint types */
 #define CONFIG_HINT_CATEGORY                0x02  /* Start of new category */
-#define CONFIG_HINT_SUBCATEGORY             0x03  /* Start of sub-category */
-#define CONFIG_HINT_SUBCATEGORY_END         0x04  /* End of sub-category */
 #define CONFIG_HINT_USAGE                   0x05  /* Usage information */
 
 #define CONFIG_CATEGORY                     0x06 /* Set category */
@@ -187,8 +185,8 @@ enum vlc_module_properties
 /**
  * Current plugin ABI version
  */
-# define MODULE_SYMBOL 2_1_0a
-# define MODULE_SUFFIX "__2_1_0a"
+# define MODULE_SYMBOL 2_2_0a
+# define MODULE_SUFFIX "__2_2_0a"
 
 /*****************************************************************************
  * Add a few defines. You do not want to read this section. Really.
@@ -362,12 +360,6 @@ VLC_METADATA_EXPORTS
 #define add_category_hint( text, longtext, advc ) \
     add_typeadv_inner( CONFIG_HINT_CATEGORY, text, longtext, advc )
 
-#define add_subcategory_hint( text, longtext ) \
-    add_typedesc_inner( CONFIG_HINT_SUBCATEGORY, text, longtext )
-
-#define end_subcategory_hint \
-    add_type_inner( CONFIG_HINT_SUBCATEGORY_END )
-
 #define add_usage_hint( text ) \
     add_typedesc_inner( CONFIG_HINT_USAGE, text, NULL )
 
@@ -523,15 +515,21 @@ VLC_METADATA_EXPORTS
     "\x65\x20\x56\x69\x64\x65\x6f\x4c\x41\x4e\x20\x56\x4c\x43\x20\x6d" \
     "\x65\x64\x69\x61\x20\x70\x6c\x61\x79\x65\x72\x20\x64\x65\x76\x65" \
     "\x6c\x6f\x70\x65\x72\x73" )
-#elif !defined (VLC_COPYRIGHT_EXPORT)
-# define VLC_COPYRIGHT_EXPORT
-#endif
-#define VLC_LICENSE_EXPORT VLC_META_EXPORT (license, \
+# define VLC_LICENSE_EXPORT VLC_META_EXPORT (license, \
     "\x4c\x69\x63\x65\x6e\x73\x65\x64\x20\x75\x6e\x64\x65\x72\x20\x74" \
     "\x68\x65\x20\x74\x65\x72\x6d\x73\x20\x6f\x66\x20\x74\x68\x65\x20" \
-    "\x47\x4e\x55\x20\x47\x65\x6e\x65\x72\x61\x6c\x20\x50\x75\x62\x6c" \
-    "\x69\x63\x20\x4c\x69\x63\x65\x6e\x73\x65\x2c\x20\x76\x65\x72\x73" \
-    "\x69\x6f\x6e\x20\x32\x20\x6f\x72\x20\x6c\x61\x74\x65\x72\x2e" )
+    "\x47\x4e\x55\x20\x4c\x65\x73\x73\x65\x72\x20\x47\x65\x6e\x65\x72" \
+    "\x61\x6c\x20\x50\x75\x62\x6c\x69\x63\x20\x4c\x69\x63\x65\x6e\x73" \
+    "\x65\x2c\x20\x76\x65\x72\x73\x69\x6f\x6e\x20\x32\x2e\x31\x20\x6f" \
+    "\x72\x20\x6c\x61\x74\x65\x72\x2e" )
+#else
+# if !defined (VLC_COPYRIGHT_EXPORT)
+#  define VLC_COPYRIGHT_EXPORT
+# endif
+# if !defined (VLC_LICENSE_EXPORT)
+#  define VLC_LICENSE_EXPORT
+# endif
+#endif
 
 #define VLC_METADATA_EXPORTS \
     VLC_COPYRIGHT_EXPORT \

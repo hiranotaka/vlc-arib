@@ -1,7 +1,7 @@
 /*****************************************************************************
  * MainWindow.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2002-2013 VLC authors and VideoLAN
+ * Copyright (C) 2002-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -26,7 +26,6 @@
  *****************************************************************************/
 
 #import <Cocoa/Cocoa.h>
-#import "CompatibilityFixes.h"
 #import "PXSourceList.h"
 #import "PXSourceListDataSource.h"
 
@@ -41,6 +40,13 @@
 @class VLCDetachedVideoWindow;
 @class VLCMainWindowControlsBar;
 @class VLCVoutView;
+
+typedef enum {
+    psUserEvent,
+    psUserMenuEvent,
+    psVideoStartedOrStoppedEvent,
+    psPlaylistItemChangedEvent
+} VLCPlaylistStateEvent;
 
 @interface VLCMainWindow : VLCVideoWindowCommon <PXSourceListDataSource, PXSourceListDelegate, NSWindowDelegate, NSAnimationDelegate, NSSplitViewDelegate> {
 
@@ -59,7 +65,7 @@
     IBOutlet id o_dropzone_lbl;
     IBOutlet id o_dropzone_box;
 
-    IBOutlet VLCFSPanel *o_fspanel;
+    VLCFSPanel *o_fspanel;
 
     IBOutlet id o_podcast_view;
     IBOutlet id o_podcast_add_btn;
@@ -105,7 +111,7 @@
 
 - (VLCMainWindowControlsBar *)controlsBar;
 
-- (IBAction)togglePlaylist:(id)sender;
+- (void)changePlaylistState:(VLCPlaylistStateEvent)event;
 
 - (IBAction)dropzoneButtonAction:(id)sender;
 
@@ -119,8 +125,6 @@
 - (void)toggleLeftSubSplitView;
 - (void)showDropZone;
 - (void)hideDropZone;
-- (void)showSplitView;
-- (void)hideSplitView;
 - (void)updateTimeSlider;
 - (void)updateWindow;
 - (void)updateName;

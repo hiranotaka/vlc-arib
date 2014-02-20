@@ -28,7 +28,10 @@
 # include "config.h"
 #endif
 
+#ifndef UNICODE
 #define UNICODE
+#endif
+
 #include <vlc/vlc.h>
 #include <windows.h>
 #include <shellapi.h>
@@ -105,11 +108,13 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     if (wargv == NULL)
         return 1;
 
-    char *argv[argc + 3];
+    char *argv[argc + 4];
     BOOL crash_handling = TRUE;
     int j = 0;
+    char *lang = NULL;
 
     argv[j++] = FromWide( L"--media-library" );
+    argv[j++] = FromWide( L"--stats" );
     argv[j++] = FromWide( L"--no-ignore-config" );
     for (int i = 1; i < argc; i++)
     {
@@ -117,6 +122,12 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
         {
             crash_handling = FALSE;
             continue; /* don't give argument to libvlc */
+        }
+        if (!wcsncmp(wargv[i], L"--language", 10) )
+        {
+            if (i < argc - 1 && wcsncmp( wargv[i + 1], L"--", 2 ))
+                lang = FromWide (wargv[++i]);
+            continue;
         }
 
         argv[j++] = FromWide (wargv[i]);
@@ -140,6 +151,28 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
 
     _setmode( STDIN_FILENO, _O_BINARY ); /* Needed for pipes */
+
+    /* */
+    if (!lang)
+    {
+        HKEY h_key;
+        if( RegOpenKeyEx( HKEY_CURRENT_USER, TEXT("Software\\VideoLAN\\VLC\\"), 0, KEY_READ, &h_key )
+                == ERROR_SUCCESS )
+        {
+            TCHAR szData[256];
+            DWORD len = 256;
+            if( RegQueryValueEx( h_key, TEXT("Lang"), NULL, NULL, (LPBYTE) &szData, &len ) == ERROR_SUCCESS )
+                lang = FromWide( szData );
+        }
+    }
+
+    if (lang && strncmp( lang, "auto", 4 ) )
+    {
+        char tmp[11];
+        snprintf(tmp, 11, "LANG=%s", lang);
+        putenv(tmp);
+    }
+    free(lang);
 
     /* Initialize libvlc */
     libvlc_instance_t *vlc;

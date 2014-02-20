@@ -77,6 +77,13 @@ VLC_API void vlc_vaLog(vlc_object_t *, int,
 #define msg_Dbg( p_this, ... ) \
     vlc_Log( VLC_OBJECT(p_this), VLC_MSG_DBG,  MODULE_STRING, __VA_ARGS__ )
 
+#ifndef MODULE_STRING
+# define MODULE_STRING __FILE__
+#endif
+
+VLC_API const char *vlc_strerror(int);
+VLC_API const char *vlc_strerror_c(int);
+
 /**
  * @}
  */

@@ -90,7 +90,7 @@ static VLAboutBox *_o_sharedInstance = nil;
 
         /* l10n */
         [o_about_window setTitle: _NS("About VLC media player")];
-        NSDictionary *stringAttributes = [NSDictionary dictionaryWithObjectsAndKeys:@(NSUnderlineStyleSingle), NSUnderlineStyleAttributeName, [NSColor colorWithCalibratedRed:0. green:0.3411 blue:0.6824 alpha:1.], NSForegroundColorAttributeName, [NSFont systemFontOfSize:13], NSFontAttributeName, nil];
+        NSDictionary *stringAttributes = [NSDictionary dictionaryWithObjectsAndKeys:[NSNumber numberWithInt:NSUnderlineStyleSingle], NSUnderlineStyleAttributeName, [NSColor colorWithCalibratedRed:0. green:0.3411 blue:0.6824 alpha:1.], NSForegroundColorAttributeName, [NSFont systemFontOfSize:13], NSFontAttributeName, nil];
         NSAttributedString *attrStr;
         attrStr = [[NSAttributedString alloc] initWithString:_NS("Credits") attributes:stringAttributes];
         [o_credits_btn setAttributedTitle:attrStr];
@@ -117,7 +117,7 @@ static VLAboutBox *_o_sharedInstance = nil;
         /* Setup the nameversion field */
         [o_name_version_field setStringValue: [NSString stringWithFormat:@"Version %s (%s)", VERSION_MESSAGE, PLATFORM]];
 
-        NSMutableArray *tmpArray = [NSMutableArray arrayWithArray: [@(psz_authors) componentsSeparatedByString:@"\n\n"]];
+        NSMutableArray *tmpArray = [NSMutableArray arrayWithArray: [[NSString stringWithUTF8String:psz_authors] componentsSeparatedByString:@"\n\n"]];
         NSUInteger count = [tmpArray count];
         for (NSUInteger i = 0; i < count; i++) {
             [tmpArray replaceObjectAtIndex:i withObject:[[tmpArray objectAtIndex:i]stringByReplacingOccurrencesOfString:@"\n" withString:@", "]];
@@ -129,13 +129,16 @@ static VLAboutBox *_o_sharedInstance = nil;
         [o_authors retain];
 
         /* setup join us! */
-        NSString *joinus = [NSString stringWithString:_NS("<p>VLC media player is a free and open source media player, encoder, and streamer made by the volunteers of the "
-                               "<a href=\"http://www.videolan.org/\"><span style=\" text-decoration: underline; color:#0057ae;\">VideoLAN</span>"
-                               "</a> community.</p><p>VLC uses its internal codecs, works on essentially every popular platform, and can read "
-                               "almost all files, CDs, DVDs, network streams, capture cards and other media formats!</p><p>"
-                               "<a href=\"http://www.videolan.org/contribute/\"><span style=\" text-decoration: underline; color:#0057ae;\">Help "
-                               "and join us!</span></a>")];
-        NSAttributedString *joinus_readytorender = [[NSAttributedString alloc] initWithHTML:[joinus dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES] documentAttributes:NULL];
+        NSString *joinus = [NSString stringWithUTF8String:_(""
+                                                            "<p>VLC media player is a free and open source media player, encoder, and "
+                                                            "streamer made by the volunteers of the <a href=\"http://www.videolan.org/"
+                                                            "\"><span style=\" text-decoration: underline; color:#0057ae;\">VideoLAN</"
+                                                            "span></a> community.</p><p>VLC uses its internal codecs, works on "
+                                                            "essentially every popular platform, and can read almost all files, CDs, "
+                                                            "DVDs, network streams, capture cards and other media formats!</p><p><a href="
+                                                            "\"http://www.videolan.org/contribute/\"><span style=\" text-decoration: "
+                                                            "underline; color:#0057ae;\">Help and join us!</span></a>")];
+        NSAttributedString *joinus_readytorender = [[NSAttributedString alloc] initWithHTML:[joinus dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES] options:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:NSUTF8StringEncoding] forKey:NSCharacterEncodingDocumentOption] documentAttributes:NULL];
         [o_joinus_txt setAllowsEditingTextAttributes: YES];
         [o_joinus_txt setSelectable: YES];
         [o_joinus_txt setAttributedStringValue:joinus_readytorender];
@@ -236,9 +239,9 @@ static VLAboutBox *_o_sharedInstance = nil;
     if (sender == o_authors_btn)
         [o_credits_textview setString:o_authors];
     else if (sender == o_credits_btn)
-        [o_credits_textview setString:[@(psz_thanks) stringByReplacingOccurrencesOfString:@"\n" withString:@" " options:0 range:NSRangeFromString(@"680 2")]];
+        [o_credits_textview setString:[[NSString stringWithUTF8String:psz_thanks] stringByReplacingOccurrencesOfString:@"\n" withString:@" " options:0 range:NSRangeFromString(@"680 2")]];
     else
-        [o_credits_textview setString:@(psz_license)];
+        [o_credits_textview setString:[NSString stringWithUTF8String:psz_license]];
 
     [o_credits_textview scrollPoint:NSMakePoint(0, 0)];
     b_restart = YES;
@@ -255,7 +258,7 @@ static VLAboutBox *_o_sharedInstance = nil;
     [o_credits_textview setHidden:NO];
     [o_joinus_txt setHidden:YES];
 
-    [o_credits_textview setString:@(psz_license)];
+    [o_credits_textview setString:[NSString stringWithUTF8String:psz_license]];
 
     [o_credits_textview scrollPoint:NSMakePoint(0, 0)];
     b_restart = YES;

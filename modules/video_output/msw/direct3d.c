@@ -141,6 +141,11 @@ static int Open(vlc_object_t *object)
     vout_display_t *vd = (vout_display_t *)object;
     vout_display_sys_t *sys;
 
+    OSVERSIONINFO winVer;
+    winVer.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+    if(GetVersionEx(&winVer) && winVer.dwMajorVersion < 6 && !object->b_force)
+        return VLC_EGENERIC;
+
     /* Allocate structure */
     vd->sys = sys = calloc(1, sizeof(vout_display_sys_t));
     if (!sys)
@@ -155,7 +160,8 @@ static int Open(vlc_object_t *object)
 
     sys->use_desktop = var_CreateGetBool(vd, "video-wallpaper");
     sys->reset_device = false;
-    sys->reset_device = false;
+    sys->reopen_device = false;
+    sys->lost_not_ready = false;
     sys->allow_hw_yuv = var_CreateGetBool(vd, "directx-hw-yuv");
     sys->desktop_save.is_fullscreen = vd->cfg->is_fullscreen;
     sys->desktop_save.is_on_top     = false;
@@ -278,6 +284,11 @@ static void Prepare(vout_display_t *vd, picture_t *picture, subpicture_t *subpic
         if (hr == D3DERR_DEVICENOTRESET && !sys->reset_device) {
             vout_display_SendEventPicturesInvalid(vd);
             sys->reset_device = true;
+            sys->lost_not_ready = false;
+        }
+        if (hr == D3DERR_DEVICELOST && !sys->lost_not_ready) {
+            /* Device is lost but not yet ready for reset. */
+            sys->lost_not_ready = true;
         }
         return;
     }
@@ -303,6 +314,13 @@ static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpic
 {
     vout_display_sys_t *sys = vd->sys;
     LPDIRECT3DDEVICE9 d3ddev = sys->d3ddev;
+
+    if (sys->lost_not_ready) {
+        picture_Release(picture);
+        if (subpicture)
+            subpicture_Delete(subpicture);
+        return;
+    }
 
     // Present the back buffer contents to the display
     // No stretching should happen here !
@@ -916,25 +934,25 @@ static int Direct3DCreatePool(vout_display_t *vd, video_format_t *fmt)
     IDirect3DDevice9_ColorFill(d3ddev, surface, NULL, D3DCOLOR_ARGB(0xFF, 0, 0, 0));
 
     /* Create the associated picture */
-    picture_resource_t *rsc = &sys->resource;
-    rsc->p_sys = malloc(sizeof(*rsc->p_sys));
-    if (!rsc->p_sys) {
+    picture_sys_t *picsys = malloc(sizeof(*picsys));
+    if (unlikely(picsys == NULL)) {
         IDirect3DSurface9_Release(surface);
         return VLC_ENOMEM;
     }
-    rsc->p_sys->surface = surface;
-    rsc->p_sys->fallback = NULL;
-    for (int i = 0; i < PICTURE_PLANE_MAX; i++) {
-        rsc->p[i].p_pixels = NULL;
-        rsc->p[i].i_pitch = 0;
-        rsc->p[i].i_lines = fmt->i_height / (i > 0 ? 2 : 1);
-    }
-    picture_t *picture = picture_NewFromResource(fmt, rsc);
+    picsys->surface = surface;
+    picsys->fallback = NULL;
+
+    picture_resource_t resource = { .p_sys = picsys };
+    for (int i = 0; i < PICTURE_PLANE_MAX; i++)
+        resource.p[i].i_lines = fmt->i_height / (i > 0 ? 2 : 1);
+
+    picture_t *picture = picture_NewFromResource(fmt, &resource);
     if (!picture) {
         IDirect3DSurface9_Release(surface);
-        free(rsc->p_sys);
+        free(picsys);
         return VLC_ENOMEM;
     }
+    sys->picsys = picsys;
 
     /* Wrap it into a picture pool */
     picture_pool_configuration_t pool_cfg;
@@ -960,10 +978,10 @@ static void Direct3DDestroyPool(vout_display_t *vd)
     vout_display_sys_t *sys = vd->sys;
 
     if (sys->pool) {
-        picture_resource_t *rsc = &sys->resource;
-        IDirect3DSurface9_Release(rsc->p_sys->surface);
-        if (rsc->p_sys->fallback)
-            picture_Release(rsc->p_sys->fallback);
+        picture_sys_t *picsys = sys->picsys;
+        IDirect3DSurface9_Release(picsys->surface);
+        if (picsys->fallback)
+            picture_Release(picsys->fallback);
         picture_pool_Delete(sys->pool);
     }
     sys->pool = NULL;
@@ -1258,8 +1276,10 @@ static void Direct3DImportSubpicture(vout_display_t *vd,
                         d3dr->width, d3dr->height, hr);
                 continue;
             }
+#ifndef NDEBUG
             msg_Dbg(vd, "Created %dx%d texture for OSD",
                     r->fmt.i_visible_width, r->fmt.i_visible_height);
+#endif
         }
 
         D3DLOCKED_RECT lock;
@@ -1444,13 +1464,5 @@ static int DesktopCallback(vlc_object_t *object, char const *psz_cmd,
     sys->ch_desktop |= ch_desktop;
     sys->desktop_requested = newval.b_bool;
     vlc_mutex_unlock(&sys->lock);
-
-    /* FIXME we should have a way to export variable to be saved */
-    if (ch_desktop) {
-        /* Modify playlist as well because the vout might have to be
-         * restarted */
-        var_Create(object->p_parent, "video-wallpaper", VLC_VAR_BOOL);
-        var_SetBool(object->p_parent, "video-wallpaper", newval.b_bool);
-    }
     return VLC_SUCCESS;
 }

@@ -36,6 +36,8 @@
 #include <vlc_plugin.h>
 #include <vlc_vout_window.h>
 
+#include "CompatibilityFixes.h"
+
 /*****************************************************************************
  * External prototypes
  *****************************************************************************/
@@ -128,6 +130,9 @@ static const char *const itunes_list_text[] = {
     N_("Do nothing"), N_("Pause iTunes"), N_("Pause and resume iTunes")
 };
 
+#define VOLUME_MAX_TEXT N_("Maximum Volume displayed")
+
+
 vlc_module_begin()
     set_description(N_("Mac OS X interface"))
     set_capability("interface", 200)
@@ -136,14 +141,17 @@ vlc_module_begin()
     set_subcategory(SUBCAT_INTERFACE_MAIN)
     cannot_unload_broken_library()
 
+    BOOL b_have_mavericks = OSX_MAVERICKS;
+
     set_section(N_("Appearance"), 0)
         add_bool("macosx-interfacestyle", false, INTERFACE_STYLE_TEXT, INTERFACE_STYLE_LONGTEXT, false)
-        add_bool("macosx-nativefullscreenmode", false, NATIVE_FULLSCREEN_MODE_ON_LION_TEXT, NATIVE_FULLSCREEN_MODE_ON_LION_LONGTEXT, false)
+        add_bool("macosx-nativefullscreenmode", b_have_mavericks, NATIVE_FULLSCREEN_MODE_ON_LION_TEXT, NATIVE_FULLSCREEN_MODE_ON_LION_LONGTEXT, false)
         add_bool("macosx-icon-change", true, ICONCHANGE_TEXT, ICONCHANGE_LONGTEXT, true)
         add_bool("macosx-show-playback-buttons", false, JUMPBUTTONS_TEXT, JUMPBUTTONS_LONGTEXT, false)
         add_bool("macosx-show-playmode-buttons", false, PLAYMODEBUTTONS_TEXT, PLAYMODEBUTTONS_LONGTEXT, false)
         add_bool("macosx-show-effects-button", false, EFFECTSBUTTON_TEXT, EFFECTSBUTTON_LONGTEXT, false)
         add_bool("macosx-show-sidebar", true, SIDEBAR_TEXT, SIDEBAR_LONGTEXT, false)
+        add_integer_with_range("macosx-max-volume", 125, 60, 200, VOLUME_MAX_TEXT, VOLUME_MAX_TEXT, true)
 
     set_section(N_("Behavior"), 0)
         add_bool("macosx-autoplay", true, AUTOPLAY_OSX_TEST, AUTOPLAY_OSX_LONGTEXT, false)
@@ -173,6 +181,6 @@ vlc_module_begin()
         set_section(N_("Video output"), 0)
         add_integer("macosx-vdev", 0, VDEV_TEXT, VDEV_LONGTEXT, false)
         add_float_with_range("macosx-opaqueness", 1, 0, 1, OPAQUENESS_TEXT, OPAQUENESS_LONGTEXT, true);
-        add_bool("macosx-black", true, BLACK_TEXT, BLACK_LONGTEXT, false)
+        add_bool("macosx-black", false, BLACK_TEXT, BLACK_LONGTEXT, false)
 vlc_module_end()
 

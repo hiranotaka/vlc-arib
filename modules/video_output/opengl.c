@@ -170,6 +170,11 @@ struct vout_display_opengl_t {
     PFNGLGETSHADERINFOLOGPROC GetShaderInfoLog;
 #endif
 
+#if defined(_WIN32)
+    PFNGLACTIVETEXTUREPROC  ActiveTexture;
+    PFNGLCLIENTACTIVETEXTUREPROC  ClientActiveTexture;
+#endif
+
 
     /* multitexture */
     bool use_multitexture;
@@ -340,6 +345,46 @@ static void BuildRGBAFragmentShader(vout_display_opengl_t *vgl,
     vgl->ShaderSource(*shader, 1, &code, NULL);
     vgl->CompileShader(*shader);
 }
+
+static void BuildXYZFragmentShader(vout_display_opengl_t *vgl,
+                                   GLint *shader)
+{
+    /* Shader for XYZ to RGB correction
+     * 3 steps :
+     *  - XYZ gamma correction
+     *  - XYZ to RGB matrix conversion
+     *  - reverse RGB gamma correction
+     */
+      const char *code =
+        "#version " GLSL_VERSION "\n"
+        PRECISION
+        "uniform sampler2D Texture0;"
+        "uniform vec4 xyz_gamma = vec4(2.6);"
+        "uniform vec4 rgb_gamma = vec4(1.0/2.2);"
+        // WARN: matrix Is filled column by column (not row !)
+        "uniform mat4 matrix_xyz_rgb = mat4("
+        "    3.240454 , -0.9692660, 0.0556434, 0.0,"
+        "   -1.5371385,  1.8760108, -0.2040259, 0.0,"
+        "    -0.4985314, 0.0415560, 1.0572252,  0.0,"
+        "    0.0,      0.0,         0.0,        1.0 "
+        " );"
+
+        "varying vec4 TexCoord0;"
+        "void main()"
+        "{ "
+        " vec4 v_in, v_out;"
+        " v_in  = texture2D(Texture0, TexCoord0.st);"
+        " v_in = pow(v_in, xyz_gamma);"
+        " v_out = matrix_xyz_rgb * v_in ;"
+        " v_out = pow(v_out, rgb_gamma) ;"
+        " v_out = clamp(v_out, 0.0, 1.0) ;"
+        " gl_FragColor = v_out;"
+        "}";
+    *shader = vgl->CreateShader(GL_FRAGMENT_SHADER);
+    vgl->ShaderSource(*shader, 1, &code, NULL);
+    vgl->CompileShader(*shader);
+}
+
 #endif
 
 vout_display_opengl_t *vout_display_opengl_New(video_format_t *fmt,
@@ -426,6 +471,13 @@ vout_display_opengl_t *vout_display_opengl_New(video_format_t *fmt,
         supports_shaders = false;
 #endif
 
+#if defined(_WIN32)
+    vgl->ActiveTexture = (PFNGLACTIVETEXTUREPROC)vlc_gl_GetProcAddress(vgl->gl, "glActiveTexture");
+    vgl->ClientActiveTexture = (PFNGLCLIENTACTIVETEXTUREPROC)vlc_gl_GetProcAddress(vgl->gl, "glClientActiveTexture");
+#   define glActiveTexture vgl->ActiveTexture
+#   define glClientActiveTexture vgl->ClientActiveTexture
+#endif
+
     vgl->supports_npot = HasExtension(extensions, "GL_ARB_texture_non_power_of_two") ||
                          HasExtension(extensions, "GL_APPLE_texture_2D_limited_npot");
 
@@ -465,6 +517,7 @@ vout_display_opengl_t *vout_display_opengl_New(video_format_t *fmt,
     vgl->tex_type     = GL_UNSIGNED_BYTE;
     /* Use YUV if possible and needed */
     bool need_fs_yuv = false;
+    bool need_fs_xyz = false;
     bool need_fs_rgba = USE_OPENGL_ES == 2;
     float yuv_range_correction = 1.0;
 
@@ -498,13 +551,22 @@ vout_display_opengl_t *vout_display_opengl_New(video_format_t *fmt,
         }
     }
 
+    if (fmt->i_chroma == VLC_CODEC_XYZ12) {
+        vlc_fourcc_GetChromaDescription(fmt->i_chroma);
+        need_fs_xyz       = true;
+        vgl->fmt          = *fmt;
+        vgl->fmt.i_chroma = VLC_CODEC_XYZ12;
+        vgl->tex_format   = GL_RGB;
+        vgl->tex_internal = GL_RGB;
+        vgl->tex_type     = GL_UNSIGNED_SHORT;
+    }
     vgl->chroma = vlc_fourcc_GetChromaDescription(vgl->fmt.i_chroma);
     vgl->use_multitexture = vgl->chroma->plane_count > 1;
 
     /* Texture size */
     for (unsigned j = 0; j < vgl->chroma->plane_count; j++) {
-        int w = vgl->fmt.i_width  * vgl->chroma->p[j].w.num / vgl->chroma->p[j].w.den;
-        int h = vgl->fmt.i_height * vgl->chroma->p[j].h.num / vgl->chroma->p[j].h.den;
+        int w = vgl->fmt.i_visible_width  * vgl->chroma->p[j].w.num / vgl->chroma->p[j].w.den;
+        int h = vgl->fmt.i_visible_height * vgl->chroma->p[j].h.num / vgl->chroma->p[j].h.den;
         if (vgl->supports_npot) {
             vgl->tex_width[j]  = w;
             vgl->tex_height[j] = h;
@@ -521,10 +583,14 @@ vout_display_opengl_t *vout_display_opengl_New(video_format_t *fmt,
     vgl->shader[1] =
     vgl->shader[2] = -1;
     vgl->local_count = 0;
-    if (supports_shaders && (need_fs_yuv || need_fs_rgba)) {
+    if (supports_shaders && (need_fs_yuv || need_fs_xyz|| need_fs_rgba)) {
 #ifdef SUPPORTS_SHADERS
-        BuildYUVFragmentShader(vgl, &vgl->shader[0], &vgl->local_count,
-                               vgl->local_value, fmt, yuv_range_correction);
+        if (need_fs_xyz)
+            BuildXYZFragmentShader(vgl, &vgl->shader[0]);
+        else
+            BuildYUVFragmentShader(vgl, &vgl->shader[0], &vgl->local_count,
+                                vgl->local_value, fmt, yuv_range_correction);
+
         BuildRGBAFragmentShader(vgl, &vgl->shader[1]);
         BuildVertexShader(vgl, &vgl->shader[2]);
 
@@ -830,6 +896,8 @@ int vout_display_opengl_Prepare(vout_display_opengl_t *vgl,
             glr->bottom = -2.0 * (r->i_y + r->fmt.i_visible_height) / subpicture->i_original_picture_height + 1.0;
 
             glr->texture = 0;
+            /* Try to recycle the textures allocated by the previous
+               call to this function. */
             for (int j = 0; j < last_count; j++) {
                 if (last[j].texture &&
                     last[j].width  == glr->width &&
@@ -845,11 +913,13 @@ int vout_display_opengl_Prepare(vout_display_opengl_t *vgl,
             const int pixels_offset = r->fmt.i_y_offset * r->p_picture->p->i_pitch +
                                       r->fmt.i_x_offset * r->p_picture->p->i_pixel_pitch;
             if (glr->texture) {
+                /* A texture was successfully recycled, reuse it. */
                 glBindTexture(GL_TEXTURE_2D, glr->texture);
                 Upload(vgl, r->fmt.i_visible_width, r->fmt.i_visible_height, glr->width, glr->height, 1, 1, 1, 1,
                        r->p_picture->p->i_pitch, r->p_picture->p->i_pixel_pitch, 0,
                        &r->p_picture->p->p_pixels[pixels_offset], GL_TEXTURE_2D, glr->format, glr->type);
             } else {
+                /* Could not recycle a previous texture, generate a new one. */
                 glGenTextures(1, &glr->texture);
                 glBindTexture(GL_TEXTURE_2D, glr->texture);
 #if !USE_OPENGL_ES
@@ -923,10 +993,15 @@ static void DrawWithShaders(vout_display_opengl_t *vgl,
 {
     vgl->UseProgram(vgl->program[program]);
     if (program == 0) {
-        vgl->Uniform4fv(vgl->GetUniformLocation(vgl->program[0], "Coefficient"), 4, vgl->local_value);
-        vgl->Uniform1i(vgl->GetUniformLocation(vgl->program[0], "Texture0"), 0);
-        vgl->Uniform1i(vgl->GetUniformLocation(vgl->program[0], "Texture1"), 1);
-        vgl->Uniform1i(vgl->GetUniformLocation(vgl->program[0], "Texture2"), 2);
+        if (vgl->chroma->plane_count == 3) {
+            vgl->Uniform4fv(vgl->GetUniformLocation(vgl->program[0], "Coefficient"), 4, vgl->local_value);
+            vgl->Uniform1i(vgl->GetUniformLocation(vgl->program[0], "Texture0"), 0);
+            vgl->Uniform1i(vgl->GetUniformLocation(vgl->program[0], "Texture1"), 1);
+            vgl->Uniform1i(vgl->GetUniformLocation(vgl->program[0], "Texture2"), 2);
+        }
+        else if (vgl->chroma->plane_count == 1) {
+            vgl->Uniform1i(vgl->GetUniformLocation(vgl->program[0], "Texture0"), 0);
+        }
     } else {
         vgl->Uniform1i(vgl->GetUniformLocation(vgl->program[1], "Texture0"), 0);
         vgl->Uniform4f(vgl->GetUniformLocation(vgl->program[1], "FillColor"), 1.0f, 1.0f, 1.0f, 1.0f);
@@ -993,6 +1068,17 @@ int vout_display_opengl_Display(vout_display_opengl_t *vgl,
             scale_w = 1.0;
             scale_h = 1.0;
         }
+        /* Warning: if NPOT is not supported a larger texture is
+           allocated. This will cause right and bottom coordinates to
+           land on the edge of two texels with the texels to the
+           right/bottom uninitialized by the call to
+           glTexSubImage2D. This might cause a green line to appear on
+           the right/bottom of the display.
+           There are two possible solutions:
+           - Manually mirror the edges of the texture.
+           - Add a "-1" when computing right and bottom, however the
+           last row/column might not be displayed at all.
+        */
         left[j]   = (source->i_x_offset +                       0 ) * scale_w;
         top[j]    = (source->i_y_offset +                       0 ) * scale_h;
         right[j]  = (source->i_x_offset + source->i_visible_width ) * scale_w;
@@ -1000,7 +1086,7 @@ int vout_display_opengl_Display(vout_display_opengl_t *vgl,
     }
 
 #ifdef SUPPORTS_SHADERS
-    if (vgl->program[0] && vgl->chroma->plane_count == 3)
+    if (vgl->program[0] && (vgl->chroma->plane_count == 3 || vgl->chroma->plane_count == 1))
         DrawWithShaders(vgl, left, top, right, bottom, 0);
     else if (vgl->program[1] && vgl->chroma->plane_count == 1)
         DrawWithShaders(vgl, left, top, right, bottom, 1);

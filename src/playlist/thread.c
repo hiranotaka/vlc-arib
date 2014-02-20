@@ -246,7 +246,7 @@ static int PlayItem( playlist_t *p_playlist, playlist_item_t *p_item )
         if( !b_has_art || strncmp( psz_arturl, "attachment://", 13 ) )
         {
             PL_DEBUG( "requesting art for %s", psz_name );
-            playlist_AskForArtEnqueue( p_playlist, p_input );
+            libvlc_ArtRequest( p_playlist->p_libvlc, p_input );
         }
         free( psz_arturl );
         free( psz_name );
@@ -332,6 +332,12 @@ static playlist_item_t *NextItem( playlist_t *p_playlist )
                 if( p_playlist->i_current_index >= p_playlist->current.i_size )
                 {
                     PL_DEBUG( "looping - restarting at beginning of node" );
+                    /* reshuffle playlist when end is reached */
+                    if( var_GetBool( p_playlist, "random" ) ) {
+                        PL_DEBUG( "reshuffle playlist" );
+                        ResetCurrentlyPlaying( p_playlist,
+                                get_current_status_item( p_playlist ) );
+                    }
                     p_playlist->i_current_index = 0;
                 }
             }
@@ -346,6 +352,12 @@ static playlist_item_t *NextItem( playlist_t *p_playlist )
                 if( p_playlist->i_current_index <= -1 )
                 {
                     PL_DEBUG( "looping - restarting at end of node" );
+                    /* reshuffle playlist when beginning is reached */
+                    if( var_GetBool( p_playlist, "random" ) ) {
+                        PL_DEBUG( "reshuffle playlist" );
+                        ResetCurrentlyPlaying( p_playlist,
+                                get_current_status_item( p_playlist ) );
+                    }
                     p_playlist->i_current_index = p_playlist->current.i_size-1;
                 }
             }
@@ -360,7 +372,7 @@ static playlist_item_t *NextItem( playlist_t *p_playlist )
     {
         bool b_loop = var_GetBool( p_playlist, "loop" );
         bool b_repeat = var_GetBool( p_playlist, "repeat" );
-        bool b_playstop = var_GetBool( p_playlist, "play-and-stop" );
+        bool b_playstop = var_InheritBool( p_playlist, "play-and-stop" );
 
         /* Repeat and play/stop */
         if( b_repeat && get_current_status_item( p_playlist ) )
@@ -406,6 +418,12 @@ static playlist_item_t *NextItem( playlist_t *p_playlist )
         {
             if( !b_loop || p_playlist->current.i_size == 0 )
                 return NULL;
+            /* reshuffle after last item has been played */
+            if( var_GetBool( p_playlist, "random" ) ) {
+                PL_DEBUG( "reshuffle playlist" );
+                ResetCurrentlyPlaying( p_playlist,
+                                       get_current_status_item( p_playlist ) );
+            }
             p_playlist->i_current_index = 0;
         }
         PL_DEBUG( "using item %i", p_playlist->i_current_index );
@@ -492,7 +510,7 @@ static void LoopRequest( playlist_t *p_playlist, int i_status )
     msg_Dbg( p_playlist, "nothing to play" );
     p_sys->status.i_status = PLAYLIST_STOPPED;
 
-    if( var_GetBool( p_playlist, "play-and-exit" ) )
+    if( var_InheritBool( p_playlist, "play-and-exit" ) )
     {
         msg_Info( p_playlist, "end of playlist, exiting" );
         libvlc_Quit( p_playlist->p_libvlc );

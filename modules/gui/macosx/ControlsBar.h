@@ -1,7 +1,7 @@
 /*****************************************************************************
  * ControlsBar.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2012 VLC authors and VideoLAN
+ * Copyright (C) 2012-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -23,7 +23,7 @@
  *****************************************************************************/
 
 #import <Cocoa/Cocoa.h>
-#import "CompatibilityFixes.h"
+#import "misc.h"
 
 @class VLCFSPanel;
 
@@ -70,6 +70,7 @@
 @property (readonly) id bottomBarView;
 
 - (CGFloat)height;
+- (void)toggleForwardBackwardMode:(BOOL)b_alt;
 
 - (IBAction)play:(id)sender;
 - (IBAction)bwd:(id)sender;
@@ -103,7 +104,7 @@
     IBOutlet id o_repeat_btn;
     IBOutlet id o_shuffle_btn;
 
-    IBOutlet id o_volume_sld;
+    IBOutlet VLCVolumeSliderCommon * o_volume_sld;
     IBOutlet id o_volume_track_view;
     IBOutlet id o_volume_down_btn;
     IBOutlet id o_volume_up_btn;
@@ -142,6 +143,8 @@
 
 - (void)setShuffle;
 - (IBAction)shuffle:(id)sender;
+
+- (IBAction)togglePlaylist:(id)sender;
 
 - (void)toggleEffectsButton;
 - (void)toggleJumpButtons;

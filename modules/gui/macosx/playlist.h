@@ -36,6 +36,7 @@
 #define DATE_COLUMN @"date"
 #define LANGUAGE_COLUMN @"language"
 #define URI_COLUMN @"uri"
+#define FILESIZE_COLUMN @"file-size"
 
 /*****************************************************************************
  * VLCPlaylistView interface
@@ -57,7 +58,6 @@
     IBOutlet VLCPlaylistView* o_outline_view_other;
 
     NSMutableDictionary *o_outline_dict;
-    playlist_item_t * p_current_root_item;
 }
 
 - (void)setPlaylistRoot: (playlist_item_t *)root_item;
@@ -106,16 +106,6 @@
     IBOutlet id o_save_accessory_text;
 
     IBOutlet id o_playlist_header;
-
-    NSImage *o_descendingSortingImage;
-    NSImage *o_ascendingSortingImage;
-
-    NSMutableArray *o_nodes_array;
-    NSMutableArray *o_items_array;
-
-    BOOL b_selected_item_met;
-    BOOL b_isSortDescending;
-    id o_tc_sortColumn;
 }
 
 - (void)searchfieldChanged:(NSNotification *)o_notification;
@@ -140,6 +130,7 @@
 - (IBAction)sortNodeByName:(id)sender;
 - (IBAction)sortNodeByAuthor:(id)sender;
 - (IBAction)recursiveExpandNode:(id)sender;
+- (IBAction)showInfoPanel:(id)sender;
 
 - (id)playingItem;
 - (NSArray *)draggedItems;

@@ -103,6 +103,7 @@ luac_verbose_0 = @echo "  LUAC   $@";
 
 if BUILD_LUA
 nobase_vlclib_DATA = \
+	lua/extensions/VLSub.luac \
 	lua/intf/cli.luac \
 	lua/intf/dummy.luac \
 	lua/intf/dumpmeta.luac \
@@ -147,7 +148,6 @@ nobase_vlclib_DATA = \
 	lua/playlist/youtube.luac \
 	lua/playlist/youtube_homepage.luac \
 	lua/playlist/zapiks.luac \
-	lua/sd/assembleenationale.luac \
 	lua/sd/fmc.luac \
 	lua/sd/icecast.luac \
 	lua/sd/jamendo.luac \
@@ -186,6 +186,7 @@ MOSTLYCLEANFILES += $(nobase_vlclib_DATA)
 EXTRA_DIST += \
 	lua/README.txt \
 	lua/extensions/README.txt \
+	lua/extensions/VLSub.lua \
 	lua/intf/README.txt \
 	lua/intf/cli.lua \
 	lua/intf/dummy.lua \
@@ -238,7 +239,6 @@ EXTRA_DIST += \
 	lua/playlist/youtube_homepage.lua \
 	lua/playlist/zapiks.lua \
 	lua/sd/README.txt \
-	lua/sd/assembleenationale.lua \
 	lua/sd/fmc.lua \
 	lua/sd/icecast.lua \
 	lua/sd/jamendo.lua \

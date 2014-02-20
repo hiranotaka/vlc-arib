@@ -1,5 +1,5 @@
 /*****************************************************************************
- * libvlc-module.c: Options for the main (libvlc itself) module
+ * libvlc-module.c: Options for the core (libvlc itself) module
  *****************************************************************************
  * Copyright (C) 1998-2009 VLC authors and VideoLAN
  * $Id$
@@ -25,9 +25,7 @@
  *****************************************************************************/
 
 // Pretend we are a builtin module
-#define MODULE_NAME main
-#define MODULE_PATH main
-
+#define MODULE_NAME core
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -49,7 +47,7 @@ static const char *const ppsz_snap_formats[] =
 { "png", "jpg", "tiff" };
 
 /*****************************************************************************
- * Configuration options for the main program. Each module will also separatly
+ * Configuration options for the core module. Each module will also separatly
  * define its own configuration options.
  * Look into configuration.h if you need to know more about the following
  * macros.
@@ -595,6 +593,11 @@ static const char *const ppsz_clock_descriptions[] =
     "Language of the subtitle track you want to use " \
     "(comma separated, two or three letters country code, you may use 'any' as a fallback).")
 
+#define INPUT_MENUTRACK_LANG_TEXT N_("Menu language")
+#define INPUT_MENUTRACK_LANG_LONGTEXT N_( \
+    "Language of the menus you want to use with DVD/BluRay " \
+    "(comma separated, two or three letters country code, you may use 'any' as a fallback).")
+
 /// \todo Document how to find it
 #define INPUT_AUDIOTRACK_ID_TEXT N_("Audio track ID")
 #define INPUT_AUDIOTRACK_ID_LONGTEXT N_( \
@@ -826,7 +829,8 @@ static const char *const ppsz_prefres[] = {
 
 #define HTTP_CERT_TEXT N_("HTTP/TLS server certificate")
 #define CERT_LONGTEXT N_( \
-   "This X.509 certicate file (PEM format) is used for server-side TLS." )
+   "This X.509 certicate file (PEM format) is used for server-side TLS. " \
+   "On OS X, the string is used as a label to search the certificate in the keychain." )
 
 #define HTTP_KEY_TEXT N_("HTTP/TLS server private key")
 #define KEY_LONGTEXT N_( \
@@ -839,7 +843,7 @@ static const char *const ppsz_prefres[] = {
 
 #define HTTP_CRL_TEXT N_("HTTP/TLS Certificate Revocation List")
 #define CRL_LONGTEXT N_( \
-   "This file contains an optional CRL to prevent remove clients " \
+   "This file contains an optional CRL to prevent remote clients " \
    "from using revoked certificates in TLS sessions.")
 
 #define SOCKS_SERVER_TEXT N_("SOCKS server")
@@ -1435,7 +1439,6 @@ static const char *const mouse_wheel_texts[] =
  * Quick usage guide for the configuration options:
  *
  * add_category_hint( N_(text), N_(longtext), b_advanced_option )
- * add_subcategory_hint( N_(text), N_(longtext), b_advanced_option )
  * add_usage_hint( N_(text), b_advanced_option )
  * add_string( option_name, value, N_(text), N_(longtext),
                b_advanced_option )
@@ -1688,6 +1691,10 @@ vlc_module_begin ()
                  INPUT_SUBTRACK_LANG_TEXT, INPUT_SUBTRACK_LANG_LONGTEXT,
                   false )
         change_safe ()
+    add_string( "menu-language", "",
+                 INPUT_MENUTRACK_LANG_TEXT, INPUT_MENUTRACK_LANG_LONGTEXT,
+                  false )
+        change_safe ()
     add_integer( "audio-track-id", -1, INPUT_AUDIOTRACK_ID_TEXT,
                  INPUT_AUDIOTRACK_ID_LONGTEXT, true )
         change_safe ()
@@ -1869,6 +1876,7 @@ vlc_module_begin ()
     add_string( "input-title-format", "$Z", INPUT_TITLE_FORMAT_TEXT, INPUT_TITLE_FORMAT_LONGTEXT, false );
 
 /* Decoder options */
+    set_subcategory( SUBCAT_INPUT_VCODEC )
     add_category_hint( N_("Decoders"), CODEC_CAT_LONGTEXT , true )
     add_string( "codec", NULL, CODEC_TEXT,
                 CODEC_LONGTEXT, true )
@@ -2084,7 +2092,7 @@ vlc_module_begin ()
     add_bool( "interact", true, INTERACTION_TEXT,
               INTERACTION_LONGTEXT, false )
 
-    add_bool ( "stats", true, STATS_TEXT, STATS_LONGTEXT, true )
+    add_bool ( "stats", false, STATS_TEXT, STATS_LONGTEXT, true )
 
     set_subcategory( SUBCAT_INTERFACE_MAIN )
     add_module_cat( "intf", SUBCAT_INTERFACE_MAIN, NULL, INTF_TEXT,
@@ -2142,7 +2150,7 @@ vlc_module_begin ()
 #   define KEY_TOGGLE_FULLSCREEN  "Command+f"
 #   define KEY_LEAVE_FULLSCREEN   "Esc"
 #   define KEY_PLAY_PAUSE         "Space"
-#   define KEY_PAUSE              NULL
+#   define KEY_SIMPLE_PAUSE       NULL
 #   define KEY_PLAY               NULL
 #   define KEY_FASTER             "Command+="
 #   define KEY_SLOWER             "Command+-"
@@ -2256,17 +2264,24 @@ vlc_module_begin ()
      */
 #   define KEY_TOGGLE_FULLSCREEN  "f"
 #   define KEY_LEAVE_FULLSCREEN   "Esc"
-#   define KEY_PLAY_PAUSE         "Space\tMedia Play Pause"
-#   define KEY_PAUSE              "Browser Stop"
+#   define KEY_SIMPLE_PAUSE       "Browser Stop"
 #   define KEY_PLAY               "Browser Refresh"
 #   define KEY_FASTER             "+"
 #   define KEY_SLOWER             "-"
 #   define KEY_RATE_NORMAL        "="
 #   define KEY_RATE_FASTER_FINE   "]"
 #   define KEY_RATE_SLOWER_FINE   "["
+#ifdef _WIN32
+#   define KEY_PLAY_PAUSE         "Space"
+#   define KEY_NEXT               "n"
+#   define KEY_PREV               "p"
+#   define KEY_STOP               "s"
+#else
+#   define KEY_PLAY_PAUSE         "Space\tMedia Play Pause"
 #   define KEY_NEXT               "n\tMedia Next Track"
 #   define KEY_PREV               "p\tMedia Prev Track"
 #   define KEY_STOP               "s\tMedia Stop"
+#endif
 #   define KEY_POSITION           "t"
 #   define KEY_JUMP_MEXTRASHORT   "Shift+Left"
 #   define KEY_JUMP_PEXTRASHORT   "Shift+Right"
@@ -2276,16 +2291,25 @@ vlc_module_begin ()
 #   define KEY_JUMP_PMEDIUM       "Ctrl+Right"
 #   define KEY_JUMP_MLONG         "Ctrl+Alt+Left"
 #   define KEY_JUMP_PLONG         "Ctrl+Alt+Right"
-#   define KEY_FRAME_NEXT         "e\tBrowser Next"
 #   define KEY_NAV_ACTIVATE       "Enter"
 #   define KEY_NAV_UP             "Up"
 #   define KEY_NAV_DOWN           "Down"
 #   define KEY_NAV_LEFT           "Left"
 #   define KEY_NAV_RIGHT          "Right"
 #   define KEY_QUIT               "Ctrl+q"
+
+#ifdef _WIN32 /* On Windows, people expect volume keys to control the master */
+#   define KEY_VOL_UP             "Ctrl+Up"
+#   define KEY_VOL_DOWN           "Ctrl+Down"
+#   define KEY_VOL_MUTE           "m"
+#   define KEY_FRAME_NEXT         "e"
+#else
 #   define KEY_VOL_UP             "Ctrl+Up\tVolume Up"
 #   define KEY_VOL_DOWN           "Ctrl+Down\tVolume Down"
 #   define KEY_VOL_MUTE           "m\tVolume Mute"
+#   define KEY_FRAME_NEXT         "e\tBrowser Next"
+#endif
+
 #   define KEY_SUBDELAY_UP        "h"
 #   define KEY_SUBDELAY_DOWN      "g"
 #   define KEY_SUBPOS_DOWN        NULL
@@ -2376,7 +2400,7 @@ vlc_module_begin ()
              LEAVE_FULLSCREEN_KEY_LONGTEXT, false )
     add_key( "key-play-pause", KEY_PLAY_PAUSE, PLAY_PAUSE_KEY_TEXT,
              PLAY_PAUSE_KEY_LONGTEXT, false )
-    add_key( "key-pause", KEY_PAUSE, PAUSE_KEY_TEXT,
+    add_key( "key-pause", KEY_SIMPLE_PAUSE, PAUSE_KEY_TEXT,
              PAUSE_KEY_LONGTEXT, true )
     add_key( "key-play", KEY_PLAY, PLAY_KEY_TEXT,
              PLAY_KEY_LONGTEXT, true )
@@ -2682,7 +2706,7 @@ vlc_module_begin ()
    /* Usage (mainly useful for cmd line stuff) */
     /* add_usage_hint( PLAYLIST_USAGE ) */
 
-    set_description( N_("main program") )
+    set_description( N_("core program") )
 vlc_module_end ()
 
 /*****************************************************************************

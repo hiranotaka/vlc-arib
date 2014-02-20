@@ -29,6 +29,7 @@
 #import "applescript.h"
 #import "CoreInteraction.h"
 #import "playlist.h"
+#import <vlc_url.h>
 
 /*****************************************************************************
  * VLGetURLScriptCommand implementation
@@ -46,12 +47,25 @@
             if (o_url != nil)
                 [[NSDocumentController sharedDocumentController] noteNewRecentDocumentURL: o_url];
 
-            NSArray *o_result = @[[NSDictionary dictionaryWithObject:o_urlString forKey: @"ITEM_URL"]];
+            input_thread_t * p_input = pl_CurrentInput(VLCIntf);
+            BOOL b_returned = NO;
+
+            if (p_input) {
+                b_returned = input_AddSubtitle(p_input, [o_urlString UTF8String], true);
+                vlc_object_release(p_input);
+                if (!b_returned)
+                    return nil;
+            }
+
+            NSDictionary *o_dic;
+            NSArray *o_array;
+            o_dic = [NSDictionary dictionaryWithObject:o_urlString forKey:@"ITEM_URL"];
+            o_array = [NSArray arrayWithObject: o_dic];
 
             if (b_autoplay)
-                [[[VLCMain sharedInstance] playlist] appendArray: o_result atPos: -1 enqueue: NO];
+                [[[VLCMain sharedInstance] playlist] appendArray: o_array atPos: -1 enqueue: NO];
             else
-                [[[VLCMain sharedInstance] playlist] appendArray: o_result atPos: -1 enqueue: YES];
+                [[[VLCMain sharedInstance] playlist] appendArray: o_array atPos: -1 enqueue: YES];
         }
     }
     return nil;
@@ -87,7 +101,7 @@
     else if ([o_command isEqualToString:@"fullscreen"])
         [[VLCCoreInteraction sharedInstance] toggleFullscreen];
     else if ([o_command isEqualToString:@"mute"])
-        [[VLCCoreInteraction sharedInstance] setMute: YES];
+        [[VLCCoreInteraction sharedInstance] toggleMute];
     else if ([o_command isEqualToString:@"volumeUp"])
         [[VLCCoreInteraction sharedInstance] volumeUp];
     else if ([o_command isEqualToString:@"volumeDown"])

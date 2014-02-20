@@ -77,7 +77,7 @@ static inline seekpoint_t *vlc_seekpoint_Duplicate( const seekpoint_t *src )
 /*****************************************************************************
  * Title:
  *****************************************************************************/
-typedef struct
+typedef struct input_title_t
 {
     char        *psz_name;
 
@@ -201,13 +201,6 @@ static inline void vlc_input_attachment_Delete( input_attachment_t *a )
 /*****************************************************************************
  * input defines/constants.
  *****************************************************************************/
-
-/* i_update field of access_t/demux_t */
-#define INPUT_UPDATE_TITLE      0x0010
-#define INPUT_UPDATE_SEEKPOINT  0x0020
-#define INPUT_UPDATE_META       0x0040
-#define INPUT_UPDATE_SIGNAL     0x0080
-#define INPUT_UPDATE_TITLE_LIST 0x0100
 
 /**
  * This defines private core storage for an input.
@@ -614,7 +607,7 @@ VLC_API void input_DecoderDecode( decoder_t *, block_t *, bool b_do_pace );
 /**
  * This function creates a sane filename path.
  */
-VLC_API char * input_CreateFilename( vlc_object_t *, const char *psz_path, const char *psz_prefix, const char *psz_extension ) VLC_USED;
+VLC_API char * input_CreateFilename( input_thread_t *, const char *psz_path, const char *psz_prefix, const char *psz_extension ) VLC_USED;
 
 /**
  * It creates an empty input resource handler.

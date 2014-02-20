@@ -87,6 +87,25 @@ QString QVLCDebugLevelSpinBox::textFromValue( int v ) const
     return QString( "%1 (%2)" ).arg( v ).arg( texts[v] );
 }
 
+VLCQDial::VLCQDial( QWidget *parent ) : QDial( parent )
+{
+
+}
+
+void VLCQDial::paintEvent( QPaintEvent *event )
+{
+    QDial::paintEvent( event );
+    QPainter painter( this );
+    painter.setPen( QPen( palette().color( QPalette::WindowText ) ) );
+    float radius = 0.5 * 0.707106 * qMin( size().width(), size().height() );
+    painter.drawText( QRectF( rect().center().x() + radius,
+                              rect().center().y() + radius,
+                              size().width(),
+                              size().height() ),
+                      0, QString::number( value() ), 0 );
+    painter.end();
+}
+
 /***************************************************************************
  * Hotkeys converters
  ***************************************************************************/
@@ -116,8 +135,8 @@ static const vlc_qt_key_t keys[] =
     { Qt::Key_Enter,                 '\r' }, // numeric pad
     { Qt::Key_Insert,                KEY_INSERT },
     { Qt::Key_Delete,                KEY_DELETE },
-    // Qt::Key_Pause
-    // Qt::Key_Print
+    { Qt::Key_Pause,                 KEY_PAUSE },
+    { Qt::Key_Print,                 KEY_PRINT },
     // Qt::Key_SysReq
     // Qt::Key_Clear
     { Qt::Key_Home,                  KEY_HOME },
@@ -287,9 +306,9 @@ int qtWheelEventToVLCKey( QWheelEvent *e )
     return i_vlck;
 }
 
-QString VLCKeyToString( unsigned val )
+QString VLCKeyToString( unsigned val, bool locale )
 {
-    char *base = vlc_keycode2str (val, true);
+    char *base = vlc_keycode2str (val, locale);
     if (base == NULL)
         return qtr( "Unset" );
 

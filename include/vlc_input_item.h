@@ -90,6 +90,8 @@ struct input_item_t
     bool        b_error_when_reading;/**< Error When Reading */
 };
 
+TYPEDEF_ARRAY(input_item_t*, input_item_array_t)
+
 enum input_item_type_e
 {
     ITEM_TYPE_UNKNOWN,
@@ -276,6 +278,9 @@ VLC_API void input_item_Release(input_item_t *);
 /* Historical hack... */
 #define vlc_gc_incref(i) input_item_Hold(i)
 #define vlc_gc_decref(i) input_item_Release(i)
+
+VLC_API int libvlc_MetaRequest(libvlc_int_t *, input_item_t *);
+VLC_API int libvlc_ArtRequest(libvlc_int_t *, input_item_t *);
 
 /******************
  * Input stats

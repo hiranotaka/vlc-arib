@@ -38,7 +38,7 @@
  */
 struct video_palette_t
 {
-    int i_entries;      /**< to keep the compatibility with ffmpeg's palette */
+    int i_entries;      /**< to keep the compatibility with libavcodec's palette */
     uint8_t palette[256][4];                   /**< 4-byte RGBA/YUVA palette */
 };
 
@@ -320,6 +320,10 @@ typedef struct extra_languages_t
 /**
  * ES format definition
  */
+#define ES_PRIORITY_NOT_SELECTABLE  -2
+#define ES_PRIORITY_NOT_DEFAULTABLE -1
+#define ES_PRIORITY_SELECTABLE_MIN   0
+#define ES_PRIORITY_MIN ES_PRIORITY_NOT_SELECTABLE
 struct es_format_t
 {
     int             i_cat;              /**< ES category @see es_format_category_e */

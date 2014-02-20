@@ -1,10 +1,12 @@
 # live555
 
 #LIVEDOTCOM_URL := http://live555.com/liveMedia/public/live555-latest.tar.gz
-LIVE555_FILE := live.2012.12.18.tar.gz
+LIVE555_FILE := live.2014.01.21.tar.gz
 LIVEDOTCOM_URL := http://download.videolan.org/pub/contrib/live555/$(LIVE555_FILE)
 
+ifdef BUILD_NETWORK
 PKGS += live555
+endif
 
 $(TARBALLS)/$(LIVE555_FILE):
 	$(call download,$(LIVEDOTCOM_URL))
@@ -47,7 +49,6 @@ endif
 	cd live && sed -e 's%-D_FILE_OFFSET_BITS=64%-D_FILE_OFFSET_BITS=64\ -fPIC\ -DPIC%' -i.orig config.linux
 ifdef HAVE_ANDROID
 	cd live && sed -e 's%-DPIC%-DPIC -DNO_SSTREAM=1 -DLOCALE_NOT_USED -I$(ANDROID_NDK)/platforms/android-9/arch-$(PLATFORM_SHORT_ARCH)/usr/include%' -i.orig config.linux
-	patch -p0 < $(SRC)/live555/android.patch
 endif
 	mv live $@
 	touch $@

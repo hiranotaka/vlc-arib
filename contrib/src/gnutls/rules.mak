@@ -1,9 +1,13 @@
 # GnuTLS
 
-GNUTLS_VERSION := 3.1.10
+GNUTLS_VERSION := 3.1.17
 GNUTLS_URL := ftp://ftp.gnutls.org/gcrypt/gnutls/v3.1/gnutls-$(GNUTLS_VERSION).tar.xz
 
+ifdef BUILD_NETWORK
+ifndef HAVE_DARWIN_OS
 PKGS += gnutls
+endif
+endif
 ifeq ($(call need_pkg,"gnutls >= 3.0.20"),)
 PKGS_FOUND += gnutls
 endif
@@ -24,6 +28,9 @@ endif
 	$(APPLY) $(SRC)/gnutls/gnutls-no-egd.patch
 	$(APPLY) $(SRC)/gnutls/read-file-limits.h.patch
 	$(APPLY) $(SRC)/gnutls/downgrade-automake-requirement.patch
+ifdef HAVE_MACOSX
+	$(APPLY) $(SRC)/gnutls/mac-keychain-lookup.patch
+endif
 	$(call pkg_static,"lib/gnutls.pc.in")
 	$(UPDATE_AUTOCONFIG)
 	$(MOVE)
@@ -38,13 +45,15 @@ GNUTLS_CONF := \
 	--disable-openpgp-authentication \
 	--disable-openssl-compatibility \
 	--disable-guile \
+	--disable-nls \
+	--without-libintl-prefix \
 	$(HOSTCONF)
 
 DEPS_gnutls = nettle $(DEPS_nettle)
 
 .gnutls: gnutls
-ifdef HAVE_ANDROID
 	$(RECONF)
+ifdef HAVE_ANDROID
 	cd $< && $(HOSTVARS) gl_cv_header_working_stdint_h=yes ./configure $(GNUTLS_CONF)
 else
 	cd $< && $(HOSTVARS) ./configure $(GNUTLS_CONF)

@@ -40,9 +40,8 @@
 #include <vlc_network.h>
 #include <vlc_charset.h>
 
-#ifdef HAVE_UNISTD_H
-#    include <unistd.h>
-#endif
+#include <errno.h>
+#include <unistd.h>
 #ifdef HAVE_ARPA_INET_H
 # include <arpa/inet.h>
 #endif
@@ -557,7 +556,8 @@ static void *Run( void *data )
                     i_read = net_Read (p_sd, ufd[i].fd, NULL, p_buffer,
                                        MAX_SAP_BUFFER, false);
                     if (i_read < 0)
-                        msg_Warn (p_sd, "receive error: %m");
+                        msg_Warn (p_sd, "receive error: %s",
+                                  vlc_strerror_c(errno));
                     if (i_read > 6)
                     {
                         /* Parse the packet */
@@ -1251,7 +1251,7 @@ static sdp_t *ParseSDP (vlc_object_t *p_obj, const char *psz_sdp)
                 {
                     msg_Dbg (p_obj, "SDP origin not supported: %s", data);
                     /* Or maybe out-of-range, but this looks suspicious */
-                    return NULL;
+                    goto error;
                 }
                 EnsureUTF8 (p_sdp->orig_host);
                 break;

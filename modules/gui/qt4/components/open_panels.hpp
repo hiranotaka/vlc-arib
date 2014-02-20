@@ -148,15 +148,6 @@ public slots:
     virtual void updateMRL();
 };
 
-class UrlValidator : public QValidator
-{
-   Q_OBJECT
-public:
-   UrlValidator( QObject *parent ) : QValidator( parent ) { }
-   void fixup( QString& ) const;
-   QValidator::State validate( QString&, int& ) const;
-};
-
 class DiscOpenPanel: public OpenPanel
 {
     Q_OBJECT

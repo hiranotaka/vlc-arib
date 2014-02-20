@@ -1,26 +1,26 @@
 /*****************************************************************************
  * vod.c: rtsp VoD server module
  *****************************************************************************
- * Copyright (C) 2003-2006, 2010 the VideoLAN team
+ * Copyright (C) 2003-2006, 2010 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Gildas Bazin <gbazin@videolan.org>
  *          Pierre Ynard
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -314,15 +314,13 @@ static void MediaDel( vod_t *p_vod, vod_media_t *p_media )
         RtspUnsetup(p_media->rtsp);
     }
 
-    while( p_media->i_es )
+    for( int i = 0; i < p_media->i_es; i++ )
     {
-        media_es_t *p_es = p_media->es[0];
-        TAB_REMOVE( p_media->i_es, p_media->es, p_es );
-        free( p_es->rtp_fmt.fmtp );
-        free( p_es );
+        free( p_media->es[i]->rtp_fmt.fmtp );
+        free( p_media->es[i] );
     }
+    free( p_media->es );
 
-    TAB_CLEAN( p_media->i_es, p_media->es );
     free( p_media );
 }
 

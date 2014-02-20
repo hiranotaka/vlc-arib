@@ -36,6 +36,7 @@
 
 #include <vlc_common.h>
 #include <vlc_input.h>
+#include <vlc_interface.h>
 #include <vlc_events.h>
 #include <vlc_dialog.h>
 
@@ -49,7 +50,7 @@ static const luaL_Reg p_reg[] =
  * Extensions capabilities
  * Note: #define and ppsz_capabilities must be in sync
  */
-static const char const caps[][20] = {
+static const char caps[][20] = {
 #define EXT_HAS_MENU          (1 << 0)   ///< Hook: menu
     "menu",
 #define EXT_TRIGGER_ONLY      (1 << 1)   ///< Hook: trigger. Not activable
@@ -808,6 +809,8 @@ static lua_State* GetLuaState( extensions_manager_t *p_mgr,
             return NULL;
         }
         vlclua_set_this( L, p_mgr );
+        vlclua_set_playlist_internal( L,
+            pl_Get((intf_thread_t *)(p_mgr->p_parent)) );
         vlclua_extension_set( L, p_ext );
 
         luaL_openlibs( L );
@@ -821,6 +824,7 @@ static lua_State* GetLuaState( extensions_manager_t *p_mgr,
             luaopen_dialog( L, p_ext );
             luaopen_input( L );
             luaopen_msg( L );
+            luaopen_net_generic( L );
             luaopen_object( L );
             luaopen_osd( L );
             luaopen_playlist( L );
@@ -1206,21 +1210,20 @@ static void WatchTimerCallback( void *data )
 
     vlc_mutex_lock( &p_ext->p_sys->command_lock );
 
-    // Do we have a pending Deactivate command?
-    if( ( p_ext->p_sys->command &&
-          p_ext->p_sys->command->i_command == CMD_DEACTIVATE )
-        || ( p_ext->p_sys->command->next
-             && p_ext->p_sys->command->next->i_command == CMD_DEACTIVATE) )
-    {
-        if( p_ext->p_sys->progress )
-        {
-            dialog_ProgressDestroy( p_ext->p_sys->progress );
-            p_ext->p_sys->progress = NULL;
+    for( struct command_t *cmd = p_ext->p_sys->command;
+         cmd != NULL;
+         cmd = cmd->next )
+        if( cmd->i_command == CMD_DEACTIVATE )
+        {   /* We have a pending Deactivate command... */
+            if( p_ext->p_sys->progress )
+            {
+                dialog_ProgressDestroy( p_ext->p_sys->progress );
+                p_ext->p_sys->progress = NULL;
+            }
+            vlc_mutex_unlock( &p_ext->p_sys->command_lock );
+            KillExtension( p_mgr, p_ext );
+            return;
         }
-        vlc_mutex_unlock( &p_ext->p_sys->command_lock );
-        KillExtension( p_mgr, p_ext );
-        return;
-    }
 
     if( !p_ext->p_sys->progress )
     {

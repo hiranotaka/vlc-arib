@@ -141,6 +141,7 @@ static int DtsProbe( demux_t *p_demux, int64_t *pi_offset );
 static int DtsInit( demux_t *p_demux );
 
 static int MlpProbe( demux_t *p_demux, int64_t *pi_offset );
+static int ThdProbe( demux_t *p_demux, int64_t *pi_offset );
 static int MlpInit( demux_t *p_demux );
 
 static bool Parse( demux_t *p_demux, block_t **pp_output );
@@ -151,7 +152,8 @@ static const codec_t p_codecs[] = {
     { VLC_CODEC_A52, true,  "a52 audio",  A52Probe,  A52Init },
     { VLC_CODEC_EAC3, true,  "eac3 audio", EA52Probe, A52Init },
     { VLC_CODEC_DTS, false, "dts audio",  DtsProbe,  DtsInit },
-    { VLC_CODEC_TRUEHD, false, "mlp audio",  MlpProbe,  MlpInit },
+    { VLC_CODEC_MLP, false, "mlp audio",  MlpProbe,  MlpInit },
+    { VLC_CODEC_TRUEHD, false, "TrueHD audio",  ThdProbe,  MlpInit },
 
     { 0, false, NULL, NULL, NULL }
 };
@@ -330,9 +332,6 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
     int64_t *pi64;
     bool *pb_bool;
     int i_ret;
-    va_list args_save;
-
-    va_copy ( args_save, args );
 
     switch( i_query )
     {
@@ -347,9 +346,14 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             return VLC_SUCCESS;
 
         case DEMUX_GET_LENGTH:
-            i_ret = demux_vaControlHelper( p_demux->s, p_sys->i_stream_offset, -1,
-                                            p_sys->i_bitrate_avg, 1, i_query,
-                                            args );
+        {
+            va_list ap;
+
+            va_copy ( ap, args );
+            i_ret = demux_vaControlHelper( p_demux->s, p_sys->i_stream_offset,
+                                    -1, p_sys->i_bitrate_avg, 1, i_query, ap );
+            va_end( ap );
+
             /* No bitrate, we can't have it precisely, but we can compute
              * a raw approximation with time/position */
             if( i_ret && !p_sys->i_bitrate_avg )
@@ -360,14 +364,16 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                  * don't bother trying ... Too bad */
                 if( f_pos < 0.01 ||
                     (p_sys->i_pts + p_sys->i_time_offset) < 8000000 )
+                {
                     return VLC_EGENERIC;
+                }
 
-                pi64 = (int64_t *)va_arg( args_save, int64_t * );
+                pi64 = (int64_t *)va_arg( args, int64_t * );
                 *pi64 = (p_sys->i_pts + p_sys->i_time_offset) / f_pos;
                 return VLC_SUCCESS;
             }
-            va_end( args_save );
             return i_ret;
+        }
 
         case DEMUX_SET_TIME:
             /* FIXME TODO: implement a high precision seek (with mp3 parsing)
@@ -962,7 +968,19 @@ static int MlpCheckSync( const uint8_t *p_peek, int *pi_samples )
     if( p_peek[4+0] != 0xf8 || p_peek[4+1] != 0x72 || p_peek[4+2] != 0x6f )
         return -1;
 
-    if( p_peek[4+3] != 0xba && p_peek[4+3] != 0xbb )
+    if( p_peek[4+3] != 0xbb )
+        return -1;
+
+    /* TODO checksum and real size for robustness */
+    VLC_UNUSED(pi_samples);
+    return 0;
+}
+static int ThdCheckSync( const uint8_t *p_peek, int *pi_samples )
+{
+    if( p_peek[4+0] != 0xf8 || p_peek[4+1] != 0x72 || p_peek[4+2] != 0x6f )
+        return -1;
+
+    if( p_peek[4+3] != 0xba )
         return -1;
 
     /* TODO checksum and real size for robustness */
@@ -971,10 +989,17 @@ static int MlpCheckSync( const uint8_t *p_peek, int *pi_samples )
 }
 static int MlpProbe( demux_t *p_demux, int64_t *pi_offset )
 {
-    const char *ppsz_name[] = { "mlp", "thd", NULL };
+    const char *ppsz_name[] = { "mlp", NULL };
     const int pi_wav[] = { WAVE_FORMAT_PCM, WAVE_FORMAT_UNKNOWN };
 
     return GenericProbe( p_demux, pi_offset, ppsz_name, MlpCheckSync, 4+28+16*4, pi_wav );
+}
+static int ThdProbe( demux_t *p_demux, int64_t *pi_offset )
+{
+    const char *ppsz_name[] = { "thd", NULL };
+    const int pi_wav[] = { WAVE_FORMAT_PCM, WAVE_FORMAT_UNKNOWN };
+
+    return GenericProbe( p_demux, pi_offset, ppsz_name, ThdCheckSync, 4+28+16*4, pi_wav );
 }
 static int MlpInit( demux_t *p_demux )
 

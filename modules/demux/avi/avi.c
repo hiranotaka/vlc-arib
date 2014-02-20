@@ -537,6 +537,14 @@ static int Open( vlc_object_t * p_this )
                     fmt.video.i_sar_num = ((i_frame_aspect_ratio >> 16) & 0xffff) * fmt.video.i_height;
                     fmt.video.i_sar_den = ((i_frame_aspect_ratio >>  0) & 0xffff) * fmt.video.i_width;
                 }
+                /* Extradata is the remainder of the chunk less the BIH */
+                fmt.i_extra = p_vids->i_chunk_size - sizeof(VLC_BITMAPINFOHEADER);
+                if( fmt.i_extra > 0 )
+                {
+                    fmt.p_extra = malloc( fmt.i_extra );
+                    if( !fmt.p_extra ) goto error;
+                    memcpy( fmt.p_extra, &p_vids->p_bih[1], fmt.i_extra );
+                }
 
                 msg_Dbg( p_demux, "stream[%d] video(%4.4s) %"PRIu32"x%"PRIu32" %dbpp %ffps",
                          i, (char*)&p_vids->p_bih->biCompression,
@@ -552,20 +560,13 @@ static int Open( vlc_object_t * p_this )
                         (unsigned int)(-(int)p_vids->p_bih->biHeight);
                 }
 
-                /* Extract palette from extradata if bpp <= 8
-                 * (assumes that extradata contains only palette but appears
-                 *  to be true for all palettized codecs we support) */
+                /* Extract palette from extradata if bpp <= 8 */
                 if( fmt.video.i_bits_per_pixel > 0 && fmt.video.i_bits_per_pixel <= 8 )
                 {
                     /* The palette should not be included in biSize, but come
                      * directly after BITMAPINFORHEADER in the BITMAPINFO structure */
-                    fmt.i_extra = p_vids->i_chunk_size - sizeof(VLC_BITMAPINFOHEADER);
-                    if( fmt.i_extra > 0 )
+                    if( fmt.i_extra > 0 && fmt.p_extra )
                     {
-                        fmt.p_extra = malloc( fmt.i_extra );
-                        if( !fmt.p_extra ) goto error;
-                        memcpy( fmt.p_extra, &p_vids->p_bih[1], fmt.i_extra );
-
                         const uint8_t *p_pal = fmt.p_extra;
 
                         fmt.video.p_palette = calloc( 1, sizeof(video_palette_t) );
@@ -650,7 +651,6 @@ aviindex:
         const avi_track_t *tk = p_sys->track[i];
         if( tk->i_cat == VIDEO_ES && tk->idx.p_entry )
             i_idx_totalframes = __MAX(i_idx_totalframes, tk->idx.i_size);
-            continue;
     }
     if( i_idx_totalframes != p_avih->i_totalframes &&
         p_sys->i_length < (mtime_t)p_avih->i_totalframes *
@@ -1492,7 +1492,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             int *pi_int = va_arg( args, int * );
 
             *pi_int     = p_sys->i_attachment;
-            *ppp_attach = calloc( p_sys->i_attachment, sizeof(*ppp_attach));
+            *ppp_attach = calloc( p_sys->i_attachment, sizeof(**ppp_attach));
             for( unsigned i = 0; i < p_sys->i_attachment && *ppp_attach; i++ )
                 (*ppp_attach)[i] = vlc_input_attachment_Duplicate( p_sys->attachment[i] );
             return VLC_SUCCESS;
@@ -2140,7 +2140,10 @@ static int AVI_IndexFind_idx1( demux_t *p_demux,
     avi_chunk_list_t *p_movi = AVI_ChunkFind( p_riff, AVIFOURCC_movi, 0);
     uint64_t i_first_pos = UINT64_MAX;
     for( unsigned i = 0; i < __MIN( p_idx1->i_entry_count, 100 ); i++ )
-        i_first_pos = __MIN( i_first_pos, p_idx1->entry[i].i_pos );
+    {
+        if ( p_idx1->entry[i].i_length > 0 )
+            i_first_pos = __MIN( i_first_pos, p_idx1->entry[i].i_pos );
+    }
 
     const uint64_t i_movi_content = p_movi->i_chunk_pos + 8;
     if( i_first_pos < i_movi_content )
@@ -2556,7 +2559,7 @@ static void AVI_MetaLoad( demux_t *p_demux,
 
 static void AVI_DvHandleAudio( demux_t *p_demux, avi_track_t *tk, block_t *p_frame )
 {
-    size_t i_offset = 80*6+80*16*3 + 3;
+    size_t i_offset = 80 * 6 + 80 * 16 * 3 + 3;
     if( p_frame->i_buffer < i_offset + 5 )
         return;
 
@@ -2566,7 +2569,7 @@ static void AVI_DvHandleAudio( demux_t *p_demux, avi_track_t *tk, block_t *p_fra
     es_format_t fmt;
     dv_get_audio_format( &fmt, &p_frame->p_buffer[i_offset + 1] );
 
-    if( tk->p_es_dv_audio && tk->i_dv_audio_rate != fmt.audio.i_rate )
+    if( tk->p_es_dv_audio && tk->i_dv_audio_rate != (int)fmt.audio.i_rate )
     {
         es_out_Del( p_demux->out, tk->p_es_dv_audio );
         tk->p_es_dv_audio = es_out_Add( p_demux->out, &fmt );

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * Windows.m: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2012-2013 VLC authors and VideoLAN
+ * Copyright (C) 2012-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -27,6 +27,7 @@
 #import "CoreInteraction.h"
 #import "ControlsBar.h"
 #import "VideoView.h"
+#import "CompatibilityFixes.h"
 
 /*****************************************************************************
  * VLCWindow
@@ -88,7 +89,9 @@
         return;
     }
 
-    invoc = [NSInvocation invocationWithMethodSignature:[super methodSignatureForSelector:@selector(close)]];
+    // TODO this callback stuff does not work and is not needed
+    invoc = [[[NSInvocation alloc] init] autorelease];
+    [invoc setSelector:@selector(close)];
     [invoc setTarget: self];
 
     if (![self isVisible] || [self alphaValue] == 0.0) {
@@ -101,9 +104,10 @@
 
 - (void)orderOut: (id)sender animate: (BOOL)animate
 {
-    NSInvocation *invoc = [NSInvocation invocationWithMethodSignature:[super methodSignatureForSelector:@selector(orderOut:)]];
+    NSInvocation *invoc = [[[NSInvocation alloc] init] autorelease];
+    [invoc setSelector:@selector(orderOut:)];
     [invoc setTarget: self];
-    [invoc setArgument: sender atIndex: 0];
+    [invoc setArgument: sender atIndex: 2];
     [self orderOut: sender animate: animate callback: invoc];
 }
 
@@ -123,13 +127,14 @@
     [dict setObject:self forKey:NSViewAnimationTargetKey];
 
     [dict setObject:NSViewAnimationFadeOutEffect forKey:NSViewAnimationEffectKey];
-    anim = [[NSViewAnimation alloc] initWithViewAnimations:@[dict]];
+    anim = [[NSViewAnimation alloc] initWithViewAnimations:[NSArray arrayWithObject:dict]];
     [dict release];
 
     [anim setAnimationBlockingMode:NSAnimationNonblocking];
     [anim setDuration:0.9];
     [anim setFrameRate:30];
-    [anim setUserInfo: callback];
+    [anim setUserInfo:callback];
+    [anim setDelegate:self];
 
     @synchronized(self) {
         current_anim = self->o_current_animation;
@@ -176,12 +181,13 @@
     [dict setObject:self forKey:NSViewAnimationTargetKey];
 
     [dict setObject:NSViewAnimationFadeInEffect forKey:NSViewAnimationEffectKey];
-    anim = [[NSViewAnimation alloc] initWithViewAnimations:@[dict]];
+    anim = [[NSViewAnimation alloc] initWithViewAnimations:[NSArray arrayWithObject:dict]];
     [dict release];
 
     [anim setAnimationBlockingMode:NSAnimationNonblocking];
     [anim setDuration:0.5];
     [anim setFrameRate:30];
+    [anim setDelegate:self];
 
     @synchronized(self) {
         current_anim = self->o_current_animation;
@@ -209,8 +215,9 @@
         NSInvocation * invoc;
         [super orderOut: nil];
         [self setAlphaValue: 1.0];
-        if ((invoc = [anim userInfo]))
+        if ((invoc = [anim userInfo])) {
             [invoc invoke];
+        }
     }
 }
 
@@ -243,7 +250,7 @@
 
 @synthesize videoView=o_video_view;
 @synthesize controlsBar=o_controls_bar;
-@synthesize enteringFullscreenTransition=b_entering_fullscreen_transition;
+@synthesize inFullscreenTransition=b_in_fullscreen_transition;
 
 #pragma mark -
 #pragma mark Init
@@ -331,7 +338,7 @@
     if (!([self styleMask] & NSTitledWindowMask)) {
         [[NSNotificationCenter defaultCenter] postNotificationName:NSWindowWillCloseNotification object:self];
 
-        [self orderOut: sender];
+        [self close];
     } else
         [super performClose: sender];
 }
@@ -459,8 +466,11 @@
     if (var_InheritBool(VLCIntf, "video-wallpaper") || [self level] < NSNormalWindowLevel)
         return;
 
-    [self setLevel: i_state];
+    if (!b_fullscreen && !b_in_fullscreen_transition)
+        [self setLevel: i_state];
 
+    // save it for restore if window is currently minimized or in fullscreen
+    i_originalLevel = i_state;
 }
 
 - (NSRect)getWindowRectForProposedVideoViewSize:(NSSize)size
@@ -507,7 +517,9 @@
 
 - (void)resizeWindow
 {
-    if ([self fullscreen])
+    // VOUT_WINDOW_SET_SIZE is triggered when exiting fullscreen. This event is ignored here
+    // to avoid interference with the animation.
+    if ([self fullscreen] || b_in_fullscreen_transition)
         return;
 
     NSRect window_rect = [self getWindowRectForProposedVideoViewSize:nativeVideoSize];
@@ -528,7 +540,7 @@
         return proposedFrameSize;
 
     // needed when entering lion fullscreen mode
-    if (b_entering_fullscreen_transition || [self fullscreen])
+    if (b_in_fullscreen_transition || [self fullscreen])
         return proposedFrameSize;
 
     if ([[VLCCoreInteraction sharedInstance] aspectRatioIsLocked]) {
@@ -546,6 +558,18 @@
     return proposedFrameSize;
 }
 
+- (void)windowWillMiniaturize:(NSNotification *)notification
+{
+    // Set level to normal as a workaround for Mavericks bug causing window
+    // to vanish from screen, see radar://15473716
+    i_originalLevel = [self level];
+    [self setLevel: NSNormalWindowLevel];
+}
+
+- (void)windowDidDeminiaturize:(NSNotification *)notification
+{
+    [self setLevel: i_originalLevel];
+}
 
 #pragma mark -
 #pragma mark Mouse cursor handling
@@ -606,7 +630,12 @@
     // workaround, see #6668
     [NSApp setPresentationOptions:(NSApplicationPresentationFullScreen | NSApplicationPresentationAutoHideDock | NSApplicationPresentationAutoHideMenuBar)];
 
-    b_entering_fullscreen_transition = YES;
+    i_originalLevel = [self level];
+    // b_fullscreen and b_in_fullscreen_transition must not be true yet
+    [[[VLCMain sharedInstance] voutController] updateWindowLevelForHelperWindows: NSNormalWindowLevel];
+    [self setLevel:NSNormalWindowLevel];
+
+    b_in_fullscreen_transition = YES;
 
     var_SetBool(pl_Get(VLCIntf), "fullscreen", true);
 
@@ -620,10 +649,6 @@
 
     if ([self hasActiveVideo])
         [[VLCMainWindow sharedInstance] recreateHideMouseTimer];
-
-    i_originalLevel = [self level];
-    [[[VLCMain sharedInstance] voutController] updateWindowLevelForHelperWindows: NSNormalWindowLevel];
-    [self setLevel:NSNormalWindowLevel];
 
     if (b_dark_interface) {
         [o_titlebar_view removeFromSuperviewWithoutNeedingDisplay];
@@ -652,7 +677,7 @@
     [NSApp activateIgnoringOtherApps:YES];
 
     [self setFullscreen: YES];
-    b_entering_fullscreen_transition = NO;
+    b_in_fullscreen_transition = NO;
 
     if ([self hasActiveVideo]) {
         [[[VLCMainWindow sharedInstance] fsPanel] setVoutWasUpdated: self];
@@ -672,6 +697,7 @@
 
 - (void)windowWillExitFullScreen:(NSNotification *)notification
 {
+    b_in_fullscreen_transition = YES;
     [self setFullscreen: NO];
 
     var_SetBool(pl_Get(VLCIntf), "fullscreen", false);
@@ -687,8 +713,6 @@
     [NSCursor setHiddenUntilMouseMoves: NO];
     [[[VLCMainWindow sharedInstance] fsPanel] setNonActive: nil];
 
-    [[[VLCMain sharedInstance] voutController] updateWindowLevelForHelperWindows: i_originalLevel];
-    [self setLevel:i_originalLevel];
 
     if (b_dark_interface) {
         NSRect winrect;
@@ -717,6 +741,14 @@
     }
 
     [self setMovableByWindowBackground: YES];
+}
+
+- (void)windowDidExitFullScreen:(NSNotification *)notification
+{
+    b_in_fullscreen_transition = NO;
+
+    [[[VLCMain sharedInstance] voutController] updateWindowLevelForHelperWindows: i_originalLevel];
+    [self setLevel:i_originalLevel];
 }
 
 #pragma mark -
@@ -754,9 +786,9 @@
 
     /* Make sure we don't see the window flashes in float-on-top mode */
     i_originalLevel = [self level];
+    // b_fullscreen must not be true yet
     [[[VLCMain sharedInstance] voutController] updateWindowLevelForHelperWindows: NSNormalWindowLevel];
     [self setLevel:NSNormalWindowLevel];
-
 
     /* Only create the o_fullscreen_window if we are not in the middle of the zooming animation */
     if (!o_fullscreen_window) {
@@ -807,6 +839,10 @@
             return;
         }
 
+        /* Make sure video view gets visible in case the playlist was visible before */
+        b_video_view_was_hidden = [o_video_view isHidden];
+        [o_video_view setHidden: NO];
+
         /* Make sure we don't see the o_video_view disappearing of the screen during this operation */
         NSDisableScreenUpdates();
         [o_video_view retain];
@@ -851,8 +887,8 @@
      - Keep at most 2 animation at a time
      - leaveFullscreen/enterFullscreen are the only responsible for releasing and alloc-ing
      */
-    o_fullscreen_anim1 = [[NSViewAnimation alloc] initWithViewAnimations:@[dict1]];
-    o_fullscreen_anim2 = [[NSViewAnimation alloc] initWithViewAnimations:@[dict2]];
+    o_fullscreen_anim1 = [[NSViewAnimation alloc] initWithViewAnimations:[NSArray arrayWithObject:dict1]];
+    o_fullscreen_anim2 = [[NSViewAnimation alloc] initWithViewAnimations:[NSArray arrayWithObject:dict2]];
 
     [dict1 release];
     [dict2 release];
@@ -869,6 +905,8 @@
 
     [o_fullscreen_anim1 startAnimation];
     /* fullscreenAnimation will be unlocked when animation ends */
+
+    b_in_fullscreen_transition = YES;
 }
 
 - (void)hasBecomeFullscreen
@@ -886,6 +924,7 @@
     if ([self isVisible])
         [self orderOut: self];
 
+    b_in_fullscreen_transition = NO;
     [self setFullscreen:YES];
 }
 
@@ -942,6 +981,8 @@
         return;
     }
 
+    b_in_fullscreen_transition = YES;
+
     [self setAlphaValue: 0.0];
     [self orderFront: self];
     [[o_video_view window] orderFront: self];
@@ -966,7 +1007,7 @@
     [dict2 setObject:self forKey:NSViewAnimationTargetKey];
     [dict2 setObject:NSViewAnimationFadeInEffect forKey:NSViewAnimationEffectKey];
 
-    o_fullscreen_anim2 = [[NSViewAnimation alloc] initWithViewAnimations:@[dict2]];
+    o_fullscreen_anim2 = [[NSViewAnimation alloc] initWithViewAnimations:[NSArray arrayWithObject:dict2]];
     [dict2 release];
 
     [o_fullscreen_anim2 setAnimationBlockingMode: NSAnimationNonblocking];
@@ -981,7 +1022,7 @@
     [dict1 setObject:[NSValue valueWithRect:[o_fullscreen_window frame]] forKey:NSViewAnimationStartFrameKey];
     [dict1 setObject:[NSValue valueWithRect:frame] forKey:NSViewAnimationEndFrameKey];
 
-    o_fullscreen_anim1 = [[NSViewAnimation alloc] initWithViewAnimations:@[dict1]];
+    o_fullscreen_anim1 = [[NSViewAnimation alloc] initWithViewAnimations:[NSArray arrayWithObject:dict1]];
     [dict1 release];
 
     [o_fullscreen_anim1 setAnimationBlockingMode: NSAnimationNonblocking];
@@ -999,6 +1040,7 @@
 - (void)hasEndedFullscreen
 {
     [self setFullscreen:NO];
+    b_in_fullscreen_transition = NO;
 
     /* This function is private and should be only triggered at the end of the fullscreen change animation */
     /* Make sure we don't see the o_video_view disappearing of the screen during this operation */
@@ -1011,6 +1053,8 @@
     if ([[o_video_view subviews] count] > 0)
         [self makeFirstResponder: [[o_video_view subviews] objectAtIndex:0]];
 
+    [o_video_view setHidden: b_video_view_was_hidden];
+
     [super makeKeyAndOrderFront:self]; /* our version (in main window) contains a workaround */
 
     [o_fullscreen_window orderOut: self];
@@ -1021,6 +1065,7 @@
 
     [[[VLCMain sharedInstance] voutController] updateWindowLevelForHelperWindows: i_originalLevel];
     [self setLevel:i_originalLevel];
+
     [self setAlphaValue: config_GetFloat(VLCIntf, "macosx-opaqueness")];
 
     // if we quit fullscreen because there is no video anymore, make sure non-embedded window is not visible
@@ -1083,7 +1128,7 @@
     [dict setObject:self forKey:NSViewAnimationTargetKey];
     [dict setObject:NSViewAnimationFadeInEffect forKey:NSViewAnimationEffectKey];
 
-    o_makekey_anim = [[NSViewAnimation alloc] initWithViewAnimations:@[dict]];
+    o_makekey_anim = [[NSViewAnimation alloc] initWithViewAnimations:[NSArray arrayWithObject:dict]];
     [dict release];
 
     [o_makekey_anim setAnimationBlockingMode: NSAnimationNonblocking];
@@ -1109,10 +1154,10 @@
     static NSMutableArray *attributes = nil;
     if (attributes == nil) {
         attributes = [[super accessibilityAttributeNames] mutableCopy];
-        NSArray *appendAttributes = @[NSAccessibilitySubroleAttribute,
-                                      NSAccessibilityCloseButtonAttribute,
-                                      NSAccessibilityMinimizeButtonAttribute,
-                                      NSAccessibilityZoomButtonAttribute];
+        NSArray *appendAttributes = [NSArray arrayWithObjects:NSAccessibilitySubroleAttribute,
+                                     NSAccessibilityCloseButtonAttribute,
+                                     NSAccessibilityMinimizeButtonAttribute,
+                                     NSAccessibilityZoomButtonAttribute, nil];
 
         for(NSString *attribute in appendAttributes) {
             if (![attributes containsObject:attribute])

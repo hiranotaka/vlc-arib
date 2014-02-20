@@ -73,8 +73,10 @@ static int UrlInterruptCallback(void *access)
     return !vlc_object_alive((vlc_object_t*)access);
 }
 
-struct access_sys_t {
+struct access_sys_t
+{
     AVIOContext *context;
+    uint64_t size;
 };
 
 struct sout_access_out_sys_t {
@@ -138,7 +140,7 @@ int OpenAvio(vlc_object_t *object)
     }
 
     /* */
-    vlc_init_avformat();
+    vlc_init_avformat(object);
 
     int ret;
 #if LIBAVFORMAT_VERSION_MAJOR < 54
@@ -161,8 +163,8 @@ int OpenAvio(vlc_object_t *object)
     av_dict_free(&options);
 #endif
     if (ret < 0) {
-        errno = AVUNERROR(ret);
-        msg_Err(access, "Failed to open %s: %m", url);
+        msg_Err(access, "Failed to open %s: %s", url,
+                vlc_strerror_c(AVUNERROR(ret)));
         free(url);
         goto error;
     }
@@ -185,10 +187,10 @@ int OpenAvio(vlc_object_t *object)
     seekable = sys->context->seekable;
 #endif
     msg_Dbg(access, "%sseekable, size=%"PRIi64, seekable ? "" : "not ", size);
+    sys->size = size > 0 ? size : 0;
 
     /* */
     access_InitFields(access);
-    access->info.i_size = size > 0 ? size : 0;
 
     access->pf_read = Read;
     access->pf_block = NULL;
@@ -222,7 +224,7 @@ int OutOpenAvio(vlc_object_t *object)
     sys->context = NULL;
 
     /* */
-    vlc_init_avformat();
+    vlc_init_avformat(object);
 
     if (!access->psz_path)
         goto error;
@@ -317,22 +319,20 @@ static ssize_t Write(sout_access_out_t *p_access, block_t *p_buffer)
 {
     access_sys_t *p_sys = (access_sys_t*)p_access->p_sys;
     size_t i_write = 0;
+    int val;
 
     while (p_buffer != NULL) {
         block_t *p_next = p_buffer->p_next;
 
 #if LIBAVFORMAT_VERSION_MAJOR < 54
-        int written = url_write(p_sys->context, p_buffer->p_buffer, p_buffer->i_buffer);
-        if (written < 0) {
-            errno = AVUNERROR(written);
+        val = url_write(p_sys->context, p_buffer->p_buffer, p_buffer->i_buffer);
+        if (val < 0)
             goto error;
-        }
-        i_write += written;
+        i_write += val;
 #else
         avio_write(p_sys->context, p_buffer->p_buffer, p_buffer->i_buffer);
         avio_flush(p_sys->context);
-        if (p_sys->context->error) {
-            errno = AVUNERROR(p_sys->context->error);
+        if ((val = p_sys->context->error) != 0) {
             p_sys->context->error = 0; /* FIXME? */
             goto error;
         }
@@ -347,7 +347,8 @@ static ssize_t Write(sout_access_out_t *p_access, block_t *p_buffer)
     return i_write;
 
 error:
-    msg_Err(p_access, "Wrote only %zu bytes (%m)", i_write);
+    msg_Err(p_access, "Wrote only %zu bytes: %s", i_write,
+            vlc_strerror_c(AVUNERROR(val)));
     block_ChainRelease( p_buffer );
     return i_write;
 }
@@ -366,9 +367,9 @@ static int Seek(access_t *access, uint64_t position)
     else
         ret = avio_seek(sys->context, position, SEEK_SET);
     if (ret < 0) {
-        errno = AVUNERROR(ret);
-        msg_Err(access, "Seek to %"PRIu64" failed: %m", position);
-        if (access->info.i_size <= 0 || position != access->info.i_size)
+        msg_Err(access, "Seek to %"PRIu64" failed: %s", position,
+                vlc_strerror_c(AVUNERROR(ret)));
+        if (sys->size == 0 || position != sys->size)
             return VLC_EGENERIC;
     }
     access->info.i_pos = position;
@@ -431,6 +432,9 @@ static int Control(access_t *access, int query, va_list args)
         b = va_arg(args, bool *);
         *b = true; /* FIXME */
         return VLC_SUCCESS;
+    case ACCESS_GET_SIZE:
+        *va_arg(args, uint64_t *) = sys->size;
+        return VLC_SUCCESS;
     case ACCESS_GET_PTS_DELAY: {
         int64_t *delay = va_arg(args, int64_t *);
         *delay = DEFAULT_PTS_DELAY; /* FIXME */
@@ -442,15 +446,6 @@ static int Control(access_t *access, int query, va_list args)
             return VLC_EGENERIC;
         return VLC_SUCCESS;
     }
-    case ACCESS_GET_TITLE_INFO:
-    case ACCESS_GET_META:
-    case ACCESS_GET_CONTENT_TYPE:
-    case ACCESS_GET_SIGNAL:
-    case ACCESS_SET_TITLE:
-    case ACCESS_SET_SEEKPOINT:
-    case ACCESS_SET_PRIVATE_ID_STATE:
-    case ACCESS_SET_PRIVATE_ID_CA:
-    case ACCESS_GET_PRIVATE_ID_STATE:
     default:
         return VLC_EGENERIC;
     }

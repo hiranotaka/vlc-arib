@@ -190,7 +190,8 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [_customize_aud_samplerate_lbl setStringValue: _NS("Samplerate")];
     [_customize_subs_ckb setTitle: _NS("Subtitles")];
     [_customize_subs_overlay_ckb setTitle: _NS("Overlay subtitles on the video")];
-    [_stream_ok_btn setTitle:_NS("OK")];
+    [_stream_ok_btn setTitle: _NS("Apply")];
+    [_stream_cancel_btn setTitle: _NS("Cancel")];
     [_stream_destination_lbl setStringValue:_NS("Stream Destination")];
     [_stream_announcement_lbl setStringValue:_NS("Stream Announcement")];
     [_stream_type_lbl setStringValue:_NS("Type")];
@@ -221,16 +222,16 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [self recreateProfilePopup];
 
     _videoCodecs = [[NSArray alloc] initWithObjects:
-                    @[@"MPEG-1", @"MPEG-2", @"MPEG-4", @"DIVX 1", @"DIVX 2", @"DIVX 3", @"H.263", @"H.264", @"VP8", @"WMV1", @"WMV2", @"M-JPEG", @"Theora", @"Dirac"],
-                    @[@"mpgv", @"mp2v", @"mp4v", @"DIV1", @"DIV2", @"DIV3", @"H263", @"h264", @"VP80", @"WMV1", @"WMV2", @"MJPG", @"theo", @"drac"],
+                    [NSArray arrayWithObjects:@"MPEG-1", @"MPEG-2", @"MPEG-4", @"DIVX 1", @"DIVX 2", @"DIVX 3", @"H.263", @"H.264", @"VP8", @"WMV1", @"WMV2", @"M-JPEG", @"Theora", @"Dirac", nil],
+                    [NSArray arrayWithObjects:@"mpgv", @"mp2v", @"mp4v", @"DIV1", @"DIV2", @"DIV3", @"H263", @"h264", @"VP80", @"WMV1", @"WMV2", @"MJPG", @"theo", @"drac", nil],
                     nil];
     _audioCodecs = [[NSArray alloc] initWithObjects:
-                    @[@"MPEG Audio", @"MP3", @"MPEG 4 Audio (AAC)", @"A52/AC-3", @"Vorbis", @"Flac", @"Speex", @"WAV", @"WMA2"],
-                    @[@"mpga", @"mp3", @"mp4a", @"a52", @"vorb", @"flac", @"spx", @"s16l", @"wma2"],
+                    [NSArray arrayWithObjects:@"MPEG Audio", @"MP3", @"MPEG 4 Audio (AAC)", @"A52/AC-3", @"Vorbis", @"Flac", @"Speex", @"WAV", @"WMA2", nil],
+                    [NSArray arrayWithObjects:@"mpga", @"mp3", @"mp4a", @"a52", @"vorb", @"flac", @"spx", @"s16l", @"wma2", nil],
                     nil];
     _subsCodecs = [[NSArray alloc] initWithObjects:
-                   @[@"DVB subtitle", @"T.140"],
-                   @[@"dvbs", @"t140"],
+                   [NSArray arrayWithObjects:@"DVB subtitle", @"T.140", nil],
+                   [NSArray arrayWithObjects:@"dvbs", @"t140", nil],
                     nil];
 
     [_customize_vid_codec_pop removeAllItems];
@@ -259,6 +260,10 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [_customize_vid_scale_pop addItemWithTitle:@"2"];
 
     [_ok_btn setEnabled: NO];
+
+    // setup drop view
+    [_drop_box enablePlaylistItems];
+    [_drop_box setDropHandler: self];
 
     [self resetCustomizationSheetBasedOnProfile:[self.profileValueList objectAtIndex:0]];
 }
@@ -329,7 +334,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [openPanel beginSheetModalForWindow:_window completionHandler:^(NSInteger returnCode) {
         if (returnCode == NSOKButton)
         {
-            [self setMRL: @(vlc_path2uri([[[openPanel URL] path] UTF8String], NULL))];
+            [self setMRL: [NSString stringWithUTF8String:vlc_path2uri([[[openPanel URL] path] UTF8String], NULL)]];
             [self updateOKButton];
             [self updateDropView];
         }
@@ -434,7 +439,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [saveFilePanel setCanSelectHiddenExtension: YES];
     [saveFilePanel setCanCreateDirectories: YES];
     if ([[_customize_encap_matrix selectedCell] tag] != RAW) // there is no clever guess for this
-        [saveFilePanel setAllowedFileTypes:@[[self currentEncapsulationFormatAsFileExtension:YES]]];
+        [saveFilePanel setAllowedFileTypes:[NSArray arrayWithObject:[self currentEncapsulationFormatAsFileExtension:YES]]];
     [saveFilePanel beginSheetModalForWindow:_window completionHandler:^(NSInteger returnCode) {
         if (returnCode == NSOKButton) {
             [self setOutputDestination:[[saveFilePanel URL] path]];
@@ -457,6 +462,12 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 
 - (IBAction)closeStreamPanel:(id)sender
 {
+    [_stream_panel orderOut:sender];
+    [NSApp endSheet: _stream_panel];
+
+    if (sender == _stream_cancel_btn)
+        return;
+
     /* provide a summary of the user selections */
     NSMutableString * labelContent = [[NSMutableString alloc] initWithFormat:_NS("%@ stream to %@:%@"), [_stream_type_pop titleOfSelectedItem], [_stream_address_fld stringValue], [_stream_port_fld stringValue]];
 
@@ -491,9 +502,6 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     /* store destination for further reference and update UI */
     [self setOutputDestination: [_stream_address_fld stringValue]];
     [self updateOKButton];
-
-    [_stream_panel orderOut:sender];
-    [NSApp endSheet: _stream_panel];
 }
 
 - (IBAction)streamTypeToggle:(id)sender
@@ -534,7 +542,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     NSSavePanel * saveFilePanel = [NSSavePanel savePanel];
     [saveFilePanel setCanSelectHiddenExtension: YES];
     [saveFilePanel setCanCreateDirectories: YES];
-    [saveFilePanel setAllowedFileTypes:@[@"sdp"]];
+    [saveFilePanel setAllowedFileTypes:[NSArray arrayWithObject:@"sdp"]];
     [saveFilePanel beginSheetModalForWindow:_stream_panel completionHandler:^(NSInteger returnCode) {
         if (returnCode == NSOKButton)
             [_stream_sdp_fld setStringValue:[[saveFilePanel URL] path]];
@@ -544,7 +552,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
 {
     NSPasteboard *paste = [sender draggingPasteboard];
-    NSArray *types = @[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"];
+    NSArray *types = [NSArray arrayWithObjects:NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil];
     NSString *desired_type = [paste availableTypeFromArray: types];
     NSData *carried_data = [paste dataForType: desired_type];
 
@@ -553,7 +561,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
             NSArray *values = [[paste propertyListForType: NSFilenamesPboardType] sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)];
 
             if ([values count] > 0) {
-                [self setMRL: @(vlc_path2uri([[values objectAtIndex:0] UTF8String], NULL))];
+                [self setMRL: [NSString stringWithUTF8String:vlc_path2uri([[values objectAtIndex:0] UTF8String], NULL)]];
                 [self updateOKButton];
                 [self updateDropView];
                 return YES;
@@ -572,7 +580,7 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
                     if (p_item) {
                         if (p_item->p_input) {
                             if (p_item->p_input->psz_uri != nil) {
-                                [self setMRL: [NSString stringWithFormat:@"%s", p_item->p_input->psz_uri]];
+                                [self setMRL: toNSStr(p_item->p_input->psz_uri)];
                                 [self updateDropView];
                                 [self updateOKButton];
 
@@ -639,6 +647,27 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
         [self switchProfile:self];
         [self storeProfilesOnDisk];
     }
+}
+
+- (IBAction)videoSettingsChanged:(id)sender
+{
+    bool enableSettings = [_customize_vid_ckb state] == NSOnState && [_customize_vid_keep_ckb state] == NSOffState;
+    [_customize_vid_settings_box enableSubviews:enableSettings];
+    [_customize_vid_keep_ckb setEnabled:[_customize_vid_ckb state] == NSOnState];
+}
+
+- (IBAction)audioSettingsChanged:(id)sender
+{
+    bool enableSettings = [_customize_aud_ckb state] == NSOnState && [_customize_aud_keep_ckb state] == NSOffState;
+    [_customize_aud_settings_box enableSubviews:enableSettings];
+    [_customize_aud_keep_ckb setEnabled:[_customize_aud_ckb state] == NSOnState];
+}
+
+- (IBAction)subSettingsChanged:(id)sender
+{
+    bool enableSettings = [_customize_subs_ckb state] == NSOnState;
+    [_customize_subs_overlay_ckb setEnabled:enableSettings];
+    [_customize_subs_pop setEnabled:enableSettings];
 }
 
 # pragma mark -
@@ -749,6 +778,10 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
             }
         }
     }
+
+    [self videoSettingsChanged:nil];
+    [self audioSettingsChanged:nil];
+    [self subSettingsChanged:nil];
 
     [self setCurrentProfile: [[[NSMutableArray alloc] initWithArray: [profileString componentsSeparatedByString:@";"]] autorelease]];
 }
@@ -891,9 +924,6 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
             if(haveVideo)
                 [composedOptions appendString:@","];
             [composedOptions appendFormat:@"acodec=%@", [self.currentProfile objectAtIndex:10]];
-
-
-            [composedOptions appendFormat:@"acodec=%@", [self.currentProfile objectAtIndex:10]];
             [composedOptions appendFormat:@",ab=%@", [self.currentProfile objectAtIndex:11]]; // bitrate
             [composedOptions appendFormat:@",channels=%@", [self.currentProfile objectAtIndex:12]]; // channel number
             [composedOptions appendFormat:@",samplerate=%@", [self.currentProfile objectAtIndex:13]]; // sample rate
@@ -1028,133 +1058,6 @@ static VLCConvertAndSave *_o_sharedInstance = nil;
     [_profile_pop addItemWithTitle:_NS("Organize Profiles...")];
     [[_profile_pop lastItem] setTarget: self];
     [[_profile_pop lastItem] setAction: @selector(deleteProfileAction:)];
-}
-
-@end
-
-# pragma mark -
-# pragma mark Drag and drop handling
-
-@implementation VLCDropEnabledBox
-
-- (void)awakeFromNib
-{
-    [self registerForDraggedTypes:@[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
-}
-
-- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
-{
-    b_activeDragAndDrop = YES;
-    [self setNeedsDisplay:YES];
-
-    [[NSCursor dragCopyCursor] set];
-
-    if ((NSDragOperationGeneric & [sender draggingSourceOperationMask]) == NSDragOperationGeneric)
-        return NSDragOperationGeneric;
-
-    return NSDragOperationNone;
-}
-
-- (void)draggingEnded:(id < NSDraggingInfo >)sender
-{
-    [[NSCursor arrowCursor] set];
-    b_activeDragAndDrop = NO;
-    [self setNeedsDisplay:YES];
-}
-
-- (void)draggingExited:(id < NSDraggingInfo >)sender
-{
-    [[NSCursor arrowCursor] set];
-    b_activeDragAndDrop = NO;
-    [self setNeedsDisplay:YES];
-}
-
-- (void)drawRect:(NSRect)dirtyRect
-{
-    if (b_activeDragAndDrop) {
-        [[NSColor colorWithCalibratedRed:(.154/.255) green:(.154/.255) blue:(.154/.255) alpha:1.] setFill];
-        NSRect frameRect = [[self contentView] bounds];
-        frameRect.origin.x += 10;
-        frameRect.origin.y += 10;
-        frameRect.size.width -= 17;
-        frameRect.size.height -= 17;
-        NSFrameRectWithWidthUsingOperation(frameRect, 4., NSCompositeHighlight);
-    }
-
-    [super drawRect:dirtyRect];
-}
-
-- (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)sender
-{
-    return YES;
-}
-
-- (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
-{
-    return [[VLCConvertAndSave sharedInstance] performDragOperation: sender];
-}
-
-- (void)concludeDragOperation:(id <NSDraggingInfo>)sender
-{
-    [self setNeedsDisplay:YES];
-}
-
-@end
-
-@implementation VLCDropEnabledImageView
-
-- (void)awakeFromNib
-{
-    [self registerForDraggedTypes:@[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
-}
-
-- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
-{
-    return [[[self superview] superview] draggingEntered:sender];
-}
-
-- (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)sender
-{
-    return YES;
-}
-
-- (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
-{
-    return [[VLCConvertAndSave sharedInstance] performDragOperation: sender];
-}
-
-- (void)concludeDragOperation:(id <NSDraggingInfo>)sender
-{
-    [self setNeedsDisplay:YES];
-}
-
-@end
-
-@implementation VLCDropEnabledButton
-
-- (void)awakeFromNib
-{
-    [self registerForDraggedTypes:@[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
-}
-
-- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
-{
-    return [[[self superview] superview] draggingEntered:sender];
-}
-
-- (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)sender
-{
-    return YES;
-}
-
-- (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
-{
-    return [[VLCConvertAndSave sharedInstance] performDragOperation: sender];
-}
-
-- (void)concludeDragOperation:(id <NSDraggingInfo>)sender
-{
-    [self setNeedsDisplay:YES];
 }
 
 @end

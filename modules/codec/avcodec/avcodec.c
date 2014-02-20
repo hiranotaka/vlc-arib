@@ -128,10 +128,6 @@ vlc_module_begin ()
                   SKIPLOOPF_LONGTEXT, false)
         change_safe ()
         change_integer_list( nloopf_list, nloopf_list_text )
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT( 54, 41, 0 )
-    add_bool( "avcodec-ignorecrop", false, IGNORECROP_TEXT, IGNORECROP_LONGTEXT,
-        true )
-#endif
 
     add_obsolete_integer( "ffmpeg-debug" ) /* removed since 2.1.0 */
     add_integer( "avcodec-debug", 0, DEBUG_TEXT, DEBUG_LONGTEXT,
@@ -139,7 +135,7 @@ vlc_module_begin ()
     add_obsolete_string( "ffmpeg-codec" ) /* removed since 2.1.0 */
     add_string( "avcodec-codec", NULL, CODEC_TEXT, CODEC_LONGTEXT, true )
     add_obsolete_bool( "ffmpeg-hw" ) /* removed since 2.1.0 */
-    add_module( "avcodec-hw", "hw decoder", "none", HW_TEXT, HW_LONGTEXT, false )
+    add_module( "avcodec-hw", "hw decoder", NULL, HW_TEXT, HW_LONGTEXT, false )
 #if defined(FF_THREAD_FRAME)
     add_obsolete_integer( "ffmpeg-threads" ) /* removed since 2.1.0 */
     add_integer( "avcodec-threads", 0, THREADS_TEXT, THREADS_LONGTEXT, true );
@@ -258,7 +254,8 @@ vlc_module_end ()
 static int OpenDecoder( vlc_object_t *p_this )
 {
     decoder_t *p_dec = (decoder_t*) p_this;
-    int i_cat, i_codec_id, i_result;
+    unsigned i_codec_id;
+    int i_cat, i_result;
     const char *psz_namecodec;
 
     AVCodecContext *p_context = NULL;
@@ -272,7 +269,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     }
 
     /* Initialization must be done before avcodec_find_decoder() */
-    vlc_init_avcodec();
+    vlc_init_avcodec(p_this);
 
     /* *** ask ffmpeg for a decoder *** */
     char *psz_decoder = var_CreateGetString( p_this, "avcodec-codec" );
@@ -362,7 +359,7 @@ static void CloseDecoder( vlc_object_t *p_this )
 
     if( p_sys->p_context )
     {
-        free( p_sys->p_context->extradata );
+        av_free( p_sys->p_context->extradata );
         p_sys->p_context->extradata = NULL;
 
         if( !p_sys->b_delayed_open )
@@ -400,8 +397,16 @@ int ffmpeg_OpenCodec( decoder_t *p_dec )
     }
     if( p_dec->fmt_in.i_cat == VIDEO_ES )
     {
-        p_sys->p_context->width  = p_dec->fmt_in.video.i_width;
-        p_sys->p_context->height = p_dec->fmt_in.video.i_height;
+        p_sys->p_context->width  = p_dec->fmt_in.video.i_visible_width;
+        p_sys->p_context->height = p_dec->fmt_in.video.i_visible_height;
+        if (p_sys->p_context->width  == 0)
+            p_sys->p_context->width  = p_dec->fmt_in.video.i_width;
+        else if (p_sys->p_context->width != p_dec->fmt_in.video.i_width)
+            p_sys->p_context->coded_width = p_dec->fmt_in.video.i_width;
+        if (p_sys->p_context->height == 0)
+            p_sys->p_context->height = p_dec->fmt_in.video.i_height;
+        else if (p_sys->p_context->height != p_dec->fmt_in.video.i_height)
+            p_sys->p_context->coded_height = p_dec->fmt_in.video.i_height;
         p_sys->p_context->bits_per_coded_sample = p_dec->fmt_in.video.i_bits_per_pixel;
     }
     else if( p_dec->fmt_in.i_cat == AUDIO_ES )

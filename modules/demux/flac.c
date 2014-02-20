@@ -73,9 +73,7 @@ struct demux_sys_t
 
     vlc_meta_t *p_meta;
 
-    int64_t i_time_offset;
     int64_t i_pts;
-    int64_t i_pts_start;
 
     int64_t i_length; /* Length from stream info */
     int64_t i_data_pos;
@@ -128,9 +126,7 @@ static int Open( vlc_object_t * p_this )
     p_sys->b_start = true;
     p_sys->p_meta = NULL;
     p_sys->i_length = 0;
-    p_sys->i_time_offset = 0;
     p_sys->i_pts = 0;
-    p_sys->i_pts_start = 0;
     p_sys->p_es = NULL;
     TAB_INIT( p_sys->i_seekpoint, p_sys->seekpoint );
     TAB_INIT( p_sys->i_attachments, p_sys->attachments);
@@ -203,14 +199,16 @@ static int Demux( demux_t *p_demux )
     demux_sys_t *p_sys = p_demux->p_sys;
     block_t     *p_block_in, *p_block_out;
 
-    if( !( p_block_in = stream_Block( p_demux->s, FLAC_PACKET_SIZE ) ) )
-        return 0;
+    bool b_eof = !( p_block_in = stream_Block( p_demux->s, FLAC_PACKET_SIZE ) );
 
-    p_block_in->i_pts = p_block_in->i_dts = p_sys->b_start ? VLC_TS_0 : VLC_TS_INVALID;
-    p_sys->b_start = false;
+    if ( p_block_in )
+    {
+        p_block_in->i_pts = p_block_in->i_dts = p_sys->b_start ? VLC_TS_0 : VLC_TS_INVALID;
+        p_sys->b_start = false;
+    }
 
     while( (p_block_out = p_sys->p_packetizer->pf_packetize(
-                p_sys->p_packetizer, &p_block_in )) )
+                p_sys->p_packetizer, (p_block_in) ? &p_block_in : NULL )) )
     {
         while( p_block_out )
         {
@@ -224,11 +222,7 @@ static int Demux( demux_t *p_demux )
                 p_sys->p_es = es_out_Add( p_demux->out, &p_sys->p_packetizer->fmt_out);
             }
 
-            p_sys->i_pts = p_block_out->i_dts - VLC_TS_0;
-
-            /* Correct timestamp */
-            p_block_out->i_pts += p_sys->i_time_offset;
-            p_block_out->i_dts += p_sys->i_time_offset;
+            p_sys->i_pts = p_block_out->i_dts;
 
             /* set PCR */
             es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_block_out->i_dts );
@@ -238,7 +232,7 @@ static int Demux( demux_t *p_demux )
             p_block_out = p_next;
         }
     }
-    return 1;
+    return !b_eof;
 }
 
 /*****************************************************************************
@@ -273,7 +267,7 @@ static int64_t ControlGetLength( demux_t *p_demux )
 static int64_t ControlGetTime( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
-    return __MAX(p_sys->i_pts, p_sys->i_pts_start) + p_sys->i_time_offset;
+    return p_sys->i_pts;
 }
 
 static int ControlSetTime( demux_t *p_demux, int64_t i_time )
@@ -298,20 +292,19 @@ static int ControlSetTime( demux_t *p_demux, int64_t i_time )
     i_delta_time = i_time - p_sys->seekpoint[i]->i_time_offset;
 
     /* XXX We do exact seek if it's not too far away(45s) */
-    if( i_delta_time < 45*INT64_C(1000000) )
+    if( i_delta_time < CLOCK_FREQ * 45 )
     {
         if( stream_Seek( p_demux->s, p_sys->seekpoint[i]->i_byte_offset+p_sys->i_data_pos ) )
             return VLC_EGENERIC;
 
-        p_sys->i_time_offset = p_sys->seekpoint[i]->i_time_offset - p_sys->i_pts;
-        p_sys->i_pts_start = p_sys->i_pts+i_delta_time;
-        es_out_Control( p_demux->out, ES_OUT_SET_NEXT_DISPLAY_TIME, p_sys->i_pts_start + p_sys->i_time_offset );
+        es_out_Control( p_demux->out, ES_OUT_SET_NEXT_DISPLAY_TIME, i_time );
     }
     else
     {
         int64_t i_delta_offset;
         int64_t i_next_time;
         int64_t i_next_offset;
+        uint32_t i_time_align = 1;
 
         if( i+1 < p_sys->i_seekpoint )
         {
@@ -325,15 +318,16 @@ static int ControlSetTime( demux_t *p_demux, int64_t i_time )
         }
 
         i_delta_offset = 0;
+
+        if ( INT64_MAX / i_delta_time < (i_next_offset - p_sys->seekpoint[i]->i_byte_offset) )
+            i_time_align = CLOCK_FREQ;
+
         if( i_next_time-p_sys->seekpoint[i]->i_time_offset > 0 )
-            i_delta_offset = (i_next_offset - p_sys->seekpoint[i]->i_byte_offset) * i_delta_time /
-                             (i_next_time-p_sys->seekpoint[i]->i_time_offset);
+            i_delta_offset = (i_next_offset - p_sys->seekpoint[i]->i_byte_offset) * (i_delta_time / i_time_align) /
+                             ((i_next_time-p_sys->seekpoint[i]->i_time_offset) / i_time_align);
 
         if( stream_Seek( p_demux->s, p_sys->seekpoint[i]->i_byte_offset+p_sys->i_data_pos + i_delta_offset ) )
             return VLC_EGENERIC;
-
-        p_sys->i_pts_start = p_sys->i_pts;
-        p_sys->i_time_offset = (p_sys->seekpoint[i]->i_time_offset+i_delta_time) - p_sys->i_pts;
     }
     return VLC_SUCCESS;
 }
@@ -401,7 +395,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             return VLC_EGENERIC;
 
         *pi_int = p_sys->i_attachments;
-        *ppp_attach = xmalloc( sizeof(input_attachment_t**) * p_sys->i_attachments );
+        *ppp_attach = xmalloc( sizeof(input_attachment_t*) * p_sys->i_attachments );
         for( int i = 0; i < p_sys->i_attachments; i++ )
             (*ppp_attach)[i] = vlc_input_attachment_Duplicate( p_sys->attachments[i] );
         return VLC_SUCCESS;
@@ -480,7 +474,10 @@ static int  ReadMeta( demux_t *p_demux, uint8_t **pp_streaminfo, int *pi_streami
                 return VLC_EGENERIC;
 
             if( stream_Read( p_demux->s, NULL, 4) < 4)
+            {
+                free( *pp_streaminfo );
                 return VLC_EGENERIC;
+            }
             if( stream_Read( p_demux->s, *pp_streaminfo, STREAMINFO_SIZE ) != STREAMINFO_SIZE )
             {
                 msg_Err( p_demux, "failed to read STREAMINFO metadata block" );
@@ -491,7 +488,7 @@ static int  ReadMeta( demux_t *p_demux, uint8_t **pp_streaminfo, int *pi_streami
             /* */
             ParseStreamInfo( &i_sample_rate, &i_sample_count, *pp_streaminfo );
             if( i_sample_rate > 0 )
-                p_sys->i_length = i_sample_count * INT64_C(1000000)/i_sample_rate;
+                p_sys->i_length = i_sample_count * CLOCK_FREQ /i_sample_rate;
             continue;
         }
         else if( i_type == META_SEEKTABLE )
@@ -582,7 +579,7 @@ static void ParseComment( demux_t *p_demux, const uint8_t *p_data, int i_data )
 
     vorbis_ParseComment( &p_sys->p_meta, &p_data[4], i_data - 4,
         &p_sys->i_attachments, &p_sys->attachments,
-        &p_sys->i_cover_score, &p_sys->i_cover_idx, NULL, NULL );
+        &p_sys->i_cover_score, &p_sys->i_cover_idx, NULL, NULL, NULL, NULL );
 }
 
 static void ParsePicture( demux_t *p_demux, const uint8_t *p_data, int i_data )

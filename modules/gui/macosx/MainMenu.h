@@ -67,8 +67,10 @@
     IBOutlet NSMenuItem * o_mi_open_net;
     IBOutlet NSMenuItem * o_mi_open_capture;
     IBOutlet NSMenuItem * o_mi_open_recent;
+    IBOutlet NSMenuItem * o_mi_close_window;
     IBOutlet NSMenuItem * o_mi_open_wizard;
     IBOutlet NSMenuItem * o_mi_convertandsave;
+    IBOutlet NSMenuItem * o_mi_save_playlist;
 
     IBOutlet NSMenu * o_mu_edit;
     IBOutlet NSMenuItem * o_mi_cut;
@@ -83,6 +85,7 @@
     IBOutlet NSMenuItem * o_mi_toggleEffectsButton;
     IBOutlet NSMenuItem * o_mi_toggleSidebar;
     IBOutlet NSMenu * o_mu_playlistTableColumns;
+    IBOutlet NSMenuItem * o_mi_playlistTableColumns;
     NSMenu * o_mu_playlistTableColumnsContextMenu;
 
     IBOutlet NSMenu * o_mu_controls;
@@ -178,7 +181,7 @@
 
     IBOutlet NSMenu * o_mu_window;
     IBOutlet NSMenuItem * o_mi_minimize;
-    IBOutlet NSMenuItem * o_mi_close_window;
+    IBOutlet NSMenuItem * o_mi_zoom_window;
     IBOutlet NSMenuItem * o_mi_player;
     IBOutlet NSMenuItem * o_mi_controller;
     IBOutlet NSMenuItem * o_mi_audioeffects;
@@ -239,6 +242,7 @@
 - (IBAction)intfOpenDisc:(id)sender;
 - (IBAction)intfOpenNet:(id)sender;
 - (IBAction)intfOpenCapture:(id)sender;
+- (IBAction)savePlaylist:(id)sender;
 
 - (IBAction)toggleEffectsButton:(id)sender;
 - (IBAction)toggleJumpButtons:(id)sender;
@@ -248,6 +252,7 @@
 - (void)setPlaylistColumnTableState:(NSInteger)i_state forColumn:(NSString *)o_column;
 - (NSMenu *)setupPlaylistTableColumnsMenu;
 
+- (IBAction)quitAfterPlayback:(id)sender;
 - (IBAction)toggleRecord:(id)sender;
 - (void)updateRecordState:(BOOL)b_value;
 - (IBAction)setPlaybackRate:(id)sender;
@@ -286,6 +291,9 @@
 - (IBAction)openForum:(id)sender;
 - (IBAction)openDonate:(id)sender;
 - (IBAction)viewErrorsAndWarnings:(id)sender;
+- (IBAction)showMessagesPanel:(id)showMessagesPanel;
+- (IBAction)showMainWindow:(id)sender;
+- (IBAction)showPlaylist:(id)sender;
 
 - (void)setPlay;
 - (void)setPause;

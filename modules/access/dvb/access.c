@@ -125,11 +125,6 @@ static int Open( vlc_object_t *p_this )
     if( ParseMRL( p_access ) )
     {
         free( p_sys );
-        var_Destroy( p_access, "dvb-modulation" );
-        var_Destroy( p_access, "dvb-fec" );
-        var_Destroy( p_access, "dvb-code-rate-hp" );
-        var_Destroy( p_access, "dvb-code-rate-lp" );
-        var_Destroy( p_access, "dvb-guard" );
         return VLC_EGENERIC;
     }
 
@@ -177,8 +172,6 @@ static int Open( vlc_object_t *p_this )
     }
 
     /* Set up access */
-    free( p_access->psz_demux );
-    p_access->psz_demux = strdup( "m3u8" );
     p_access->pf_read = NULL;
     p_access->pf_control = Control;
     p_access->pf_seek = NULL;
@@ -236,16 +229,8 @@ static block_t *BlockScan( access_t *p_access )
     var_SetInteger( p_access, "dvb-frequency", cfg.i_frequency );
     msg_Dbg( p_access, " bandwidth %d", cfg.i_bandwidth );
     var_SetInteger( p_access, "dvb-bandwidth", cfg.i_bandwidth );
-    if ( cfg.i_fec )
-    {
-        msg_Dbg( p_access, " FEC %d", cfg.i_fec );
-        var_SetInteger( p_access, "dvb-fec", cfg.i_fec );
-    }
     if ( cfg.c_polarization )
         var_SetInteger( p_access, "dvb-voltage", cfg.c_polarization == 'H' ? 18 : 13 );
-
-    if ( cfg.i_modulation )
-        var_SetInteger( p_access, "dvb-modulation", cfg.i_modulation );
 
     if ( cfg.i_symbolrate )
         var_SetInteger( p_access, "dvb-srate", cfg.i_symbolrate );
@@ -309,7 +294,7 @@ static block_t *BlockScan( access_t *p_access )
             if( errno == EINTR )
                 continue;
 
-            msg_Err( p_access, "poll error: %m" );
+            msg_Err( p_access, "poll error: %s", vlc_strerror_c(errno) );
             scan_session_Destroy( p_scan, session );
 
             p_access->info.b_eof = true;
@@ -343,7 +328,7 @@ static block_t *BlockScan( access_t *p_access )
             if( ( i_ret = read( p_sys->i_handle, p_block->p_buffer,
                                 i_read_once * TS_PACKET_SIZE ) ) <= 0 )
             {
-                msg_Warn( p_access, "read failed (%m)" );
+                msg_Warn( p_access, "read failed: %s", vlc_strerror_c(errno) );
                 block_Release( p_block );
                 continue;
             }
@@ -378,7 +363,6 @@ static int Control( access_t *p_access, int i_query, va_list args )
 
     switch( i_query )
     {
-        /* */
         case ACCESS_CAN_SEEK:
         case ACCESS_CAN_FASTSEEK:
         case ACCESS_CAN_PAUSE:
@@ -386,19 +370,15 @@ static int Control( access_t *p_access, int i_query, va_list args )
             pb_bool = (bool*)va_arg( args, bool* );
             *pb_bool = false;
             break;
-        /* */
+
+        case ACCESS_GET_CONTENT_TYPE:
+            *va_arg( args, char** ) = strdup("application/vnd.apple.mpegurl"); // m3u8
+            return VLC_SUCCESS;
+
         case ACCESS_GET_PTS_DELAY:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
             *pi_64 = DEFAULT_PTS_DELAY;
             break;
-
-        /* */
-        case ACCESS_SET_PAUSE_STATE:
-        case ACCESS_GET_TITLE_INFO:
-        case ACCESS_SET_TITLE:
-        case ACCESS_SET_SEEKPOINT:
-        case ACCESS_GET_CONTENT_TYPE:
-            return VLC_EGENERIC;
 
         case ACCESS_GET_SIGNAL:
             pf1 = (double*)va_arg( args, double * );
@@ -410,14 +390,9 @@ static int Control( access_t *p_access, int i_query, va_list args )
                 *pf1 = (double)stat.i_snr / 65535.0;
                 *pf2 = (double)stat.i_signal_strenth / 65535.0;
             }
-            return VLC_SUCCESS;
-
-        case ACCESS_SET_PRIVATE_ID_STATE:
-        case ACCESS_SET_PRIVATE_ID_CA:
-            return VLC_EGENERIC;
+            break;
 
         default:
-            msg_Warn( p_access, "unimplemented query in control" );
             return VLC_EGENERIC;
 
     }
@@ -481,13 +456,6 @@ static void FilterUnset( access_t *p_access, int i_max )
  *****************************************************************************/
 static void VarInit( access_t *p_access )
 {
-    var_Destroy( p_access, "dvb-modulation" );
-    var_Destroy( p_access, "dvb-fec" );
-    var_Destroy( p_access, "dvb-code-rate-hp" );
-    var_Destroy( p_access, "dvb-code-rate-lp" );
-    var_Destroy( p_access, "dvb-guard" );
-
-    /* */
     var_Create( p_access, "dvb-adapter", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
     var_Create( p_access, "dvb-device", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
     var_Create( p_access, "dvb-frequency", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
@@ -500,21 +468,14 @@ static void VarInit( access_t *p_access )
     var_Create( p_access, "dvb-voltage", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
     var_Create( p_access, "dvb-high-voltage", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
     var_Create( p_access, "dvb-tone", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
-    var_Create( p_access, "dvb-fec", VLC_VAR_INTEGER );
     var_Create( p_access, "dvb-srate", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
     var_Create( p_access, "dvb-lnb-lof1", VLC_VAR_INTEGER );
     var_Create( p_access, "dvb-lnb-lof2", VLC_VAR_INTEGER );
     var_Create( p_access, "dvb-lnb-slof", VLC_VAR_INTEGER );
 
     /* */
-    var_Create( p_access, "dvb-modulation", VLC_VAR_INTEGER );
-
-    /* */
-    var_Create( p_access, "dvb-code-rate-hp", VLC_VAR_INTEGER );
-    var_Create( p_access, "dvb-code-rate-lp", VLC_VAR_INTEGER );
     var_Create( p_access, "dvb-bandwidth", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
     var_Create( p_access, "dvb-transmission", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
-    var_Create( p_access, "dvb-guard", VLC_VAR_INTEGER );
     var_Create( p_access, "dvb-hierarchy", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
 }
 
@@ -567,19 +528,13 @@ static int ParseMRL( access_t *p_access )
         else GET_OPTION_BOOL("high-voltage")
         else GET_OPTION_INT("tone")
         else GET_OPTION_INT("satno")
-        else GET_OPTION_INT("fec")
         else GET_OPTION_INT("srate")
         else GET_OPTION_INT("lnb-lof1")
         else GET_OPTION_INT("lnb-lof2")
         else GET_OPTION_INT("lnb-slof")
 
-        else GET_OPTION_INT("modulation")
-
-        else GET_OPTION_INT("code-rate-hp")
-        else GET_OPTION_INT("code-rate-lp")
         else GET_OPTION_INT("bandwidth")
         else GET_OPTION_INT("transmission")
-        else GET_OPTION_INT("guard")
         else GET_OPTION_INT("hierarchy")
 
         /* Redundant with voltage but much easier to use */

@@ -43,6 +43,7 @@
 #include <QDialogButtonBox>
 #include <QStackedWidget>
 #include <QSplitter>
+#include <QShortcut>
 
 PrefsDialog::PrefsDialog( QWidget *parent, intf_thread_t *_p_intf )
             : QVLCDialog( parent, _p_intf )
@@ -165,6 +166,9 @@ void PrefsDialog::setAdvanced()
         CONNECT( current_filter, stateChanged(int),
                  this, onlyLoadedToggled() );
         advanced_tree_panel->layout()->addWidget( current_filter );
+
+        QShortcut *search = new QShortcut( QKeySequence( QKeySequence::Find ), tree_filter );
+        CONNECT( search, activated(), tree_filter, setFocus() );
     }
 
     /* If don't have already and advanced TREE, then create it */
@@ -329,6 +333,10 @@ void PrefsDialog::reset()
         config_ResetAll( p_intf );
         config_SaveConfigFile( p_intf );
         getSettings()->clear();
+
+#ifdef _WIN32
+        simple_panels[0]->cleanLang();
+#endif
 
         accept();
     }

@@ -1,5 +1,5 @@
 # gettext
-GETTEXT_VERSION=0.18.2.1
+GETTEXT_VERSION=0.18.3
 GETTEXT_URL=$(GNU)/gettext/gettext-$(GETTEXT_VERSION).tar.gz
 
 PKGS += gettext
@@ -15,10 +15,6 @@ $(TARBALLS)/gettext-$(GETTEXT_VERSION).tar.gz:
 
 gettext: gettext-$(GETTEXT_VERSION).tar.gz .sum-gettext
 	$(UNPACK)
-ifdef HAVE_MACOSX
-	# detect libintl correctly in configure for static library
-	sed -i.orig  's/$$LIBS $$LIBINTL/$$LIBS $$LIBINTL $$INTL_MACOSX_LIBS/' gettext-$(GETTEXT_VERSION)/gettext-runtime/m4/gettext.m4
-endif
 	$(MOVE)
 
 DEPS_gettext = iconv $(DEPS_iconv)
@@ -30,11 +26,18 @@ DEPS_gettext = iconv $(DEPS_iconv)
 	#touch $@
 
 ifdef HAVE_WIN32
-	(cd $< && $(HOSTVARS) ./configure $(HOSTCONF) --disable-relocatable --disable-java --disable-native-java --disable-threads)
-	(cd $< && $(MAKE) -C gettext-runtime install && $(MAKE) -C gettext-tools/misc install && $(MAKE) -C gettext-tools/m4 install)
+	cd $< && $(HOSTVARS) ./configure $(HOSTCONF) --disable-relocatable --disable-java --disable-native-java --disable-threads
+	cd $< && $(MAKE) -C gettext-runtime install && $(MAKE) -C gettext-tools/misc install && $(MAKE) -C gettext-tools/m4 install
 else
-	(cd $< && $(HOSTVARS) ./configure $(HOSTCONF) --disable-java --disable-native-java --without-emacs)
-	(cd $< && $(MAKE) -C gettext-runtime install && $(MAKE) -C gettext-tools/intl && $(MAKE) -C gettext-tools/libgrep && $(MAKE) -C gettext-tools/gnulib-lib && $(MAKE) -C gettext-tools/src install && $(MAKE) -C gettext-tools/misc install && $(MAKE) -C gettext-tools/m4 install)
+	cd $< && $(HOSTVARS) ./configure $(HOSTCONF) --disable-java --disable-native-java --without-emacs
+	cd $< && $(MAKE) -C gettext-runtime install && $(MAKE) -C gettext-tools/intl && $(MAKE) -C gettext-tools/misc install && $(MAKE) -C gettext-tools/m4 install
+ifndef HAVE_ANDROID
+	cd $< && $(MAKE) -C gettext-tools/libgrep && $(MAKE) -C gettext-tools/gnulib-lib && $(MAKE) -C gettext-tools/src install
+endif
+endif
+ifdef HAVE_MACOSX
+	# detect libintl correctly in configure for static library
+	sed -i.orig  's/$$LIBS $$LIBINTL/$$LIBS $$LIBINTL $$INTL_MACOSX_LIBS/' "$(PREFIX)"/share/aclocal/gettext.m4
 endif
 	touch $@
 

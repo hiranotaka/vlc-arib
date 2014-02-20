@@ -1,5 +1,5 @@
 /*****************************************************************************
- * dbus_root.c : dbus control module (mpris v1.0) - root object
+ * dbus_root.c : dbus control module (mpris v2.2) - Root object
  *****************************************************************************
  * Copyright © 2006-2008 Rafaël Carré
  * Copyright © 2007-2011 Mirsal Ennaime
@@ -43,13 +43,13 @@
 #include "dbus_root.h"
 #include "dbus_common.h"
 
-static const char const ppsz_supported_uri_schemes[][9] = {
+static const char ppsz_supported_uri_schemes[][9] = {
     "file", "http", "https", "rtsp", "realrtsp", "pnm", "ftp", "mtp", "smb",
     "mms", "mmsu", "mmst", "mmsh", "unsv", "itpc", "icyx", "rtmp", "rtp",
     "dccp", "dvd", "vcd", "vcdx"
 };
 
-static const char const ppsz_supported_mime_types[][26] = {
+static const char ppsz_supported_mime_types[][26] = {
     "audio/mpeg", "audio/x-mpeg",
     "video/mpeg", "video/x-mpeg",
     "video/mpeg-system", "video/x-mpeg-system",
@@ -495,6 +495,7 @@ PropertiesChangedSignal( intf_thread_t    *p_intf,
 
         free( ppsz_properties[i] );
     }
+    free( ppsz_properties );
 
     if( !dbus_message_iter_close_container( &args, &changed_properties ) )
         return DBUS_HANDLER_RESULT_NEED_MEMORY;
@@ -505,8 +506,6 @@ PropertiesChangedSignal( intf_thread_t    *p_intf,
 
     if( !dbus_message_iter_close_container( &args, &invalidated_properties ) )
         return DBUS_HANDLER_RESULT_NEED_MEMORY;
-
-    free( ppsz_properties );
 
     SIGNAL_SEND;
 }

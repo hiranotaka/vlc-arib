@@ -147,6 +147,8 @@ typedef struct vcdplayer_input_s
   vcdplayer_play_item_info_t *entry;
 
   unsigned int i_titles;                /* # of navigatable titles. */
+  unsigned int i_cur_title;
+  unsigned int i_cur_chapter;
 
   /*
      # tracks + menu for segments + menu for LIDs
@@ -160,6 +162,7 @@ typedef struct vcdplayer_input_s
   bool           b_track_length; /* Use track as max unit in seek */
   input_thread_t *p_input;
   access_t       *p_access;
+  uint64_t       size;
  
 } vcdplayer_t;
 

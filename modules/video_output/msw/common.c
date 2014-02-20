@@ -1,5 +1,5 @@
 /*****************************************************************************
- * common.c:
+ * common.c: Windows video output common code
  *****************************************************************************
  * Copyright (C) 2001-2009 VLC authors and VideoLAN
  * $Id$
@@ -21,43 +21,28 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-
 /*****************************************************************************
- * Preamble: This file contains the functions related to the creation of
- *             a window and the handling of its messages (events).
+ * Preamble: This file contains the functions related to the init of the vout
+ *           structure, the common display code, the screensaver, but not the
+ *           events and the Window Creation (events.c)
  *****************************************************************************/
+
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
-#include <assert.h>
 
 #include <vlc_common.h>
 #include <vlc_vout_display.h>
-#include <vlc_vout_window.h>
 
 #include <windows.h>
-#include <windowsx.h>
-#include <shellapi.h>
-
-#ifdef MODULE_NAME_IS_directdraw
-#include <ddraw.h>
-#endif
-#ifdef MODULE_NAME_IS_direct3d
-#include <d3d9.h>
-#endif
-#ifdef MODULE_NAME_IS_glwin32
-#include "../opengl.h"
-#endif
-#ifdef MODULE_NAME_IS_direct2d
-#include <d2d1.h>
-#endif
+#include <assert.h>
 
 #include "common.h"
 
 #include <vlc_windows_interfaces.h>
 
 static void CommonChangeThumbnailClip(vout_display_t *, bool show);
-static int CommonControlSetFullscreen(vout_display_t *, bool is_fullscreen);
+static int  CommonControlSetFullscreen(vout_display_t *, bool is_fullscreen);
 
 static void DisableScreensaver(vout_display_t *);
 static void RestoreScreensaver(vout_display_t *);
@@ -78,6 +63,7 @@ int CommonInit(vout_display_t *vd)
     sys->is_on_top = false;
 
     var_Create(vd, "video-deco", VLC_VAR_BOOL | VLC_VAR_DOINHERIT);
+    var_Create(vd, "disable-screensaver", VLC_VAR_BOOL | VLC_VAR_DOINHERIT);
 
     /* */
     sys->event = EventThreadCreate(vd);
@@ -113,8 +99,6 @@ int CommonInit(vout_display_t *vd)
             vout_display_SendEventFullscreen(vd, false);
     }
 
-    /* Why not with glwin32 */
-    var_Create(vd, "disable-screensaver", VLC_VAR_BOOL | VLC_VAR_DOINHERIT);
     DisableScreensaver (vd);
 
     return VLC_SUCCESS;

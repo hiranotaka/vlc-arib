@@ -1,7 +1,7 @@
 /*****************************************************************************
  * Windows.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2012-2013 VLC authors and VideoLAN
+ * Copyright (C) 2012-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -23,7 +23,6 @@
  *****************************************************************************/
 
 #import <Cocoa/Cocoa.h>
-#import "CompatibilityFixes.h"
 
 /*****************************************************************************
  * VLCWindow
@@ -33,7 +32,7 @@
 
 @class VLCVoutView;
 
-@interface VLCWindow : NSWindow
+@interface VLCWindow : NSWindow <NSAnimationDelegate>
 {
     BOOL b_canBecomeKeyWindow;
     BOOL b_isset_canBecomeKeyWindow;
@@ -105,15 +104,17 @@ static const float f_min_video_height = 70.0;
     BOOL              b_window_is_invisible;
     NSInteger i_originalLevel;
 
+    BOOL              b_video_view_was_hidden;
+
     NSTimer *t_hide_mouse_timer;
 
-    // true when the window is in transition for entering lion fullscreen
-    BOOL b_entering_fullscreen_transition;
+    // true when the window is in transition for entering or exiting fullscreen
+    BOOL b_in_fullscreen_transition;
 }
 
 @property (nonatomic, assign) VLCVoutView* videoView;
 @property (readonly) VLCControlsBarCommon* controlsBar;
-@property (readonly) BOOL enteringFullscreenTransition;
+@property (readonly) BOOL inFullscreenTransition;
 
 - (void)setWindowLevel:(NSInteger)i_state;
 

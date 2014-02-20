@@ -84,6 +84,8 @@
     IBOutlet id o_input_urlhandler_btn;
     IBOutlet id o_input_view;
 
+    IBOutlet id o_intf_language_pop;
+    IBOutlet id o_intf_language_txt;
     IBOutlet id o_intf_style_txt;
     IBOutlet id o_intf_style_dark_bcell;
     IBOutlet id o_intf_style_bright_bcell;
@@ -102,6 +104,11 @@
     IBOutlet id o_intf_nativefullscreen_ckb;
     IBOutlet id o_intf_autoresize_ckb;
     IBOutlet id o_intf_pauseminimized_ckb;
+    IBOutlet id o_intf_luahttp_box;
+    IBOutlet id o_intf_luahttppwd_lbl;
+    IBOutlet id o_intf_luahttppwd_fld;
+    IBOutlet id o_intf_pauseitunes_lbl;
+    IBOutlet id o_intf_pauseitunes_pop;
 
     IBOutlet id o_osd_encoding_pop;
     IBOutlet id o_osd_encoding_txt;

@@ -185,11 +185,6 @@ int MMSHOpen( access_t *p_access )
         goto error;
     }
 
-    if( !p_sys->b_broadcast )
-    {
-        p_access->info.i_size = p_sys->asfh.i_file_size;
-    }
-
     return VLC_SUCCESS;
 
 error:
@@ -228,7 +223,6 @@ static int Control( access_t *p_access, int i_query, va_list args )
 
     switch( i_query )
     {
-        /* */
         case ACCESS_CAN_SEEK:
             pb_bool = (bool*)va_arg( args, bool* );
             *pb_bool = !p_sys->b_broadcast;
@@ -245,7 +239,13 @@ static int Control( access_t *p_access, int i_query, va_list args )
             *pb_bool = true;
             break;
 
-        /* */
+        case ACCESS_GET_SIZE:
+        {
+            uint64_t *s = va_arg( args, uint64_t * );
+            *s = p_sys->b_broadcast ? 0 : p_sys->asfh.i_file_size;
+            return VLC_SUCCESS;
+        }
+
         case ACCESS_GET_PTS_DELAY:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
             *pi_64 = INT64_C(1000)
@@ -261,7 +261,26 @@ static int Control( access_t *p_access, int i_query, va_list args )
             *pb_bool =  p_sys->asfh.stream[i_int].i_selected ? true : false;
             break;
 
-        /* */
+        case ACCESS_SET_PRIVATE_ID_STATE:
+            i_int = (int)va_arg( args, int );
+            b_bool = (bool)va_arg( args, int );
+            if( (i_int < 0) || (i_int > 127) )
+                return VLC_EGENERIC;
+            else
+            {
+                int i_cat = p_sys->asfh.stream[i_int].i_cat;
+                for ( int i=0; i< 128; i++ )
+                {
+                    /* First unselect all streams from the same cat */
+                    if ( i_cat == p_sys->asfh.stream[i].i_cat )
+                        p_sys->asfh.stream[i].i_selected = false;
+                }
+                p_sys->asfh.stream[i_int].i_selected = true;
+                Stop( p_access );
+                Seek( p_access, p_access->info.i_pos );
+                return VLC_SUCCESS;
+            }
+
         case ACCESS_SET_PAUSE_STATE:
             b_bool = (bool)va_arg( args, int );
             if( b_bool )
@@ -270,18 +289,8 @@ static int Control( access_t *p_access, int i_query, va_list args )
                 Seek( p_access, p_access->info.i_pos );
             break;
 
-        case ACCESS_GET_TITLE_INFO:
-        case ACCESS_SET_TITLE:
-        case ACCESS_SET_SEEKPOINT:
-        case ACCESS_SET_PRIVATE_ID_STATE:
-        case ACCESS_GET_CONTENT_TYPE:
-        case ACCESS_GET_META:
-            return VLC_EGENERIC;
-
         default:
-            msg_Warn( p_access, "unimplemented query in control" );
             return VLC_EGENERIC;
-
     }
     return VLC_SUCCESS;
 }
@@ -824,7 +833,7 @@ static int Start( access_t *p_access, uint64_t i_pos )
                 i_select = 0;
             }
             net_Printf( p_access, p_sys->fd, NULL,
-                        "ffff:%d:%d ", i, i_select );
+                        "ffff:%x:%d ", i, i_select );
         }
     }
     net_Printf( p_access, p_sys->fd, NULL, "\r\n" );

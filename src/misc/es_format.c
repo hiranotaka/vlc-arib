@@ -188,6 +188,7 @@ void video_format_Setup( video_format_t *p_fmt, vlc_fourcc_t i_chroma,
 
     case VLC_CODEC_RGB32:
     case VLC_CODEC_RGBA:
+    case VLC_CODEC_ARGB:
         p_fmt->i_bits_per_pixel = 32;
         break;
     case VLC_CODEC_RGB24:
@@ -296,7 +297,7 @@ void es_format_Init( es_format_t *fmt,
     fmt->i_level                = -1;
     fmt->i_id                   = -1;
     fmt->i_group                = 0;
-    fmt->i_priority             = 0;
+    fmt->i_priority             = ES_PRIORITY_SELECTABLE_MIN;
     fmt->psz_language           = NULL;
     fmt->psz_description        = NULL;
 
@@ -435,7 +436,7 @@ bool es_format_IsSimilar( const es_format_t *p_fmt1, const es_format_t *p_fmt2 )
         if( !v1.i_chroma )
             v1.i_chroma = vlc_fourcc_GetCodec( p_fmt1->i_cat, p_fmt1->i_codec );
         if( !v2.i_chroma )
-            v2.i_chroma = vlc_fourcc_GetCodec( p_fmt1->i_cat, p_fmt2->i_codec );
+            v2.i_chroma = vlc_fourcc_GetCodec( p_fmt2->i_cat, p_fmt2->i_codec );
         return video_format_IsSimilar( &p_fmt1->video, &p_fmt2->video );
     }
 

@@ -210,32 +210,36 @@ static QAction * FindActionWithVar( QMenu *menu, const char *psz_var )
 /*****************************************************************************
  * Definitions of variables for the dynamic menus
  *****************************************************************************/
-#define PUSH_VAR( var ) varnames.append( var ); \
-    objects.append( VLC_OBJECT(p_object) )
+#define PUSH_OBJVAR(object,var) \
+    do { \
+        varnames.append(var); \
+        objects.append(VLC_OBJECT(object)); \
+    } while (0)
 
-#define PUSH_INPUTVAR( var ) varnames.append( var ); \
-    objects.append( VLC_OBJECT(p_input) );
+#define PUSH_VAR(var) PUSH_OBJVAR(p_object, var)
+#define PUSH_INPUTVAR(var) PUSH_OBJVAR(p_input, var)
+#define PUSH_PLVAR(var) PUSH_OBJVAR(pl, var)
 
-static int InputAutoMenuBuilder( input_thread_t *p_object,
-        QVector<vlc_object_t *> &objects,
-        QVector<const char *> &varnames )
+static int InputAutoMenuBuilder( input_thread_t *p_input,
+        QVector<vlc_object_t *> &objects, QVector<const char *> &varnames )
 {
-    PUSH_VAR( "bookmark" );
-    PUSH_VAR( "title" );
-    PUSH_VAR( "chapter" );
-    PUSH_VAR( "program" );
+    PUSH_INPUTVAR( "bookmark" );
+    PUSH_INPUTVAR( "title" );
+    PUSH_INPUTVAR( "chapter" );
+    PUSH_INPUTVAR( "program" );
+
     return VLC_SUCCESS;
 }
 
-static int VideoAutoMenuBuilder( vout_thread_t *p_object,
-        input_thread_t *p_input,
-        QVector<vlc_object_t *> &objects,
-        QVector<const char *> &varnames )
+static int VideoAutoMenuBuilder( playlist_t *pl, input_thread_t *p_input,
+        QVector<vlc_object_t *> &objects, QVector<const char *> &varnames )
 {
+    vout_thread_t *p_object = p_input ? input_GetVout( p_input ) : NULL;
+
     PUSH_INPUTVAR( "video-es" );
-    PUSH_VAR( "fullscreen" );
-    PUSH_VAR( "video-on-top" );
-    PUSH_VAR( "video-wallpaper" );
+    PUSH_PLVAR( "fullscreen" );
+    PUSH_PLVAR( "video-on-top" );
+    PUSH_PLVAR( "video-wallpaper" );
     PUSH_VAR( "video-snapshot" );
     PUSH_VAR( "zoom" );
     PUSH_VAR( "autoscale" );
@@ -245,28 +249,30 @@ static int VideoAutoMenuBuilder( vout_thread_t *p_object,
     PUSH_VAR( "deinterlace-mode" );
     PUSH_VAR( "postprocess" );
 
+    if( p_object )
+        vlc_object_release( p_object );
     return VLC_SUCCESS;
 }
 
-static int SubsAutoMenuBuilder( input_thread_t *p_object,
-        QVector<vlc_object_t *> &objects,
-        QVector<const char *> &varnames )
+static int SubsAutoMenuBuilder( input_thread_t *p_input,
+        QVector<vlc_object_t *> &objects, QVector<const char *> &varnames )
 {
-    PUSH_VAR( "spu-es" );
+    PUSH_INPUTVAR( "spu-es" );
 
     return VLC_SUCCESS;
 }
 
-
-
-static int AudioAutoMenuBuilder( audio_output_t *p_object,
-        input_thread_t *p_input,
-        QVector<vlc_object_t *> &objects,
-        QVector<const char *> &varnames )
+static int AudioAutoMenuBuilder( input_thread_t *p_input,
+        QVector<vlc_object_t *> &objects, QVector<const char *> &varnames )
 {
+    audio_output_t *p_object = p_input ? input_GetAout( p_input ) : NULL;
+
     PUSH_INPUTVAR( "audio-es" );
     PUSH_VAR( "stereo-mode" );
     PUSH_VAR( "visual" );
+
+    if( p_object )
+        vlc_object_release( p_object );
     return VLC_SUCCESS;
 }
 
@@ -374,7 +380,7 @@ QMenu *VLCMenuBar::FileMenu( intf_thread_t *p_intf, QWidget *parent, MainInterfa
     }
     menu->addSeparator();
 
-    addDPStaticEntry( menu, qtr( I_PL_SAVE ), "", SLOT( saveAPlaylist() ),
+    addDPStaticEntry( menu, qtr( I_PL_SAVE ), "", SLOT( savePlayingToPlaylist() ),
         "Ctrl+Y" );
 
 #ifdef ENABLE_SOUT
@@ -604,7 +610,8 @@ QMenu *VLCMenuBar::AudioMenu( intf_thread_t *p_intf, QMenu * current )
     if( current->isEmpty() )
     {
         addActionWithSubmenu( current, "audio-es", qtr( "Audio &Track" ) );
-        audioDeviceMenu = current->addMenu( qtr( "Audio &Device" ) );
+        audioDeviceMenu = new QMenu( qtr( "Audio &Device" ) );
+        current->addMenu( audioDeviceMenu );
         addActionWithSubmenu( current, "stereo-mode", qtr( "&Stereo Mode" ) );
         current->addSeparator();
 
@@ -615,7 +622,7 @@ QMenu *VLCMenuBar::AudioMenu( intf_thread_t *p_intf, QMenu * current )
     p_input = THEMIM->getInput();
     p_aout = THEMIM->getAout();
     EnableStaticEntries( current, ( p_aout != NULL ) );
-    AudioAutoMenuBuilder( p_aout, p_input, objects, varnames );
+    AudioAutoMenuBuilder( p_input, objects, varnames );
     updateAudioDevice( p_intf, p_aout, audioDeviceMenu );
     if( p_aout )
     {
@@ -626,13 +633,13 @@ QMenu *VLCMenuBar::AudioMenu( intf_thread_t *p_intf, QMenu * current )
 }
 
 /* Subtitles */
-QMenu *VLCMenuBar::SubtitleMenu( intf_thread_t *p_intf, QMenu *current )
+QMenu *VLCMenuBar::SubtitleMenu( intf_thread_t *p_intf, QMenu *current, bool b_popup )
 {
     input_thread_t *p_input;
     QVector<vlc_object_t *> objects;
     QVector<const char *> varnames;
 
-    if( current->isEmpty() )
+    if( current->isEmpty() || b_popup )
     {
         addDPStaticEntry( current, qtr( "Add &Subtitle File..." ), "",
                 SLOT( loadSubtitlesFile() ) );
@@ -652,7 +659,6 @@ QMenu *VLCMenuBar::SubtitleMenu( intf_thread_t *p_intf, QMenu *current )
  **/
 QMenu *VLCMenuBar::VideoMenu( intf_thread_t *p_intf, QMenu *current )
 {
-    vout_thread_t *p_vout;
     input_thread_t *p_input;
     QVector<vlc_object_t *> objects;
     QVector<const char *> varnames;
@@ -687,11 +693,7 @@ QMenu *VLCMenuBar::VideoMenu( intf_thread_t *p_intf, QMenu *current )
 
     p_input = THEMIM->getInput();
 
-    p_vout = THEMIM->getVout();
-    VideoAutoMenuBuilder( p_vout, p_input, objects, varnames );
-
-    if( p_vout )
-        vlc_object_release( p_vout );
+    VideoAutoMenuBuilder( THEPL, p_input, objects, varnames );
 
     return Populate( p_intf, current, varnames, objects );
 }
@@ -768,7 +770,7 @@ QMenu *VLCMenuBar::RebuildNavigMenu( intf_thread_t *p_intf, QMenu *menu, bool b_
 QMenu *VLCMenuBar::HelpMenu( QWidget *parent )
 {
     QMenu *menu = new QMenu( parent );
-    addDPStaticEntry( menu, qtr( "&Help..." ) ,
+    addDPStaticEntry( menu, qtr( "&Help" ) ,
         ":/menu/help", SLOT( helpDialog() ), "F1" );
 #ifdef UPDATE_CHECK
     addDPStaticEntry( menu, qtr( "Check for &Updates..." ) , "",
@@ -840,6 +842,11 @@ void VLCMenuBar::PopupMenuPlaylistEntries( QMenu *menu,
     action->setData( ACTION_NO_CLEANUP + ACTION_DELETE_ON_REBUILD );
     CONNECT( THEMIM, playlistNotEmpty(bool), action, setEnabled(bool) );
 
+    action = menu->addAction( qtr( "Record" ), THEAM, SLOT( record() ) );
+    action->setIcon( QIcon( ":/toolbar/record" ) );
+    if( !p_input )
+        action->setEnabled( false );
+    action->setData( ACTION_NO_CLEANUP + ACTION_DELETE_ON_REBUILD );
     menu->addSeparator();
 }
 
@@ -941,14 +948,7 @@ void VLCMenuBar::VideoPopupMenu( intf_thread_t *p_intf, bool show )
 {
     POPUP_BOILERPLATE
     if( p_input )
-    {
-        vout_thread_t *p_vout = THEMIM->getVout();
-        if( p_vout )
-        {
-            VideoAutoMenuBuilder( p_vout, p_input, objects, varnames );
-            vlc_object_release( p_vout );
-        }
-    }
+        VideoAutoMenuBuilder( THEPL, p_input, objects, varnames );
     CREATE_POPUP
 }
 
@@ -957,12 +957,7 @@ void VLCMenuBar::AudioPopupMenu( intf_thread_t *p_intf, bool show )
 {
     POPUP_BOILERPLATE
     if( p_input )
-    {
-        audio_output_t *p_aout = THEMIM->getAout();
-        AudioAutoMenuBuilder( p_aout, p_input, objects, varnames );
-        if( p_aout )
-            vlc_object_release( p_aout );
-    }
+        AudioAutoMenuBuilder( p_input, objects, varnames );
     CREATE_POPUP
 }
 
@@ -1022,7 +1017,7 @@ void VLCMenuBar::PopupMenu( intf_thread_t *p_intf, bool show )
                 val.b_bool = false;
                 CreateAndConnect( menu, "fullscreen",
                         qtr( "Leave Fullscreen" ),"" , ITEM_NORMAL,
-                        VLC_OBJECT(p_vout), val, VLC_VAR_BOOL, b_isFullscreen );
+                        VLC_OBJECT(THEPL), val, VLC_VAR_BOOL, b_isFullscreen );
             }
             vlc_object_release( p_vout );
 
@@ -1046,9 +1041,11 @@ void VLCMenuBar::PopupMenu( intf_thread_t *p_intf, bool show )
         if( action->menu()->isEmpty() )
             action->setEnabled( false );
 
-        submenu = SubtitleMenu( p_intf, menu );
-        submenu->setTitle( qtr( "Subti&tle") );
-        UpdateItem( p_intf, menu, "spu-es", VLC_OBJECT(p_input), true );
+        /* Subtitles menu */
+        submenu = new QMenu( menu );
+        action = menu->addMenu( SubtitleMenu( p_intf, submenu, true ) );
+        action->setText( qtr( "Subti&tle") );
+        UpdateItem( p_intf, submenu, "spu-es", VLC_OBJECT(p_input), true );
 
         /* Playback menu for chapters */
         submenu = new QMenu( menu );
@@ -1110,7 +1107,7 @@ void VLCMenuBar::PopupMenu( intf_thread_t *p_intf, bool show )
     PLModel *model = PLModel::getPLModel( p_intf );
     plMenu->setModel( model );
     CONNECT( plMenu, activated(const QModelIndex&),
-             model, activateItem(const QModelIndex&));
+             model->sigs, activateItemSlot(const QModelIndex&));
     menu->addMenu( plMenu );
 
     /* Static entries for ending, like open */
@@ -1137,7 +1134,7 @@ void VLCMenuBar::updateSystrayMenu( MainInterface *mi,
     QMenu *sysMenu = mi->getSysTrayMenu();
     sysMenu->clear();
 
-#ifndef Q_WS_MAC
+#ifndef Q_OS_MAC
     /* Hide / Show VLC and cone */
     if( mi->isVisible() || b_force_visible )
     {
@@ -1512,7 +1509,7 @@ void VLCMenuBar::CreateAndConnect( QMenu *menu, const char *psz_var,
 
     action->setChecked( checked );
 
-    MenuItemData *itemData = qFindChild<MenuItemData*>( action, QString() );
+    MenuItemData *itemData = action->findChild<MenuItemData*>( QString() );
     delete itemData;
     itemData = new MenuItemData( action, p_obj, i_val_type, val, psz_var );
 
@@ -1534,15 +1531,27 @@ void VLCMenuBar::DoAction( QObject *data )
     const char *var = itemData->psz_var;
     vlc_value_t val = itemData->val;
 
-    /* Preserve settings across vouts via the playlist object: */
-    if( !strcmp( var, "fullscreen" )
-     || !strcmp( var, "video-on-top" ) )
-        var_Set( pl_Get( p_object ), var, val );
-
     if ((var_Type( p_object, var) & VLC_VAR_CLASS) == VLC_VAR_VOID)
         var_TriggerCallback( p_object, var );
     else
         var_Set( p_object, var, val );
+
+    if( !strcmp( var, "fullscreen" )
+     || !strcmp( var, "video-on-top" )
+     || !strcmp( var, "video-wallpaper" ) ) /* FIXME: reverse abstraction */
+    {   /* Apply playlist variables to current existing vout too */
+        input_thread_t *input = playlist_CurrentInput((playlist_t *)p_object);
+        if( input != NULL )
+        {
+            vout_thread_t *vout = input_GetVout( input );
+            vlc_object_release( input );
+            if( vout != NULL )
+            {
+                var_Set( vout, var, val ); /* never void class */
+                vlc_object_release( vout );
+            }
+        }
+    }
 }
 
 void VLCMenuBar::updateAudioDevice( intf_thread_t * p_intf, audio_output_t *p_aout, QMenu *current )
@@ -1550,7 +1559,7 @@ void VLCMenuBar::updateAudioDevice( intf_thread_t * p_intf, audio_output_t *p_ao
     char **ids, **names;
     char *selected;
 
-    if( !p_aout )
+    if( !p_aout || !current )
         return;
 
     current->clear();
@@ -1565,7 +1574,8 @@ void VLCMenuBar::updateAudioDevice( intf_thread_t * p_intf, audio_output_t *p_ao
         action = new QAction( qfue( names[i] ), NULL );
         action->setData( ids[i] );
         action->setCheckable( true );
-        if( selected && !strcmp( ids[i], selected ) )
+        if( (selected && !strcmp( ids[i], selected ) ) ||
+            (selected == NULL && ids[i] && ids[i][0] == '\0' ) )
             action->setChecked( true );
         actionGroup->addAction( action );
         current->addAction( action );
@@ -1601,6 +1611,16 @@ void VLCMenuBar::updateRecents( intf_thread_t *p_intf )
                 char *psz = decode_URI_duplicate( qtu( mrl ) );
                 QString text = qfu( psz );
 
+                text.replace("&", "&&");
+#ifdef _WIN32
+# define FILE_SCHEME "file:///"
+#else
+# define FILE_SCHEME "file://"
+#endif
+                if ( text.startsWith( FILE_SCHEME ) )
+                    text.remove( 0, strlen( FILE_SCHEME ) );
+#undef FILE_SCHEME
+
                 free( psz );
                 action = recentsMenu->addAction(
                         QString( i < 9 ? "&%1: ": "%1: " ).arg( i + 1 ) +
@@ -1613,6 +1633,7 @@ void VLCMenuBar::updateRecents( intf_thread_t *p_intf )
 
             recentsMenu->addSeparator();
             recentsMenu->addAction( qtr("&Clear"), rmrl, SLOT( clear() ) );
+            addDPStaticEntry( recentsMenu, qtr("&Save To Playlist"), "", SLOT( saveRecentsToPlaylist() ), "" );
             recentsMenu->setEnabled( true );
         }
     }

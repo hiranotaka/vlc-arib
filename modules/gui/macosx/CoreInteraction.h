@@ -28,9 +28,12 @@
 @interface VLCCoreInteraction : NSObject {
     int i_currentPlaybackRate;
     mtime_t timeA, timeB;
+
+    float f_maxVolume;
 }
 + (VLCCoreInteraction *)sharedInstance;
 @property (readwrite) int volume;
+@property (readonly, nonatomic) float maxVolume;
 @property (readwrite) int playbackRate;
 @property (nonatomic, readwrite) BOOL aspectRatioIsLocked;
 @property (readonly) int durationOfCurrentPlaylistItem;

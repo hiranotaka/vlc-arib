@@ -48,10 +48,8 @@
 
 #include "rtp.h"
 
-#ifdef HAVE_UNISTD_H
-#   include <sys/types.h>
-#   include <unistd.h>
-#endif
+#include <sys/types.h>
+#include <unistd.h>
 #ifdef HAVE_ARPA_INET_H
 #   include <arpa/inet.h>
 #endif
@@ -683,9 +681,7 @@ static void Close( vlc_object_t * p_this )
 
     if( p_sys->psz_sdp_file != NULL )
     {
-#ifdef HAVE_UNISTD_H
         unlink( p_sys->psz_sdp_file );
-#endif
         free( p_sys->psz_sdp_file );
     }
     free( p_sys->psz_vod_session );
@@ -1039,12 +1035,13 @@ static sout_stream_id_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
         }
 
         char *salt = var_GetNonEmptyString (p_stream, SOUT_CFG_PREFIX"salt");
-        errno = srtp_setkeystring (id->srtp, key, salt ? salt : "");
+        int val = srtp_setkeystring (id->srtp, key, salt ? salt : "");
         free (salt);
         free (key);
-        if (errno)
+        if (val)
         {
-            msg_Err (p_stream, "bad SRTP key/salt combination (%m)");
+            msg_Err (p_stream, "bad SRTP key/salt combination (%s)",
+                     vlc_strerror_c(val));
             goto error;
         }
         id->i_sequence = 0; /* FIXME: awful hack for libvlc_srtp */
@@ -1157,6 +1154,9 @@ static sout_stream_id_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
         case VLC_CODEC_S16B:
         case VLC_CODEC_S16L:
             rtp_set_ptime (id, 20, 2);
+            break;
+        case VLC_CODEC_S24B:
+            rtp_set_ptime (id, 20, 3);
             break;
         default:
             break;
@@ -1329,8 +1329,8 @@ static int FileSetup( sout_stream_t *p_stream )
 
     if( ( f = vlc_fopen( p_sys->psz_sdp_file, "wt" ) ) == NULL )
     {
-        msg_Err( p_stream, "cannot open file '%s' (%m)",
-                 p_sys->psz_sdp_file );
+        msg_Err( p_stream, "cannot open file '%s' (%s)",
+                 p_sys->psz_sdp_file, vlc_strerror_c(errno) );
         return VLC_EGENERIC;
     }
 
@@ -1421,8 +1421,8 @@ static void* ThreadSend( void *data )
             vlc_restorecancel (canc);
             if( val )
             {
-                errno = val;
-                msg_Dbg( id->p_stream, "SRTP sending error: %m" );
+                msg_Dbg( id->p_stream, "SRTP sending error: %s",
+                         vlc_strerror_c(val) );
                 block_Release( out );
                 out = NULL;
             }

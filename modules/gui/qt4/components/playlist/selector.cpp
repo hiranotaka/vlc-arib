@@ -122,7 +122,7 @@ PLSelector::PLSelector( QWidget *p, intf_thread_t *_p_intf )
     setDropIndicatorShown(true);
     invisibleRootItem()->setFlags( invisibleRootItem()->flags() & ~Qt::ItemIsDropEnabled );
 
-#ifdef Q_WS_MAC
+#ifdef Q_OS_MAC
     setAutoFillBackground( true );
     QPalette palette;
     palette.setColor( QPalette::Window, QColor(209,215,226) );
@@ -240,7 +240,7 @@ void PLSelector::createItems()
     ml->treeItem()->setData( 0, SPECIAL_ROLE, QVariant( IS_ML ) );
     ml->treeItem()->setData( 0, Qt::DecorationRole, QIcon( ":/sidebar/library" ) );
 
-#ifdef MEDIA_LIBRARY
+#ifdef SQL_MEDIA_LIBRARY
     /* SQL ML */
     ml = addItem( SQL_ML_TYPE, "SQL Media Library" )->treeItem();
     ml->treeItem()->setData( 0, Qt::DecorationRole, QIcon( ":/sidebar/library" ) );
@@ -377,7 +377,7 @@ void PLSelector::setSource( QTreeWidgetItem *item )
                 item->setData( 0, CAP_SEARCH_ROLE, true );
         }
     }
-#ifdef MEDIA_LIBRARY
+#ifdef SQL_MEDIA_LIBRARY
     else if( i_type == SQL_ML_TYPE )
     {
         emit categoryActivated( NULL, true );

@@ -97,7 +97,7 @@ MetaPanel::MetaPanel( QWidget *parent,
     date_text = new QLineEdit;
     date_text->setAlignment( Qt::AlignRight );
     date_text->setInputMask("0000");
-    date_text->setMaximumWidth( 128 );
+    date_text->setMaximumWidth( 140 );
     metaLayout->addWidget( date_text, line, 7, 1, -1 );
     line++;
 
@@ -110,12 +110,18 @@ MetaPanel::MetaPanel( QWidget *parent,
     label->setFont( smallFont ); label->setContentsMargins( 3, 2, 0, 0 );
     metaLayout->addWidget( label, line - 1, 7, 1, 3  );
 
-    tracknumber_text = new QLineEdit;
-    tracknumber_text->setAlignment( Qt::AlignRight );
-    tracknumber_text->setInputMask("0000/0000");
-    tracknumber_text->setMaximumWidth( 128 );
-    metaLayout->addWidget( tracknumber_text, line, 7, 1, -1 );
+    seqnum_text = new QLineEdit;
+    seqnum_text->setMaximumWidth( 64 );
+    seqnum_text->setAlignment( Qt::AlignRight );
+    metaLayout->addWidget( seqnum_text, line, 7, 1, 1 );
 
+    label = new QLabel( "/" ); label->setFont( smallFont );
+    metaLayout->addWidget( label, line, 8, 1, 1 );
+
+    seqtot_text = new QLineEdit;
+    seqtot_text->setMaximumWidth( 64 );
+    seqtot_text->setAlignment( Qt::AlignRight );
+    metaLayout->addWidget( seqtot_text, line, 9, 1, 1 );
     line++;
 
     /* Rating - on the same line */
@@ -160,7 +166,7 @@ MetaPanel::MetaPanel( QWidget *parent,
     description_text = new QTextEdit;
     description_text->setAcceptRichText( false );
     metaLayout->addWidget( description_text, line, 0, 1, 7 );
-    // CONNECT( description_text, textChanged(), this, enterEditMode() ); //FIXME
+    CONNECT( description_text, textChanged(), this, enterEditMode() );
     line++;
 
     /* VLC_META_SETTING: Useless */
@@ -172,7 +178,8 @@ MetaPanel::MetaPanel( QWidget *parent,
     metaLayout->setRowStretch( line, 10 );
 #undef ADD_META
 
-    CONNECT( tracknumber_text, textEdited( QString ), this, enterEditMode() );
+    CONNECT( seqnum_text, textEdited( QString ), this, enterEditMode() );
+    CONNECT( seqtot_text, textEdited( QString ), this, enterEditMode() );
 
     CONNECT( date_text, textEdited( QString ), this, enterEditMode() );
 //    CONNECT( THEMIM->getIM(), artChanged( QString ), this, enterEditMode() );
@@ -231,23 +238,18 @@ void MetaPanel::update( input_item_t *p_item )
     UPDATE_META( Genre, genre_text );
     UPDATE_META( Copyright, copyright_text );
     UPDATE_META( Album, collection_text );
+    disconnect( description_text, SIGNAL(textChanged()), this,
+                SLOT(enterEditMode()) );
     UPDATE_META( Description, description_text );
+    CONNECT( description_text, textChanged(), this, enterEditMode() );
     UPDATE_META( Language, language_text );
     UPDATE_META( NowPlaying, nowplaying_text );
     UPDATE_META( Publisher, publisher_text );
     UPDATE_META( EncodedBy, encodedby_text );
 
     UPDATE_META( Date, date_text );
-
-    QString trackposition( "%1/%2" );
-    psz_meta = input_item_GetTrackNum( p_item );
-    trackposition = trackposition.arg( psz_meta );
-    free( psz_meta );
-    psz_meta = input_item_GetTrackTotal( p_item );
-    trackposition = trackposition.arg( psz_meta );
-    free( psz_meta );
-    tracknumber_text->setText( trackposition );
-
+    UPDATE_META( TrackNum, seqnum_text );
+    UPDATE_META( TrackTotal, seqtot_text );
 //    UPDATE_META( Setting, setting_text );
 //    UPDATE_META_INT( Rating, rating_text );
 
@@ -296,17 +298,16 @@ void MetaPanel::saveMeta()
     input_item_SetArtist( p_input, qtu( artist_text->text() ) );
     input_item_SetAlbum(  p_input, qtu( collection_text->text() ) );
     input_item_SetGenre(  p_input, qtu( genre_text->text() ) );
-    QStringList trackparts = tracknumber_text->text().split( "/" );
-    input_item_SetTrackNum( p_input, qtu( trackparts[0] ) );
-    input_item_SetTrackTotal( p_input, qtu( trackparts[1] ) );
+    input_item_SetTrackNum(  p_input, qtu( seqnum_text->text() ) );
+    input_item_SetTrackTotal(  p_input, qtu( seqtot_text->text() ) );
     input_item_SetDate(  p_input, qtu( date_text->text() ) );
+    input_item_SetLanguage(  p_input, qtu( language_text->text() ) );
 
     input_item_SetCopyright( p_input, qtu( copyright_text->text() ) );
     input_item_SetPublisher( p_input, qtu( publisher_text->text() ) );
     input_item_SetDescription( p_input, qtu( description_text->toPlainText() ) );
 
-    playlist_t *p_playlist = pl_Get( p_intf );
-    input_item_WriteMeta( VLC_OBJECT(p_playlist), p_input );
+    input_item_WriteMeta( VLC_OBJECT(THEPL), p_input );
 
     /* Reset the status of the mode. No need to emit any signal because parent
        is the only caller */
@@ -340,8 +341,12 @@ void MetaPanel::clear()
     genre_text->clear();
     copyright_text->clear();
     collection_text->clear();
-    tracknumber_text->clear();
+    seqnum_text->clear();
+    seqtot_text->clear();
+    disconnect( description_text, SIGNAL(textChanged()), this,
+                SLOT(enterEditMode()) );
     description_text->clear();
+    CONNECT( description_text, textChanged(), this, enterEditMode() );
     date_text->clear();
     language_text->clear();
     nowplaying_text->clear();
@@ -456,7 +461,11 @@ InfoPanel::InfoPanel( QWidget *parent ) : QWidget( parent )
      InfoTree = new QTreeWidget(this);
      InfoTree->setColumnCount( 1 );
      InfoTree->header()->hide();
+#if QT_VERSION >= 0x050000
+     InfoTree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+#else
      InfoTree->header()->setResizeMode(QHeaderView::ResizeToContents);
+#endif
      layout->addWidget(InfoTree, 1, 0 );
 }
 

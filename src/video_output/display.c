@@ -755,7 +755,7 @@ static void VoutDisplayCropRatio(int *left, int *top, int *right, int *bottom,
     }
 }
 
-void vout_ManageDisplay(vout_display_t *vd, bool allow_reset_pictures)
+bool vout_ManageDisplay(vout_display_t *vd, bool allow_reset_pictures)
 {
     vout_display_owner_sys_t *osys = vd->owner.sys;
 
@@ -1055,6 +1055,8 @@ void vout_ManageDisplay(vout_display_t *vd, bool allow_reset_pictures)
     }
     if (reset_render)
         VoutDisplayResetRender(vd);
+
+    return reset_render;
 }
 
 bool vout_AreDisplayPicturesInvalid(vout_display_t *vd)
@@ -1214,7 +1216,7 @@ struct vlc_gl_t *vout_GetDisplayOpengl(vout_display_t *vd)
 }
 
 static vout_display_t *DisplayNew(vout_thread_t *vout,
-                                  const video_format_t *source_org,
+                                  const video_format_t *source,
                                   const vout_display_state_t *state,
                                   const char *module,
                                   bool is_wrapper, vout_display_t *wrapper,
@@ -1231,7 +1233,7 @@ static vout_display_t *DisplayNew(vout_thread_t *vout,
     osys->sar_initial.num = state->sar.num;
     osys->sar_initial.den = state->sar.den;
     vout_display_GetDefaultDisplaySize(&cfg->display.width, &cfg->display.height,
-                                       source_org, cfg);
+                                       source, cfg);
 
     osys->vout = vout;
     osys->is_wrapper = is_wrapper;
@@ -1256,7 +1258,7 @@ static vout_display_t *DisplayNew(vout_thread_t *vout,
         cfg_windowed.display.height = 0;
         vout_display_GetDefaultDisplaySize(&osys->width_saved,
                                            &osys->height_saved,
-                                           source_org, &cfg_windowed);
+                                           source, &cfg_windowed);
     }
     osys->zoom.num = cfg->zoom.num;
     osys->zoom.den = cfg->zoom.den;
@@ -1264,7 +1266,7 @@ static vout_display_t *DisplayNew(vout_thread_t *vout,
     osys->fit_window = 0;
     osys->event.fifo = NULL;
 
-    osys->source = *source_org;
+    osys->source = *source;
     osys->crop.left   = 0;
     osys->crop.top    = 0;
     osys->crop.right  = 0;
@@ -1274,8 +1276,8 @@ static vout_display_t *DisplayNew(vout_thread_t *vout,
     osys->crop.num = 0;
     osys->crop.den = 0;
 
-    osys->sar.num = osys->sar_initial.num ? osys->sar_initial.num : source_org->i_sar_num;
-    osys->sar.den = osys->sar_initial.den ? osys->sar_initial.den : source_org->i_sar_den;
+    osys->sar.num = osys->sar_initial.num ? osys->sar_initial.num : source->i_sar_num;
+    osys->sar.den = osys->sar_initial.den ? osys->sar_initial.den : source->i_sar_den;
 #ifdef ALLOW_DUMMY_VOUT
     vlc_mouse_Init(&osys->vout_mouse);
 #endif
@@ -1290,17 +1292,9 @@ static vout_display_t *DisplayNew(vout_thread_t *vout,
     }
     owner.sys = osys;
 
-    /* */
-    video_format_t source = *source_org;
-
-    source.i_x_offset = 0;
-    source.i_y_offset = 0;
-    source.i_visible_width  = source.i_width;
-    source.i_visible_height = source.i_height;
-
     vout_display_t *p_display = vout_display_New(VLC_OBJECT(vout),
                                                  module, !is_wrapper,
-                                                 &source, cfg, &owner);
+                                                 source, cfg, &owner);
     if (!p_display) {
         free(osys);
         return NULL;
@@ -1309,16 +1303,11 @@ static vout_display_t *DisplayNew(vout_thread_t *vout,
     VoutDisplayCreateRender(p_display);
 
     /* Setup delayed request */
-    if (osys->sar.num != source.i_sar_num ||
-        osys->sar.den != source.i_sar_den)
+    if (osys->sar.num != source->i_sar_num ||
+        osys->sar.den != source->i_sar_den)
         osys->ch_sar = true;
     if (osys->wm_state != osys->wm_state_initial)
         osys->ch_wm_state = true;
-    if (source.i_x_offset       != source_org->i_x_offset ||
-        source.i_y_offset       != source_org->i_y_offset ||
-        source.i_visible_width  != source_org->i_visible_width ||
-        source.i_visible_height != source_org->i_visible_height)
-        osys->ch_crop = true;
 
     return p_display;
 }

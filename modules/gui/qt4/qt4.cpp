@@ -177,6 +177,8 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 
 #define VOLUME_MAX_TEXT N_( "Maximum Volume displayed" )
 
+#define FULLSCREEN_CONTROL_PIXELS N_( "Fullscreen controller mouse sensitivity" )
+
 static const int i_notification_list[] =
     { NOTIFICATION_NEVER, NOTIFICATION_MINIMIZED, NOTIFICATION_ALWAYS };
 
@@ -272,6 +274,9 @@ vlc_module_begin ()
 
     add_integer_with_range( "qt-max-volume", 125, 60, 300, VOLUME_MAX_TEXT, VOLUME_MAX_TEXT, true)
 
+    add_integer_with_range( "qt-fs-sensitivity", 3, 0, 4000, FULLSCREEN_CONTROL_PIXELS,
+            FULLSCREEN_CONTROL_PIXELS, true)
+
     add_obsolete_bool( "qt-blingbling" )      /* Suppressed since 1.0.0 */
     add_obsolete_integer( "qt-display-mode" ) /* Suppressed since 1.1.0 */
 
@@ -318,7 +323,7 @@ static bool active = false;
  * Module callbacks
  *****************************************************************************/
 
-#ifdef Q_WS_MAC
+#ifdef Q_OS_MAC
 /* Used to abort the app.exec() on OSX after libvlc_Quit is called */
 #include "../../../lib/libvlc_internal.h" /* libvlc_SetExitHandler */
 static void Abort( void *obj )
@@ -327,9 +332,9 @@ static void Abort( void *obj )
 }
 #endif
 
-static void RegisterIntf( vlc_object_t *p_this )
+static void RegisterIntf( intf_thread_t *p_this )
 {
-    playlist_t *pl = pl_Get(p_this);
+    playlist_t *pl = p_this->p_sys->p_playlist;
     var_Create (pl, "qt4-iface", VLC_VAR_ADDRESS);
     var_SetAddress (pl, "qt4-iface", p_this);
     var_Create (pl, "window", VLC_VAR_STRING);
@@ -367,9 +372,15 @@ static int Open( vlc_object_t *p_this, bool isDialogProvider )
     p_sys->p_mi = NULL;
     p_sys->pl_model = NULL;
 
+    /* set up the playlist to work on */
+    if( isDialogProvider )
+        p_intf->p_sys->p_playlist = pl_Get( (intf_thread_t *)p_intf->p_parent );
+    else
+        p_intf->p_sys->p_playlist = pl_Get( p_intf );
+
     /* */
     vlc_sem_init (&ready, 0);
-#ifdef Q_WS_MAC
+#ifdef Q_OS_MAC
     /* Run mainloop on the main thread as Cocoa requires */
     libvlc_SetExitHandler( p_intf->p_libvlc, Abort, p_intf );
     Thread( (void *)p_intf );
@@ -388,11 +399,9 @@ static int Open( vlc_object_t *p_this, bool isDialogProvider )
     vlc_sem_destroy (&ready);
     busy = active = true;
 
-#ifndef Q_WS_MAC
+#ifndef Q_OS_MAC
     if( !isDialogProvider )
-    {
-        RegisterIntf( p_this );
-    }
+        RegisterIntf( p_intf );
 #endif
 
     return VLC_SUCCESS;
@@ -417,7 +426,7 @@ static void Close( vlc_object_t *p_this )
 
     if( !p_sys->b_isDialogProvider )
     {
-        playlist_t *pl = pl_Get(p_this);
+        playlist_t *pl = THEPL;
 
         var_Destroy (pl, "window");
         var_Destroy (pl, "qt4-iface");
@@ -429,7 +438,7 @@ static void Close( vlc_object_t *p_this )
     QVLCApp::triggerQuit();
 
     msg_Dbg( p_this, "waiting for UI thread..." );
-#ifndef Q_WS_MAC
+#ifndef Q_OS_MAC
     vlc_join (p_sys->thread, NULL);
 #endif
     delete p_sys;
@@ -465,7 +474,7 @@ static void *Thread( void *obj )
             QSettings::UserScope, "vlc", "vlc-qt-interface" );
 
     /* Icon setting, Mac uses icon from .icns */
-#ifndef Q_WS_MAC
+#ifndef Q_OS_MAC
     if( QDate::currentDate().dayOfYear() >= QT_XMAS_JOKE_DAY && var_InheritBool( p_intf, "qt-icon-change" ) )
         app.setWindowIcon( QIcon::fromTheme( "vlc-xmas", QIcon( ":/logo/vlc128-xmas.png" ) ) );
     else
@@ -526,11 +535,11 @@ static void *Thread( void *obj )
     /* Tell the main LibVLC thread we are ready */
     vlc_sem_post (&ready);
 
-#ifdef Q_WS_MAC
+#ifdef Q_OS_MAC
     /* We took over main thread, register and start here */
     if( !p_intf->p_sys->b_isDialogProvider )
     {
-        RegisterIntf( (vlc_object_t *)p_intf );
+        RegisterIntf( p_intf );
         playlist_Play( THEPL );
     }
 #endif

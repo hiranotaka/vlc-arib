@@ -309,7 +309,6 @@ static int OpenAccess(vlc_object_t *object)
     access->pf_block   = Block;
     access->pf_seek    = NULL;
     access->p_sys      = (access_sys_t*)sys;
-    access->info.i_size = var_InheritInteger(object, "imem-size");
 
     return VLC_SUCCESS;
 }
@@ -344,6 +343,11 @@ static int ControlAccess(access_t *access, int i_query, va_list args)
         *b = true;
         return VLC_SUCCESS;
     }
+    case ACCESS_GET_SIZE: {
+        uint64_t *s = va_arg(args, uint64_t *);
+        *s = var_InheritInteger(access, "imem-size");
+        return VLC_SUCCESS;
+    }
     case ACCESS_GET_PTS_DELAY: {
         int64_t *delay = va_arg(args, int64_t *);
         *delay = DEFAULT_PTS_DELAY; /* FIXME? */
@@ -352,13 +356,6 @@ static int ControlAccess(access_t *access, int i_query, va_list args)
     case ACCESS_SET_PAUSE_STATE:
         return VLC_SUCCESS;
 
-    case ACCESS_GET_TITLE_INFO:
-    case ACCESS_SET_TITLE:
-    case ACCESS_SET_SEEKPOINT:
-    case ACCESS_SET_PRIVATE_ID_STATE:
-    case ACCESS_GET_META:
-    case ACCESS_GET_PRIVATE_ID_STATE:
-    case ACCESS_GET_CONTENT_TYPE:
     default:
         return VLC_EGENERIC;
     }

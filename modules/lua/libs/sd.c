@@ -41,7 +41,6 @@
 
 #include "../vlc.h"
 #include "../libs.h"
-#include "playlist.h"
 
 /*****************************************************************************
  *
@@ -320,6 +319,21 @@ static int vlclua_sd_remove_item( lua_State *L )
     return 1;
 }
 
+static int vlclua_sd_remove_node( lua_State *L )
+{
+    services_discovery_t *p_sd = (services_discovery_t *)vlclua_get_this( L );
+    if( !lua_isnil( L, 1 ) )
+    {
+        input_item_t **pp_input = luaL_checkudata( L, 1, "node" );
+        if( *pp_input )
+            services_discovery_RemoveItem( p_sd, *pp_input );
+        /* Make sure we won't try to remove it again */
+        *pp_input = NULL;
+    }
+    return 1;
+}
+
+
 static int vlclua_sd_remove_all_items_nodes( lua_State *L )
 {
     services_discovery_t *p_sd = (services_discovery_t *)vlclua_get_this( L );
@@ -347,7 +361,6 @@ static int vlclua_node_add_subitem( lua_State *L )
                 lua_pushvalue( L, -2 );
                 vlclua_read_options( p_sd, L, &i_options, &ppsz_options );
 
-                input_item_node_t *p_input_node = input_item_node_Create( *pp_node );
                 input_item_t *p_input = input_item_NewExt( psz_path,
                                                            psz_path, i_options,
                                                            (const char **)ppsz_options,
@@ -356,6 +369,8 @@ static int vlclua_node_add_subitem( lua_State *L )
 
                 if( p_input )
                 {
+                    input_item_node_t *p_input_node = input_item_node_Create( *pp_node );
+
                     vlclua_read_meta_data( p_sd, L, p_input );
                     /* This one is to be tested... */
                     vlclua_read_custom_meta_data( p_sd, L, p_input );
@@ -406,7 +421,6 @@ static int vlclua_node_add_subnode( lua_State *L )
             if( lua_isstring( L, -1 ) )
             {
                 const char *psz_name = lua_tostring( L, -1 );
-                input_item_node_t *p_input_node = input_item_node_Create( *pp_node );
                 input_item_t *p_input = input_item_NewWithType( "vlc://nop",
                                                                 psz_name, 0, NULL, 0,
                                                                 -1, ITEM_TYPE_NODE );
@@ -414,6 +428,8 @@ static int vlclua_node_add_subnode( lua_State *L )
 
                 if( p_input )
                 {
+                    input_item_node_t *p_input_node = input_item_node_Create( *pp_node );
+
                     lua_getfield( L, -1, "arturl" );
                     if( lua_isstring( L, -1 ) && strcmp( lua_tostring( L, -1 ), "" ) )
                     {
@@ -457,6 +473,7 @@ static const luaL_Reg vlclua_sd_reg[] = {
     { "add_node", vlclua_sd_add_node },
     { "add_item", vlclua_sd_add_item },
     { "remove_item", vlclua_sd_remove_item },
+    { "remove_node", vlclua_sd_remove_node },
     { "remove_all_items_nodes", vlclua_sd_remove_all_items_nodes },
     { NULL, NULL }
 };

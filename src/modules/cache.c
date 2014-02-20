@@ -33,9 +33,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#ifdef HAVE_UNISTD_H
-#   include <unistd.h>
-#endif
+#include <unistd.h>
 #include <assert.h>
 
 #include <vlc_common.h>
@@ -245,8 +243,8 @@ size_t CacheLoad( vlc_object_t *p_this, const char *dir, module_cache_t **r )
     file = vlc_fopen( psz_filename, "rb" );
     if( !file )
     {
-        msg_Warn( p_this, "cannot read %s (%m)",
-                  psz_filename );
+        msg_Warn( p_this, "cannot read %s: %s", psz_filename,
+                  vlc_strerror_c(errno) );
         free( psz_filename );
         return 0;
     }
@@ -326,7 +324,7 @@ size_t CacheLoad( vlc_object_t *p_this, const char *dir, module_cache_t **r )
         else
         {
             module->pp_shortcuts =
-                              xmalloc (sizeof (char **) * module->i_shortcuts);
+                              xmalloc (sizeof (*module->pp_shortcuts) * module->i_shortcuts);
             for (unsigned j = 0; j < module->i_shortcuts; j++)
                 LOAD_STRING(module->pp_shortcuts[j]);
         }
@@ -358,7 +356,7 @@ size_t CacheLoad( vlc_object_t *p_this, const char *dir, module_cache_t **r )
             else
             {
                 submodule->pp_shortcuts =
-                           xmalloc (sizeof (char **) * submodule->i_shortcuts);
+                           xmalloc (sizeof (*submodule->pp_shortcuts) * submodule->i_shortcuts);
                 for (unsigned j = 0; j < submodule->i_shortcuts; j++)
                     LOAD_STRING(submodule->pp_shortcuts[j]);
             }
@@ -499,13 +497,15 @@ void CacheSave (vlc_object_t *p_this, const char *dir,
     if (file == NULL)
     {
         if (errno != EACCES && errno != ENOENT)
-            msg_Warn (p_this, "cannot create %s (%m)", tmpname);
+            msg_Warn (p_this, "cannot create %s: %s", tmpname,
+                      vlc_strerror_c(errno));
         goto out;
     }
 
     if (CacheSaveBank (file, entries, n))
     {
-        msg_Warn (p_this, "cannot write %s (%m)", tmpname);
+        msg_Warn (p_this, "cannot write %s: %s", tmpname,
+                  vlc_strerror_c(errno));
         clearerr (file);
         fclose (file);
         vlc_unlink (tmpname);

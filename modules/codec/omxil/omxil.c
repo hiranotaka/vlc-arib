@@ -39,12 +39,21 @@
 
 #include "omxil.h"
 #include "omxil_core.h"
+#include "OMX_Broadcom.h"
 
 #ifndef NDEBUG
 # define OMXIL_EXTRA_DEBUG
 #endif
 
 #define SENTINEL_FLAG 0x10000
+
+/* Defined in the broadcom version of OMX_Index.h */
+#define OMX_IndexConfigRequestCallback 0x7f000063
+#define OMX_IndexParamBrcmPixelAspectRatio 0x7f00004d
+#define OMX_IndexParamBrcmVideoDecodeErrorConcealment 0x7f000080
+
+/* Defined in the broadcom version of OMX_Core.h */
+#define OMX_EventParamOrConfigChanged 0x7F000001
 
 /*****************************************************************************
  * Local prototypes
@@ -345,6 +354,34 @@ static OMX_ERRORTYPE SetPortDefinition(decoder_t *p_dec, OmxPort *p_port,
     return omx_error;
 }
 
+
+/*****************************************************************************
+ * UpdatePixelAspect: Update vlc pixel aspect based on the aspect reported on
+ * the omx port - NOTE: Broadcom specific
+ *****************************************************************************/
+static OMX_ERRORTYPE UpdatePixelAspect(decoder_t *p_dec)
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+    OMX_CONFIG_POINTTYPE pixel_aspect;
+    OMX_INIT_STRUCTURE(pixel_aspect);
+    OMX_ERRORTYPE omx_err;
+
+    if (strncmp(p_sys->psz_component, "OMX.broadcom.", 13))
+        return OMX_ErrorNotImplemented;
+
+    pixel_aspect.nPortIndex = p_sys->out.i_port_index;
+    omx_err = OMX_GetParameter(p_sys->omx_handle,
+            OMX_IndexParamBrcmPixelAspectRatio, &pixel_aspect);
+    if (omx_err != OMX_ErrorNone) {
+        msg_Warn(p_dec, "Failed to retrieve aspect ratio");
+    } else {
+        p_dec->fmt_out.video.i_sar_num = pixel_aspect.nX;
+        p_dec->fmt_out.video.i_sar_den = pixel_aspect.nY;
+    }
+
+    return omx_err;
+}
+
 /*****************************************************************************
  * GetPortDefinition: set vlc format based on the definition of the omx port
  *****************************************************************************/
@@ -430,6 +467,7 @@ static OMX_ERRORTYPE GetPortDefinition(decoder_t *p_dec, OmxPort *p_port,
             def->format.video.nStride = p_port->i_frame_stride;
 #endif
         p_port->i_frame_stride = def->format.video.nStride;
+        UpdatePixelAspect(p_dec);
         break;
 
     case AUDIO_ES:
@@ -683,12 +721,44 @@ static OMX_ERRORTYPE InitialiseComponent(decoder_t *p_dec,
         }
     }
 
+    if(!strncmp(p_sys->psz_component, "OMX.broadcom.", 13))
+    {
+        OMX_CONFIG_REQUESTCALLBACKTYPE notifications;
+        OMX_INIT_STRUCTURE(notifications);
+
+        notifications.nPortIndex = p_sys->out.i_port_index;
+        notifications.nIndex = OMX_IndexParamBrcmPixelAspectRatio;
+        notifications.bEnable = OMX_TRUE;
+
+        omx_error = OMX_SetParameter(omx_handle,
+                OMX_IndexConfigRequestCallback, &notifications);
+        if (omx_error == OMX_ErrorNone)
+            msg_Dbg(p_dec, "Enabled aspect ratio notifications");
+        else
+            msg_Dbg(p_dec, "Could not enable aspect ratio notifications");
+    }
+
     /* Set port definitions */
     for(i = 0; i < p_sys->ports; i++)
     {
         omx_error = SetPortDefinition(p_dec, &p_sys->p_ports[i],
                                       p_sys->p_ports[i].p_fmt);
         if(omx_error != OMX_ErrorNone) goto error;
+    }
+
+    if(!strncmp(p_sys->psz_component, "OMX.broadcom.", 13) &&
+        p_sys->in.p_fmt->i_codec == VLC_CODEC_H264)
+    {
+        OMX_PARAM_BRCMVIDEODECODEERRORCONCEALMENTTYPE concanParam;
+        OMX_INIT_STRUCTURE(concanParam);
+        concanParam.bStartWithValidFrame = OMX_FALSE;
+
+        omx_error = OMX_SetParameter(omx_handle,
+                OMX_IndexParamBrcmVideoDecodeErrorConcealment, &concanParam);
+        if (omx_error == OMX_ErrorNone)
+            msg_Dbg(p_dec, "StartWithValidFrame disabled.");
+        else
+            msg_Dbg(p_dec, "Could not disable StartWithValidFrame.");
     }
 
     /* Allocate our array for the omx buffers and enable ports */
@@ -796,6 +866,12 @@ static int OpenGeneric( vlc_object_t *p_this, bool b_encode )
         p_dec->fmt_out.video = p_dec->fmt_in.video;
         p_dec->fmt_out.audio = p_dec->fmt_in.audio;
         p_dec->fmt_out.i_codec = 0;
+
+        /* set default aspect of 1, if parser did not set it */
+        if (p_dec->fmt_out.video.i_sar_num == 0)
+            p_dec->fmt_out.video.i_sar_num = 1;
+        if (p_dec->fmt_out.video.i_sar_den == 0)
+            p_dec->fmt_out.video.i_sar_den = 1;
     }
     p_sys->b_enc = b_encode;
     InitOmxEventQueue(&p_sys->event_queue);
@@ -815,7 +891,7 @@ static int OpenGeneric( vlc_object_t *p_this, bool b_encode )
     p_sys->out.p_fmt = &p_dec->fmt_out;
     p_sys->ports = 2;
     p_sys->p_ports = &p_sys->in;
-    p_sys->b_use_pts = 0;
+    p_sys->b_use_pts = 1;
 
     msg_Dbg(p_dec, "fmt in:%4.4s, out: %4.4s", (char *)&p_dec->fmt_in.i_codec,
             (char *)&p_dec->fmt_out.i_codec);
@@ -1002,14 +1078,9 @@ static int OpenGeneric( vlc_object_t *p_this, bool b_encode )
     if(p_sys->b_error) goto error;
 
     p_dec->b_need_packetized = true;
-    if (!strcmp(p_sys->psz_component, "OMX.TI.DUCATI1.VIDEO.DECODER"))
-        p_sys->b_use_pts = 1;
 
-    if (!strcmp(p_sys->psz_component, "OMX.STM.Video.Decoder"))
-        p_sys->b_use_pts = 1;
-
-    if (p_sys->b_use_pts)
-        msg_Dbg( p_dec, "using pts timestamp mode for %s", p_sys->psz_component);
+    if (!p_sys->b_use_pts)
+        msg_Dbg( p_dec, "using dts timestamp mode for %s", p_sys->psz_component);
 
     return VLC_SUCCESS;
 
@@ -1047,6 +1118,8 @@ static OMX_ERRORTYPE PortReconfigure(decoder_t *p_dec, OmxPort *p_port)
     for(i = 0; i < p_port->i_buffers; i++)
     {
         OMX_FIFO_GET(&p_port->fifo, p_buffer);
+        if (p_buffer->pAppPrivate != NULL)
+            decoder_DeletePicture( p_dec, p_buffer->pAppPrivate );
         if (p_buffer->nFlags & SENTINEL_FLAG) {
             free(p_buffer);
             i--;
@@ -1198,7 +1271,7 @@ static picture_t *DecodeVideo( decoder_t *p_dec, block_t **pp_block )
                                    p_pic, p_sys->out.definition.format.video.nSliceHeight,
                                    p_sys->out.i_frame_stride,
                                    p_header->pBuffer + p_header->nOffset,
-                                   p_sys->out.i_frame_stride_chroma_div);
+                                   p_sys->out.i_frame_stride_chroma_div, NULL);
             }
 
             if (p_pic)
@@ -1283,8 +1356,8 @@ more_input:
         convert_h264_to_annexb( p_header->pBuffer, p_header->nFilledLen,
                                 p_sys->i_nal_size_length, &convert_state );
 #ifdef OMXIL_EXTRA_DEBUG
-        msg_Dbg( p_dec, "EmptyThisBuffer %p, %p, %i", p_header, p_header->pBuffer,
-                 (int)p_header->nFilledLen );
+        msg_Dbg( p_dec, "EmptyThisBuffer %p, %p, %i, %"PRId64, p_header, p_header->pBuffer,
+                 (int)p_header->nFilledLen, FromOmxTicks(p_header->nTimeStamp) );
 #endif
         OMX_EmptyThisBuffer(p_sys->omx_handle, p_header);
         p_sys->in.b_flushed = false;
@@ -1594,7 +1667,8 @@ static OMX_ERRORTYPE OmxEventHandler( OMX_HANDLETYPE omx_handle,
         break;
 
     case OMX_EventPortSettingsChanged:
-        if( data_2 == 0 || data_2 == OMX_IndexParamPortDefinition )
+        if( data_2 == 0 || data_2 == OMX_IndexParamPortDefinition ||
+            data_2 == OMX_IndexParamAudioPcm )
         {
             OMX_BUFFERHEADERTYPE *sentinel;
             for(i = 0; i < p_sys->ports; i++)
@@ -1616,6 +1690,9 @@ static OMX_ERRORTYPE OmxEventHandler( OMX_HANDLETYPE omx_handle,
         {
             msg_Dbg( p_dec, "Unhandled setting change %x", (unsigned int)data_2 );
         }
+        break;
+    case OMX_EventParamOrConfigChanged:
+        UpdatePixelAspect(p_dec);
         break;
 
     default:
@@ -1657,8 +1734,8 @@ static OMX_ERRORTYPE OmxFillBufferDone( OMX_HANDLETYPE omx_handle,
     (void)omx_handle;
 
 #ifdef OMXIL_EXTRA_DEBUG
-    msg_Dbg( p_dec, "OmxFillBufferDone %p, %p, %i", omx_header, omx_header->pBuffer,
-             (int)omx_header->nFilledLen );
+    msg_Dbg( p_dec, "OmxFillBufferDone %p, %p, %i, %"PRId64, omx_header, omx_header->pBuffer,
+             (int)omx_header->nFilledLen, FromOmxTicks(omx_header->nTimeStamp) );
 #endif
 
     if(omx_header->pInputPortPrivate)

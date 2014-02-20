@@ -1,7 +1,7 @@
 /*****************************************************************************
  * extended_panels.cpp : Extended controls panels
  ****************************************************************************
- * Copyright (C) 2006-2012 the VideoLAN team
+ * Copyright (C) 2006-2013 the VideoLAN team
  * $Id$
  *
  * Authors: Clément Stenac <zorglub@videolan.org>
@@ -47,39 +47,16 @@
 #include "qt4.hpp"
 #include "input_manager.hpp"
 #include "util/qt_dirs.hpp"
+#include "util/customwidgets.hpp"
 
 #include "../../audio_filter/equalizer_presets.h"
-#include <vlc_intf_strings.h>
 #include <vlc_vout.h>
 #include <vlc_modules.h>
 #include <vlc_plugin.h>
 
-#include <vlc_charset.h> /* us_strtod */
-
+static char *ChangeFiltersString( struct intf_thread_t *p_intf, const char *psz_filter_type, const char *psz_name, bool b_add );
+static void ChangeAFiltersString( struct intf_thread_t *p_intf, const char *psz_name, bool b_add );
 static void ChangeVFiltersString( struct intf_thread_t *p_intf, const char *psz_name, bool b_add );
-
-#if 0
-class ConfClickHandler : public QObject
-{
-public:
-    ConfClickHandler( intf_thread_t *_p_intf, ExtVideo *_e ) : QObject ( _e ) {
-        e = _e; p_intf = _p_intf;
-    }
-    virtual ~ConfClickHandler() {}
-    bool eventFilter( QObject *obj, QEvent *evt )
-    {
-        if( evt->type() == QEvent::MouseButtonPress )
-        {
-            e->gotoConf( obj );
-            return true;
-        }
-        return false;
-    }
-private:
-    ExtVideo* e;
-    intf_thread_t *p_intf;
-};
-#endif
 
 const QString ModuleFromWidgetName( QObject *obj )
 {
@@ -226,10 +203,16 @@ ExtVideo::ExtVideo( intf_thread_t *_p_intf, QTabWidget *_parent ) :
     SETUP_VFILTER( mirror )
 
     SETUP_VFILTER( gaussianblur )
-    SETUP_VFILTER_OPTION( gaussianbluSigmaSlider, valueChanged( int ) )
+    SETUP_VFILTER_OPTION( gaussianblurSigmaSlider, valueChanged( int ) )
 
     SETUP_VFILTER( antiflicker )
     SETUP_VFILTER_OPTION( antiflickerSofteningSizeSlider, valueChanged( int ) )
+
+    SETUP_VFILTER( hqdn3d )
+    SETUP_VFILTER_OPTION( hqdn3dLumaSpatSlider, valueChanged( int ) )
+    SETUP_VFILTER_OPTION( hqdn3dLumaTempSlider, valueChanged( int ) )
+    SETUP_VFILTER_OPTION( hqdn3dChromaSpatSlider, valueChanged( int ) )
+    SETUP_VFILTER_OPTION( hqdn3dChromaTempSlider, valueChanged( int ) )
 
 
     if( module_exists( "atmo" ) )
@@ -292,9 +275,88 @@ void ExtVideo::clean()
     ui.cropRightPx->setValue( 0 );
 }
 
-static void ChangeVFiltersString( struct intf_thread_t *p_intf, const char *psz_name, bool b_add )
+static char *ChangeFiltersString( struct intf_thread_t *p_intf, const char *psz_filter_type, const char *psz_name, bool b_add )
 {
     char *psz_parser, *psz_string;
+
+    psz_string = config_GetPsz( p_intf, psz_filter_type );
+
+    if( !psz_string ) psz_string = strdup( "" );
+
+    psz_parser = strstr( psz_string, psz_name );
+
+    if( b_add )
+    {
+        if( !psz_parser )
+        {
+            psz_parser = psz_string;
+            if( asprintf( &psz_string, ( *psz_string ) ? "%s:%s" : "%s%s",
+                            psz_string, psz_name ) == -1 )
+            {
+                free( psz_parser );
+                return NULL;
+            }
+            free( psz_parser );
+        }
+        else
+        {
+            free( psz_string );
+            return NULL;
+        }
+    }
+    else
+    {
+        if( psz_parser )
+        {
+            if( *( psz_parser + strlen( psz_name ) ) == ':' )
+            {
+                memmove( psz_parser, psz_parser + strlen( psz_name ) + 1,
+                         strlen( psz_parser + strlen( psz_name ) + 1 ) + 1 );
+            }
+            else
+            {
+                *psz_parser = '\0';
+            }
+
+            /* Remove trailing : : */
+            size_t i_len = strlen( psz_string );
+            if( i_len > 0 && *( psz_string + i_len - 1 ) == ':' )
+            {
+                *( psz_string + i_len - 1 ) = '\0';
+            }
+        }
+        else
+        {
+            free( psz_string );
+            return NULL;
+        }
+    }
+    return psz_string;
+}
+
+static void ChangeAFiltersString( struct intf_thread_t *p_intf, const char *psz_name, bool b_add )
+{
+    char *psz_string;
+
+    module_t *p_obj = module_find( psz_name );
+    if( !p_obj )
+    {
+        msg_Err( p_intf, "Unable to find filter module \"%s\".", psz_name );
+        return;
+    }
+
+    psz_string = ChangeFiltersString( p_intf, "audio-filter", psz_name, b_add );
+    if( !psz_string )
+        return;
+
+    config_PutPsz( p_intf, "audio-filter", psz_string );
+
+    free( psz_string );
+}
+
+static void ChangeVFiltersString( struct intf_thread_t *p_intf, const char *psz_name, bool b_add )
+{
+    char *psz_string;
     const char *psz_filter_type;
 
     module_t *p_obj = module_find( psz_name );
@@ -326,65 +388,17 @@ static void ChangeVFiltersString( struct intf_thread_t *p_intf, const char *psz_
         return;
     }
 
-    psz_string = config_GetPsz( p_intf, psz_filter_type );
+    psz_string = ChangeFiltersString( p_intf, psz_filter_type, psz_name, b_add );
+    if( !psz_string )
+        return;
 
-    if( !psz_string ) psz_string = strdup( "" );
-
-    psz_parser = strstr( psz_string, psz_name );
-
-    if( b_add )
-    {
-        if( !psz_parser )
-        {
-            psz_parser = psz_string;
-            if( asprintf( &psz_string, ( *psz_string ) ? "%s:%s" : "%s%s",
-                            psz_string, psz_name ) == -1 )
-            {
-                free( psz_parser );
-                return;
-            }
-            free( psz_parser );
-        }
-        else
-        {
-            free( psz_string );
-            return;
-        }
-    }
-    else
-    {
-        if( psz_parser )
-        {
-            if( *( psz_parser + strlen( psz_name ) ) == ':' )
-            {
-                memmove( psz_parser, psz_parser + strlen( psz_name ) + 1,
-                         strlen( psz_parser + strlen( psz_name ) + 1 ) + 1 );
-            }
-            else
-            {
-                *psz_parser = '\0';
-            }
-
-            /* Remove trailing : : */
-            size_t i_len = strlen( psz_string );
-            if( i_len > 0 && *( psz_string + i_len - 1 ) == ':' )
-            {
-                *( psz_string + i_len - 1 ) = '\0';
-            }
-        }
-        else
-        {
-            free( psz_string );
-            return;
-        }
-    }
     /* Vout is not kept, so put that in the config */
     config_PutPsz( p_intf, psz_filter_type, psz_string );
 
     /* Try to set on the fly */
     if( !strcmp( psz_filter_type, "video-splitter" ) )
     {
-        playlist_t *p_playlist = pl_Get( p_intf );
+        playlist_t *p_playlist = THEPL;
         var_SetString( p_playlist, psz_filter_type, psz_string );
     }
     else
@@ -529,7 +543,7 @@ void ExtVideo::setWidgetValue( QObject *widget )
     QCheckBox      *checkbox      = qobject_cast<QCheckBox*>     ( widget );
     QSpinBox       *spinbox       = qobject_cast<QSpinBox*>      ( widget );
     QDoubleSpinBox *doublespinbox = qobject_cast<QDoubleSpinBox*>( widget );
-    QDial          *dial          = qobject_cast<QDial*>         ( widget );
+    VLCQDial       *dial          = qobject_cast<VLCQDial*>      ( widget );
     QLineEdit      *lineedit      = qobject_cast<QLineEdit*>     ( widget );
     QComboBox      *combobox      = qobject_cast<QComboBox*>     ( widget );
 
@@ -577,9 +591,9 @@ void ExtVideo::setWidgetValue( QObject *widget )
 void ExtVideo::updateFilterOptions()
 {
     QString module = ModuleFromWidgetName( sender()->parent() );
-    //std::cout << "Module name: " << module.toStdString() << std::endl;
+    //msg_Dbg( p_intf, "Module name: %s", qtu( module ) );
     QString option = OptionFromWidgetName( sender() );
-    //std::cout << "Option name: " << option.toStdString() << std::endl;
+    //msg_Dbg( p_intf, "Option name: %s", qtu( option ) );
 
     vlc_object_t *p_obj = ( vlc_object_t * )
         vlc_object_find_name( p_intf->p_libvlc, qtu( module ) );
@@ -605,7 +619,7 @@ void ExtVideo::updateFilterOptions()
     QCheckBox      *checkbox      = qobject_cast<QCheckBox*>     ( sender() );
     QSpinBox       *spinbox       = qobject_cast<QSpinBox*>      ( sender() );
     QDoubleSpinBox *doublespinbox = qobject_cast<QDoubleSpinBox*>( sender() );
-    QDial          *dial          = qobject_cast<QDial*>         ( sender() );
+    VLCQDial       *dial          = qobject_cast<VLCQDial*>      ( sender() );
     QLineEdit      *lineedit      = qobject_cast<QLineEdit*>     ( sender() );
     QComboBox      *combobox      = qobject_cast<QComboBox*>     ( sender() );
 
@@ -674,28 +688,6 @@ void ExtVideo::updateFilterOptions()
     if( p_obj ) vlc_object_release( p_obj );
 }
 
-#if 0
-void ExtVideo::gotoConf( QObject* src )
-{
-#define SHOWCONF( module ) \
-    if( src->objectName().contains( module ) ) \
-    { \
-        PrefsDialog::getInstance( p_intf )->showModulePrefs( module ); \
-        return; \
-    }
-    SHOWCONF( "clone" );
-    SHOWCONF( "magnify" );
-    SHOWCONF( "wave" );
-    SHOWCONF( "ripple" );
-    SHOWCONF( "invert" );
-    SHOWCONF( "puzzle" );
-    SHOWCONF( "wall" );
-    SHOWCONF( "gradient" );
-    SHOWCONF( "colorthres" );
-    SHOWCONF( "anaglyph" )
-}
-#endif
-
 /**********************************************************************
  * v4l2 controls
  **********************************************************************/
@@ -709,6 +701,7 @@ ExtV4l2::ExtV4l2( intf_thread_t *_p_intf, QWidget *_parent )
       "Controls will automatically appear here.")
       , this );
     help->setAlignment( Qt::AlignHCenter | Qt::AlignVCenter );
+    help->setWordWrap( true );
     layout->addWidget( help );
     setLayout( layout );
 }
@@ -721,7 +714,7 @@ void ExtV4l2::showEvent( QShowEvent *event )
 
 void ExtV4l2::Refresh( void )
 {
-    vlc_object_t *p_obj = (vlc_object_t*)vlc_object_find_name( pl_Get(p_intf), "v4l2" );
+    vlc_object_t *p_obj = (vlc_object_t*)vlc_object_find_name( THEPL, "v4l2" );
     help->hide();
     if( box )
     {
@@ -884,7 +877,7 @@ void ExtV4l2::ValueChange( bool value )
 void ExtV4l2::ValueChange( int value )
 {
     QObject *s = sender();
-    vlc_object_t *p_obj = (vlc_object_t*)vlc_object_find_name( pl_Get(p_intf), "v4l2" );
+    vlc_object_t *p_obj = (vlc_object_t*)vlc_object_find_name( THEPL, "v4l2" );
     if( p_obj )
     {
         QString var = s->objectName();
@@ -1072,6 +1065,7 @@ AudioFilterControlWidget::~AudioFilterControlWidget()
 
 void AudioFilterControlWidget::enable( bool b_enable ) const
 {
+    ChangeAFiltersString( p_intf, qtu(name), b_enable );
     playlist_EnableAudioFilter( THEPL, qtu(name), b_enable );
 }
 

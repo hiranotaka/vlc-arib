@@ -24,7 +24,8 @@
 #include "util/input_slider.hpp"
 #include "adapters/seekpoints.hpp"
 
-#include <QWindowsStyle>
+#include <QProxyStyle>
+#include <QStyleFactory>
 #include <QStyleOptionSlider>
 #include <QPainter>
 #include <QDebug>
@@ -32,14 +33,19 @@
 #define RADIUS 3
 #define CHAPTERSSPOTSIZE 3
 
+SeekStyle::SeekStyle() : QProxyStyle( QStyleFactory::create( QLatin1String("Windows") ) )
+{
+
+}
+
 int SeekStyle::pixelMetric( PixelMetric metric, const QStyleOption *option, const QWidget *widget ) const
 {
     const QStyleOptionSlider *slider;
 
-    if ( metric == PM_SliderLength && ( slider = qstyleoption_cast<const QStyleOptionSlider *>( option ) ) )
-        return slider->rect.height();
+    if ( widget && metric == QStyle::PM_SliderThickness && ( slider = qstyleoption_cast<const QStyleOptionSlider *>( option ) ) )
+        return widget->minimumSize().height();
     else
-        return QWindowsStyle::pixelMetric( metric, option, widget );
+        return QProxyStyle::pixelMetric( metric, option, widget );
 }
 
 void SeekStyle::drawComplexControl( ComplexControl cc, const QStyleOptionComplex *option, QPainter *painter, const QWidget *widget ) const
@@ -121,7 +127,7 @@ void SeekStyle::drawComplexControl( ComplexControl cc, const QStyleOptionComplex
             if ( slider->subControls & SC_SliderTickmarks ) {
                 QStyleOptionSlider tmpSlider = *slider;
                 tmpSlider.subControls = SC_SliderTickmarks;
-                QWindowsStyle::drawComplexControl(cc, &tmpSlider, painter, widget);
+                QProxyStyle::drawComplexControl(cc, &tmpSlider, painter, widget);
             }
 
             if ( slider->subControls & SC_SliderHandle && handle.isValid() )
@@ -202,6 +208,6 @@ void SeekStyle::drawComplexControl( ComplexControl cc, const QStyleOptionComplex
     else
     {
         qWarning() << "SeekStyle: Drawing an unmanaged control";
-        QWindowsStyle::drawComplexControl( cc, option, painter, widget );
+        QProxyStyle::drawComplexControl( cc, option, painter, widget );
     }
 }

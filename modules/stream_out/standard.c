@@ -1,24 +1,24 @@
 /*****************************************************************************
  * standard.c: standard stream output module
  *****************************************************************************
- * Copyright (C) 2003-2011 the VideoLAN team
+ * Copyright (C) 2003-2011 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -333,14 +333,7 @@ static int Open( vlc_object_t *p_this )
 
     psz_access = var_GetNonEmptyString( p_stream, SOUT_CFG_PREFIX "access" );
     if( !psz_access )
-    {
-        if( !strcmp( p_stream->psz_name, "http" ) )
-            psz_access = strdup("http");
-        else if (!strcmp (p_stream->psz_name, "udp"))
-            psz_access = strdup("udp");
-        else if (!strcmp (p_stream->psz_name, "file"))
-            psz_access = strdup("file");
-    }
+        psz_access = strdup(p_stream->psz_name);
 
     psz_url = var_GetNonEmptyString( p_stream, SOUT_CFG_PREFIX "dst" );
     if (!psz_url)

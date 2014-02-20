@@ -114,7 +114,7 @@ void SoutDialog::addDest( )
     switch( ui.destBox->currentIndex() )
     {
         case 0:
-            db = new FileDestBox( this );
+            db = new FileDestBox( this, p_intf );
             caption = qtr( "File" );
             break;
         case 1:
@@ -155,16 +155,10 @@ void SoutDialog::addDest( )
     updateMRL();
 }
 
-void SoutDialog::ok()
+void SoutDialog::done( int r )
 {
     mrl = ui.mrlEdit->toPlainText();
-    accept();
-}
-
-void SoutDialog::cancel()
-{
-    mrl.clear();
-    reject();
+    QWizard::done(r);
 }
 
 void SoutDialog::updateMRL()

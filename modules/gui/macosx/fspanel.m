@@ -48,6 +48,7 @@
                     defer:(BOOL)flag
 {
     id win = [super initWithContentRect:contentRect styleMask:NSTexturedBackgroundWindowMask backing:bufferingType defer:flag];
+    self.contentView = [[VLCFSPanelView alloc] initWithFrame:contentRect];
     [win setOpaque:NO];
     [win setHasShadow: NO];
     [win setBackgroundColor:[NSColor clearColor]];
@@ -58,6 +59,7 @@
     [win setLevel:NSModalPanelWindowLevel];
     i_device = config_GetInt(VLCIntf, "macosx-vdev");
     hideAgainTimer = fadeTimer = nil;
+    [self setFrameAutosaveName:@"fspanel"];
     [self setNonActive:nil];
     return win;
 }
@@ -273,7 +275,7 @@
 
     if ([self alphaValue] < 1.0 || b_displayed != YES) {
         if (![self fadeTimer])
-            [self setFadeTimer:[NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(focus:) userInfo:@1 repeats:YES]];
+            [self setFadeTimer:[NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(focus:) userInfo:[NSNumber numberWithInt:1] repeats:YES]];
         else if ([[[self fadeTimer] userInfo] shortValue]==0)
             b_fadeQueued=YES;
     }
@@ -287,7 +289,7 @@
 
     if (([self alphaValue] > 0.0)) {
         if (![self fadeTimer])
-            [self setFadeTimer:[NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(unfocus:) userInfo:@0 repeats:YES]];
+            [self setFadeTimer:[NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(unfocus:) userInfo:[NSNumber numberWithInt:0] repeats:YES]];
         else if ([[[self fadeTimer] userInfo] shortValue]==1)
             b_fadeQueued=YES;
     }
@@ -454,12 +456,12 @@
     s_rc.size.height = 12;
     o_fs_volumeSlider = [[VLCFSVolumeSlider alloc] initWithFrame: s_rc];
     [o_fs_volumeSlider setMinValue:0];
-    [o_fs_volumeSlider setMaxValue:AOUT_VOLUME_MAX];
+    [o_fs_volumeSlider setMaxValue: [[VLCCoreInteraction sharedInstance] maxVolume]];
     [o_fs_volumeSlider setIntValue:AOUT_VOLUME_DEFAULT];
     [o_fs_volumeSlider setContinuous: YES];
     [o_fs_volumeSlider setTarget: self];
     [o_fs_volumeSlider setAction: @selector(fsVolumeSliderUpdate:)];
-    [o_fs_volumeSlider setUsesBrightArtwork:YES];
+    [o_fs_volumeSlider setUsesBrightArtwork:NO];
     [[o_fs_volumeSlider cell] accessibilitySetOverrideValue:_NS("Volume") forAttribute:NSAccessibilityTitleAttribute];
     [[o_fs_volumeSlider cell] accessibilitySetOverrideValue:_NS("Click and move the mouse while keeping the button pressed to use this slider to change the volume.") forAttribute:NSAccessibilityDescriptionAttribute];
     [self addSubview: o_fs_volumeSlider];
@@ -560,13 +562,13 @@
                     remaining = dur - time.i_time;
                 o_total_time = [NSString stringWithFormat: @"-%s", secstotimestr(psz_time, (remaining / 1000000))];
             } else
-                o_total_time = @(secstotimestr(psz_time, (dur / 1000000)));
+                o_total_time = [NSString stringWithUTF8String:secstotimestr(psz_time, (dur / 1000000))];
 
             [o_streamLength_txt setStringValue: o_total_time];
         }
 
         // update current position (left field)
-        NSString *o_playback_pos = @(secstotimestr(psz_time, (time.i_time / 1000000)));
+        NSString *o_playback_pos = [NSString stringWithUTF8String:secstotimestr(psz_time, (time.i_time / 1000000))];
                
         [o_streamPosition_txt setStringValue: o_playback_pos];
         vlc_object_release(p_input);
@@ -710,6 +712,16 @@
 *****************************************************************************/
 @implementation VLCFSVolumeSlider
 
+- (id)initWithFrame:(NSRect)frame
+{
+    self = [super initWithFrame:frame];
+    if(self) {
+        [self setCell:[[[VolumeSliderCell alloc] init] autorelease]];
+    }
+
+    return self;
+}
+
 - (void)drawKnobInRect:(NSRect) knobRect
 {
     NSRect image_rect;
@@ -737,6 +749,13 @@
     knobRect.origin.y+=7.5;
     [[[NSColor blackColor] colorWithAlphaComponent:0.6] set];
     [self drawKnobInRect: knobRect];
+}
+
+- (void)drawFullVolBezierPath:(NSBezierPath*)bezierPath
+{
+    CGFloat fullVolPos = [self fullVolumePos];
+    [bezierPath moveToPoint:NSMakePoint(fullVolPos, [self frame].size.height)];
+    [bezierPath lineToPoint:NSMakePoint(fullVolPos, 1.)];
 }
 
 @end

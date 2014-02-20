@@ -83,7 +83,7 @@ static void OpenglSwap (vlc_gl_t *gl);
 vlc_module_begin ()
     /* Will be loaded even without interface module. see voutgl.m */
     set_shortname ("Mac OS X")
-    set_description (N_("Mac OS X OpenGL video output (requires drawable-nsobject)"))
+    set_description (N_("Mac OS X OpenGL video output"))
     set_category (CAT_VIDEO)
     set_subcategory (SUBCAT_VIDEO_VOUT)
     set_capability ("vout display", 300)
@@ -346,8 +346,10 @@ static int Control (vout_display_t *vd, int query, va_list ap)
             NSAutoreleasePool * o_pool = [[NSAutoreleasePool alloc] init];
 
             id o_window = [sys->glView window];
-            if (!o_window)
+            if (!o_window) {
+                [o_pool release];
                 return VLC_SUCCESS; // this is okay, since the event will occur again when we have a window
+            }
 
             NSSize windowMinSize = [o_window minSize];
 
@@ -368,10 +370,12 @@ static int Control (vout_display_t *vd, int query, va_list ap)
             if (query == VOUT_DISPLAY_CHANGE_DISPLAY_SIZE && is_forced
                 && (cfg->display.width != vd->cfg->display.width
                     || cfg->display.height != vd->cfg->display.height)
-                && vout_window_SetSize (sys->embed, cfg->display.width, cfg->display.height))
+                && vout_window_SetSize (sys->embed, cfg->display.width, cfg->display.height)) {
+                [o_pool release];
                 return VLC_EGENERIC;
+            }
  
-            /* we always use our current frame here, because we have some size constraints 
+            /* we always use our current frame here, because we have some size constraints
                in the ui vout provider */
             vout_display_cfg_t cfg_tmp = *cfg;
             NSRect bounds;
@@ -483,6 +487,7 @@ static void OpenglSwap (vlc_gl_t *gl)
         NSOpenGLPFAAlphaSize, 8,
         NSOpenGLPFADepthSize, 24,
         NSOpenGLPFAWindow,
+        NSOpenGLPFAAllowOfflineRenderers,
         0
     };
 

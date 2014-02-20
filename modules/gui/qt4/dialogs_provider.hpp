@@ -111,6 +111,7 @@ private:
 
     void openDialog( int );
     void addFromSimple( bool, bool );
+    void saveAPlaylist(playlist_t *p_playlist, playlist_item_t *p_node);
 
 public slots:
     void playMRL( const QString & );
@@ -140,8 +141,6 @@ public slots:
     void openFileGenericDialog( intf_dialog_args_t * );
 
     void simpleOpenDialog();
-    void simplePLAppendDialog();
-    void simpleMLAppendDialog();
 
     void openDialog();
     void openDiscDialog();
@@ -150,12 +149,12 @@ public slots:
     void openNetDialog();
     void openCaptureDialog();
 
+    QString getDirectoryDialog();
     void PLAppendDialog( int tab = OPEN_FILE_TAB );
     void MLAppendDialog( int tab = OPEN_FILE_TAB );
 
     void PLOpenDir();
     void PLAppendDir();
-    void MLAppendDir();
 
     void streamingDialog( QWidget *parent, const QString& mrl, bool b_stream = true,
                           QStringList options = QStringList("") );
@@ -163,7 +162,8 @@ public slots:
     void openAndTranscodingDialogs();
 
     void openAPlaylist();
-    void saveAPlaylist();
+    void savePlayingToPlaylist();
+    void saveRecentsToPlaylist();
 
     void loadSubtitlesFile();
 

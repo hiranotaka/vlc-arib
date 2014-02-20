@@ -1,25 +1,25 @@
 /*****************************************************************************
  * effects.c : Effects for the visualization system
  *****************************************************************************
- * Copyright (C) 2002-2009 the VideoLAN team
+ * Copyright (C) 2002-2009 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Clément Stenac <zorglub@via.ecp.fr>
  *          Adrien Maglo <magsoft@videolan.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -855,8 +855,8 @@ static int scope_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
         for( int j = 0 ; j < 3 ; j++ )
         {
             ppp_area[i_index][j] =
-                p_picture->p[j].p_pixels + i_index * p_picture->p[j].i_lines
-                / 2 * p_picture->p[j].i_pitch;
+                p_picture->p[j].p_pixels + (i_index * 2 + 1) * p_picture->p[j].i_lines
+                / 4 * p_picture->p[j].i_pitch;
         }
     }
 
@@ -864,10 +864,10 @@ static int scope_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
             i_index < __MIN( p_effect->i_width, (int)p_buffer->i_nb_samples );
             i_index++ )
     {
-        uint8_t i_value;
+        int8_t i_value;
 
         /* Left channel */
-        i_value =  (1.0+p_sample[p_effect->i_idx_left]) * 127;
+        i_value =  p_sample[p_effect->i_idx_left] * 127;
         *(ppp_area[0][0]
                 + p_picture->p[0].i_pitch * i_index / p_effect->i_width
                 + p_picture->p[0].i_lines * i_value / 512
@@ -879,7 +879,7 @@ static int scope_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
 
 
         /* Right channel */
-        i_value = (1.0+p_sample[p_effect->i_idx_right]) * 127;
+        i_value = p_sample[p_effect->i_idx_right] * 127;
         *(ppp_area[1][0]
                 + p_picture->p[0].i_pitch * i_index / p_effect->i_width
                 + p_picture->p[0].i_lines * i_value / 512

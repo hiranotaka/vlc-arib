@@ -52,7 +52,7 @@ int aout_DecNew( audio_output_t *p_aout,
         return -1;
     }
 
-    if( p_format->i_rate > 192000 )
+    if( p_format->i_rate > 352800 )
     {
         msg_Err( p_aout, "excessive audio sample frequency (%u)",
                  p_format->i_rate );
@@ -181,34 +181,6 @@ void aout_RequestRestart (audio_output_t *aout, unsigned mode)
 /*
  * Buffer management
  */
-
-/*****************************************************************************
- * aout_DecNewBuffer : ask for a new empty buffer
- *****************************************************************************/
-block_t *aout_DecNewBuffer (audio_output_t *aout, size_t samples)
-{
-    /* NOTE: the caller is responsible for serializing input change */
-    aout_owner_t *owner = aout_owner (aout);
-
-    size_t length = samples * owner->input_format.i_bytes_per_frame
-                            / owner->input_format.i_frame_length;
-    block_t *block = block_Alloc( length );
-    if( likely(block != NULL) )
-    {
-        block->i_nb_samples = samples;
-        block->i_pts = block->i_length = 0;
-    }
-    return block;
-}
-
-/*****************************************************************************
- * aout_DecDeleteBuffer : destroy an undecoded buffer
- *****************************************************************************/
-void aout_DecDeleteBuffer (audio_output_t *aout, block_t *block)
-{
-    (void) aout;
-    block_Release (block);
-}
 
 static void aout_StopResampling (audio_output_t *aout)
 {

@@ -113,16 +113,9 @@ static void NoDrInit(vout_thread_t *vout)
     if (sys->display.use_dr)
         sys->display_pool = vout_display_Pool(sys->display.vd, 3);
     else
-        //sys->display_pool = picture_pool_Reserve(sys->decoder_pool, DISPLAY_PICTURE_COUNT);
-        sys->display_pool = picture_pool_NewFromFormat(&sys->display.vd->source, DISPLAY_PICTURE_COUNT);
+        sys->display_pool = NULL;
 }
-static void NoDrClean(vout_thread_t *vout)
-{
-    vout_thread_sys_t *sys = vout->p;
 
-    if (!sys->display.use_dr)
-        picture_pool_Delete(sys->display_pool);
-}
 int vout_InitWrapper(vout_thread_t *vout)
 {
     vout_thread_sys_t *sys = vout->p;
@@ -176,10 +169,8 @@ void vout_EndWrapper(vout_thread_t *vout)
     if (sys->private_pool)
         picture_pool_Delete(sys->private_pool);
 
-    if (sys->decoder_pool != sys->display_pool) {
-        NoDrClean(vout);
+    if (sys->decoder_pool != sys->display_pool)
         picture_pool_Delete(sys->decoder_pool);
-    }
 }
 
 /*****************************************************************************
@@ -190,12 +181,10 @@ void vout_ManageWrapper(vout_thread_t *vout)
     vout_thread_sys_t *sys = vout->p;
     vout_display_t *vd = sys->display.vd;
 
-    bool reset_display_pool = sys->display.use_dr && vout_AreDisplayPicturesInvalid(vd);
-    vout_ManageDisplay(vd, !sys->display.use_dr || reset_display_pool);
+    bool reset_display_pool = vout_AreDisplayPicturesInvalid(vd);
+    reset_display_pool |= vout_ManageDisplay(vd, !sys->display.use_dr || reset_display_pool);
 
     if (reset_display_pool) {
-        NoDrClean(vout);
-
         sys->display.use_dr = !vout_IsDisplayFiltered(vd);
         NoDrInit(vout);
     }

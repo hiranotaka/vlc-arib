@@ -44,6 +44,7 @@
 #import "ControlsBar.h"
 #import "ExtensionsManager.h"
 #import "ConvertAndSave.h"
+#import "DebugMessageVisualizer.h"
 
 @implementation VLCMainMenu
 static VLCMainMenu *_o_sharedInstance = nil;
@@ -75,11 +76,13 @@ static VLCMainMenu *_o_sharedInstance = nil;
                       _NS("Date"),          DATE_COLUMN,
                       _NS("Language"),      LANGUAGE_COLUMN,
                       _NS("URI"),           URI_COLUMN,
+                      _NS("File Size"),     FILESIZE_COLUMN,
                       nil];
         // this array also assigns tags (index) to type of menu item
         o_ptc_menuorder = [[NSArray alloc] initWithObjects: TRACKNUM_COLUMN, TITLE_COLUMN,
                            ARTIST_COLUMN, DURATION_COLUMN, GENRE_COLUMN, ALBUM_COLUMN,
-                           DESCRIPTION_COLUMN, DATE_COLUMN, LANGUAGE_COLUMN, URI_COLUMN, nil];
+                           DESCRIPTION_COLUMN, DATE_COLUMN, LANGUAGE_COLUMN, URI_COLUMN,
+                           FILESIZE_COLUMN,nil];
     }
 
     return _o_sharedInstance;
@@ -293,7 +296,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
         [mi setTarget:self];
         [mi setAction:selector];
         [mi setTag:p_item->list.i[i]];
-        [mi setRepresentedObject:@(psz_name)];
+        [mi setRepresentedObject:[NSString stringWithUTF8String:psz_name]];
         [menu addItem: [mi autorelease]];
         if (p_item->value.i == p_item->list.i[i])
             [mi setState:NSOnState];
@@ -324,8 +327,10 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_open_net setTitle: _NS("Open Network...")];
     [o_mi_open_capture setTitle: _NS("Open Capture Device...")];
     [o_mi_open_recent setTitle: _NS("Open Recent")];
+    [o_mi_close_window setTitle: _NS("Close Window")];
     [o_mi_open_wizard setTitle: _NS("Streaming/Exporting Wizard...")];
     [o_mi_convertandsave setTitle: _NS("Convert / Stream...")];
+    [o_mi_save_playlist setTitle: _NS("Save Playlist...")];
 
     [o_mu_edit setTitle: _NS("Edit")];
     [o_mi_cut setTitle: _NS("Cut")];
@@ -344,6 +349,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_toggleSidebar setTitle: _NS("Show Sidebar")];
     [o_mi_toggleSidebar setState: config_GetInt(VLCIntf, "macosx-show-sidebar")];
     [o_mu_playlistTableColumns setTitle: _NS("Playlist Table Columns")];
+    [o_mi_playlistTableColumns setTitle: _NS("Playlist Table Columns")];
 
     [o_mu_controls setTitle: _NS("Playback")];
     [o_mi_play setTitle: _NS("Play")];
@@ -429,8 +435,8 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_teletext_blue setTitle: _NS("Blue")];
 
     [o_mu_window setTitle: _NS("Window")];
-    [o_mi_minimize setTitle: _NS("Minimize Window")];
-    [o_mi_close_window setTitle: _NS("Close Window")];
+    [o_mi_minimize setTitle: _NS("Minimize")];
+    [o_mi_zoom_window setTitle: _NS("Zoom")];
     [o_mi_player setTitle: _NS("Player...")];
     [o_mi_controller setTitle: _NS("Main Window...")];
     [o_mi_audioeffects setTitle: _NS("Audio Effects...")];
@@ -571,11 +577,9 @@ static VLCMainMenu *_o_sharedInstance = nil;
             [self setupVarMenuItem: o_mi_deinterlace_mode target: (vlc_object_t *)p_vout
                                      var: "deinterlace-mode" selector: @selector(toggleVar:)];
 
-#if 1
-            [self setupVarMenuItem: o_mi_ffmpeg_pp target:
-             (vlc_object_t *)p_vout var:"postprocess" selector:
-             @selector(toggleVar:)];
-#endif
+            [self setupVarMenuItem: o_mi_ffmpeg_pp target: (vlc_object_t *)p_vout
+                               var:"postprocess" selector: @selector(toggleVar:)];
+
             vlc_object_release(p_vout);
 
             [self refreshVoutDeviceMenu:nil];
@@ -704,7 +708,12 @@ static VLCMainMenu *_o_sharedInstance = nil;
 {
     BOOL b_value = !config_GetInt(VLCIntf, "macosx-show-playback-buttons");
     config_PutInt(VLCIntf, "macosx-show-playback-buttons", b_value);
+
     [[[[VLCMain sharedInstance] mainWindow] controlsBar] toggleJumpButtons];
+    [[[VLCMain sharedInstance] voutController] updateWindowsUsingBlock:^(VLCVideoWindowCommon *o_window) {
+        [[o_window controlsBar] toggleForwardBackwardMode: b_value];
+    }];
+
     [o_mi_toggleJumpButtons setState: b_value];
 }
 
@@ -747,6 +756,15 @@ static VLCMainMenu *_o_sharedInstance = nil;
 
 #pragma mark -
 #pragma mark Playback
+
+- (IBAction)quitAfterPlayback:(id)sender
+{
+    playlist_t *p_playlist = pl_Get(VLCIntf);
+    bool b_value = !var_CreateGetBool(p_playlist, "play-and-exit");
+    var_SetBool(p_playlist, "play-and-exit", b_value);
+    config_PutInt(p_intf, "play-and-exit", b_value);
+}
+
 - (IBAction)toggleRecord:(id)sender
 {
     [[VLCCoreInteraction sharedInstance] toggleRecord];
@@ -801,7 +819,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     NSMenuItem * o_mi_tmp;
 
     for (NSUInteger x = 0; x < n; x++) {
-        o_mi_tmp = [o_mu_device addItemWithTitle:[NSString stringWithFormat:@"%s", names[x]] action:@selector(toggleAudioDevice:) keyEquivalent:@""];
+        o_mi_tmp = [o_mu_device addItemWithTitle:toNSStr(names[x]) action:@selector(toggleAudioDevice:) keyEquivalent:@""];
         [o_mi_tmp setTarget:self];
         [o_mi_tmp setTag:[[NSString stringWithFormat:@"%s", ids[x]] intValue]];
     }
@@ -924,6 +942,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     }
 
     char *path = input_item_GetURI(p_item);
+
     if (!path)
         path = strdup("");
 
@@ -931,10 +950,15 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [openPanel setCanChooseFiles: YES];
     [openPanel setCanChooseDirectories: NO];
     [openPanel setAllowsMultipleSelection: YES];
-    [openPanel setAllowedFileTypes: @[@"cdg",@"@idx",@"srt",@"sub",@"utf",@"ass",@"ssa",@"aqt",@"jss",@"psb",@"rt",@"smi",@"txt",@"smil"]];
-    [openPanel setDirectoryURL:[NSURL fileURLWithPath:[@(path) stringByExpandingTildeInPath]]];
-    i_returnValue = [openPanel runModal];
+
+    [openPanel setAllowedFileTypes: [NSArray arrayWithObjects:@"cdg",@"idx",@"srt",@"sub",@"utf",@"ass",@"ssa",@"aqt",@"jss",@"psb",@"rt",@"smi",@"txt",@"smil",nil]];
+
+    NSURL *o_url = [NSURL URLWithString:[[NSString stringWithUTF8String:path] stringByExpandingTildeInPath]];
+    o_url = [o_url URLByDeletingLastPathComponent];
+    [openPanel setDirectoryURL: o_url];
     free(path);
+
+    i_returnValue = [openPanel runModal];
 
     if (i_returnValue == NSOKButton) {
         NSUInteger c = 0;
@@ -1042,6 +1066,11 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [[[VLCMain sharedInstance] wizard] showWizard];
 }
 
+- (IBAction)savePlaylist:(id)sender
+{
+    [[[VLCMain sharedInstance] playlist] savePlaylist:sender];
+}
+
 - (IBAction)showConvertAndSave:(id)sender
 {
     if (o_convertandsave == nil)
@@ -1095,6 +1124,21 @@ static VLCMainMenu *_o_sharedInstance = nil;
 {
     NSInteger i_level = [[[VLCMain sharedInstance] voutController] currentWindowLevel];
     [[[VLCMain sharedInstance] simplePreferences] showSimplePrefsWithLevel:i_level];
+}
+
+- (IBAction)showMessagesPanel:(id)showMessagesPanel
+{
+    [[VLCDebugMessageVisualizer sharedInstance] showPanel];
+}
+
+- (IBAction)showMainWindow:(id)sender
+{
+    [[VLCMainWindow sharedInstance] makeKeyAndOrderFront:sender];
+}
+
+- (IBAction)showPlaylist:(id)sender
+{
+    [[VLCMainWindow sharedInstance] changePlaylistState: psUserMenuEvent];
 }
 
 #pragma mark -
@@ -1238,6 +1282,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
             break;
         default:
             /* Variable doesn't exist or isn't handled */
+            msg_Warn(p_object, "variable %s doesn't exist or isn't handled", psz_variable);
             return;
     }
 
@@ -1255,9 +1300,8 @@ static VLCMainMenu *_o_sharedInstance = nil;
         return;
     }
 
-    if (var_Get(p_object, psz_variable, &val) < 0) {
+    if (var_Get(p_object, psz_variable, &val) < 0)
         return;
-    }
 
     VLCAutoGeneratedMenuContent *o_data;
     switch(i_type & VLC_VAR_TYPE) {
@@ -1467,8 +1511,8 @@ static VLCMainMenu *_o_sharedInstance = nil;
         [o_mi setState: i_state];
     } else if ([o_title isEqualToString: _NS("Quit after Playback")]) {
         int i_state;
-        var_Get(p_playlist, "play-and-exit", &val);
-        i_state = val.b_bool ? NSOnState : NSOffState;
+        bool b_value = var_InheritBool(p_playlist, "play-and-exit");
+        i_state = b_value ? NSOnState : NSOffState;
         [o_mi setState: i_state];
     } else if ([o_title isEqualToString: _NS("Step Forward")] ||
                [o_title isEqualToString: _NS("Step Backward")] ||

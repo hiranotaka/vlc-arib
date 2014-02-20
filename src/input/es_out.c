@@ -193,7 +193,7 @@ static void EsOutDecodersStopBuffering( es_out_t *out, bool b_forced );
 static char *LanguageGetName( const char *psz_code );
 static char *LanguageGetCode( const char *psz_lang );
 static char **LanguageSplit( const char *psz_langs, bool b_default_any );
-static int LanguageArrayIndex( char **ppsz_langs, char *psz_lang );
+static int LanguageArrayIndex( char **ppsz_langs, const char *psz_lang );
 
 static char *EsOutProgramGetMetaName( es_out_pgrm_t *p_pgrm );
 
@@ -461,7 +461,7 @@ static int EsOutSetRecord(  es_out_t *out, bool b_record )
 
         if( !psz_sout && psz_path )
         {
-            char *psz_file = input_CreateFilename( VLC_OBJECT(p_input), psz_path, INPUT_RECORD_PREFIX, NULL );
+            char *psz_file = input_CreateFilename( p_input, psz_path, INPUT_RECORD_PREFIX, NULL );
             if( psz_file )
             {
                 if( asprintf( &psz_sout, "#record{dst-prefix='%s'}", psz_file ) < 0 )
@@ -491,7 +491,7 @@ static int EsOutSetRecord(  es_out_t *out, bool b_record )
 
             p_es->p_dec_record = input_DecoderNew( p_input, &p_es->fmt, p_es->p_pgrm->p_clock, p_sys->p_sout_record );
             if( p_es->p_dec_record && p_sys->b_buffering )
-                input_DecoderStartBuffering( p_es->p_dec_record );
+                input_DecoderStartWait( p_es->p_dec_record );
         }
     }
     else
@@ -576,10 +576,10 @@ static void EsOutChangePosition( es_out_t *out )
         if( !p_es->p_dec )
             continue;
 
-        input_DecoderStartBuffering( p_es->p_dec );
+        input_DecoderStartWait( p_es->p_dec );
 
         if( p_es->p_dec_record )
-            input_DecoderStartBuffering( p_es->p_dec_record );
+            input_DecoderStartWait( p_es->p_dec_record );
     }
 
     for( int i = 0; i < p_sys->i_pgrm; i++ )
@@ -646,12 +646,12 @@ static void EsOutDecodersStopBuffering( es_out_t *out, bool b_forced )
 
         if( !p_es->p_dec || p_es->fmt.i_cat == SPU_ES )
             continue;
-        input_DecoderWaitBuffering( p_es->p_dec );
+        input_DecoderWait( p_es->p_dec );
         if( p_es->p_dec_record )
-            input_DecoderWaitBuffering( p_es->p_dec_record );
+            input_DecoderWait( p_es->p_dec_record );
     }
 
-    msg_Dbg( p_sys->p_input, "Decoder buffering done in %d ms",
+    msg_Dbg( p_sys->p_input, "Decoder wait done in %d ms",
               (int)(mdate() - i_decoder_buffering_start)/1000 );
 
     /* Here is a good place to destroy unused vout with every demuxer */
@@ -671,9 +671,9 @@ static void EsOutDecodersStopBuffering( es_out_t *out, bool b_forced )
         if( !p_es->p_dec )
             continue;
 
-        input_DecoderStopBuffering( p_es->p_dec );
+        input_DecoderStopWait( p_es->p_dec );
         if( p_es->p_dec_record )
-            input_DecoderStopBuffering( p_es->p_dec_record );
+            input_DecoderStopWait( p_es->p_dec_record );
     }
 }
 static void EsOutDecodersChangePause( es_out_t *out, bool b_paused, mtime_t i_date )
@@ -1369,7 +1369,7 @@ static void EsOutMeta( es_out_t *p_out, const vlc_meta_t *p_meta )
     {
         input_item_SetArtURL( p_item, psz_arturl );
 
-        if( !strncmp( psz_arturl, "attachment://", strlen("attachment") ) )
+        if( !strncmp( psz_arturl, "attachment://", 13 ) )
         {
             /* Don't look for art cover if sout
              * XXX It can change when sout has meta data support */
@@ -1558,13 +1558,13 @@ static void EsCreateDecoder( es_out_t *out, es_out_id_t *p_es )
     if( p_es->p_dec )
     {
         if( p_sys->b_buffering )
-            input_DecoderStartBuffering( p_es->p_dec );
+            input_DecoderStartWait( p_es->p_dec );
 
         if( !p_es->p_master && p_sys->p_sout_record )
         {
             p_es->p_dec_record = input_DecoderNew( p_input, &p_es->fmt, p_es->p_pgrm->p_clock, p_sys->p_sout_record );
             if( p_es->p_dec_record && p_sys->b_buffering )
-                input_DecoderStartBuffering( p_es->p_dec_record );
+                input_DecoderStartWait( p_es->p_dec_record );
         }
     }
 
@@ -1716,7 +1716,7 @@ static void EsOutSelect( es_out_t *out, es_out_id_t *es, bool b_force )
     int i_cat = es->fmt.i_cat;
 
     if( !p_sys->b_active ||
-        ( !b_force && es->fmt.i_priority < 0 ) )
+        ( !b_force && es->fmt.i_priority < ES_PRIORITY_SELECTABLE_MIN ) )
     {
         return;
     }
@@ -1756,28 +1756,34 @@ static void EsOutSelect( es_out_t *out, es_out_id_t *es, bool b_force )
 
         if( i_cat == AUDIO_ES )
         {
-            int idx1 = LanguageArrayIndex( p_sys->ppsz_audio_language,
-                                     es->psz_language_code );
-
-            if( p_sys->p_es_audio &&
-                p_sys->p_es_audio->fmt.i_priority >= es->fmt.i_priority )
+            if( p_sys->ppsz_audio_language )
             {
-                int idx2 = LanguageArrayIndex( p_sys->ppsz_audio_language,
-                                         p_sys->p_es_audio->psz_language_code );
-
-                if( idx1 < 0 || ( idx2 >= 0 && idx2 <= idx1 ) )
-                    return;
-                i_wanted = es->i_channel;
+                int es_idx = LanguageArrayIndex( p_sys->ppsz_audio_language,
+                                                 es->psz_language_code );
+                if( !p_sys->p_es_audio )
+                {
+                    /* Only select the language if it's in the list */
+                    if( es_idx >= 0 )
+                        i_wanted = es->i_channel;
+                }
+                else
+                {
+                    int selected_es_idx =
+                        LanguageArrayIndex( p_sys->ppsz_audio_language,
+                                            p_sys->p_es_audio->psz_language_code );
+                    if( es_idx >= 0 &&
+                        ( selected_es_idx < 0 || es_idx < selected_es_idx ||
+                          ( es_idx == selected_es_idx &&
+                            p_sys->p_es_audio->fmt.i_priority < es->fmt.i_priority ) ) )
+                        i_wanted = es->i_channel;
+                }
             }
             else
             {
-                /* Select audio if (no audio selected yet)
-                 * - no audio-language
-                 * - no audio code for the ES
-                 * - audio code in the requested list */
-                if( idx1 >= 0 ||
-                    !strcmp( es->psz_language_code, "??" ) ||
-                    !p_sys->ppsz_audio_language )
+                /* Select the first one if there is no selected audio yet 
+                 * then choose by ES priority */
+                if( !p_sys->p_es_audio ||
+                    p_sys->p_es_audio->fmt.i_priority < es->fmt.i_priority )
                     i_wanted = es->i_channel;
             }
 
@@ -1794,34 +1800,44 @@ static void EsOutSelect( es_out_t *out, es_out_id_t *es, bool b_force )
         }
         else if( i_cat == SPU_ES )
         {
-            int idx1 = LanguageArrayIndex( p_sys->ppsz_sub_language,
+            if( p_sys->ppsz_sub_language )
+            {
+                int es_idx = LanguageArrayIndex( p_sys->ppsz_sub_language,
                                      es->psz_language_code );
+                if( !p_sys->p_es_sub )
+                {
+                    /* Select the language if it's in the list */
+                    if( es_idx >= 0 ||
+                        /*FIXME: Should default subtitle not in the list be 
+                         * displayed if not forbidden by none? */
+                        ( p_sys->i_default_sub_id >= 0 &&
+                          /* check if the subtitle isn't forbidden by none */
+                          LanguageArrayIndex( p_sys->ppsz_sub_language, "none" ) < 0 &&
+                          es->i_id == p_sys->i_default_sub_id ) )
+                        i_wanted = es->i_channel;
+                }
+                else
+                {
+                    int selected_es_idx =
+                        LanguageArrayIndex( p_sys->ppsz_sub_language,
+                                            p_sys->p_es_sub->psz_language_code );
 
-            if( p_sys->p_es_sub &&
-                p_sys->p_es_sub->fmt.i_priority >= es->fmt.i_priority )
-            {
-                int idx2 = LanguageArrayIndex( p_sys->ppsz_sub_language,
-                                         p_sys->p_es_sub->psz_language_code );
-
-                msg_Dbg( p_sys->p_input, "idx1=%d(%s) idx2=%d(%s)",
-                        idx1, es->psz_language_code, idx2,
-                        p_sys->p_es_sub->psz_language_code );
-
-                if( idx1 < 0 || ( idx2 >= 0 && idx2 <= idx1 ) )
-                    return;
-                /* We found a SPU that matches our language request */
-                i_wanted  = es->i_channel;
+                    if( es_idx >= 0 &&
+                        ( selected_es_idx < 0 || es_idx < selected_es_idx ||
+                          ( es_idx == selected_es_idx &&
+                            p_sys->p_es_sub->fmt.i_priority < es->fmt.i_priority ) ) )
+                        i_wanted = es->i_channel;
+                }
             }
-            else if( idx1 >= 0 )
+            else
             {
-                msg_Dbg( p_sys->p_input, "idx1=%d(%s)",
-                        idx1, es->psz_language_code );
-
-                i_wanted  = es->i_channel;
-            }
-            else if( p_sys->i_default_sub_id >= 0 )
-            {
-                if( es->i_id == p_sys->i_default_sub_id )
+                /* If there is no user preference, select the default subtitle 
+                 * or adapt by ES priority */
+                if( ( !p_sys->p_es_sub &&
+                      ( p_sys->i_default_sub_id >= 0 &&
+                        es->i_id == p_sys->i_default_sub_id ) ) ||
+                    ( p_sys->p_es_sub && 
+                      p_sys->p_es_sub->fmt.i_priority < es->fmt.i_priority ) )
                     i_wanted = es->i_channel;
             }
 
@@ -2293,14 +2309,17 @@ static int EsOutControlLocked( es_out_t *out, int i_query, va_list args )
                             EsOutIsExtraBufferingAllowed( out ),
                             i_pcr, mdate() );
 
-        if( p_pgrm == p_sys->p_pgrm )
+        if( !p_sys->p_pgrm )
+            return VLC_SUCCESS;
+
+        if( p_sys->b_buffering )
         {
-            if( p_sys->b_buffering )
-            {
-                /* Check buffering state on master clock update */
-                EsOutDecodersStopBuffering( out, false );
-            }
-            else if( b_late && ( !p_sys->p_input->p->p_sout ||
+            /* Check buffering state on master clock update */
+            EsOutDecodersStopBuffering( out, false );
+        }
+        else if( p_pgrm == p_sys->p_pgrm )
+        {
+            if( b_late && ( !p_sys->p_input->p->p_sout ||
                                  !p_sys->p_input->p->b_out_pace_control ) )
             {
                 const mtime_t i_pts_delay_base = p_sys->i_pts_delay - p_sys->i_pts_jitter;
@@ -2314,19 +2333,23 @@ static int EsOutControlLocked( es_out_t *out, int i_query, va_list args )
                              "ES_OUT_SET_(GROUP_)PCR  is called too late (jitter of %d ms ignored)",
                              (int)(i_pts_delay - i_pts_delay_base) / 1000 );
                     i_pts_delay = p_sys->i_pts_delay;
+
+                    /* reset clock */
+                    for( int i = 0; i < p_sys->i_pgrm; i++ )
+                      input_clock_Reset( p_sys->pgrm[i]->p_clock );
                 }
                 else
                 {
                     msg_Err( p_sys->p_input,
                              "ES_OUT_SET_(GROUP_)PCR  is called too late (pts_delay increased to %d ms)",
                              (int)(i_pts_delay/1000) );
+
+                    /* Force a rebufferization when we are too late */
+
+                    /* It is not really good, as we throw away already buffered data
+                     * TODO have a mean to correctly reenter bufferization */
+                    es_out_Control( out, ES_OUT_RESET_PCR );
                 }
-
-                /* Force a rebufferization when we are too late */
-
-                /* It is not really good, as we throw away already buffered data
-                 * TODO have a mean to correctly reenter bufferization */
-                es_out_Control( out, ES_OUT_RESET_PCR );
 
                 es_out_SetJitter( out, i_pts_delay_base, i_pts_delay - i_pts_delay_base, p_sys->i_cr_average );
             }
@@ -2798,7 +2821,7 @@ static char **LanguageSplit( const char *psz_langs, bool b_default_any )
     return ppsz;
 }
 
-static int LanguageArrayIndex( char **ppsz_langs, char *psz_lang )
+static int LanguageArrayIndex( char **ppsz_langs, const char *psz_lang )
 {
     if( !ppsz_langs || !psz_lang )
         return -1;
@@ -2871,10 +2894,10 @@ static void EsOutUpdateInfo( es_out_t *out, es_out_id_t *es, const es_format_t *
         vlc_fourcc_GetDescription( p_fmt_es->i_cat, p_fmt_es->i_codec );
     const vlc_fourcc_t i_codec_fourcc = ( p_fmt_es->i_original_fourcc )?
                                p_fmt_es->i_original_fourcc : p_fmt_es->i_codec;
-    if( psz_codec_description )
+    if( psz_codec_description && *psz_codec_description )
         info_category_AddInfo( p_cat, _("Codec"), "%s (%.4s)",
                                psz_codec_description, (char*)&i_codec_fourcc );
-    else
+    else if ( i_codec_fourcc != VLC_FOURCC(0,0,0,0) )
         info_category_AddInfo( p_cat, _("Codec"), "%.4s",
                                (char*)&i_codec_fourcc );
 

@@ -271,6 +271,10 @@ static void DecoderErrorCallback( const FLAC__StreamDecoder *decoder,
         msg_Err( p_dec, "frame's data did not match the CRC in the "
                  "footer." );
         break;
+    case FLAC__STREAM_DECODER_ERROR_STATUS_UNPARSEABLE_STREAM:
+        msg_Err( p_dec, "The decoder encountered reserved fields in use in "
+                 "the stream." );
+        break;
     default:
         msg_Err( p_dec, "got decoder error: %d", status );
     }
@@ -381,11 +385,18 @@ static void ProcessHeader( decoder_t *p_dec )
     /* Decode STREAMINFO */
     msg_Dbg( p_dec, "decode STREAMINFO" );
     size_t i_extra = p_dec->fmt_in.i_extra;
+    static const char header[4] = { 'f', 'L', 'a', 'C' };
+
+    if (i_extra > 42 && !memcmp(p_dec->fmt_in.p_extra, header, 4))
+        i_extra = 42;
+    else if (i_extra > 34 && memcmp(p_dec->fmt_in.p_extra, header, 4))
+        i_extra = 34;
+
     switch (i_extra) {
     case 34:
         p_sys->p_block = block_Alloc( 8 + i_extra );
         memcpy( p_sys->p_block->p_buffer + 8, p_dec->fmt_in.p_extra, i_extra );
-        memcpy( p_sys->p_block->p_buffer, "fLaC", 4);
+        memcpy( p_sys->p_block->p_buffer, header, 4);
         uint8_t *p = p_sys->p_block->p_buffer;
         p[4] = 0x80 | 0; /* STREAMINFO faked as last block */
         p[5] = 0;
@@ -573,12 +584,15 @@ EncoderWriteCallback( const FLAC__StreamEncoder *encoder,
             msg_Dbg( p_enc, "Writing STREAMINFO: %zu", bytes );
 
             /* Backup the STREAMINFO metadata block */
-            p_enc->fmt_out.i_extra = STREAMINFO_SIZE;
-            p_enc->fmt_out.p_extra = xmalloc( STREAMINFO_SIZE );
-            memcpy(p_enc->fmt_out.p_extra, buffer + 4, STREAMINFO_SIZE );
+            p_enc->fmt_out.i_extra = STREAMINFO_SIZE + 8;
+            p_enc->fmt_out.p_extra = xmalloc( STREAMINFO_SIZE + 8);
+            memcpy(p_enc->fmt_out.p_extra, "fLaC", 4);
+            memcpy((uint8_t*)p_enc->fmt_out.p_extra + 4, buffer, STREAMINFO_SIZE );
+            /* Fake this as the last metadata block */
+            ((uint8_t*)p_enc->fmt_out.p_extra)[4] |= 0x80;
         }
         p_sys->i_headers++;
-        return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+        return FLAC__STREAM_ENCODER_WRITE_STATUS_OK;
     }
 
     p_block = block_Alloc( bytes );
@@ -596,7 +610,7 @@ EncoderWriteCallback( const FLAC__StreamEncoder *encoder,
 
     block_ChainAppend( &p_sys->p_chain, p_block );
 
-    return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+    return FLAC__STREAM_ENCODER_WRITE_STATUS_OK;
 }
 /*****************************************************************************
  * EncoderMetadataCallback: called by libflac to output metadata
@@ -705,10 +719,10 @@ static block_t *Encode( encoder_t *p_enc, block_t *p_aout_buf )
     p_sys->i_samples_delay += p_aout_buf->i_nb_samples;
 
     /* Convert samples to FLAC__int32 */
-    if( p_sys->i_buffer < p_aout_buf->i_buffer * 2 )
+    if( p_sys->i_buffer < p_aout_buf->i_buffer * sizeof(FLAC__int32) )
     {
         p_sys->p_buffer =
-            xrealloc( p_sys->p_buffer, p_aout_buf->i_buffer * 2 );
+            xrealloc( p_sys->p_buffer, p_aout_buf->i_buffer * sizeof(FLAC__int32) );
         p_sys->i_buffer = p_aout_buf->i_buffer * 2;
     }
 

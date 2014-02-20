@@ -56,9 +56,6 @@
 
 //#define AVFORMAT_DEBUG 1
 
-/* Version checking */
-#if defined(HAVE_FFMPEG_AVFORMAT_H) || defined(HAVE_LIBAVFORMAT_AVFORMAT_H)
-
 # define HAVE_AVUTIL_CODEC_ATTACHMENT 1
 
 /*****************************************************************************
@@ -132,7 +129,7 @@ int OpenDemux( vlc_object_t *p_this )
     }
     stream_Control( p_demux->s, STREAM_CAN_SEEK, &b_can_seek );
 
-    vlc_init_avformat();
+    vlc_init_avformat(p_this);
 
     char *psz_format = var_InheritString( p_this, "avformat-format" );
     if( psz_format )
@@ -226,8 +223,8 @@ int OpenDemux( vlc_object_t *p_this )
 
     if( error < 0 )
     {
-        errno = AVUNERROR(error);
-        msg_Err( p_demux, "Could not open %s: %m", psz_url );
+        msg_Err( p_demux, "Could not open %s: %s", psz_url,
+                 vlc_strerror_c(AVUNERROR(error)) );
         p_sys->ic = NULL;
         free( psz_url );
         CloseDemux( p_this );
@@ -269,8 +266,8 @@ int OpenDemux( vlc_object_t *p_this )
 
     if( error < 0 )
     {
-        errno = AVUNERROR(error);
-        msg_Warn( p_demux, "Could not find stream info: %m" );
+        msg_Warn( p_demux, "Could not find stream info: %s",
+                  vlc_strerror_c(AVUNERROR(error)) );
     }
 
     for( i = 0; i < p_sys->ic->nb_streams; i++ )
@@ -307,6 +304,7 @@ int OpenDemux( vlc_object_t *p_this )
         case AVMEDIA_TYPE_VIDEO:
             es_format_Init( &fmt, VIDEO_ES, fcc );
 
+            fmt.video.i_bits_per_pixel = cc->bits_per_coded_sample;
             /* Special case for raw video data */
             if( cc->codec_id == AV_CODEC_ID_RAWVIDEO )
             {
@@ -337,6 +335,11 @@ int OpenDemux( vlc_object_t *p_this )
             psz_type = "video";
             fmt.video.i_frame_rate = cc->time_base.den;
             fmt.video.i_frame_rate_base = cc->time_base.num * __MAX( cc->ticks_per_frame, 1 );
+            fmt.video.i_sar_num = s->sample_aspect_ratio.num;
+            if (s->sample_aspect_ratio.num > 0)
+                fmt.video.i_sar_den = s->sample_aspect_ratio.den;
+            else
+                fmt.video.i_sar_den = 0;
             break;
 
         case AVMEDIA_TYPE_SUBTITLE:
@@ -424,7 +427,7 @@ int OpenDemux( vlc_object_t *p_this )
             fmt.psz_language = strdup( language->value );
 
         if( s->disposition & AV_DISPOSITION_DEFAULT )
-            fmt.i_priority = 1000;
+            fmt.i_priority = ES_PRIORITY_SELECTABLE_MIN + 1000;
 
 #ifdef HAVE_AVUTIL_CODEC_ATTACHMENT
         if( cc->codec_type != AVMEDIA_TYPE_ATTACHMENT )
@@ -481,6 +484,34 @@ int OpenDemux( vlc_object_t *p_this )
                     fmt.p_extra = NULL;
                 }
             }
+#if LIBAVCODEC_VERSION_CHECK( 54, 29, 0, 17, 101 )
+            else if( cc->codec_id == AV_CODEC_ID_OPUS )
+            {
+                const uint8_t p_dummy_comment[] = {
+                    'O', 'p', 'u', 's',
+                    'T', 'a', 'g', 's',
+                    0, 0, 0, 0, /* Vendor String length */
+                                /* Vendor String */
+                    0, 0, 0, 0, /* User Comment List Length */
+
+                };
+                unsigned pi_size[2];
+                const void *pp_data[2];
+
+                pi_size[0] = i_extra;
+                pp_data[0] = p_extra;
+
+                pi_size[1] = sizeof(p_dummy_comment);
+                pp_data[1] = p_dummy_comment;
+
+                if( pi_size[0] > 0 && xiph_PackHeaders( &fmt.i_extra, &fmt.p_extra,
+                                                        pi_size, pp_data, 2 ) )
+                {
+                    fmt.i_extra = 0;
+                    fmt.p_extra = NULL;
+                }
+            }
+#endif
             else if( cc->extradata_size > 0 )
             {
                 fmt.p_extra = malloc( i_extra );
@@ -495,8 +526,8 @@ int OpenDemux( vlc_object_t *p_this )
                 es_out_Control( p_demux->out, ES_OUT_SET_ES_DEFAULT, es );
             es_format_Clean( &fmt );
 
-            msg_Dbg( p_demux, "adding es: %s codec = %4.4s",
-                     psz_type, (char*)&fcc );
+            msg_Dbg( p_demux, "adding es: %s codec = %4.4s (%d)",
+                     psz_type, (char*)&fcc, cc->codec_id  );
             TAB_APPEND( p_sys->i_tk, p_sys->tk, es );
         }
     }
@@ -914,7 +945,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 return VLC_EGENERIC;
 
             *pi_int = p_sys->i_attachments;;
-            *ppp_attach = malloc( sizeof(input_attachment_t**) * p_sys->i_attachments );
+            *ppp_attach = malloc( sizeof(input_attachment_t*) * p_sys->i_attachments );
             for( i = 0; i < p_sys->i_attachments; i++ )
                 (*ppp_attach)[i] = vlc_input_attachment_Duplicate( p_sys->attachments[i] );
             return VLC_SUCCESS;
@@ -931,7 +962,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 return VLC_EGENERIC;
 
             *pi_int = 1;
-            *ppp_title = malloc( sizeof( input_title_t**) );
+            *ppp_title = malloc( sizeof( input_title_t*) );
             (*ppp_title)[0] = vlc_input_title_Duplicate( p_sys->p_title );
             *pi_title_offset = 0;
             *pi_seekpoint_offset = 0;
@@ -1030,5 +1061,3 @@ static int64_t IOSeek( void *opaque, int64_t offset, int whence )
 
     return stream_Tell( p_demux->s );
 }
-
-#endif /* HAVE_LIBAVFORMAT_AVFORMAT_H */

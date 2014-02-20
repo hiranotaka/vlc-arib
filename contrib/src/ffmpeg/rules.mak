@@ -1,9 +1,16 @@
 # FFmpeg
 
-HASH=HEAD
+#Uncomment the one you want
+#USE_LIBAV ?= 1
+#USE_FFMPEG ?= 1
 
-#FFMPEG_SNAPURL := http://git.videolan.org/?p=ffmpeg.git;a=snapshot;h=$(HASH);sf=tgz
+ifdef USE_FFMPEG
+HASH=HEAD
+FFMPEG_SNAPURL := http://git.videolan.org/?p=ffmpeg.git;a=snapshot;h=$(HASH);sf=tgz
+else
+HASH=HEAD
 FFMPEG_SNAPURL := http://git.libav.org/?p=libav.git;a=snapshot;h=$(HASH);sf=tgz
+endif
 
 FFMPEGCONF = \
 	--cc="$(CC)" \
@@ -18,15 +25,22 @@ FFMPEGCONF = \
 	--disable-avfilter \
 	--disable-filters \
 	--disable-bsfs \
-	--disable-bzlib
+	--disable-bzlib \
+	--disable-programs \
+	--disable-avresample
 
-# Those tools are named differently in FFmpeg and Libav
-#	--disable-ffserver \
-#	--disable-ffplay \
-#	--disable-ffprobe
+ifdef USE_FFMPEG
+FFMPEGCONF += \
+	--disable-swresample \
+	--disable-iconv
+endif
+
 DEPS_ffmpeg = zlib gsm openjpeg
 
 # Optional dependencies
+ifndef BUILD_NETWORK
+FFMPEGCONF += --disable-network
+endif
 ifdef BUILD_ENCODERS
 FFMPEGCONF += --enable-libmp3lame --enable-libvpx --disable-decoder=libvpx --disable-decoder=libvpx_vp8 --disable-decoder=libvpx_vp9
 DEPS_ffmpeg += lame $(DEPS_lame) vpx $(DEPS_vpx)
@@ -37,10 +51,10 @@ endif
 # Small size
 ifdef ENABLE_SMALL
 FFMPEGCONF += --enable-small
+endif
 ifeq ($(ARCH),arm)
 ifdef HAVE_ARMV7A
 FFMPEGCONF += --enable-thumb
-endif
 endif
 endif
 
@@ -53,7 +67,9 @@ endif
 
 # ARM stuff
 ifeq ($(ARCH),arm)
+ifndef HAVE_DARWIN_OS
 FFMPEGCONF += --arch=arm
+endif
 ifdef HAVE_NEON
 FFMPEGCONF += --enable-neon
 endif
@@ -80,16 +96,14 @@ endif
 # Darwin
 ifdef HAVE_DARWIN_OS
 FFMPEGCONF += --arch=$(ARCH) --target-os=darwin
-ifneq ($(findstring $(ARCH),i386 x86_64),)
-FFMPEGCONF += --enable-memalign-hack
-endif
 ifeq ($(ARCH),x86_64)
 FFMPEGCONF += --cpu=core2
 endif
 endif
 ifdef HAVE_IOS
-ifeq ($(ARCH),arm)
-FFMPEGCONF += --enable-pic --as="$(AS)"
+FFMPEGCONF += --enable-pic
+ifdef HAVE_NEON
+FFMPEGCONF += --as="$(AS)"
 endif
 endif
 ifdef HAVE_MACOSX

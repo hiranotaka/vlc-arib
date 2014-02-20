@@ -181,7 +181,7 @@ static VLCBookmarks *_o_sharedInstance = nil;
         return;
     }
 
-    [o_edit_fld_name setStringValue: [NSString stringWithFormat:@"%s", pp_bookmarks[row]->psz_name]];
+    [o_edit_fld_name setStringValue: toNSStr(pp_bookmarks[row]->psz_name)];
     int total = pp_bookmarks[row]->i_time_offset/ 1000000;
     int hour = total / (60*60);
     int min = (total - hour*60*60) / 60;
@@ -306,7 +306,7 @@ clear:
     }
 
     char *psz_uri = input_item_GetURI(input_GetItem(p_input));
-    [[[VLCMain sharedInstance] wizard] initWithExtractValuesFrom: [NSString stringWithFormat:@"%lli", pp_bookmarks[i_first]->i_time_offset/1000000] to: [NSString stringWithFormat:@"%lli", pp_bookmarks[i_second]->i_time_offset/1000000] ofItem: [NSString stringWithFormat:@"%s", psz_uri]];
+    [[[VLCMain sharedInstance] wizard] initWithExtractValuesFrom: [NSString stringWithFormat:@"%lli", pp_bookmarks[i_first]->i_time_offset/1000000] to: [NSString stringWithFormat:@"%lli", pp_bookmarks[i_second]->i_time_offset/1000000] ofItem: toNSStr(psz_uri)];
     free(psz_uri);
     vlc_object_release(p_input);
 
@@ -367,17 +367,18 @@ clear:
 
     if (!p_input)
         return 0;
-    else if (input_Control(p_input, INPUT_GET_BOOKMARKS, &pp_bookmarks, &i_bookmarks) != VLC_SUCCESS) {
-        vlc_object_release(p_input);
+
+    int returnValue = input_Control(p_input, INPUT_GET_BOOKMARKS, &pp_bookmarks, &i_bookmarks);
+    vlc_object_release(p_input);
+
+    if (returnValue != VLC_SUCCESS)
         return 0;
-    } else {
-        vlc_object_release(p_input);
-        // Clear the bookmark list
-        for (int i = 0; i < i_bookmarks; i++)
-            vlc_seekpoint_Delete(pp_bookmarks[i]);
-        free(pp_bookmarks);
-        return i_bookmarks;
-    }
+
+    for (int i = 0; i < i_bookmarks; i++)
+        vlc_seekpoint_Delete(pp_bookmarks[i]);
+    free(pp_bookmarks);
+
+    return i_bookmarks;
 }
 
 - (id)tableView:(NSTableView *)theDataTable objectValueForTableColumn: (NSTableColumn *)theTableColumn row: (NSInteger)row
@@ -395,7 +396,7 @@ clear:
     else {
         NSString * identifier = [theTableColumn identifier];
         if ([identifier isEqualToString: @"description"])
-            ret = [NSString stringWithFormat:@"%s", pp_bookmarks[row]->psz_name];
+            ret = toNSStr(pp_bookmarks[row]->psz_name);
         else if ([identifier isEqualToString: @"size_offset"])
             ret = [NSString stringWithFormat:@"%lli", pp_bookmarks[row]->i_byte_offset];
         else if ([identifier isEqualToString: @"time_offset"]) {

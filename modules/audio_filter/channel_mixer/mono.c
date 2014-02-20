@@ -31,10 +31,6 @@
 #include <math.h>                                        /* sqrt */
 #include <stdint.h>                                         /* int16_t .. */
 
-#ifdef HAVE_UNISTD_H
-#   include <unistd.h>
-#endif
-
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_block.h>
@@ -99,7 +95,7 @@ static const char *const ppsz_pos_descriptions[] =
  * Module descriptor
  *****************************************************************************/
 vlc_module_begin ()
-    set_description( N_("Audio filter for stereo to mono conversion") )
+    set_description( N_("Stereo to mono downmixer") )
     set_capability( "audio filter", 0 )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_AFILTER )

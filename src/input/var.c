@@ -285,6 +285,8 @@ void input_ControlVarNavigation( input_thread_t *p_input )
     if( !val.psz_string )
         return;
 
+    var_Change( p_input, "title", VLC_VAR_CLEARCHOICES, NULL, NULL );
+
     for( i = 0; i < p_input->p->i_title; i++ )
     {
         vlc_value_t val2, text2;
@@ -428,6 +430,8 @@ void input_ConfigVarInit ( input_thread_t *p_input )
         var_Create( p_input, "audio-language",
                     VLC_VAR_STRING|VLC_VAR_DOINHERIT );
         var_Create( p_input, "sub-language",
+                    VLC_VAR_STRING|VLC_VAR_DOINHERIT );
+        var_Create( p_input, "menu-language",
                     VLC_VAR_STRING|VLC_VAR_DOINHERIT );
 
         var_Create( p_input, "audio-track-id",

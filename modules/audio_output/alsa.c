@@ -53,7 +53,7 @@ struct aout_sys_t
     char *device;
 };
 
-#include "volume.h"
+#include "audio_output/volume.h"
 
 #define A52_FRAME_NB 1536
 
@@ -145,24 +145,6 @@ static void DumpDeviceStatus (vlc_object_t *obj, snd_pcm_t *pcm)
 }
 #define DumpDeviceStatus(o, p) DumpDeviceStatus(VLC_OBJECT(o), p)
 
-static unsigned SetupChannelsUnknown (vlc_object_t *obj,
-                                      uint16_t *restrict mask)
-{
-    uint16_t map = var_InheritInteger (obj, "alsa-audio-channels");
-    uint16_t chans = *mask & map;
-
-    if (unlikely(chans == 0)) /* WTH? */
-        chans = AOUT_CHANS_STEREO;
-
-    if (popcount (chans) < popcount (*mask))
-        msg_Dbg (obj, "downmixing from %u to %u channels",
-                 popcount (*mask), popcount (chans));
-    else
-        msg_Dbg (obj, "keeping %u channels", popcount (chans));
-    *mask = chans;
-    return 0;
-}
-
 #if (SND_LIB_VERSION >= 0x01001B)
 static const uint16_t vlc_chans[] = {
     [SND_CHMAP_MONO] = AOUT_CHAN_CENTER,
@@ -207,37 +189,38 @@ static int Map2Mask (vlc_object_t *obj, const snd_pcm_chmap_t *restrict map)
  * Compares a fixed ALSA channels map with the VLC channels order.
  */
 static unsigned SetupChannelsFixed(const snd_pcm_chmap_t *restrict map,
-                                uint16_t *restrict mask, uint8_t *restrict tab)
+                               uint16_t *restrict maskp, uint8_t *restrict tab)
 {
     uint32_t chans_out[AOUT_CHAN_MAX];
+    uint16_t mask = 0;
 
     for (unsigned i = 0; i < map->channels; i++)
     {
         uint_fast16_t vlc_chan = vlc_chans[map->pos[i]];
 
         chans_out[i] = vlc_chan;
-        *mask |= vlc_chan;
+        mask |= vlc_chan;
     }
 
-    return aout_CheckChannelReorder(NULL, chans_out, *mask, tab);
+    *maskp = mask;
+    return aout_CheckChannelReorder(NULL, chans_out, mask, tab);
 }
 
 /**
  * Negotiate channels mapping.
  */
 static unsigned SetupChannels (vlc_object_t *obj, snd_pcm_t *pcm,
-                                uint16_t *restrict mask, uint8_t *restrict tab)
+                               uint16_t *restrict mask, uint8_t *restrict tab)
 {
     snd_pcm_chmap_query_t **maps = snd_pcm_query_chmaps (pcm);
     if (maps == NULL)
-    {   /* Fallback to manual configuration */
+    {   /* Fallback to default order if unknown */
         msg_Dbg(obj, "channels map not provided");
-        return SetupChannelsUnknown (obj, mask);
+        return 0;
     }
 
     /* Find most appropriate available channels map */
-    unsigned best_offset;
-    unsigned best_score = 0;
+    unsigned best_offset, best_score = 0, to_reorder = 0;
 
     for (snd_pcm_chmap_query_t *const *p = maps; *p != NULL; p++)
     {
@@ -258,7 +241,8 @@ static unsigned SetupChannels (vlc_object_t *obj, snd_pcm_t *pcm,
         if (chans == -1)
             continue;
 
-        unsigned score = popcount (chans & *mask);
+        unsigned score = (popcount (chans & *mask) << 8)
+                       | (255 - popcount (chans));
         if (score > best_score)
         {
             best_offset = p - maps;
@@ -269,26 +253,24 @@ static unsigned SetupChannels (vlc_object_t *obj, snd_pcm_t *pcm,
     if (best_score == 0)
     {
         msg_Err (obj, "cannot find supported channels map");
-        snd_pcm_free_chmaps (maps);
-        return SetupChannelsUnknown (obj, mask);
+        goto out;
     }
 
     const snd_pcm_chmap_t *map = &maps[best_offset]->map;
     msg_Dbg (obj, "using channels map %u, type %u, %u channel(s)", best_offset,
-             maps[best_offset]->type, best_score);
+             maps[best_offset]->type, map->channels);
 
     /* Setup channels map */
-    unsigned to_reorder = SetupChannelsFixed(map, mask, tab);
+    to_reorder = SetupChannelsFixed(map, mask, tab);
 
     /* TODO: avoid reordering for PAIRED and VAR types */
     //snd_pcm_set_chmap (pcm, ...)
-
+out:
     snd_pcm_free_chmaps (maps);
     return to_reorder;
 }
 #else /* (SND_LIB_VERSION < 0x01001B) */
-# define SetupChannels(obj, pcm, mask, tab) \
-         SetupChannelsUnknown(obj, mask)
+# define SetupChannels(obj, pcm, mask, tab) (0)
 #endif
 
 static int TimeGet (audio_output_t *aout, mtime_t *);
@@ -345,7 +327,7 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
     const char *device = sys->device;
     char *devbuf = NULL;
     /* Choose the IEC device for S/PDIF output */
-    if (spdif && !strcmp (device, "default"))
+    if (spdif)
     {
         unsigned aes3;
 
@@ -363,8 +345,23 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
                 break;
         }
 
+        char *opt = NULL;
+        if (!strcmp (device, "default"))
+            device = "iec958"; /* TODO: hdmi */
+        else
+        {
+            opt = strchr(device, ':');
+            if (opt && opt[1] == '\0') {
+                /* if device is terminated by : but there's no options,
+                 * remove ':', we'll add it back in the format string. */
+                *opt = '\0';
+                opt = NULL;
+            }
+        }
+
         if (asprintf (&devbuf,
-                      "iec958:AES0=0x%x,AES1=0x%x,AES2=0x%x,AES3=0x%x",
+                      "%s%cAES0=0x%x,AES1=0x%x,AES2=0x%x,AES3=0x%x", device,
+                      opt ? ',' : ':',
                       IEC958_AES0_CON_EMPHASIS_NONE | IEC958_AES0_NONAUDIO,
                       IEC958_AES1_CON_ORIGINAL | IEC958_AES1_CON_PCM_CODER,
                       0, aes3) == -1)
@@ -455,16 +452,19 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
     unsigned channels;
     if (!spdif)
     {
-        sys->chans_to_reorder = SetupChannels (VLC_OBJECT(aout), pcm,
-                                  &fmt->i_physical_channels, sys->chans_table);
-        channels = popcount (fmt->i_physical_channels);
+        uint16_t map = var_InheritInteger (aout, "alsa-audio-channels");
+
+        sys->chans_to_reorder = SetupChannels (VLC_OBJECT(aout), pcm, &map,
+                                               sys->chans_table);
+        fmt->i_physical_channels = map;
+        fmt->i_original_channels = map;
+        channels = popcount (map);
     }
     else
     {
         sys->chans_to_reorder = 0;
         channels = 2;
     }
-    fmt->i_original_channels = fmt->i_physical_channels;
 
     /* By default, ALSA plug will pad missing channels with zeroes, which is
      * usually fine. However, it will also discard extraneous channels, which
@@ -487,6 +487,15 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
     }
     sys->rate = fmt->i_rate;
 
+#if 1 /* work-around for period-long latency outputs (e.g. PulseAudio): */
+    param = AOUT_MIN_PREPARE_TIME;
+    val = snd_pcm_hw_params_set_period_time_near (pcm, hw, &param, NULL);
+    if (val)
+    {
+        msg_Err (aout, "cannot set period: %s", snd_strerror (val));
+        goto error;
+    }
+#endif
     /* Set buffer size */
     param = AOUT_MAX_ADVANCE_TIME;
     val = snd_pcm_hw_params_set_buffer_time_near (pcm, hw, &param, NULL);
@@ -504,15 +513,13 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
     }
     else
         param /= 2;
-#else /* work-around for period-long latency outputs (e.g. PulseAudio): */
-    param = AOUT_MIN_PREPARE_TIME;
-#endif
     val = snd_pcm_hw_params_set_period_time_near (pcm, hw, &param, NULL);
     if (val)
     {
         msg_Err (aout, "cannot set period: %s", snd_strerror (val));
         goto error;
     }
+#endif
 
     /* Commit hardware parameters */
     val = snd_pcm_hw_params (pcm, hw);

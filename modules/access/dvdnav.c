@@ -38,9 +38,7 @@
 #endif
 
 #include <assert.h>
-#ifdef HAVE_UNISTD_H
-#   include <unistd.h>
-#endif
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -282,9 +280,8 @@ static int Open( vlc_object_t *p_this )
         msg_Warn( p_demux, "cannot set PGC positioning flag" );
     }
 
-    /* Set menu language
-     * XXX A menu-language may be better than sub-language */
-    psz_code = DemuxGetLanguageCode( p_demux, "sub-language" );
+    /* Set menu language */
+    psz_code = DemuxGetLanguageCode( p_demux, "menu-language" );
     if( dvdnav_menu_language_select( p_sys->dvdnav, psz_code ) !=
         DVDNAV_STATUS_OK )
     {
@@ -500,7 +497,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             *va_arg( args, int* ) = 1; /* Chapter offset */
 
             /* Duplicate title infos */
-            *ppp_title = malloc( sizeof( input_title_t ** ) * p_sys->i_title );
+            *ppp_title = malloc( p_sys->i_title * sizeof( input_title_t * ) );
             for( i = 0; i < p_sys->i_title; i++ )
             {
                 (*ppp_title)[i] = vlc_input_title_Duplicate( p_sys->title[i] );

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * playlist.m: MacOS X interface module
  *****************************************************************************
-* Copyright (C) 2002-2012 VLC authors and VideoLAN
+* Copyright (C) 2002-2014 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
@@ -39,6 +39,8 @@
 #include <math.h>
 #include <sys/mount.h>
 
+#import "CompatibilityFixes.h"
+
 #import "intf.h"
 #import "wizard.h"
 #import "bookmarks.h"
@@ -51,7 +53,6 @@
 
 #include <vlc_keys.h>
 #import <vlc_interface.h>
-
 #include <vlc_url.h>
 
 /*****************************************************************************
@@ -98,18 +99,18 @@
     return NO;
 }
 
-- (BOOL) acceptsFirstResponder
+- (BOOL)acceptsFirstResponder
 {
     return YES;
 }
 
-- (BOOL) becomeFirstResponder
+- (BOOL)becomeFirstResponder
 {
     [self setNeedsDisplay:YES];
     return YES;
 }
 
-- (BOOL) resignFirstResponder
+- (BOOL)resignFirstResponder
 {
     [self setNeedsDisplay:YES];
     return YES;
@@ -128,6 +129,12 @@
  * This class the superclass of the VLCPlaylist and VLCPlaylistWizard.
  * It contains the common methods and elements of these 2 entities.
  *****************************************************************************/
+@interface VLCPlaylistCommon ()
+{
+    playlist_item_t * p_current_root_item;
+}
+@end
+
 @implementation VLCPlaylistCommon
 
 - (id)init
@@ -295,20 +302,20 @@
     if ([o_identifier isEqualToString:TRACKNUM_COLUMN]) {
         psz_value = input_item_GetTrackNumber(p_item->p_input);
         if (psz_value) {
-            o_value = @(psz_value);
+            o_value = [NSString stringWithUTF8String:psz_value];
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:TITLE_COLUMN]) {
         /* sanity check to prevent the NSString class from crashing */
         char *psz_title =  input_item_GetTitleFbName(p_item->p_input);
         if (psz_title) {
-            o_value = @(psz_title);
+            o_value = [NSString stringWithUTF8String:psz_title];
             free(psz_title);
         }
     } else if ([o_identifier isEqualToString:ARTIST_COLUMN]) {
         psz_value = input_item_GetArtist(p_item->p_input);
         if (psz_value) {
-            o_value = @(psz_value);
+            o_value = [NSString stringWithUTF8String:psz_value];
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:@"duration"]) {
@@ -316,45 +323,61 @@
         mtime_t dur = input_item_GetDuration(p_item->p_input);
         if (dur != -1) {
             secstotimestr(psz_duration, dur/1000000);
-            o_value = @(psz_duration);
+            o_value = [NSString stringWithUTF8String:psz_duration];
         }
         else
             o_value = @"--:--";
     } else if ([o_identifier isEqualToString:GENRE_COLUMN]) {
         psz_value = input_item_GetGenre(p_item->p_input);
         if (psz_value) {
-            o_value = @(psz_value);
+            o_value = [NSString stringWithUTF8String:psz_value];
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:ALBUM_COLUMN]) {
         psz_value = input_item_GetAlbum(p_item->p_input);
         if (psz_value) {
-            o_value = @(psz_value);
+            o_value = [NSString stringWithUTF8String:psz_value];
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:DESCRIPTION_COLUMN]) {
         psz_value = input_item_GetDescription(p_item->p_input);
         if (psz_value) {
-            o_value = @(psz_value);
+            o_value = [NSString stringWithUTF8String:psz_value];
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:DATE_COLUMN]) {
         psz_value = input_item_GetDate(p_item->p_input);
         if (psz_value) {
-            o_value = @(psz_value);
+            o_value = [NSString stringWithUTF8String:psz_value];
             free(psz_value);
         }
     } else if ([o_identifier isEqualToString:LANGUAGE_COLUMN]) {
         psz_value = input_item_GetLanguage(p_item->p_input);
         if (psz_value) {
-            o_value = @(psz_value);
+            o_value = [NSString stringWithUTF8String:psz_value];
             free(psz_value);
         }
     }
     else if ([o_identifier isEqualToString:URI_COLUMN]) {
         psz_value = decode_URI(input_item_GetURI(p_item->p_input));
         if (psz_value) {
-            o_value = @(psz_value);
+            o_value = [NSString stringWithUTF8String:psz_value];
+            free(psz_value);
+        }
+    }
+    else if ([o_identifier isEqualToString:FILESIZE_COLUMN]) {
+        psz_value = input_item_GetURI(p_item->p_input);
+        o_value = @"";
+        if (psz_value) {
+            NSURL *url = [NSURL URLWithString:[NSString stringWithUTF8String:psz_value]];
+            if ([url isFileURL]) {
+                NSFileManager *fileManager = [NSFileManager defaultManager];
+                if ([fileManager fileExistsAtPath:[url path]]) {
+                    NSError *error;
+                    NSDictionary *attributes = [fileManager attributesOfItemAtPath:[url path] error:&error];
+                    o_value = [VLCByteCountFormatter stringFromByteCount:[attributes fileSize] countStyle:NSByteCountFormatterCountStyleDecimal];
+                }
+            }
             free(psz_value);
         }
     }
@@ -402,7 +425,23 @@
 /*****************************************************************************
  * VLCPlaylist implementation
  *****************************************************************************/
-@interface VLCPlaylist (Internal)
+@interface VLCPlaylist ()
+{
+    NSImage *o_descendingSortingImage;
+    NSImage *o_ascendingSortingImage;
+
+    NSMutableArray *o_nodes_array;
+    NSMutableArray *o_items_array;
+
+    BOOL b_selected_item_met;
+    BOOL b_isSortDescending;
+    id o_tc_sortColumn;
+    NSInteger retainedRowSelection;
+
+    BOOL b_playlistmenu_nib_loaded;
+    BOOL b_view_setup;
+}
+
 - (void)saveTableColumns;
 @end
 
@@ -411,9 +450,9 @@
 + (void)initialize{
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableArray * o_columnArray = [[NSMutableArray alloc] init];
-    [o_columnArray addObject: @[TITLE_COLUMN, @190.]];
-    [o_columnArray addObject: @[ARTIST_COLUMN, @95.]];
-    [o_columnArray addObject: @[DURATION_COLUMN, @95.]];
+    [o_columnArray addObject: [NSArray arrayWithObjects:TITLE_COLUMN, [NSNumber numberWithFloat:190.], nil]];
+    [o_columnArray addObject: [NSArray arrayWithObjects:ARTIST_COLUMN, [NSNumber numberWithFloat:95.], nil]];
+    [o_columnArray addObject: [NSArray arrayWithObjects:DURATION_COLUMN, [NSNumber numberWithFloat:95.], nil]];
     NSDictionary *appDefaults = [NSDictionary dictionaryWithObject:[NSArray arrayWithArray:o_columnArray] forKey: @"PlaylistColumnSelection"];
 
     [defaults registerDefaults:appDefaults];
@@ -439,17 +478,21 @@
 
 - (void)awakeFromNib
 {
+    if (b_view_setup)
+        return;
+
     playlist_t * p_playlist = pl_Get(VLCIntf);
 
     [super awakeFromNib];
+    [self initStrings];
 
     [o_outline_view setDoubleAction: @selector(playItem:)];
     [o_outline_view_other setDoubleAction: @selector(playItem:)];
 
-    [o_outline_view registerForDraggedTypes: @[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
+    [o_outline_view registerForDraggedTypes: [NSArray arrayWithObjects:NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil]];
     [o_outline_view setIntercellSpacing: NSMakeSize (0.0, 1.0)];
 
-    [o_outline_view_other registerForDraggedTypes: @[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
+    [o_outline_view_other registerForDraggedTypes: [NSArray arrayWithObjects:NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil]];
     [o_outline_view_other setIntercellSpacing: NSMakeSize (0.0, 1.0)];
 
     /* This uses a private API, but works fine on all current OSX releases.
@@ -479,6 +522,8 @@
     }
 
     [[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(applicationWillTerminate:) name: NSApplicationWillTerminateNotification object: nil];
+
+    b_view_setup = YES;
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification
@@ -494,7 +539,6 @@
 
 - (void)initStrings
 {
-    [o_mi_save_playlist setTitle: _NS("Save Playlist...")];
     [o_mi_play setTitle: _NS("Play")];
     [o_mi_delete setTitle: _NS("Delete")];
     [o_mi_recursive_expand setTitle: _NS("Expand Node")];
@@ -510,11 +554,6 @@
 
     [o_search_field setToolTip: _NS("Search in Playlist")];
     [o_search_field_other setToolTip: _NS("Search in Playlist")];
-
-    [o_save_accessory_text setStringValue: _NS("File Format:")];
-    [[o_save_accessory_popup itemAtIndex:0] setTitle: _NS("Extended M3U")];
-    [[o_save_accessory_popup itemAtIndex:1] setTitle: _NS("XML Shareable Playlist Format (XSPF)")];
-    [[o_save_accessory_popup itemAtIndex:2] setTitle: _NS("HTML playlist")];
 }
 
 - (void)playlistUpdated
@@ -531,6 +570,8 @@
     [o_outline_view reloadData];
     [[[[VLCMain sharedInstance] wizard] playlistWizard] reloadOutlineView];
     [[[[VLCMain sharedInstance] bookmarks] dataTable] reloadData];
+
+    [o_outline_view selectRowIndexes:[NSIndexSet indexSetWithIndex:retainedRowSelection] byExtendingSelection:NO];
 
     [self outlineViewSelectionDidChange: nil];
     [[VLCMain sharedInstance] updateMainWindow];
@@ -691,6 +732,13 @@
     NSSavePanel *o_save_panel = [NSSavePanel savePanel];
     NSString * o_name = [NSString stringWithFormat: @"%@", _NS("Untitled")];
 
+    [NSBundle loadNibNamed:@"PlaylistAccessoryView" owner:self];
+
+    [o_save_accessory_text setStringValue: _NS("File Format:")];
+    [[o_save_accessory_popup itemAtIndex:0] setTitle: _NS("Extended M3U")];
+    [[o_save_accessory_popup itemAtIndex:1] setTitle: _NS("XML Shareable Playlist Format (XSPF)")];
+    [[o_save_accessory_popup itemAtIndex:2] setTitle: _NS("HTML playlist")];
+
     [o_save_panel setTitle: _NS("Save Playlist")];
     [o_save_panel setPrompt: _NS("Save")];
     [o_save_panel setAccessoryView: o_save_accessory_view];
@@ -792,7 +840,7 @@
             continue;
 
         char * psz_url = decode_URI(input_item_GetURI(p_item->p_input));
-        o_mrl = [[NSMutableString alloc] initWithString: @(psz_url ? psz_url : "")];
+        o_mrl = [[NSMutableString alloc] initWithString: [NSString stringWithUTF8String:psz_url ? psz_url : ""]];
         if (psz_url != NULL)
             free( psz_url );
 
@@ -830,7 +878,7 @@
 
         if (p_item) {
             if (p_item->i_children == -1)
-                playlist_PreparseEnqueue(p_playlist, p_item->p_input);
+                libvlc_MetaRequest(p_intf->p_libvlc, p_item->p_input);
             else
                 msg_Dbg(p_intf, "preparsing nodes not implemented");
         }
@@ -855,7 +903,7 @@
         p_item = [[o_outline_view itemAtRow: indexes[i]] pointerValue];
 
         if (p_item && p_item->i_children == -1)
-            playlist_AskForArtEnqueue(p_playlist, p_item->p_input);
+            libvlc_ArtRequest(p_intf->p_libvlc, p_item->p_input);
     }
     [self playlistUpdated];
 }
@@ -863,6 +911,11 @@
 - (IBAction)selectAll:(id)sender
 {
     [o_outline_view selectAll: nil];
+}
+
+- (IBAction)showInfoPanel:(id)sender
+{
+    [[[VLCMain sharedInstance] info] initPanel];
 }
 
 - (IBAction)deleteItem:(id)sender
@@ -874,14 +927,12 @@
 
     o_selected_indexes = [o_outline_view selectedRowIndexes];
     i_count = [o_selected_indexes count];
+    retainedRowSelection = [o_selected_indexes firstIndex];
 
     p_playlist = pl_Get(p_intf);
 
     NSUInteger indexes[i_count];
     if (i_count == [o_outline_view numberOfRows]) {
-#ifndef NDEBUG
-        msg_Dbg(p_intf, "user selected entire list, deleting current playlist root instead of individual items");
-#endif
         PL_LOCK;
         playlist_NodeDelete(p_playlist, [self currentPlaylistRoot], true, false);
         PL_UNLOCK;
@@ -899,10 +950,6 @@
             PL_UNLOCK;
             continue;
         }
-#ifndef NDEBUG
-        msg_Dbg(p_intf, "deleting item %i (of %i) with id \"%i\", pointerValue \"%p\" and %i children", i+1, i_count,
-                p_item->p_input->i_id, [o_item pointerValue], p_item->i_children +1);
-#endif
 
         if (p_item->i_children != -1) {
         //is a node and not an item
@@ -1111,9 +1158,9 @@
         NSString *o_current_name, *o_current_author;
 
         PL_LOCK;
-        o_current_name = @(p_item->pp_children[i_current]->p_input->psz_name);
+        o_current_name = [NSString stringWithUTF8String:p_item->pp_children[i_current]->p_input->psz_name];
         psz_temp = input_item_GetInfo(p_item->p_input, _("Meta-information"),_("Artist"));
-        o_current_author = @(psz_temp);
+        o_current_author = [NSString stringWithUTF8String:psz_temp];
         free(psz_temp);
         PL_UNLOCK;
 
@@ -1211,6 +1258,9 @@
 
 - (NSMenu *)menuForEvent:(NSEvent *)o_event
 {
+    if (!b_playlistmenu_nib_loaded)
+        b_playlistmenu_nib_loaded = [NSBundle loadNibNamed:@"PlaylistMenu" owner:self];
+
     NSPoint pt;
     bool b_rows;
     bool b_item_sel;
@@ -1232,7 +1282,7 @@
     [o_mi_sort_name setEnabled: b_item_sel];
     [o_mi_sort_author setEnabled: b_item_sel];
 
-    return(o_ctx_menu);
+    return o_ctx_menu;
 }
 
 - (void)outlineView: (NSOutlineView *)o_tv didClickTableColumn:(NSTableColumn *)o_tc
@@ -1368,7 +1418,7 @@
     NSTableColumn * o_currentColumn;
     for (NSUInteger i = 0; i < count; i++) {
         o_currentColumn = [o_columns objectAtIndex:i];
-        [o_arrayToSave addObject: @[[o_currentColumn identifier], @([o_currentColumn width])]];
+        [o_arrayToSave addObject:[NSArray arrayWithObjects:[o_currentColumn identifier], [NSNumber numberWithFloat:[o_currentColumn width]], nil]];
     }
     [[NSUserDefaults standardUserDefaults] setObject: o_arrayToSave forKey:@"PlaylistColumnSelection"];
     [[NSUserDefaults standardUserDefaults] synchronize];
@@ -1418,7 +1468,7 @@
     /* We add the "VLCPlaylistItemPboardType" type to be able to recognize
        a Drop operation coming from the playlist. */
 
-    [pboard declareTypes: @[@"VLCPlaylistItemPboardType"] owner: self];
+    [pboard declareTypes: [NSArray arrayWithObject:@"VLCPlaylistItemPboardType"] owner: self];
     [pboard setData:[NSData data] forType:@"VLCPlaylistItemPboardType"];
 
     return YES;

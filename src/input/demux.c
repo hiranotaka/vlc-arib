@@ -213,14 +213,18 @@ demux_t *demux_New( vlc_object_t *p_obj, input_thread_t *p_parent_input,
  *****************************************************************************/
 void demux_Delete( demux_t *p_demux )
 {
-    module_unneed( p_demux, p_demux->p_module );
+    stream_t *s;
 
+    module_unneed( p_demux, p_demux->p_module );
     free( p_demux->psz_file );
     free( p_demux->psz_location );
     free( p_demux->psz_demux );
     free( p_demux->psz_access );
 
+    s = p_demux->s;
     vlc_object_release( p_demux );
+    if( s != NULL )
+        stream_Delete( s );
 }
 
 /*****************************************************************************
@@ -307,16 +311,20 @@ int demux_vaControlHelper( stream_t *s,
             }
             return VLC_EGENERIC;
 
+        case DEMUX_GET_META:
+            return stream_vaControl( s, STREAM_GET_META, args );
+
         case DEMUX_GET_PTS_DELAY:
         case DEMUX_GET_FPS:
-        case DEMUX_GET_META:
         case DEMUX_HAS_UNSUPPORTED_META:
         case DEMUX_SET_NEXT_DEMUX_TIME:
         case DEMUX_GET_TITLE_INFO:
         case DEMUX_SET_GROUP:
+        case DEMUX_SET_ES:
         case DEMUX_GET_ATTACHMENTS:
         case DEMUX_CAN_RECORD:
         case DEMUX_SET_RECORD_STATE:
+        case DEMUX_GET_SIGNAL:
             return VLC_EGENERIC;
 
         default:

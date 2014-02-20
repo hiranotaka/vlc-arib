@@ -71,6 +71,8 @@ struct display_info_t
  *****************************************************************************/
 @implementation VLCOpen
 
+@synthesize fileSubDelay, fileSubFps;
+
 #pragma mark -
 #pragma mark Init
 
@@ -338,7 +340,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
 
     o_mrl = newMRL;
     [o_mrl retain];
-    [o_mrl_fld setStringValue: o_mrl];
+    [o_mrl_fld performSelectorOnMainThread:@selector(setStringValue:) withObject:o_mrl waitUntilDone:NO];
     if ([o_mrl length] > 0)
         [o_btn_ok setEnabled: YES];
     else
@@ -441,8 +443,8 @@ static VLCOpen *_o_sharedMainInstance = nil;
 
             [o_options addObject: [NSString stringWithFormat: @"sub-file=%@", o_sub_path]];
             if ([o_file_sub_override state] == NSOnState) {
-                [o_options addObject: [NSString stringWithFormat: @"sub-delay=%i", (int)([o_file_sub_delay intValue] * 10)]];
-                [o_options addObject: [NSString stringWithFormat: @"sub-fps=%f", [o_file_sub_fps floatValue]]];
+                [o_options addObject: [NSString stringWithFormat: @"sub-delay=%f", ([self fileSubDelay] * 10)]];
+                [o_options addObject: [NSString stringWithFormat: @"sub-fps=%f", [self fileSubFps]]];
             }
             [o_options addObject: [NSString stringWithFormat:
                     @"subsdec-encoding=%@", [[o_file_sub_encoding_pop selectedItem] representedObject]]];
@@ -521,9 +523,9 @@ static VLCOpen *_o_sharedMainInstance = nil;
         /* apply the options to our item(s) */
         [o_dic setObject: (NSArray *)[o_options copy] forKey: @"ITEM_OPTIONS"];
         if (b_autoplay)
-            [[[VLCMain sharedInstance] playlist] appendArray: @[o_dic] atPos: -1 enqueue:NO];
+            [[[VLCMain sharedInstance] playlist] appendArray: [NSArray arrayWithObject:o_dic] atPos: -1 enqueue:NO];
         else
-            [[[VLCMain sharedInstance] playlist] appendArray: @[o_dic] atPos: -1 enqueue:YES];
+            [[[VLCMain sharedInstance] playlist] appendArray: [NSArray arrayWithObject:o_dic] atPos: -1 enqueue:YES];
     }
 }
 
@@ -857,7 +859,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
     GetVolParmsInfoBuffer volumeParms;
     err = FSGetVolumeParms(actualVolume, &volumeParms, sizeof(volumeParms));
     if (noErr == err) {
-        NSString *bsdName = @((char *)volumeParms.vMDeviceID);
+        NSString *bsdName = [NSString stringWithUTF8String:(char *)volumeParms.vMDeviceID];
         return [NSString stringWithFormat:@"/dev/r%@", bsdName];
     }
 
@@ -884,10 +886,10 @@ static VLCOpen *_o_sharedMainInstance = nil;
         if (noErr == err)
             actualVolume = catalogInfo.volume;
         else
-            return NULL;
+            goto out;
     }
     else
-        return NULL;
+        goto out;
 
     GetVolParmsInfoBuffer volumeParms;
     err = FSGetVolumeParms(actualVolume, &volumeParms, sizeof(volumeParms));
@@ -895,66 +897,70 @@ static VLCOpen *_o_sharedMainInstance = nil;
     CFMutableDictionaryRef matchingDict;
     io_service_t service;
 
-    if (!volumeParms.vMDeviceID)
-        return NULL;
+    if (!volumeParms.vMDeviceID) {
+        goto out;
+    }
 
     matchingDict = IOBSDNameMatching(kIOMasterPortDefault, 0, volumeParms.vMDeviceID);
     service = IOServiceGetMatchingService(kIOMasterPortDefault, matchingDict);
 
-    NSString *returnValue;
+
+    NSString *returnValue = nil;
     if (IO_OBJECT_NULL != service) {
-        if (IOObjectConformsTo(service, kIOCDMediaClass)) {
+        if (IOObjectConformsTo(service, kIOCDMediaClass))
             returnValue = kVLCMediaAudioCD;
-        }
         else if (IOObjectConformsTo(service, kIODVDMediaClass))
             returnValue = kVLCMediaDVD;
         else if (IOObjectConformsTo(service, kIOBDMediaClass))
             returnValue = kVLCMediaBD;
-        else {
-            if ([mountPath rangeOfString:@"VIDEO_TS" options:NSCaseInsensitiveSearch | NSBackwardsSearch].location != NSNotFound)
-                returnValue = kVLCMediaVideoTSFolder;
-            else if ([mountPath rangeOfString:@"BDMV" options:NSCaseInsensitiveSearch | NSBackwardsSearch].location != NSNotFound)
-                returnValue = kVLCMediaBDMVFolder;
-            else {
-                // NSFileManager is not thread-safe, don't use defaultManager outside of the main thread
-                NSFileManager * fm = [[NSFileManager alloc] init];
+        IOObjectRelease(service);
 
-                NSArray *dirContents = [fm contentsOfDirectoryAtPath:mountPath error:nil];
-                for (int i = 0; i < [dirContents count]; i++) {
-                    NSString *currentFile = [dirContents objectAtIndex:i];
-                    NSString *fullPath = [mountPath stringByAppendingPathComponent:currentFile];
+        if (returnValue)
+            return returnValue;
+    }
 
-                    BOOL isDir;
-                    if ([fm fileExistsAtPath:fullPath isDirectory:&isDir] && isDir)
-                    {
-                        if ([currentFile caseInsensitiveCompare:@"SVCD"] == NSOrderedSame) {
-                            returnValue = kVLCMediaSVCD;
-                            break;
-                        }
-                        if ([currentFile caseInsensitiveCompare:@"VCD"] == NSOrderedSame) {
-                            returnValue = kVLCMediaVCD;
-                            break;
-                        }
-                        if ([currentFile caseInsensitiveCompare:@"BDMV"] == NSOrderedSame) {
-                            returnValue = kVLCMediaBDMVFolder;
-                            break;
-                        }
-                        if ([currentFile caseInsensitiveCompare:@"VIDEO_TS"] == NSOrderedSame) {
-                            returnValue = kVLCMediaVideoTSFolder;
-                            break;
-                        }
-                    }
+out:
+    if ([mountPath rangeOfString:@"VIDEO_TS" options:NSCaseInsensitiveSearch | NSBackwardsSearch].location != NSNotFound)
+        returnValue = kVLCMediaVideoTSFolder;
+    else if ([mountPath rangeOfString:@"BDMV" options:NSCaseInsensitiveSearch | NSBackwardsSearch].location != NSNotFound)
+        returnValue = kVLCMediaBDMVFolder;
+    else {
+        // NSFileManager is not thread-safe, don't use defaultManager outside of the main thread
+        NSFileManager * fm = [[NSFileManager alloc] init];
+
+        NSArray *dirContents = [fm contentsOfDirectoryAtPath:mountPath error:nil];
+        for (int i = 0; i < [dirContents count]; i++) {
+            NSString *currentFile = [dirContents objectAtIndex:i];
+            NSString *fullPath = [mountPath stringByAppendingPathComponent:currentFile];
+
+            BOOL isDir;
+            if ([fm fileExistsAtPath:fullPath isDirectory:&isDir] && isDir)
+            {
+                if ([currentFile caseInsensitiveCompare:@"SVCD"] == NSOrderedSame) {
+                    returnValue = kVLCMediaSVCD;
+                    break;
                 }
-
-                [fm release];
-
-                if (!returnValue)
+                if ([currentFile caseInsensitiveCompare:@"VCD"] == NSOrderedSame) {
+                    returnValue = kVLCMediaVCD;
+                    break;
+                }
+                if ([currentFile caseInsensitiveCompare:@"BDMV"] == NSOrderedSame) {
+                    returnValue = kVLCMediaBDMVFolder;
+                    break;
+                }
+                if ([currentFile caseInsensitiveCompare:@"VIDEO_TS"] == NSOrderedSame) {
                     returnValue = kVLCMediaVideoTSFolder;
+                    break;
+                }
             }
         }
 
-        IOObjectRelease(service);
+        [fm release];
+
+        if (!returnValue)
+            returnValue = kVLCMediaVideoTSFolder;
     }
+
     return returnValue;
 }
 
@@ -1050,7 +1056,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
         [o_specialMediaFolders addObject:o_dict];
     }
 
-    [self performSelectorOnMainThread:@selector(updateMediaSelector:) withObject:@YES waitUntilDone:NO];
+    [self performSelectorOnMainThread:@selector(updateMediaSelector:) withObject:[NSNumber numberWithBool:YES] waitUntilDone:NO];
     [o_pool release];
 }
 
@@ -1113,7 +1119,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
     /* work-around for Mountain Lion, which treats folders called "BDMV" including an item named "INDEX.BDM"
      * as a _FILE_. Don't ask, move on. There is nothing to see here */
     [o_open_panel setCanChooseFiles: YES];
-    [o_open_panel setAllowedFileTypes:@[@"public.directory"]];
+    [o_open_panel setAllowedFileTypes:[NSArray arrayWithObject:@"public.directory"]];
 
     if ([o_open_panel runModal] == NSOKButton) {
         NSString *o_path = [[[o_open_panel URLs] objectAtIndex:0] path];
@@ -1567,16 +1573,6 @@ static VLCOpen *_o_sharedMainInstance = nil;
     [o_file_sub_delay_stp setEnabled: b_state];
     [o_file_sub_fps setEnabled: b_state];
     [o_file_sub_fps_stp setEnabled: b_state];
-}
-
-- (IBAction)subDelayStepperChanged:(id)sender
-{
-    [o_file_sub_delay setIntValue: [o_file_sub_delay_stp intValue]];
-}
-
-- (IBAction)subFpsStepperChanged:(id)sender;
-{
-    [o_file_sub_fps setFloatValue: [o_file_sub_fps_stp floatValue]];
 }
 
 #pragma mark -

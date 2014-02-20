@@ -34,7 +34,7 @@
 
 #include "avcodec.h"
 #include "va.h"
-#include "copy.h"
+#include "../../video_chroma/copy.h"
 
 #include <libavcodec/vda.h>
 #include <VideoDecodeAcceleration/VDADecoder.h>
@@ -48,7 +48,7 @@ static const char *const nvda_pix_fmt_list_text[] =
 
 vlc_module_begin ()
     set_description( N_("Video Decode Acceleration Framework (VDA)") )
-    set_capability( "hw decoder", 50 )
+    set_capability( "hw decoder", 0 )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_VCODEC )
     set_callbacks( Open, Close )
@@ -106,7 +106,6 @@ static void vda_Copy420YpCbCr8Planar( picture_t *p_pic,
                   i_width, i_height, cache );
 
     CVPixelBufferUnlockBaseAddress( buffer, 0 );
-    CVPixelBufferRelease( buffer );
 }
 
 /*****************************************************************************
@@ -137,7 +136,6 @@ static void vda_Copy422YpCbCr8( picture_t *p_pic,
     }
 
     CVPixelBufferUnlockBaseAddress( buffer, 0 );
-    CVPixelBufferRelease( buffer );
 }
 
 static int Setup( vlc_va_t *external, void **pp_hw_ctx, vlc_fourcc_t *pi_chroma,
@@ -161,9 +159,8 @@ static int Setup( vlc_va_t *external, void **pp_hw_ctx, vlc_fourcc_t *pi_chroma,
     }
 
     memset( &p_va->hw_ctx, 0, sizeof(p_va->hw_ctx) );
-    p_va->hw_ctx.width = i_width;
-    p_va->hw_ctx.height = i_height;
     p_va->hw_ctx.format = 'avc1';
+    p_va->hw_ctx.use_ref_buffer = 1;
 
     int i_pix_fmt = var_CreateGetInteger( p_va->p_log, "avcodec-vda-pix-fmt" );
 
@@ -187,6 +184,9 @@ ok:
     *pp_hw_ctx = &p_va->hw_ctx;
     *pi_chroma = p_va->i_chroma;
 
+    p_va->hw_ctx.width = i_width;
+    p_va->hw_ctx.height = i_height;
+
     /* create the decoder */
     int status = ff_vda_create_decoder( &p_va->hw_ctx,
                                         p_va->p_extradata,
@@ -202,31 +202,29 @@ ok:
     return VLC_SUCCESS;
 }
 
-static int Get( vlc_va_t *external, AVFrame *p_ff )
+static int Get( vlc_va_t *external, void **opaque, uint8_t **data )
 {
     VLC_UNUSED( external );
 
-    /* */
-    for( int i = 0; i < 4; i++ )
-    {
-        p_ff->data[i] = NULL;
-        p_ff->linesize[i] = 0;
-
-        if( i == 0 || i == 3 )
-        p_ff->data[i] = (uint8_t *)1; // dummy
-    }
-
+    *data = (uint8_t *)1; // dummy
+    (void) opaque;
     return VLC_SUCCESS;
 }
 
-static int Extract( vlc_va_t *external, picture_t *p_picture, AVFrame *p_ff )
+static int Extract( vlc_va_t *external, picture_t *p_picture, void *opaque,
+                    uint8_t *data )
 {
     vlc_va_vda_t *p_va = vlc_va_vda_Get( external );
-    CVPixelBufferRef cv_buffer = ( CVPixelBufferRef )p_ff->data[3];
+    CVPixelBufferRef cv_buffer = ( CVPixelBufferRef )data;
 
     if( !cv_buffer )
     {
         msg_Dbg( p_va->p_log, "Frame buffer is empty.");
+        return VLC_EGENERIC;
+    }
+    if (!CVPixelBufferGetDataSize(cv_buffer) > 0)
+    {
+        msg_Dbg( p_va->p_log, "Empty frame buffer");
         return VLC_EGENERIC;
     }
 
@@ -245,17 +243,19 @@ static int Extract( vlc_va_t *external, picture_t *p_picture, AVFrame *p_ff )
     }
     else
         vda_Copy422YpCbCr8( p_picture, cv_buffer );
-
+    (void) opaque;
     return VLC_SUCCESS;
 }
 
-static void Release( vlc_va_t *external, AVFrame *p_ff )
+static void Release( void *opaque, uint8_t *data )
 {
-    VLC_UNUSED( external );
+#if 0
     CVPixelBufferRef cv_buffer = ( CVPixelBufferRef )p_ff->data[3];
 
     if ( cv_buffer )
         CVPixelBufferRelease( cv_buffer );
+#endif
+    (void) opaque; (void) data;
 }
 
 static void Close( vlc_va_t *external )

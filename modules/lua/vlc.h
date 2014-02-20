@@ -113,6 +113,9 @@ void vlclua_set_this( lua_State *, vlc_object_t * );
 #define vlclua_set_this(a, b) vlclua_set_this(a, VLC_OBJECT(b))
 vlc_object_t * vlclua_get_this( lua_State * );
 
+void vlclua_set_playlist_internal( lua_State *, playlist_t * );
+playlist_t * vlclua_get_playlist_internal( lua_State * );
+
 /*****************************************************************************
  * Lua function bridge
  *****************************************************************************/
@@ -158,10 +161,17 @@ struct intf_sys_t
 {
     char *psz_filename;
     lua_State *L;
+#ifndef _WIN32
     int fd[2];
+#endif
+    int *fdv;
+    unsigned fdc;
 
     vlc_thread_t thread;
 };
+
+void vlclua_fd_init( struct intf_sys_t * );
+void vlclua_fd_destroy( struct intf_sys_t * );
 
 #endif /* VLC_LUA_H */
 

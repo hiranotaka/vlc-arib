@@ -134,6 +134,11 @@ int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
+    const vlc_chroma_description_t *p_chroma =
+        vlc_fourcc_GetChromaDescription( p_filter->fmt_in.video.i_chroma );
+    if( p_chroma == NULL || p_chroma->plane_count == 0 )
+        return VLC_EGENERIC;
+
     /* Allocate structure */
     p_filter->p_sys = p_sys = calloc(1, sizeof( *p_sys ) );
     if( !p_sys )
@@ -448,7 +453,10 @@ picture_t *Filter( filter_t *p_filter, picture_t *p_pic_in ) {
             && p_sys->s_current_param.b_advanced ) {
         i_ret = puzzle_sort_layers( p_filter);
         if (i_ret != VLC_SUCCESS)
+        {
+            vlc_mutex_unlock( &p_sys->pce_lock );
             return CopyInfoAndRelease( p_pic_out, p_pic_in );
+        }
     }
 
     for (uint32_t i = 0; i < __MAX( 4, p_sys->s_allocated.i_pieces_nbr / 24 )
@@ -743,7 +751,10 @@ int puzzle_mouse( filter_t *p_filter, vlc_mouse_t *p_mouse,
             if (p_sys->i_mouse_drag_pce != NO_PCE) {
                 int i_ret = puzzle_piece_foreground( p_filter, p_sys->i_mouse_drag_pce);
                 if (i_ret != VLC_SUCCESS)
+                {
+                    vlc_mutex_unlock( &p_sys->pce_lock );
                     return i_ret;
+                }
                 p_sys->i_mouse_drag_pce = 0;
 
                 uint32_t i_group_ID = p_sys->ps_pieces[0].i_group_ID;

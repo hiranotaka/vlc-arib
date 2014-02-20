@@ -52,7 +52,7 @@
 #include <ApplicationServices/ApplicationServices.h>
 #endif
 
-#define DEFAULT_FONT           "Arial Black"
+#define DEFAULT_FONT           "Helvetica-Neue"
 #define DEFAULT_FONT_COLOR     0xffffff
 #define DEFAULT_REL_FONT_SIZE  16
 
@@ -205,7 +205,7 @@ static int Create(vlc_object_t *p_this)
     p_sys->psz_font_name  = var_CreateGetString(p_this, "quartztext-font");
     p_sys->i_font_opacity = 255;
     p_sys->i_font_color = VLC_CLIP(var_CreateGetInteger(p_this, "quartztext-color") , 0, 0xFFFFFF);
-    p_sys->i_font_size    = GetFontSize(p_filter);
+    p_sys->i_font_size = GetFontSize(p_filter);
 
     p_filter->pf_render_text = RenderText;
     p_filter->pf_render_html = RenderHtml;
@@ -317,7 +317,7 @@ static int RenderText(filter_t *p_filter, subpicture_region_t *p_region_out,
     b_bold = b_uline = b_italic = FALSE;
     VLC_UNUSED(p_chroma_list);
 
-    p_sys->i_font_size    = GetFontSize(p_filter);
+    p_sys->i_font_size = GetFontSize(p_filter);
 
     // Sanity check
     if (!p_region_in || !p_region_out)
@@ -534,8 +534,11 @@ static void setFontAttibutes(char *psz_fontname, int i_font_size, uint32_t i_fon
     CFStringRef p_cfString;
     CTFontRef   p_font;
 
-    // Handle font name and size
-    p_cfString = CFStringCreateWithCString(NULL,
+    // fallback on default
+    if (!psz_fontname)
+        psz_fontname = (char *)DEFAULT_FONT;
+
+    p_cfString = CFStringCreateWithCString(kCFAllocatorDefault,
                                             psz_fontname,
                                             kCFStringEncodingUTF8);
     p_font     = CTFontCreateWithName(p_cfString,
@@ -590,7 +593,11 @@ static void setFontAttibutes(char *psz_fontname, int i_font_size, uint32_t i_fon
                                     slant);
     CFRelease(slant);
 
-    // Handle foreground colour
+    // fetch invalid colors
+    if (i_font_color == 0xFFFFFFFF)
+        i_font_color = 0x00FFFFFF;
+
+    // Handle foreground color
     CGColorSpaceRef rgbColorSpace = CGColorSpaceCreateDeviceRGB();
     CGFloat components[] = { (float)((i_font_color & 0x00ff0000) >> 16) / 255.0,
                              (float)((i_font_color & 0x0000ff00) >>  8) / 255.0,
@@ -950,7 +957,18 @@ static offscreen_bitmap_t *Compose(int i_text_align,
 
 static int GetFontSize(filter_t *p_filter)
 {
-    return p_filter->fmt_out.video.i_height / DEFAULT_REL_FONT_SIZE;
+    int i_size = 0;
+
+    int i_ratio = var_CreateGetInteger( p_filter, "quartztext-rel-fontsize" );
+    if( i_ratio > 0 )
+        i_size = (int)p_filter->fmt_out.video.i_height / i_ratio;
+
+    if( i_size <= 0 )
+    {
+        msg_Warn( p_filter, "invalid fontsize, using 12" );
+        i_size = 12;
+    }
+    return i_size;
 }
 
 static int RenderYUVA(filter_t *p_filter, subpicture_region_t *p_region,

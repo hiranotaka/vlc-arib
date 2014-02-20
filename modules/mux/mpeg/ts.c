@@ -1,7 +1,7 @@
 /*****************************************************************************
  * ts.c: MPEG-II TS Muxer
  *****************************************************************************
- * Copyright (C) 2001-2005 the VideoLAN team
+ * Copyright (C) 2001-2005 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
@@ -9,19 +9,19 @@
  *          Jean-Paul Saman <jpsaman #_at_# m2x.nl>
  *          Wallace Wadge <wwadge #_at_# gmail.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
 /*****************************************************************************
@@ -516,11 +516,6 @@ static int Open( vlc_object_t *p_this )
         return VLC_ENOMEM;
     p_sys->i_num_pmt = 1;
 
-    p_mux->pf_control   = Control;
-    p_mux->pf_addstream = AddStream;
-    p_mux->pf_delstream = DelStream;
-    p_mux->pf_mux       = Mux;
-    p_mux->p_sys        = p_sys;
 
 #if (DVBPSI_VERSION_INT >= DVBPSI_VERSION_WANTED(1,0,0))
     p_sys->p_dvbpsi = dvbpsi_new( &dvbpsi_messages, DVBPSI_MSG_DEBUG );
@@ -557,10 +552,10 @@ static int Open( vlc_object_t *p_this )
         {
             p_sys->pmtmap[p_sys->i_pmtslots].i_pid = i_pid;
             p_sys->pmtmap[p_sys->i_pmtslots].i_prog = p_sys->i_num_pmt - 1;
-            if ( ++p_sys->i_pmtslots > MAX_PMT_PID )
+            if ( ++p_sys->i_pmtslots >= MAX_PMT_PID )
             {
                 msg_Err( p_mux, "Number of pids in PMT > %d", MAX_PMT_PID );
-                p_sys->i_pmtslots = MAX_PMT_PID;
+                p_sys->i_pmtslots = MAX_PMT_PID - 1;
             }
         }
     }
@@ -633,7 +628,7 @@ static int Open( vlc_object_t *p_this )
 
             if( i_pid == 0 )
             {
-                if( i > MAX_PMT )
+                if( i >= MAX_PMT )
                     msg_Err( p_mux, "Number of PMTs > maximum (%d)", MAX_PMT );
             }
             else
@@ -728,6 +723,12 @@ static int Open( vlc_object_t *p_this )
     p_sys->b_use_key_frames = var_GetBool( p_mux, SOUT_CFG_PREFIX "use-key-frames" );
 
     p_sys->csa = csaSetup(p_this);
+
+    p_mux->pf_control   = Control;
+    p_mux->pf_addstream = AddStream;
+    p_mux->pf_delstream = DelStream;
+    p_mux->pf_mux       = Mux;
+    p_mux->p_sys        = p_sys;
 
     return VLC_SUCCESS;
 }
@@ -1102,8 +1103,11 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
     return VLC_SUCCESS;
 
 oom:
-    free(p_stream->lang);
-    free(p_stream);
+    if(p_stream)
+    {
+        free(p_stream->lang);
+        free(p_stream);
+    }
     return VLC_ENOMEM;
 }
 

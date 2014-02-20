@@ -250,7 +250,7 @@ void VLCProfileSelector::updateOptions( int i )
             HASHPICK( "video", "filters" );
             if ( !value.isEmpty() )
             {
-                QStringList valuesList = QUrl::fromPercentEncoding( value.toAscii() ).split( ";" );
+                QStringList valuesList = QUrl::fromPercentEncoding( value.toLatin1() ).split( ";" );
                 smrl.option( "vfilter", valuesList.join( ":" ) );
             }
 
@@ -265,7 +265,7 @@ void VLCProfileSelector::updateOptions( int i )
 
                 HASHPICK( "vcodec", "custom" );
                 if( !value.isEmpty() )
-                    codecoptions << QUrl::fromPercentEncoding( value.toAscii() );
+                    codecoptions << QUrl::fromPercentEncoding( value.toLatin1() );
 
                 if ( codecoptions.count() )
                     smrl.option( "venc",
@@ -287,10 +287,6 @@ void VLCProfileSelector::updateOptions( int i )
             HASHPICK( "vcodec", "height" );
             if ( !value.isEmpty() && value.toInt() > 0 )
                 smrl.option( "height", value );
-        } else {
-            HASHPICK( "video", "copy" );
-            if ( ! value.isEmpty() )
-                smrl.option( "vcodec", "copy" );
         }
     } else {
         smrl.option( "vcodec", "none" );
@@ -316,14 +312,10 @@ void VLCProfileSelector::updateOptions( int i )
             HASHPICK( "audio", "filters" );
             if ( !value.isEmpty() )
             {
-                QStringList valuesList = QUrl::fromPercentEncoding( value.toAscii() ).split( ";" );
+                QStringList valuesList = QUrl::fromPercentEncoding( value.toLatin1() ).split( ";" );
                 smrl.option( "afilter", valuesList.join( ":" ) );
             }
 
-        } else {
-            HASHPICK( "audio", "copy" );
-            if ( ! value.isEmpty() )
-                smrl.option( "acodec", "copy" );
         }
     } else {
         smrl.option( "acodec", "none" );
@@ -540,6 +532,7 @@ inline void VLCProfileEditor::registerCodecs()
     ADD_VCODEC( "DIVX 3" , "DIV3" )
     ADD_VCODEC( "H-263", "H263" )
     ADD_VCODEC( "H-264", "h264" )
+    ADD_VCODEC( "H-265", "hevc" )
     ADD_VCODEC( "VP8", "VP80" )
     ADD_VCODEC( "WMV1", "WMV1" )
     ADD_VCODEC( "WMV2" , "WMV2" )
@@ -675,15 +668,17 @@ void VLCProfileEditor::fillProfile( const QString& qs )
             {
                 QComboBox *box = qobject_cast<QComboBox *>( object );
                 box->setCurrentIndex( box->findData( value ) );
+                if ( box->lineEdit() && box->currentIndex() == -1 )
+                    box->lineEdit()->setText( value );
             }
             else if( object->inherits( "QLineEdit" ) )
             {
                 QLineEdit *box = qobject_cast<QLineEdit *>( object );
-                box->setText( QUrl::fromPercentEncoding( value.toAscii() ) );
+                box->setText( QUrl::fromPercentEncoding( value.toLatin1() ) );
             }
             else if ( object->inherits( "QListWidget" ) )
             {
-                QStringList valuesList = QUrl::fromPercentEncoding( value.toAscii() ).split( ";" );
+                QStringList valuesList = QUrl::fromPercentEncoding( value.toLatin1() ).split( ";" );
                 const QListWidget *list = qobject_cast<const QListWidget *>( object );
                 for( int i=0; i < list->count(); i++ )
                 {
@@ -809,6 +804,7 @@ QString VLCProfileEditor::transcodeValue()
         {
             const QComboBox *box = qobject_cast<const QComboBox *>( object );
             value = currentData( box ).toString();
+            if ( value.isEmpty() && box->lineEdit() ) value = box->lineEdit()->text();
         }
         else if( object->inherits( "QLineEdit" ) )
         {

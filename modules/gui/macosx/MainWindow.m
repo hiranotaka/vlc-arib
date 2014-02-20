@@ -146,6 +146,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
     [[NSNotificationCenter defaultCenter] removeObserver: self];
     [o_sidebaritems release];
+    [o_fspanel release];
 
     [super dealloc];
 }
@@ -249,19 +250,19 @@ static VLCMainWindow *_o_sharedInstance = nil;
                     else
                         [[internetItems lastObject] setIcon: [NSImage imageNamed:@"NSApplicationIcon"]];
                     [[internetItems lastObject] setSdtype: SD_CAT_INTERNET];
-                    [[internetItems lastObject] setUntranslatedTitle: @(*ppsz_longname)];
+                    [[internetItems lastObject] setUntranslatedTitle: [NSString stringWithUTF8String:*ppsz_longname]];
                 break;
             case SD_CAT_DEVICES:
                     [devicesItems addObject: [SideBarItem itemWithTitle: _NS(*ppsz_longname) identifier: o_identifier]];
                     [[devicesItems lastObject] setIcon: [NSImage imageNamed:@"NSApplicationIcon"]];
                     [[devicesItems lastObject] setSdtype: SD_CAT_DEVICES];
-                    [[devicesItems lastObject] setUntranslatedTitle: @(*ppsz_longname)];
+                    [[devicesItems lastObject] setUntranslatedTitle: [NSString stringWithUTF8String:*ppsz_longname]];
                 break;
             case SD_CAT_LAN:
                     [lanItems addObject: [SideBarItem itemWithTitle: _NS(*ppsz_longname) identifier: o_identifier]];
                     [[lanItems lastObject] setIcon: [NSImage imageNamed:@"sidebar-local"]];
                     [[lanItems lastObject] setSdtype: SD_CAT_LAN];
-                    [[lanItems lastObject] setUntranslatedTitle: @(*ppsz_longname)];
+                    [[lanItems lastObject] setUntranslatedTitle: [NSString stringWithUTF8String:*ppsz_longname]];
                 break;
             case SD_CAT_MYCOMPUTER:
                     [mycompItems addObject: [SideBarItem itemWithTitle: _NS(*ppsz_longname) identifier: o_identifier]];
@@ -273,7 +274,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
                         [[mycompItems lastObject] setIcon: [NSImage imageNamed:@"sidebar-pictures"]];
                     else
                         [[mycompItems lastObject] setIcon: [NSImage imageNamed:@"NSApplicationIcon"]];
-                    [[mycompItems lastObject] setUntranslatedTitle: @(*ppsz_longname)];
+                    [[mycompItems lastObject] setUntranslatedTitle: [NSString stringWithUTF8String:*ppsz_longname]];
                     [[mycompItems lastObject] setSdtype: SD_CAT_MYCOMPUTER];
                 break;
             default:
@@ -296,7 +297,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     free(ppsz_longnames);
     free(p_categories);
 
-    [libraryItem setChildren: @[playlistItem, medialibraryItem]];
+    [libraryItem setChildren: [NSArray arrayWithObjects:playlistItem, medialibraryItem, nil]];
     [o_sidebaritems addObject: libraryItem];
     if ([mycompItem hasChildren])
         [o_sidebaritems addObject: mycompItem];
@@ -308,9 +309,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [o_sidebaritems addObject: internetItem];
 
     [o_sidebar_view reloadData];
-    [o_sidebar_view selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
     [o_sidebar_view setDropItem:playlistItem dropChildIndex:NSOutlineViewDropOnItemIndex];
-    [o_sidebar_view registerForDraggedTypes:@[NSFilenamesPboardType, @"VLCPlaylistItemPboardType"]];
+    [o_sidebar_view registerForDraggedTypes:[NSArray arrayWithObjects:NSFilenamesPboardType, @"VLCPlaylistItemPboardType", nil]];
 
     [o_sidebar_view setAutosaveName:@"mainwindow-sidebar"];
     [(PXSourceList *)o_sidebar_view setDataSource:self];
@@ -318,6 +318,11 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [o_sidebar_view setAutosaveExpandedItems:YES];
 
     [o_sidebar_view expandItem: libraryItem expandChildren: YES];
+
+    o_fspanel = [[VLCFSPanel alloc] initWithContentRect:NSMakeRect(110.,267.,549.,87.)
+                                              styleMask:NSTexturedBackgroundWindowMask
+                                                backing:NSBackingStoreBuffered
+                                                  defer:YES];
 
     /* make sure we display the desired default appearance when VLC launches for the first time */
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -330,6 +335,9 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
         [o_fspanel center];
     }
+
+    // select playlist item by default
+    [o_sidebar_view selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
 
     if (b_dark_interface) {
         [[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(windowResizedOrMoved:) name: NSWindowDidResizeNotification object: nil];
@@ -373,7 +381,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(mainSplitViewDidResizeSubviews:) name: NSSplitViewDidResizeSubviewsNotification object:o_split_view];
 
     if (b_splitviewShouldBeHidden) {
-        [self hideSplitView];
+        [self hideSplitView: YES];
         i_lastSplitViewHeight = 300;
     }
 
@@ -406,17 +414,21 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
 - (void)resizePlaylistAfterCollapse
 {
+    // no animation here since we might be in the middle of another resize animation
     NSRect plrect;
     plrect = [o_playlist_table frame];
-    plrect.size.height = i_lastSplitViewHeight - 20.0; // actual pl top bar height, which differs from its frame
-    [[o_playlist_table animator] setFrame: plrect];
+    plrect.size.height = [o_split_view frame].size.height - 20.0; // actual pl top bar height, which differs from its frame
+    [o_playlist_table setFrame: plrect];
+    [o_playlist_table setNeedsDisplay: YES];
 
     NSRect rightSplitRect;
     rightSplitRect = [o_right_split_view frame];
     plrect = [o_dropzone_box frame];
     plrect.origin.x = (rightSplitRect.size.width - plrect.size.width) / 2;
     plrect.origin.y = (rightSplitRect.size.height - plrect.size.height) / 2;
-    [[o_dropzone_box animator] setFrame: plrect];
+    [o_dropzone_view setFrame: [o_playlist_table frame]];
+    [o_dropzone_box setFrame: plrect];
+    [o_dropzone_view setNeedsDisplay: YES];
 }
 
 - (void)makeSplitViewVisible
@@ -464,20 +476,28 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [self makeFirstResponder: [[o_video_view subviews] objectAtIndex:0]];
 }
 
-// only exception for an controls bar button action
-- (IBAction)togglePlaylist:(id)sender
+
+- (void)changePlaylistState:(VLCPlaylistStateEvent)event
 {
-    if (![self isVisible] && sender != nil) {
-        [self makeKeyAndOrderFront: sender];
+    // Beware, this code is really ugly
+
+    msg_Dbg(VLCIntf, "toggle playlist from state: removed splitview %i, minimized view %i. Event %i", b_splitview_removed, b_minimized_view, event);
+    if (![self isVisible] && event == psUserMenuEvent) {
+        [self makeKeyAndOrderFront: nil];
         return;
     }
 
     BOOL b_activeVideo = [[VLCMain sharedInstance] activeVideoPlayback];
     BOOL b_restored = NO;
 
+    // ignore alt if triggered through main menu shortcut
     BOOL b_have_alt_key = ([[NSApp currentEvent] modifierFlags] & NSAlternateKeyMask) != 0;
-    if (sender && [sender isKindOfClass: [NSMenuItem class]])
+    if (event == psUserMenuEvent)
         b_have_alt_key = NO;
+
+    // eUserMenuEvent is now handled same as eUserEvent
+    if(event == psUserMenuEvent)
+        event = psUserEvent;
 
     if (b_dropzone_active && b_have_alt_key) {
         [self hideDropZone];
@@ -485,16 +505,19 @@ static VLCMainWindow *_o_sharedInstance = nil;
     }
 
     if (!(b_nativeFullscreenMode && b_fullscreen) && !b_splitview_removed && ((b_have_alt_key && b_activeVideo)
-                                                                              || (b_nonembedded && sender != nil)
-                                                                              || (!b_activeVideo && sender != nil)
-                                                                              || b_minimized_view))
-        [self hideSplitView];
-    else {
+                                                                              || (b_nonembedded && event == psUserEvent)
+                                                                              || (!b_activeVideo && event == psUserEvent)
+                                                                              || (b_minimized_view && event == psVideoStartedOrStoppedEvent))) {
+        // for starting playback, window is resized through resized events
+        // for stopping playback, resize through reset to previous frame
+        [self hideSplitView: event != psVideoStartedOrStoppedEvent];
+        b_minimized_view = NO;
+    } else {
         if (b_splitview_removed) {
-            if (!b_nonembedded || (sender != nil && b_nonembedded))
-                [self showSplitView];
+            if (!b_nonembedded || (event == psUserEvent && b_nonembedded))
+                [self showSplitView: event != psVideoStartedOrStoppedEvent];
 
-            if (sender == nil)
+            if (event != psUserEvent)
                 b_minimized_view = YES;
             else
                 b_minimized_view = NO;
@@ -504,7 +527,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
         }
 
         if (!b_nonembedded) {
-            if (([o_video_view isHidden] && b_activeVideo) || b_restored || (b_activeVideo && sender == nil))
+            if (([o_video_view isHidden] && b_activeVideo) || b_restored || (b_activeVideo && event != psUserEvent))
                 [self makeSplitViewHidden];
             else
                 [self makeSplitViewVisible];
@@ -514,6 +537,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
             [o_video_view setHidden: YES];
         }
     }
+
+    msg_Dbg(VLCIntf, "toggle playlist to state: removed splitview %i, minimized view %i", b_splitview_removed, b_minimized_view);
 }
 
 - (IBAction)dropzoneButtonAction:(id)sender
@@ -577,13 +602,16 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [[o_playlist_table animator] setHidden: NO];
 }
 
-- (void)hideSplitView
+- (void)hideSplitView:(BOOL)b_with_resize
 {
-    NSRect winrect = [self frame];
-    i_lastSplitViewHeight = [o_split_view frame].size.height;
-    winrect.size.height = winrect.size.height - i_lastSplitViewHeight;
-    winrect.origin.y = winrect.origin.y + i_lastSplitViewHeight;
-    [self setFrame: winrect display: YES animate: YES];
+    if (b_with_resize) {
+        NSRect winrect = [self frame];
+        i_lastSplitViewHeight = [o_split_view frame].size.height;
+        winrect.size.height = winrect.size.height - i_lastSplitViewHeight;
+        winrect.origin.y = winrect.origin.y + i_lastSplitViewHeight;
+        [self setFrame: winrect display: YES animate: YES];
+    }
+
     [self performSelector:@selector(hideDropZone) withObject:nil afterDelay:0.1];
     if (b_dark_interface) {
         [self setContentMinSize: NSMakeSize(604., [o_controls_bar height] + [o_titlebar_view frame].size.height)];
@@ -596,7 +624,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     b_splitview_removed = YES;
 }
 
-- (void)showSplitView
+- (void)showSplitView:(BOOL)b_with_resize
 {
     [self updateWindow];
     if (b_dark_interface)
@@ -605,11 +633,13 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [self setContentMinSize:NSMakeSize(604., 288.)];
     [self setContentMaxSize: NSMakeSize(FLT_MAX, FLT_MAX)];
 
-    NSRect winrect;
-    winrect = [self frame];
-    winrect.size.height = winrect.size.height + i_lastSplitViewHeight;
-    winrect.origin.y = winrect.origin.y - i_lastSplitViewHeight;
-    [self setFrame: winrect display: YES animate: YES];
+    if (b_with_resize) {
+        NSRect winrect;
+        winrect = [self frame];
+        winrect.size.height = winrect.size.height + i_lastSplitViewHeight;
+        winrect.origin.y = winrect.origin.y - i_lastSplitViewHeight;
+        [self setFrame: winrect display: YES animate: YES];
+    }
 
     [self performSelector:@selector(resizePlaylistAfterCollapse) withObject: nil afterDelay:0.75];
 
@@ -633,16 +663,16 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
         if (!config_GetPsz(VLCIntf, "video-title")) {
             char *format = var_InheritString(VLCIntf, "input-title-format");
-            char *formated = str_format_meta(pl_Get(VLCIntf), format);
+            char *formated = str_format_meta(p_input, format);
             free(format);
-            aString = @(formated);
+            aString = [NSString stringWithUTF8String:formated];
             free(formated);
         } else
-            aString = @(config_GetPsz(VLCIntf, "video-title"));
+            aString = [NSString stringWithUTF8String:config_GetPsz(VLCIntf, "video-title")];
 
         char *uri = input_item_GetURI(input_GetItem(p_input));
 
-        NSURL * o_url = [NSURL URLWithString: @(uri)];
+        NSURL * o_url = [NSURL URLWithString:[NSString stringWithUTF8String:uri]];
         if ([o_url isFileURL]) {
             [self setRepresentedURL: o_url];
             [[[VLCMain sharedInstance] voutController] updateWindowsUsingBlock:^(VLCVideoWindowCommon *o_window) {
@@ -709,6 +739,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [self showDropZone];
     PL_UNLOCK;
     [o_sidebar_view setNeedsDisplay:YES];
+
+    [self _updatePlaylistTitle];
 }
 
 - (void)setPause
@@ -725,7 +757,6 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [o_fspanel setPlay];
 
     [[[VLCMain sharedInstance] voutController] updateWindowsControlsBarWithSelector:@selector(setPlay)];
-
 }
 
 - (void)updateVolumeSlider
@@ -748,8 +779,15 @@ static VLCMainWindow *_o_sharedInstance = nil;
     BOOL b_videoPlayback = [[VLCMain sharedInstance] activeVideoPlayback];
         
     if (!b_videoPlayback) {
-        if (!b_nonembedded && (!b_nativeFullscreenMode || (b_nativeFullscreenMode && !b_fullscreen)) && frameBeforePlayback.size.width > 0 && frameBeforePlayback.size.height > 0)
-            [[self animator] setFrame:frameBeforePlayback display:YES];
+        if (!b_nonembedded && (!b_nativeFullscreenMode || (b_nativeFullscreenMode && !b_fullscreen)) && frameBeforePlayback.size.width > 0 && frameBeforePlayback.size.height > 0) {
+
+            // only resize back to minimum view of this is still desired final state
+            float f_threshold_height = f_min_video_height + [o_controls_bar height];
+            if(frameBeforePlayback.size.height > f_threshold_height || b_minimized_view)
+                [[self animator] setFrame:frameBeforePlayback display:YES];
+        }
+
+        frameBeforePlayback = NSMakeRect(0, 0, 0, 0);
 
         // update fs button to reflect state for next startup
         if (var_InheritBool(VLCIntf, "fullscreen") || var_GetBool(pl_Get(VLCIntf), "fullscreen")) {
@@ -772,6 +810,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
             [o_fspanel setNonActive: nil];
         }
     }
+
+    [self changePlaylistState: psVideoStartedOrStoppedEvent];
 }
 
 #pragma mark -
@@ -861,6 +901,47 @@ static VLCMainWindow *_o_sharedInstance = nil;
     else
         [o_split_view setPosition:[o_split_view minPossiblePositionOfDividerAtIndex:0] ofDividerAtIndex:0];
     [[[VLCMain sharedInstance] mainMenu] updateSidebarMenuItem];
+}
+
+#pragma mark -
+#pragma mark private playlist magic
+- (void)_updatePlaylistTitle
+{
+    playlist_t * p_playlist = pl_Get(VLCIntf);
+    PL_LOCK;
+    playlist_item_t * currentPlaylistRoot = [[[VLCMain sharedInstance] playlist] currentPlaylistRoot];
+    PL_UNLOCK;
+    if (currentPlaylistRoot == p_playlist->p_local_category || currentPlaylistRoot == p_playlist->p_ml_category) {
+        if (currentPlaylistRoot == p_playlist->p_local_category)
+            [o_chosen_category_lbl setStringValue: [_NS("Playlist") stringByAppendingString:[self _playbackDurationOfNode:p_playlist->p_local_category]]];
+        else
+            [o_chosen_category_lbl setStringValue: [_NS("Media Library") stringByAppendingString:[self _playbackDurationOfNode:p_playlist->p_ml_category]]];
+    }
+}
+
+- (NSString *)_playbackDurationOfNode:(playlist_item_t*)node
+{
+    if (!node)
+        return @"";
+
+    playlist_t * p_playlist = pl_Get(VLCIntf);
+    PL_LOCK;
+    mtime_t mt_duration = playlist_GetNodeDuration( node );
+    PL_UNLOCK;
+
+    if (mt_duration < 1)
+        return @"";
+
+    mt_duration = mt_duration / 1000000;
+
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:mt_duration];
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"HH:mm:ss"];
+    [formatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
+
+    NSString *playbackDuration = [NSString stringWithFormat:@" — %@",[formatter stringFromDate:date]];
+    [formatter release];
+    return playbackDuration;
 }
 
 #pragma mark -
@@ -1002,7 +1083,6 @@ static VLCMainWindow *_o_sharedInstance = nil;
     NSIndexSet *selectedIndexes = [o_sidebar_view selectedRowIndexes];
     id item = [o_sidebar_view itemAtRow:[selectedIndexes firstIndex]];
 
-
     //Set the label text to represent the new selection
     if ([item sdtype] > -1 && [[item identifier] length] > 0) {
         BOOL sd_loaded = playlist_IsServicesDiscoveryLoaded(p_playlist, [[item identifier] UTF8String]);
@@ -1014,9 +1094,12 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
     if ([[item identifier] isEqualToString:@"playlist"]) {
         [[[VLCMain sharedInstance] playlist] setPlaylistRoot:p_playlist->p_local_category];
+        [o_chosen_category_lbl setStringValue: [[o_chosen_category_lbl stringValue] stringByAppendingString:[self _playbackDurationOfNode:p_playlist->p_local_category]]];
     } else if ([[item identifier] isEqualToString:@"medialibrary"]) {
-        if (p_playlist->p_ml_category)
+        if (p_playlist->p_ml_category) {
             [[[VLCMain sharedInstance] playlist] setPlaylistRoot:p_playlist->p_ml_category];
+            [o_chosen_category_lbl setStringValue: [[o_chosen_category_lbl stringValue] stringByAppendingString:[self _playbackDurationOfNode:p_playlist->p_ml_category]]];
+        }
     } else {
         playlist_item_t * pl_item;
         PL_LOCK;
@@ -1157,7 +1240,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 {
     if (config_GetPsz(VLCIntf, "podcast-urls") != NULL) {
         [o_podcast_unsubscribe_pop removeAllItems];
-        [o_podcast_unsubscribe_pop addItemsWithTitles:[@(config_GetPsz(VLCIntf, "podcast-urls")) componentsSeparatedByString:@"|"]];
+        [o_podcast_unsubscribe_pop addItemsWithTitles:[[NSString stringWithUTF8String:config_GetPsz(VLCIntf, "podcast-urls")] componentsSeparatedByString:@"|"]];
         [NSApp beginSheet:o_podcast_unsubscribe_window modalForWindow:self modalDelegate:self didEndSelector:NULL contextInfo:nil];
     }
 }
@@ -1168,7 +1251,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [NSApp endSheet: o_podcast_unsubscribe_window];
 
     if (sender == o_podcast_unsubscribe_ok_btn) {
-        NSMutableArray * urls = [[NSMutableArray alloc] initWithArray:[@(config_GetPsz(VLCIntf, "podcast-urls")) componentsSeparatedByString:@"|"]];
+        NSMutableArray * urls = [[NSMutableArray alloc] initWithArray:[[NSString stringWithUTF8String:config_GetPsz(VLCIntf, "podcast-urls")] componentsSeparatedByString:@"|"]];
         [urls removeObjectAtIndex: [o_podcast_unsubscribe_pop indexOfSelectedItem]];
         config_PutPsz(VLCIntf, "podcast-urls", [[urls componentsJoinedByString:@"|"] UTF8String]);
         var_SetString(pl_Get(VLCIntf), "podcast-urls", config_GetPsz(VLCIntf, "podcast-urls"));
@@ -1179,9 +1262,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
         if (playlist_IsServicesDiscoveryLoaded(p_playlist, "podcast{longname=\"Podcasts\"}")) {
             playlist_ServicesDiscoveryRemove(p_playlist, "podcast{longname=\"Podcasts\"}");
             playlist_ServicesDiscoveryAdd(p_playlist, "podcast{longname=\"Podcasts\"}");
-            [o_playlist_table reloadData];
+            [[[VLCMain sharedInstance] playlist] playlistUpdated];
         }
-
     }
 }
 

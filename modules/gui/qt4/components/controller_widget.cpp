@@ -64,14 +64,14 @@ SoundWidget::SoundWidget( QWidget *_parent, intf_thread_t * _p_intf,
         volumeControlWidget = NULL;
 
         /* And add the label */
-        layout->addWidget( volMuteLabel, 0, Qt::AlignBottom );
+        layout->addWidget( volMuteLabel, 0, b_shiny? Qt::AlignBottom : Qt::AlignCenter );
     }
     else
     {
         /* Special view, click on button shows the slider */
         b_shiny = false;
 
-        volumeControlWidget = new QFrame;
+        volumeControlWidget = new QFrame( this );
         subLayout = new QVBoxLayout( volumeControlWidget );
         subLayout->setContentsMargins( 4, 4, 4, 4 );
         volumeMenu = new QMenu( this );
@@ -105,7 +105,7 @@ SoundWidget::SoundWidget( QWidget *_parent, intf_thread_t * _p_intf,
     if( b_special )
         subLayout->addWidget( volumeSlider );
     else
-        layout->addWidget( volumeSlider, 0, Qt::AlignBottom  );
+        layout->addWidget( volumeSlider, 0, b_shiny? Qt::AlignBottom : Qt::AlignCenter );
 
     /* Set the volume from the config */
     float volume = playlist_VolumeGet( THEPL );
@@ -120,12 +120,6 @@ SoundWidget::SoundWidget( QWidget *_parent, intf_thread_t * _p_intf,
     CONNECT( this, valueReallyChanged( int ), this, userUpdateVolume( int ) );
     CONNECT( THEMIM, volumeChanged( float ), this, libUpdateVolume( float ) );
     CONNECT( THEMIM, soundMuteChanged( bool ), this, updateMuteStatus( bool ) );
-}
-
-SoundWidget::~SoundWidget()
-{
-    delete volumeSlider;
-    delete volumeControlWidget;
 }
 
 void SoundWidget::refreshLabels()
@@ -196,7 +190,7 @@ void SoundWidget::showVolumeMenu( QPoint pos )
 void SoundWidget::setMuted( bool mute )
 {
     b_is_muted = mute;
-    playlist_t *p_playlist = pl_Get( p_intf );
+    playlist_t *p_playlist = THEPL;
     playlist_MuteSet( p_playlist, mute );
 }
 

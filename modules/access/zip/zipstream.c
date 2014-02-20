@@ -136,14 +136,14 @@ inline static void free_all_node( node *root )
 /* Allocate strcat and format */
 static int astrcatf( char **ppsz_dest, const char *psz_fmt_src, ... )
 {
-    va_list args;
-    va_start( args, psz_fmt_src );
-
     char *psz_tmp;
-    int i_ret = vasprintf( &psz_tmp, psz_fmt_src, args );
-    if( i_ret == -1 ) return -1;
+    va_list args;
 
+    va_start( args, psz_fmt_src );
+    int i_ret = vasprintf( &psz_tmp, psz_fmt_src, args );
     va_end( args );
+
+    if( i_ret == -1 ) return -1;
 
     int i_len = strlen( *ppsz_dest ) + strlen( psz_tmp ) + 1;
     char *psz_out = realloc( *ppsz_dest, i_len );
@@ -322,7 +322,6 @@ static int Control( stream_t *s, int i_query, va_list args )
             return VLC_EGENERIC;
 
         case STREAM_UPDATE_SIZE:
-        case STREAM_CONTROL_ACCESS:
         case STREAM_CAN_SEEK:
         case STREAM_CAN_FASTSEEK:
         case STREAM_SET_RECORD_STATE:
@@ -598,7 +597,12 @@ static int WriteXSPF( char **pp_buffer, vlc_array_t *p_filenames,
             char *psz_path = strdup( psz_pathtozip );
             char *psz_escapedName;
             escapeToXml( &psz_escapedName, psz_name );
-            if( astrcatf( &psz_path, "%s", psz_escapedName ) < 0 ) return -1;
+            if( astrcatf( &psz_path, "%s", psz_escapedName ) < 0 )
+            {
+                free( psz_escapedName );
+                return -1;
+            }
+            free( psz_escapedName );
 
             /* Track information */
             if( astrcatf( pp_buffer,
@@ -713,7 +717,9 @@ static node* findOrCreateParentNode( node *root, const char *fullpath )
         if( !strcmp( current->name, folder ) )
         {
             /* We found the folder, go recursively deeper */
-            return findOrCreateParentNode( current, sep );
+            node *parentNode = findOrCreateParentNode( current, sep );
+            free( path );
+            return parentNode;
         }
         current = current->next;
     }

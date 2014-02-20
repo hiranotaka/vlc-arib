@@ -35,6 +35,7 @@
 #include "dialogs/open.hpp"
 #include "dialogs_provider.hpp" /* Open Subtitle file */
 #include "util/qt_dirs.hpp"
+#include "util/validators.hpp"
 #include <vlc_intf_strings.h>
 #include <vlc_modules.h>
 #include <vlc_plugin.h>
@@ -702,20 +703,6 @@ void NetOpenPanel::updateMRL()
     emit mrlUpdated( qsl, "" );
 }
 
-QValidator::State UrlValidator::validate( QString& str, int& ) const
-{
-    if( str.contains( ' ' ) )
-        return QValidator::Invalid;
-    if( !str.contains( "://" ) )
-        return QValidator::Intermediate;
-    return QValidator::Acceptable;
-}
-
-void UrlValidator::fixup( QString& str ) const
-{
-    str = str.trimmed();
-}
-
 /**************************************************************************
  * Open Capture device ( DVB, PVR, V4L, and similar )                     *
  **************************************************************************/
@@ -1074,8 +1061,8 @@ void CaptureOpenPanel::initialize()
                             2, 0, 1, 1 );
 
     /* PVR CONNECTs */
-    CuMRL( pvrDevice, textChanged( const QString& ) );
-    CuMRL( pvrAudioDevice, textChanged( const QString& ) );
+    CuMRL( pvrDevice, editTextChanged( const QString& ) );
+    CuMRL( pvrAudioDevice, editTextChanged( const QString& ) );
     CuMRL( pvrFreq, valueChanged ( int ) );
     CuMRL( pvrNormBox, currentIndexChanged ( int ) );
     }

@@ -33,6 +33,7 @@
 
 #include "playlist.h"
 #include <vlc_xml.h>
+#include <vlc_strings.h>
 
 /*****************************************************************************
  * Local prototypes
@@ -230,10 +231,28 @@ static int Demux( demux_t *p_demux )
                 {
                     if( psz_item_mrl == NULL )
                     {
-                        msg_Err( p_demux, "invalid XML (no enclosure markup)" );
-                        goto error;
+                        if (psz_item_name)
+                            msg_Warn( p_demux, "invalid XML item, skipping %s",
+                                      psz_item_name );
+                        else
+                            msg_Warn( p_demux, "invalid XML item, skipped" );
+                        FREENULL( psz_item_name );
+                        FREENULL( psz_item_size );
+                        FREENULL( psz_item_type );
+                        FREENULL( psz_item_date );
+                        FREENULL( psz_item_author );
+                        FREENULL( psz_item_category );
+                        FREENULL( psz_item_duration );
+                        FREENULL( psz_item_keywords );
+                        FREENULL( psz_item_subtitle );
+                        FREENULL( psz_item_summary );
+                        FREENULL( psz_art_url );
+                        FREENULL( psz_elname );
+                        continue;
                     }
 
+                    resolve_xml_special_chars( psz_item_mrl );
+                    resolve_xml_special_chars( psz_item_name );
                     p_input = input_item_New( psz_item_mrl, psz_item_name );
                     FREENULL( psz_item_mrl );
                     FREENULL( psz_item_name );
@@ -262,7 +281,10 @@ static int Demux( demux_t *p_demux )
 
                     /* Add the global art url to this item, if any */
                     if( psz_art_url )
+                    {
+                        resolve_xml_special_chars( psz_art_url );
                         input_item_SetArtURL( p_input, psz_art_url );
+                    }
 
                     if( psz_item_size )
                     {

@@ -38,16 +38,17 @@
 #include <assert.h>
 
 #include "art.h"
-#include "fetcher.h"
 #include "preparser.h"
 
 typedef struct vlc_sd_internal_t vlc_sd_internal_t;
+
+void playlist_ServicesDiscoveryKillAll( playlist_t *p_playlist );
 
 typedef struct playlist_private_t
 {
     playlist_t           public_data;
     playlist_preparser_t *p_preparser;  /**< Preparser data */
-    playlist_fetcher_t   *p_fetcher;    /**< Meta and art fetcher data */
+    struct intf_thread_t *interface; /**< Linked-list of interfaces */
 
     playlist_item_array_t items_to_delete; /**< Array of items and nodes to
             delete... At the very end. This sucks. */
@@ -99,6 +100,7 @@ typedef struct playlist_private_t
  *****************************************************************************/
 
 /* Creation/Deletion */
+playlist_t *playlist_Create( vlc_object_t * );
 void playlist_Destroy( playlist_t * );
 void playlist_Activate( playlist_t * );
 

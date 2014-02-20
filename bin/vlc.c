@@ -1,7 +1,7 @@
 /*****************************************************************************
  * vlc.c: the VLC player
  *****************************************************************************
- * Copyright (C) 1998-2008 the VideoLAN team
+ * Copyright (C) 1998-2013 the VideoLAN team
  * $Id$
  *
  * Authors: Vincent Seguin <seguin@via.ecp.fr>
@@ -201,20 +201,14 @@ int main( int i_argc, const char *ppsz_argv[] )
     pthread_t self = pthread_self ();
     pthread_sigmask (SIG_SETMASK, &set, NULL);
 
-    const char *argv[i_argc + 2];
+    const char *argv[i_argc + 3];
     int argc = 0;
 
     argv[argc++] = "--no-ignore-config";
     argv[argc++] = "--media-library";
+    argv[argc++] = "--stats";
     ppsz_argv++; i_argc--; /* skip executable path */
-#ifdef __APPLE__
-    /* When VLC.app is run by double clicking in Mac OS X, the 2nd arg
-     * is the PSN - process serial number (a unique PID-ish thingie)
-     * still ok for real Darwin & when run from command line
-     * for example -psn_0_9306113 */
-    if (i_argc >= 1 && !strncmp (*ppsz_argv, "-psn" , 4))
-        ppsz_argv++, i_argc--;
-#endif
+
 #ifdef __OS2__
     for (int i = 0; i < i_argc; i++)
         if ((argv[argc++] = FromSystem (ppsz_argv[i])) == NULL)
@@ -242,7 +236,7 @@ int main( int i_argc, const char *ppsz_argv[] )
     libvlc_set_user_agent (vlc, "VLC media player", "VLC/"PACKAGE_VERSION);
 
     libvlc_add_intf (vlc, "hotkeys,none");
-#if !defined __APPLE__ && !defined (__OS2__)
+#if !defined (__OS2__)
     libvlc_add_intf (vlc, "globalhotkeys,none");
 #endif
 #ifdef HAVE_DBUS

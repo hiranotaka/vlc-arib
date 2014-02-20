@@ -122,7 +122,7 @@ struct aout_sys_t {
 };
 
 /* Soft volume helper */
-#include "volume.h"
+#include "audio_output/volume.h"
 
 static void *InitLibrary(struct aout_sys_t *p_sys);
 
@@ -317,7 +317,6 @@ static int Start(audio_output_t *aout, audio_sample_format_t *restrict fmt)
     aout_SoftVolumeStart(aout);
 
     aout->sys = p_sys;
-    aout->time_get = NULL;
     aout->play = Play;
     aout->pause = Pause;
     aout->flush = Flush;

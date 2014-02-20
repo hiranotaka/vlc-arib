@@ -40,6 +40,7 @@
 #include <wchar.h>
 #include <sys/stat.h>
 #include <math.h>
+#include <errno.h>
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
@@ -184,6 +185,11 @@ struct intf_sys_t
     bool            color;
     bool            exit;
 
+    /* rgb values for the color yellow */
+    short           yellow_r;
+    short           yellow_g;
+    short           yellow_b;
+
     int             box_type;
     int             box_y;            // start of box content
     int             box_height;
@@ -274,29 +280,27 @@ static void ReadDir(intf_thread_t *intf)
 
     DIR *current_dir = vlc_opendir(sys->current_dir);
     if (!current_dir) {
-        msg_Warn(intf, "cannot open directory `%s' (%m)", sys->current_dir);
+        msg_Warn(intf, "cannot open directory `%s' (%s)", sys->current_dir,
+                 vlc_strerror_c(errno));
         return;
     }
 
     DirsDestroy(sys);
 
-    char *entry;
+    const char *entry;
     while ((entry = vlc_readdir(current_dir))) {
         if (!sys->show_hidden_files && *entry == '.' && strcmp(entry, ".."))
-            goto next;
+            continue;
 
         struct dir_entry_t *dir_entry = malloc(sizeof *dir_entry);
-        if (!dir_entry)
-            goto next;
+        if (unlikely(dir_entry == NULL))
+            continue;
 
         dir_entry->file = IsFile(sys->current_dir, entry);
-        dir_entry->path = entry;
+        dir_entry->path = xstrdup(entry);
         INSERT_ELEM(sys->dir_entries, sys->n_dir_entries,
              sys->n_dir_entries, dir_entry);
         continue;
-
-next:
-        free(entry);
     }
 
     qsort(sys->dir_entries, sys->n_dir_entries,
@@ -527,8 +531,10 @@ static void FindIndex(intf_sys_t *sys, playlist_t *p_playlist)
 
 static void start_color_and_pairs(intf_thread_t *intf)
 {
+    intf_sys_t *sys = intf->p_sys;
+
     if (!has_colors()) {
-        intf->p_sys->color = false;
+        sys->color = false;
         msg_Warn(intf, "Terminal doesn't support colors");
         return;
     }
@@ -538,8 +544,10 @@ static void start_color_and_pairs(intf_thread_t *intf)
         init_pair(i, color_pairs[i].f, color_pairs[i].b);
 
     /* untested, in all my terminals, !can_change_color() --funman */
-    if (can_change_color())
+    if (can_change_color()) {
+        color_content(COLOR_YELLOW, &sys->yellow_r, &sys->yellow_g, &sys->yellow_b);
         init_color(COLOR_YELLOW, 960, 500, 0); /* YELLOW -> ORANGE */
+    }
 }
 
 static void DrawBox(int y, int h, bool color, const char *title)
@@ -599,9 +607,11 @@ static void mvnprintw(int y, int x, int w, const char *p_fmt, ...)
         return;
 
     va_start(vl_args, p_fmt);
-    if (vasprintf(&p_buf, p_fmt, vl_args) == -1)
-        return;
+    int i_ret = vasprintf(&p_buf, p_fmt, vl_args);
     va_end(vl_args);
+
+    if (i_ret == -1)
+        return;
 
     len = strlen(p_buf);
 
@@ -687,9 +697,10 @@ static void MainBoxWrite(intf_sys_t *sys, int l, const char *p_fmt, ...)
         return;
 
     va_start(vl_args, p_fmt);
-    if (vasprintf(&p_buf, p_fmt, vl_args) == -1)
-        return;
+    int i_ret = vasprintf(&p_buf, p_fmt, vl_args);
     va_end(vl_args);
+    if (i_ret == -1)
+        return;
 
     if (b_selected) attron(A_REVERSE);
     mvnprintw(sys->box_y + l - sys->box_start, 1, COLS - 2, "%s", p_buf);
@@ -880,6 +891,9 @@ static int DrawHelp(intf_thread_t *intf)
     H(_(" s                      Stop"));
     H(_(" <space>                Pause/Play"));
     H(_(" f                      Toggle Fullscreen"));
+    H(_(" c                      Cycle through audio tracks"));
+    H(_(" v                      Cycle through subtitles tracks"));
+    H(_(" b                      Cycle through video tracks"));
     H(_(" n, p                   Next/Previous playlist item"));
     H(_(" [, ]                   Next/Previous title"));
     H(_(" <, >                   Next/Previous chapter"));
@@ -1335,6 +1349,8 @@ static bool HandlePlaylistKey(intf_thread_t *intf, int key)
             playlist_NodeDelete(p_playlist, item, true , false);
         PL_UNLOCK;
         vlc_mutex_lock(&sys->pl_lock);
+        if (sys->box_idx >= sys->box_lines_total - 1)
+            sys->box_idx = sys->box_lines_total - 2;
         sys->need_update = true;
         vlc_mutex_unlock(&sys->pl_lock);
         return true;
@@ -1543,6 +1559,30 @@ static void InputNavigate(input_thread_t* p_input, const char *var)
         var_TriggerCallback(p_input, var);
 }
 
+static void CycleESTrack(intf_sys_t *sys, const char *var)
+{
+    input_thread_t *input = sys->p_input;
+
+    if (!input)
+        return;
+
+    vlc_value_t val;
+    if (var_Change(input, var, VLC_VAR_GETLIST, &val, NULL) < 0)
+        return;
+
+    vlc_list_t *list = val.p_list;
+    int64_t current = var_GetInteger(input, var);
+
+    int i;
+    for (i = 0; i < list->i_count; i++)
+        if (list->p_values[i].i_int == current)
+            break;
+
+    if (++i >= list->i_count)
+        i = 0;
+    var_SetInteger(input, var, list->p_values[i].i_int);
+}
+
 static void HandleCommonKey(intf_thread_t *intf, int key)
 {
     intf_sys_t *sys = intf->p_sys;
@@ -1610,6 +1650,10 @@ static void HandleCommonKey(intf_thread_t *intf, int key)
     case 'a': playlist_VolumeUp(p_playlist, 1, NULL);   break;
     case 'z': playlist_VolumeDown(p_playlist, 1, NULL); break;
     case 'm': playlist_MuteToggle(p_playlist); break;
+
+    case 'c': CycleESTrack(sys, "audio-es"); break;
+    case 'v': CycleESTrack(sys, "spu-es");   break;
+    case 'b': CycleESTrack(sys, "video-es"); break;
 
     case 0x0c:  /* ^l */
     case KEY_CLEAR:
@@ -1783,7 +1827,7 @@ static int Open(vlc_object_t *p_this)
 {
     intf_thread_t *intf = (intf_thread_t *)p_this;
     intf_sys_t    *sys  = intf->p_sys = calloc(1, sizeof(intf_sys_t));
-    playlist_t    *p_playlist = pl_Get(p_this);
+    playlist_t    *p_playlist = pl_Get(intf);
 
     if (!sys)
         return VLC_ENOMEM;
@@ -1817,7 +1861,7 @@ static int Open(vlc_object_t *p_this)
 
     /* Stop printing errors to the console */
     if (!freopen("/dev/null", "wb", stderr))
-        msg_Err(intf, "Couldn't close stderr (%m)");
+        msg_Err(intf, "Couldn't close stderr (%s)", vlc_strerror_c(errno));
 
     ReadDir(intf);
     PL_LOCK;
@@ -1846,6 +1890,10 @@ static void Close(vlc_object_t *p_this)
 
     if (sys->p_input)
         vlc_object_release(sys->p_input);
+
+    if (can_change_color())
+        /* Restore yellow to its original color */
+        init_color(COLOR_YELLOW, sys->yellow_r, sys->yellow_g, sys->yellow_b);
 
     endwin();   /* Close the ncurses interface */
 

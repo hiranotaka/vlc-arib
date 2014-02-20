@@ -412,7 +412,9 @@ enum {
     AV_CODEC_ID_MLP,
     AV_CODEC_ID_GSM_MS, /* as found in WAV */
     AV_CODEC_ID_ATRAC3,
+#if LIBAVCODEC_VERSION_MAJOR < 56
     AV_CODEC_ID_VOXWARE,
+#endif
     AV_CODEC_ID_APE,
     AV_CODEC_ID_NELLYMOSER,
     AV_CODEC_ID_MUSEPACK8,
@@ -482,8 +484,24 @@ enum {
 #ifdef HAVE_LIBAVUTIL_AVUTIL_H
 # include <libavutil/avutil.h>
 
+/* LIBAVUTIL_VERSION_CHECK checks for the right version of libav and FFmpeg
+ * a is the major version
+ * b and c the minor and micro versions of libav
+ * d and e the minor and micro versions of FFmpeg */
+#define LIBAVUTIL_VERSION_CHECK( a, b, c, d, e ) \
+    ( (LIBAVUTIL_VERSION_MICRO <  100 && LIBAVUTIL_VERSION_INT >= AV_VERSION_INT( a, b, c ) ) || \
+      (LIBAVUTIL_VERSION_MICRO >= 100 && LIBAVUTIL_VERSION_INT >= AV_VERSION_INT( a, d, e ) ) )
+
 #if LIBAVUTIL_VERSION_MAJOR < 52 && !defined(AV_CPU_FLAG_MMXEXT)
 #   define AV_CPU_FLAG_MMXEXT       AV_CPU_FLAG_MMX2
+#endif
+
+#if !LIBAVUTIL_VERSION_CHECK( 52, 11, 0, 32, 100 )
+#   define AV_PIX_FMT_FLAG_HWACCEL  PIX_FMT_HWACCEL
+#endif
+
+#if !LIBAVUTIL_VERSION_CHECK( 51, 44, 0, 76, 100 )
+#   define av_pix_fmt_desc_get(a) &av_pix_fmt_descriptors[a]
 #endif
 
 #endif /* HAVE_LIBAVUTIL_AVUTIL_H */

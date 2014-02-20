@@ -1,5 +1,5 @@
 /*****************************************************************************
- * ml_item.cpp: the media library's result item
+ * ml_item.cpp: the SQL media library's result item
  *****************************************************************************
  * Copyright (C) 2008-2011 the VideoLAN Team and AUTHORS
  * $Id$
@@ -29,7 +29,7 @@
 # include <config.h>
 #endif
 
-#ifdef MEDIA_LIBRARY
+#ifdef SQL_MEDIA_LIBRARY
 
 #include <QDateTime>
 #include <QUrl>
@@ -91,11 +91,9 @@ static int compareMeta( ml_media_t *a, ml_media_t *b, ml_select_e meta )
 }
 
 
-MLItem::MLItem( const MLModel *p_model,
-                            intf_thread_t* _p_intf,
+MLItem::MLItem( intf_thread_t* _p_intf,
                             ml_media_t *p_media,
                             MLItem *p_parent )
-        : p_intf( _p_intf ), model( p_model )
 {
     parentItem = p_parent;
     if( p_media )
@@ -119,18 +117,9 @@ AbstractPLItem* MLItem::child( int row ) const
     else return children.at( row );
 }
 
-void MLItem::delChild( int row )
-{
-    if( !childCount() ) return; // assert ?
-    AbstractPLItem *item =
-            children.takeAt( ( row!=-1 ) ? row : ( children.count()-1 ) );
-    assert( item );
-    delete item;
-}
-
 input_item_t* MLItem::inputItem()
 {
-    return ml_CreateInputItem( p_ml,  id() );
+    return ml_CreateInputItem( p_ml,  id( MLMEDIA_ID ) );
 }
 
 /**
@@ -139,102 +128,142 @@ input_item_t* MLItem::inputItem()
  * @return The QVariant may be formed of a int, QString
  *         Use toString() to print it on the screen, except for pixmaps
  */
-QVariant MLItem::data( int column ) const
+QVariant MLItem::data( ml_select_e columntype ) const
 {
-    ml_select_e type = model->columnType( column );
     ml_person_t *p_people = NULL, *p_person = NULL;
-    QString qsz_return;
-#define sreturn(a) if(media->a) return qfu(media->a); break
-    switch( type )
+    QVariant ret;
+    QString temp;
+
+#define sget(a) if(media->a) ret = qfu(media->a);
+#define iget(a) if(media->a) ret = QVariant(media->a);
+
+    vlc_mutex_lock( &media->lock );
+
+    switch( columntype )
     {
-        case ML_ALBUM: sreturn( psz_album );
-        case ML_ALBUM_ID: return media->i_album_id;
+        case ML_ALBUM:
+            sget( psz_album );
+            break;
+        case ML_ALBUM_ID:
+            iget( i_album_id );
+            break;
         case ML_ARTIST:
+            vlc_mutex_unlock( &media->lock );
             p_people = ml_GetPersonsFromMedia( p_ml, media, ML_PERSON_ARTIST );
+            vlc_mutex_lock( &media->lock );
             p_person = p_people;
             while( p_person )
             {
                 if( !EMPTY_STR( p_person->psz_name ) )
                 {
-                    qsz_return.isEmpty() ? qsz_return = qfu( p_person->psz_name ) :
-                        qsz_return.append( "," ).append( qfu( p_person->psz_name ) );
+                    temp.isEmpty() ? temp = qfu( p_person->psz_name ) :
+                        temp.append( "," ).append( qfu( p_person->psz_name ) );
                 }
                 p_person = p_person->p_next;
             }
             ml_FreePeople( p_people );
-            return qsz_return;
+            ret = temp;
             break;
-        case ML_COVER: sreturn( psz_cover );
+        case ML_COVER:
+            sget( psz_cover );
+            break;
         case ML_DURATION:
-            return QTime().addSecs( media->i_duration/1000000 ).toString( "HH:mm:ss" );
-        case ML_EXTRA: sreturn( psz_extra );
-        case ML_GENRE: sreturn( psz_genre );
-        case ML_ID: return media->i_id;
+            if ( media->i_duration )
+                ret = QTime().addSecs( media->i_duration/1000000 ).toString( "HH:mm:ss" );
+            break;
+        case ML_EXTRA:
+            sget( psz_extra );
+            break;
+        case ML_GENRE:
+            sget( psz_genre );
+            break;
+        case ML_ID:
+            iget( i_id );
+            break;
         case ML_LAST_PLAYED:
-        {
             if( media->i_last_played > 0 )
             {
                 QDateTime time( QDate(1970,1,1) );
-                return time.addSecs( qint64( media->i_last_played ) );
+                ret = time.addSecs( qint64( media->i_last_played ) );
             }
-            else
-                return QString();
-        }
-        case ML_ORIGINAL_TITLE: sreturn( psz_orig_title );
-        case ML_PLAYED_COUNT: return media->i_played_count;
+            break;
+        case ML_ORIGINAL_TITLE:
+            sget( psz_orig_title );
+            break;
+        case ML_PLAYED_COUNT:
+            iget( i_played_count );
+            break;
         // case ML_ROLE: return qtr( "Role" );
-        case ML_SCORE: return media->i_score ? media->i_score : QVariant();
+        case ML_SCORE:
+            if ( media->i_score ) iget( i_score );
+            break;
         case ML_TITLE:
-        {
-            vlc_mutex_lock( &media->lock );
-            qsz_return = qfu( media->psz_title );
-            vlc_mutex_unlock( &media->lock );
+            temp = qfu( media->psz_title );
             /* If no title, return filename */
-            if( ! qsz_return.isEmpty() )
-                return qsz_return;
-            else
+            if( temp.isEmpty() )
             {
-                vlc_mutex_lock( &media->lock );
-                QFileInfo p_file = QFileInfo( qfu( media->psz_uri ) );
                 vlc_mutex_unlock( &media->lock );
-                return p_file.fileName().isEmpty() ? p_file.absoluteFilePath()
-                    : p_file.fileName();
+                QUrl uri = getURI();
+                vlc_mutex_lock( &media->lock );
+                if ( uri.scheme() != "file" )
+                {
+                    ret = QUrl::fromPercentEncoding( uri.toString().toUtf8() );
+                }
+                else
+                {
+                    QFileInfo p_file( uri.toLocalFile() );
+                    ret = p_file.fileName().isEmpty() ? p_file.absoluteFilePath()
+                        : p_file.fileName();
+                }
+            } else {
+                ret = temp;
             }
-        }
-        case ML_TRACK_NUMBER: return media->i_track_number ? media->i_track_number : QVariant();
+            break;
+        case ML_TRACK_NUMBER:
+            if ( media->i_track_number ) iget( i_track_number );
+            break;
         case ML_TYPE:
-        {
-            QString txt;
             if( media->i_type & ML_AUDIO )
-                txt = "Audio";
+                temp = "Audio";
             if( media->i_type & ML_VIDEO )
-                txt = "Video";
+                temp = "Video";
             if( media->i_type & ML_STREAM )
             {
-                if( txt.isEmpty() ) txt = "Stream";
-                else txt += " stream";
+                if( temp.isEmpty() ) temp = "Stream";
+                else temp += " stream";
             }
             if( media->i_type & ML_REMOVABLE )
             {
-                if( txt.isEmpty() ) txt = "Removable media";
-                else txt += " (removable media)";
+                if( temp.isEmpty() ) temp = "Removable media";
+                else temp += " (removable media)";
             }
             if( media->i_type & ML_NODE )
             {
-                if( txt.isEmpty() ) txt = "Playlist";
-                else txt += " (Playlist)";
+                if( temp.isEmpty() ) temp = "Playlist";
+                else temp += " (Playlist)";
             }
-            if( txt.isEmpty() )
-                txt = qtr( "Unknown" );
-            return txt;
-        }
-        case ML_URI: sreturn( psz_uri );
-        case ML_VOTE: return media->i_vote ? media->i_vote : QVariant();
-        case ML_YEAR: return media->i_year ? media->i_year : QVariant();
-        default: return QVariant();
+            if( temp.isEmpty() )
+                temp = qtr( "Unknown" );
+            ret = temp;
+            break;
+        case ML_URI:
+            sget( psz_uri );
+            break;
+        case ML_VOTE:
+            if ( media->i_vote ) iget( i_vote );
+            break;
+        case ML_YEAR:
+            if ( media->i_year ) iget( i_year );
+            break;
+        default:
+            break;
     }
-#   undef sreturn
-    return QVariant();
+
+    vlc_mutex_unlock( &media->lock );
+
+#undef sget
+#undef iget
+    return ret;
 }
 
 bool MLItem::setData( ml_select_e meta, const QVariant &data )
@@ -249,20 +278,21 @@ bool MLItem::setData( ml_select_e meta, const QVariant &data )
         case ML_ARTIST: ml_DeletePersonTypeFromMedia( media, ML_PERSON_ARTIST );
                         ml_CreateAppendPersonAdv( &media->p_people,
                                 ML_PERSON_ARTIST, (char*)qtu(data.toString()), 0 );
-                        return ml_UpdateSimple( p_ml, ML_MEDIA, NULL, id(),
+                        return ml_UpdateSimple( p_ml, ML_MEDIA, NULL, id( MLMEDIA_ID ),
                                 ML_PEOPLE, ML_PERSON_ARTIST, qtu( data.toString() ) ) == VLC_SUCCESS;
         case ML_EXTRA: setmeta( psz_extra );
         case ML_GENRE: setmeta( psz_genre );
         case ML_ORIGINAL_TITLE: setmeta( psz_orig_title );
         case ML_TITLE: setmeta( psz_title );
 update:
-            return ml_UpdateSimple( p_ml, ML_MEDIA, NULL, id(),
+        Q_ASSERT( qtu( data.toString() ) );
+            return ml_UpdateSimple( p_ml, ML_MEDIA, NULL, id( MLMEDIA_ID ),
                                     meta, qtu( data.toString() ) ) == VLC_SUCCESS;
 
         /* Modifiable integers */
         case ML_TRACK_NUMBER:
         case ML_YEAR:
-            return ml_UpdateSimple( p_ml, ML_MEDIA, NULL, id(),
+            return ml_UpdateSimple( p_ml, ML_MEDIA, NULL, id( MLMEDIA_ID ),
                                     meta, data.toInt() ) == VLC_SUCCESS;
 
         // TODO case ML_VOTE:
@@ -274,9 +304,19 @@ update:
 #   undef setmeta
 }
 
-int MLItem::id() const
+int MLItem::id( int type )
 {
-    return media->i_id;
+    switch( type )
+    {
+    case INPUTITEM_ID:
+        return inputItem()->i_id;
+    case MLMEDIA_ID:
+        return media->i_id;
+    default:
+    case PLAYLIST_ID:
+        assert( NULL );
+        return -1;
+    }
 }
 
 ml_media_t* MLItem::getMedia() const
@@ -284,17 +324,26 @@ ml_media_t* MLItem::getMedia() const
     return media;
 }
 
-QUrl MLItem::getUri() const
+QUrl MLItem::getURI() const
 {
     QString uri;
     vlc_mutex_lock( &media->lock );
-    uri = QString( media->psz_uri );
+    uri = qfu( media->psz_uri );
     vlc_mutex_unlock( &media->lock );
     if ( uri.isEmpty() ) return QUrl(); // This should be rootItem
 
-    QUrl url( uri );
+    QUrl url = QUrl::fromEncoded( uri.toUtf8(), QUrl::TolerantMode );
     if ( url.scheme().isEmpty() ) url.setScheme( "file" );
     return url;
+}
+
+QString MLItem::getTitle() const
+{
+    QString title;
+    vlc_mutex_lock( &media->lock );
+    title = QString( media->psz_title );
+    vlc_mutex_unlock( &media->lock );
+    return title;
 }
 
 bool MLItem::operator<( MLItem* item )

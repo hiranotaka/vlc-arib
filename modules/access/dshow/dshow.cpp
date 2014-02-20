@@ -699,7 +699,6 @@ static int DemuxOpen( vlc_object_t *p_this )
 
     p_demux->pf_demux   = Demux;
     p_demux->pf_control = DemuxControl;
-    p_demux->info.i_update = 0;
     p_demux->info.i_title = 0;
     p_demux->info.i_seekpoint = 0;
 
@@ -813,12 +812,8 @@ static int AccessOpen( vlc_object_t *p_this )
     p_access->pf_block = ReadCompressed;
     p_access->pf_control = AccessControl;
     p_access->pf_seek = NULL;
-    p_access->info.i_update = 0;
-    p_access->info.i_size = 0;
     p_access->info.i_pos = 0;
     p_access->info.b_eof = false;
-    p_access->info.i_title = 0;
-    p_access->info.i_seekpoint = 0;
     p_access->p_sys = p_sys;
 
     /* Everything is ready. Let's rock baby */
@@ -1405,7 +1400,7 @@ static size_t EnumDeviceCaps( vlc_object_t *p_this, IBaseFilter *p_filter,
                 BYTE *pSCC= (BYTE *)CoTaskMemAlloc(piSize);
                 if( NULL != pSCC )
                 {
-                    int i_priority = -1;
+                    int i_priority = ES_PRIORITY_NOT_DEFAULTABLE;
                     for( int i=0; i<piCount; ++i )
                     {
                         if( SUCCEEDED(pSC->GetStreamCaps(i, &p_mt, pSCC)) )
@@ -1586,7 +1581,7 @@ static size_t EnumDeviceCaps( vlc_object_t *p_this, IBaseFilter *p_filter,
                         }
                     }
                     CoTaskMemFree( (LPVOID)pSCC );
-                    if( i_priority >= 0 )
+                    if( i_priority >= ES_PRIORITY_SELECTABLE_MIN )
                         msg_Dbg( p_this, "EnumDeviceCaps: input pin default format configured");
                 }
             }
@@ -1937,7 +1932,6 @@ static int AccessControl( access_t *p_access, int i_query, va_list args )
 
     switch( i_query )
     {
-    /* */
     case ACCESS_CAN_SEEK:
     case ACCESS_CAN_FASTSEEK:
     case ACCESS_CAN_PAUSE:
@@ -1946,23 +1940,13 @@ static int AccessControl( access_t *p_access, int i_query, va_list args )
         *pb_bool = false;
         break;
 
-    /* */
     case ACCESS_GET_PTS_DELAY:
         pi_64 = (int64_t*)va_arg( args, int64_t * );
         *pi_64 =
             INT64_C(1000) * var_InheritInteger( p_access, "live-caching" );
         break;
 
-    /* */
-    case ACCESS_SET_PAUSE_STATE:
-    case ACCESS_GET_TITLE_INFO:
-    case ACCESS_SET_TITLE:
-    case ACCESS_SET_SEEKPOINT:
-    case ACCESS_SET_PRIVATE_ID_STATE:
-        return VLC_EGENERIC;
-
     default:
-        msg_Warn( p_access, "unimplemented query in control" );
         return VLC_EGENERIC;
     }
 

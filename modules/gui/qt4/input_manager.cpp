@@ -167,6 +167,7 @@ void InputManager::delInput()
 
     /* Reset all InfoPanels but stats */
     emit artChanged( NULL );
+    emit artChanged( "" );
     emit infoChanged( NULL );
     emit currentMetaChanged( (input_item_t *)NULL );
 
@@ -467,7 +468,7 @@ void InputManager::UpdateName()
 
     /* Try to get the nowplaying */
     char *format = var_InheritString( p_intf, "input-title-format" );
-    char *formated = str_format_meta( THEPL, format );
+    char *formated = str_format_meta( p_input, format );
     free( format );
     name = qfu(formated);
     free( formated );
@@ -653,7 +654,7 @@ void InputManager::requestArtUpdate( input_item_t *p_item )
             if ( status & ( ITEM_ART_NOTFOUND|ITEM_ART_FETCHED ) )
                 return;
         }
-        playlist_AskForArtEnqueue( pl_Get(p_intf), p_item );
+        libvlc_ArtRequest( p_intf->p_libvlc, p_item );
         /* No input will signal the cover art to update,
              * let's do it ourself */
         if ( b_current_item )
@@ -950,11 +951,8 @@ void InputManager::setAtoB()
 /* Function called regularly when in an AtoB loop */
 void InputManager::AtoBLoop( float, int64_t i_time, int )
 {
-    if( timeB )
-    {
-        if( i_time >= timeB || i_time < timeA )
-            var_SetTime( THEMIM->getInput(), "time" , timeA );
-    }
+    if( timeB && i_time >= timeB )
+        var_SetTime( THEMIM->getInput(), "time" , timeA );
 }
 
 /**********************************************************************
@@ -989,7 +987,7 @@ MainInputManager::MainInputManager( intf_thread_t *_p_intf )
               im, setInput( input_thread_t * ) );
 
     /* initialize p_input (an input can already be running) */
-    p_input = playlist_CurrentInput( pl_Get(p_intf) );
+    p_input = playlist_CurrentInput( THEPL );
     if( p_input )
         emit inputChanged( p_input );
 
@@ -1057,7 +1055,7 @@ void MainInputManager::customEvent( QEvent *event )
 
     if( p_input != NULL )
         vlc_object_release( p_input );
-    p_input = playlist_CurrentInput( pl_Get(p_intf) );
+    p_input = playlist_CurrentInput( THEPL );
     emit inputChanged( p_input );
 }
 
@@ -1165,11 +1163,12 @@ void MainInputManager::loopRepeatLoopStatus()
 void MainInputManager::activatePlayQuit( bool b_exit )
 {
     var_SetBool( THEPL, "play-and-exit", b_exit );
+    config_PutInt( p_intf, "play-and-exit", b_exit );
 }
 
 bool MainInputManager::getPlayExitState()
 {
-    return var_GetBool( THEPL, "play-and-exit" );
+    return var_InheritBool( THEPL, "play-and-exit" );
 }
 
 bool MainInputManager::hasEmptyPlaylist()
@@ -1187,6 +1186,7 @@ static int PLItemChanged( vlc_object_t *p_this, const char *psz_var,
                         vlc_value_t oldval, vlc_value_t val, void *param )
 {
     VLC_UNUSED( p_this ); VLC_UNUSED( psz_var ); VLC_UNUSED( oldval );
+    VLC_UNUSED( val );
 
     MainInputManager *mim = (MainInputManager*)param;
 

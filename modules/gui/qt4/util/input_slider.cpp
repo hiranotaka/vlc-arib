@@ -57,6 +57,7 @@ SeekSlider::SeekSlider( Qt::Orientation q, QWidget *_parent, bool _static )
           : QSlider( q, _parent ), b_classic( _static )
 {
     isSliding = false;
+    isJumping = false;
     f_buffering = 1.0;
     mHandleOpacity = 1.0;
     chapters = NULL;
@@ -111,6 +112,7 @@ SeekSlider::SeekSlider( Qt::Orientation q, QWidget *_parent, bool _static )
     setFocusPolicy( Qt::NoFocus );
 
     /* Use the new/classic style */
+    setMinimumHeight( 18 );
     if( !b_classic )
     {
         alternativeStyle = new SeekStyle;

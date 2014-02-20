@@ -30,6 +30,9 @@
 # include "config.h"
 #endif
 
+#include <limits.h>
+#include <errno.h>
+
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_block.h>
@@ -112,8 +115,8 @@ vlc_module_begin ()
                  REPLACE_TEXT, REPLACE_LONGTEXT, false )
 
     /* Snapshot method */
-    add_integer( CFG_PREFIX "ratio", 50,
-                 RATIO_TEXT, RATIO_LONGTEXT, false )
+    add_integer_with_range( CFG_PREFIX "ratio", 50, 1, INT_MAX,
+                            RATIO_TEXT, RATIO_LONGTEXT, false )
 
     set_callbacks( Create, Destroy )
 vlc_module_end ()
@@ -154,6 +157,11 @@ static int Create( vlc_object_t *p_this )
     filter_t *p_filter = (filter_t *)p_this;
     filter_sys_t *p_sys;
 
+    const vlc_chroma_description_t *p_chroma =
+        vlc_fourcc_GetChromaDescription( p_filter->fmt_in.video.i_chroma );
+    if( p_chroma == NULL || p_chroma->plane_count == 0 )
+        return VLC_EGENERIC;
+
     config_ChainParse( p_filter, CFG_PREFIX, ppsz_vfilter_options,
                        p_filter->p_cfg );
 
@@ -183,6 +191,8 @@ static int Create( vlc_object_t *p_this )
     p_sys->i_width = var_CreateGetInteger( p_this, CFG_PREFIX "width" );
     p_sys->i_height = var_CreateGetInteger( p_this, CFG_PREFIX "height" );
     p_sys->i_ratio = var_CreateGetInteger( p_this, CFG_PREFIX "ratio" );
+    if( p_sys->i_ratio <= 0)
+        p_sys->i_ratio = 1;
     p_sys->b_replace = var_CreateGetBool( p_this, CFG_PREFIX "replace" );
     p_sys->psz_prefix = var_CreateGetString( p_this, CFG_PREFIX "prefix" );
     p_sys->psz_path = var_GetNonEmptyString( p_this, CFG_PREFIX "path" );
@@ -325,7 +335,8 @@ static void SavePicture( filter_t *p_filter, picture_t *p_pic )
         i_ret = vlc_rename( psz_temp, psz_filename );
         if( i_ret == -1 )
         {
-            msg_Err( p_filter, "could not rename snapshot %s %m", psz_filename );
+            msg_Err( p_filter, "could not rename snapshot %s: %s",
+                     psz_filename, vlc_strerror_c(errno) );
             goto error;
         }
     }

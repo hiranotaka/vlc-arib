@@ -123,20 +123,23 @@ endif
 
 endif
 
+CCAS=$(CC) -c
+
 ifdef HAVE_IOS
 CC=xcrun clang
 CXX=xcrun clang++
-ifeq ($(ARCH), arm)
+ifdef HAVE_NEON
 AS=perl $(abspath ../../extras/tools/build/bin/gas-preprocessor.pl) $(CC)
+CCAS=gas-preprocessor.pl $(CC) -c
 else
-AS=xcrun as
+CCAS=$(CC) -c
 endif
 AR=xcrun ar
 LD=xcrun ld
 STRIP=xcrun strip
 RANLIB=xcrun ranlib
-EXTRA_CFLAGS += -isysroot $(SDKROOT)  -miphoneos-version-min=5.0
-EXTRA_LDFLAGS += -Wl,-syslibroot,$(SDKROOT) -isysroot $(SDKROOT) -miphoneos-version-min=5.0
+EXTRA_CFLAGS += $(CFLAGS)
+EXTRA_LDFLAGS += $(LDFLAGS)
 endif
 
 ifdef HAVE_WIN32
@@ -213,6 +216,12 @@ else
 download = $(error Neither curl nor wget found!)
 endif
 
+ifeq ($(shell which bzcat >/dev/null 2>&1 || echo FAIL),)
+BZCAT = bzcat
+else
+BZCAT ?= $(error Bunzip2 client (bzcat) not found!)
+endif
+
 ifeq ($(shell gzcat --version >/dev/null 2>&1 || echo FAIL),)
 ZCAT = gzcat
 else ifeq ($(shell zcat --version >/dev/null 2>&1 || echo FAIL),)
@@ -249,7 +258,7 @@ endif
 
 HOSTTOOLS := \
 	CC="$(CC)" CXX="$(CXX)" LD="$(LD)" \
-	AR="$(AR)" RANLIB="$(RANLIB)" STRIP="$(STRIP)" \
+	AR="$(AR)" CCAS="$(CCAS)" RANLIB="$(RANLIB)" STRIP="$(STRIP)" \
 	PATH="$(PREFIX)/bin:$(PATH)"
 HOSTVARS := $(HOSTTOOLS) \
 	CPPFLAGS="$(CPPFLAGS)" \
@@ -391,9 +400,21 @@ ifdef HAVE_DARWIN_OS
 	echo "set(CMAKE_C_FLAGS $(CFLAGS))" >> $@
 	echo "set(CMAKE_CXX_FLAGS $(CFLAGS))" >> $@
 	echo "set(CMAKE_LD_FLAGS $(LDFLAGS))" >> $@
+ifdef HAVE_IOS
+	echo "set(CMAKE_AR ar CACHE FILEPATH "Archiver")" >> $@
+	echo "set(CMAKE_OSX_SYSROOT $(IOS_SDK))" >> $@
+else
+	echo "set(CMAKE_OSX_SYSROOT $(MACOSX_SDK))" >> $@
+endif
 endif
 ifdef HAVE_CROSS_COMPILE
 	echo "set(_CMAKE_TOOLCHAIN_PREFIX $(HOST)-)" >> $@
+ifdef HAVE_ANDROID
+# cmake will overwrite our --sysroot with a native (host) one on Darwin
+# Set it to "" right away to short-circuit this behaviour
+	echo "set(CMAKE_CXX_SYSROOT_FLAG \"\")" >> $@
+	echo "set(CMAKE_C_SYSROOT_FLAG \"\")" >> $@
+endif
 endif
 	echo "set(CMAKE_C_COMPILER $(CC))" >> $@
 	echo "set(CMAKE_CXX_COMPILER $(CXX))" >> $@

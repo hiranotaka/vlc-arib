@@ -163,7 +163,7 @@ EXTRA_DIST += libvlc_win32_rc.rc.in
 lib_LTLIBRARIES = libvlccore.la
 
 AM_CPPFLAGS = $(INCICONV) $(IDN_CFLAGS) \
-	-DMODULE_STRING=\"main\" \
+	-DMODULE_STRING=\"core\" \
 	-DLOCALEDIR=\"$(localedir)\" \
 	-DPKGDATADIR=\"$(vlcdatadir)\" \
 	-DPKGLIBDIR=\"$(vlclibdir)\"
@@ -181,7 +181,7 @@ libvlccore_la_LDFLAGS = \
 	$(LDFLAGS_libvlccore) \
 	-no-undefined \
 	-export-symbols $(srcdir)/libvlccore.sym \
-	-version-info 5:0:0
+	-version-info 7:0:0
 libvlccore_la_LIBADD = $(LIBS_libvlccore) \
 	../compat/libcompat.la \
 	$(LTLIBINTL) $(LTLIBICONV) \
@@ -248,16 +248,18 @@ SOURCES_libvlc_darwin = \
 	darwin/dirs.c \
 	posix/filesystem.c \
 	posix/plugin.c \
-	posix/thread.c \
+	darwin/thread.c \
 	posix/timer.c \
 	darwin/specific.c \
 	posix/rand.c \
+	darwin/error.c \
 	darwin/netconf.c \
 	$(NULL)
 
 SOURCES_libvlc_android = \
 	android/dirs.c \
 	android/thread.c \
+	android/error.c \
 	posix/filesystem.c \
 	android/netconf.c \
 	posix/plugin.c \
@@ -270,6 +272,7 @@ SOURCES_libvlc_android = \
 
 SOURCES_libvlc_linux = \
 	posix/dirs.c \
+	posix/error.c \
 	posix/filesystem.c \
 	posix/netconf.c \
 	posix/plugin.c \
@@ -283,6 +286,7 @@ SOURCES_libvlc_linux = \
 
 SOURCES_libvlc_win32 = \
 	win32/dirs.c \
+	win32/error.c \
 	win32/filesystem.c \
 	win32/netconf.c \
 	win32/plugin.c \
@@ -302,6 +306,7 @@ SOURCES_libvlc_symbian = \
 SOURCES_libvlc_os2 = \
 	os2/getaddrinfo.c \
 	os2/dirs.c \
+	darwin/error.c \
 	os2/filesystem.c \
 	os2/netconf.c \
 	os2/plugin.c \
@@ -312,6 +317,7 @@ SOURCES_libvlc_os2 = \
 
 SOURCES_libvlc_other = \
 	posix/dirs.c \
+	posix/error.c \
 	posix/filesystem.c \
 	posix/netconf.c \
 	posix/thread.c \
