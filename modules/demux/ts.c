@@ -599,10 +599,10 @@ static void vlc_dvbpsi_reset( demux_t *p_demux )
 
     if( cat->psi->handle )
     {
-        if( dvbpsi_decoder_present( pat->psi->handle ) )
-            dvbpsi_pat_detach( pat->psi->handle );
-        dvbpsi_delete( pat->psi->handle );
-        pat->psi->handle = NULL;
+        if( dvbpsi_decoder_present( cat->psi->handle ) )
+            dvbpsi_pat_detach( cat->psi->handle );
+        dvbpsi_delete( cat->psi->handle );
+        cat->psi->handle = NULL;
     }
 #endif
 }
