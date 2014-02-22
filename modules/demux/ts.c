@@ -4242,7 +4242,7 @@ static void DetachECM( demux_t *p_demux, ts_prg_psi_t *prg )
     prg->i_pid_ecm = -1;
 
     if( ProgramIsSelected( p_demux, prg->i_number ) )
-        stream_Control( p_demux->s, STREAM_SET_PRIVATE_ID_STATE, prg->i_pid_ecm,
+        stream_Control( p_demux->s, STREAM_SET_PRIVATE_ID_STATE, i_pid,
 			false );
 
     p_sys = p_demux->p_sys;
