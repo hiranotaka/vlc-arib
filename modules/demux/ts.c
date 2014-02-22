@@ -970,13 +970,6 @@ static void Close( vlc_object_t *p_this )
 #endif
                     free( pid->psi );
                 }
-#ifdef HAVE_ARIB
-                else if ( pid->i_pid == p_sys->i_pid_emm )
-                {
-                    free( pid->psi->handle );
-                    free( pid->psi );
-                }
-#endif
                 else
                 {
                     PIDClean( p_demux, pid );
@@ -1544,10 +1537,6 @@ static void SetPrgFilter( demux_t *p_demux, int i_prg_id, bool b_selected )
     SetPIDFilter( p_demux, i_pmt_pid, b_selected );
     if( p_prg->i_pid_pcr > 0 )
         SetPIDFilter( p_demux, p_prg->i_pid_pcr, b_selected );
-#ifdef HAVE_ARIB
-    if( p_prg->i_pid_ecm > 0 )
-        SetPIDFilter( p_demux, p_prg->i_pid_ecm, b_selected );
-#endif HAVE_ARIB
 
     /* All ES */
     for( int i = 2; i < 8192; i++ )
@@ -1643,8 +1632,23 @@ static void PIDClean( demux_t *p_demux, ts_pid_t *pid )
 #ifdef HAVE_ARIB
         if( pid->psi->arib_descrambler )
         {
+            dvbpsi_decoder_delete( pid->psi->handle->p_decoder );
+            pid->psi->handle->p_decoder = NULL;
+            dvbpsi_delete( pid->psi->handle );
+            pid->psi->handle = NULL;
+
             pid->psi->arib_descrambler->release( pid->psi->arib_descrambler );
-            free( pid->psi->handle );
+	    pid->psi->arib_descrambler = NULL;
+        }
+        else if ( pid->i_pid == p_sys->i_pid_emm )
+        {
+            dvbpsi_decoder_delete( pid->psi->handle->p_decoder );
+            pid->psi->handle->p_decoder = NULL;
+            dvbpsi_delete( pid->psi->handle );
+            pid->psi->handle = NULL;
+
+            pid->psi->arib_descrambler->release( pid->psi->arib_descrambler );
+	    pid->psi->arib_descrambler = NULL;
         }
         else
 #endif
@@ -4314,16 +4318,11 @@ static void DetachEMM( demux_t *p_demux )
     if ( i_pid < 0 )
         return;
 
-    p_sys->i_pid_emm = -1;
-
     stream_Control( p_demux->s, STREAM_SET_PRIVATE_ID_STATE, i_pid, false );
 
-    emm = &p_sys->pid[i_pid];
-    p_decoder = emm->psi->handle->p_decoder;
-    dvbpsi_delete( emm->psi->handle );
-    dvbpsi_decoder_delete( p_decoder );
-    free ( emm->psi );
-    emm->b_valid = false;
+    PIDClean( p_demux, &p_sys->pid[i_pid] );
+
+    p_sys->i_pid_emm = -1;
 }
 #endif
 
