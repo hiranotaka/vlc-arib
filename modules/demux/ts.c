@@ -745,12 +745,6 @@ static int Open( vlc_object_t *p_this )
 	    free( p_sys );
 	    return VLC_EGENERIC;
 	}
-        if( p_sys->b_access_control )
-        {
-            if( stream_Control( p_demux->s, STREAM_SET_PRIVATE_ID_STATE, 0x1,
-				true ) )
-                p_sys->b_access_control = false;
-        }
     }
 #endif
     if( p_sys->b_dvb_meta )
