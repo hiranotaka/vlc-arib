@@ -953,7 +953,7 @@ static void Close( vlc_object_t *p_this )
             case 1: /* CAT */
 #ifdef HAVE_ARIB
                 if( dvbpsi_decoder_present( pid->psi->handle ) )
-                    dvbpsi_pat_detach( pid->psi->handle );
+                    dvbpsi_cat_detach( pid->psi->handle );
                 dvbpsi_delete( pid->psi->handle );
                 pid->psi->handle = NULL;
 #endif
