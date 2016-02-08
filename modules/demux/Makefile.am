@@ -223,6 +223,11 @@ demux_LTLIBRARIES += libplaylist_plugin.la
 libts_plugin_la_SOURCES = demux/ts.c mux/mpeg/csa.c mux/mpeg/dvbpsi_compat.h demux/dvb-text.h
 libts_plugin_la_CFLAGS = $(AM_CFLAGS) $(DVBPSI_CFLAGS)
 libts_plugin_la_LIBADD = $(DVBPSI_LIBS) $(SOCKET_LIBS)
+if HAVE_ARIB
+libts_plugin_la_SOURCES += demux/arib/b_cas_card.c demux/arib/multi2.c demux/arib/str.c
+libts_plugin_la_CFLAGS += $(PCSC_CFLAGS)
+libts_plugin_la_LIBADD += $(PCSC_LIBS)
+endif
 if HAVE_DVBPSI
 demux_LTLIBRARIES += libts_plugin.la
 endif

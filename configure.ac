@@ -1781,6 +1781,23 @@ AM_CONDITIONAL(HAVE_DECKLINK, [ test "${have_decklink}" != "no" ])
 
 
 dnl
+dnl  ARIB support
+dnl
+AC_ARG_ENABLE(arib,
+  [  --enable-arib           ARIB support (default disabled)])
+have_arib=no
+if test "${enable_arib}" = "yes"
+then
+  PKG_CHECK_MODULES(PCSC, libpcsclite, [
+  ], [
+    AC_MSG_ERROR([${PCSC_PKG_ERRORS}.])
+  ])
+  AC_DEFINE(HAVE_ARIB, 1, [Define if you want ARIB support])
+  have_arib=yes
+fi
+AM_CONDITIONAL(HAVE_ARIB, [ test "${have_arib}" = "yes" ])
+
+dnl
 dnl  gnomeVFS access module
 dnl
 PKG_ENABLE_MODULES_VLC([GNOMEVFS], [gnomevfs], [gnome-vfs-2.0], [GnomeVFS access module], [auto])
