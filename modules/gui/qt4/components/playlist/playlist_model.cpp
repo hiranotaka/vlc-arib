@@ -31,6 +31,7 @@
 #include "components/playlist/playlist_model.hpp"
 #include "input_manager.hpp"                            /* THEMIM */
 #include "util/qt_dirs.hpp"
+#include "recents.hpp"                                  /* Open:: */
 
 #include <vlc_intf_strings.h>                           /* I_DIR */
 
@@ -41,66 +42,6 @@
 #include <QTimer>
 #include <QAction>
 #include <QBuffer>
-
-/*************************************************************************
- * Proxy model implementation
- *************************************************************************/
-
-VLCProxyModel::VLCProxyModel( QObject *parent )
-    : QSortFilterProxyModel( parent ), VLCModelSubInterface()
-{
-    for ( int i = 0; i <= SQLML_MODEL ; i++ ) sourcemodels[ i ] = NULL;
-    /* Because we can't directly plug the signal without mapping
-       the index to the proxy model, we need a conversion step.
-    */
-    connect( this, SIGNAL( currentIndexChanged_Converted(const QModelIndex&) ),
-             this->sigs, SIGNAL( currentIndexChanged(const QModelIndex&) ) );
-}
-
-bool VLCProxyModel::switchToModel( models type )
-{
-    VLCModel *previousModel = model();
-    VLCModel *newModel = sourcemodels[ type ];
-    if ( ! newModel /*|| newModel == previousModel*/ ) return false;
-
-    setSourceModel( newModel );
-    if ( previousModel )
-    {
-        /* First disconnect previous signals */
-        disconnect( previousModel->sigs, SIGNAL( currentIndexChanged(const QModelIndex&) ),
-                    this, SIGNAL( currentIndexChanged_IndexConversion(const QModelIndex&) ) );
-        disconnect( previousModel->sigs, SIGNAL( rootIndexChanged() ),
-                    this->sigs, SIGNAL( rootIndexChanged() ) );
-    }
-
-    /* wire to propagate sourceModel's signals */
-    connect( model()->sigs, SIGNAL( currentIndexChanged(const QModelIndex&) ),
-             this, SLOT( currentIndexChanged_IndexConversion(const QModelIndex&) ) );
-    connect( model()->sigs, SIGNAL( rootIndexChanged() ),
-             this->sigs, SIGNAL( rootIndexChanged() ) );
-    return true;
-}
-
-QModelIndexList VLCProxyModel::mapListToSource( const QModelIndexList& list )
-{
-    QModelIndexList newlist;
-    foreach( const QModelIndex &index, list )
-    {
-        if ( index.isValid() )
-            newlist << mapToSource( index );
-    }
-    return newlist;
-}
-
-void VLCProxyModel::sort( const int column, Qt::SortOrder order )
-{
-    /* sorting on PLModel affects playlist order. */
-    if ( model() == sourcemodels[ PL_MODEL ] )
-        model()->sort( column, order );
-    else
-    /* otherwise we just use native proxy sorting */
-        QSortFilterProxyModel::sort( column, order );
-}
 
 /*************************************************************************
  * Playlist model implementation
@@ -381,7 +322,7 @@ QVariant PLModel::data( const QModelIndex &index, const int role ) const
                         break;
                 }
             }
-            return QVariant( artUrl );
+            return artUrl;
         }
         else
         {
@@ -391,50 +332,24 @@ QVariant PLModel::data( const QModelIndex &index, const int role ) const
         }
         return QVariant( returninfo );
     }
-    else if( role == Qt::DecorationRole && index.column() == 0  )
+    else if( role == Qt::DecorationRole )
     {
-        /* Used to segfault here because i_type wasn't always initialized */
-        return QVariant( icons[item->inputItem()->i_type] );
+        switch( columnToMeta(index.column()) )
+        {
+        case COLUMN_TITLE:
+            /* Used to segfault here because i_type wasn't always initialized */
+            return QVariant( icons[item->inputItem()->i_type] );
+        case COLUMN_COVER:
+            /* !warn: changes tree item line height. Otherwise, override
+             * delegate's sizehint */
+            return getArtPixmap( index, QSize(16,16) );
+        default:
+            return QVariant();
+        }
     }
     else if( role == Qt::FontRole )
     {
         return QVariant( QFont() );
-    }
-    else if( role == Qt::ToolTipRole )
-    {
-        int i_art_policy = var_GetInteger( p_playlist, "album-art" );
-        QString artUrl;
-        /* FIXME: Skip, as we don't want the pixmap and do not know the cached art file */
-        if ( i_art_policy == ALBUM_ART_ALL )
-            artUrl = getArtUrl( index );
-        if ( artUrl.isEmpty() ) artUrl = ":/noart";
-        QString duration = qtr( "unknown" );
-        QString name;
-        PL_LOCK;
-        input_item_t *p_item = item->inputItem();
-        if ( !p_item )
-        {
-            PL_UNLOCK;
-            return QVariant();
-        }
-        if ( p_item->i_duration > 0 )
-        {
-            char *psz = psz_column_meta( item->inputItem(), COLUMN_DURATION );
-            duration = qfu( psz );
-            free( psz );
-        }
-        name = qfu( p_item->psz_name );
-        PL_UNLOCK;
-        QPixmap image = getArtPixmap( index, QSize( 128, 128 ) );
-        QByteArray bytes;
-        QBuffer buffer( &bytes );
-        buffer.open( QIODevice::WriteOnly );
-        image.save(&buffer, "BMP"); /* uncompressed, see qpixmap#reading-and-writing-image-files */
-        return QVariant( QString("<img width=\"128\" height=\"128\" align=\"left\" src=\"data:image/bmp;base64,%1\"/><div><b>%2</b><br/>%3</div>")
-                         .arg( bytes.toBase64().constData() )
-                         .arg( name )
-                         .arg( qtr("Duration") + ": " + duration )
-                        );
     }
     else if( role == Qt::BackgroundRole && isCurrent( index ) )
     {
@@ -652,7 +567,7 @@ void PLModel::processInputItemUpdate( input_thread_t *p_input )
     if( p_input && !( p_input->b_dead || !vlc_object_alive( p_input ) ) )
     {
         PLItem *item = findByInputId( rootItem, input_GetItem( p_input )->i_id );
-        if( item ) sigs->emit_currentIndexChanged( index( item, 0 ) );
+        if( item ) emit currentIndexChanged( index( item, 0 ) );
     }
 
     processInputItemUpdate( input_GetItem( p_input ) );
@@ -705,7 +620,7 @@ void PLModel::processItemAppend( int i_pl_itemid, int i_pl_itemidparent )
     nodeParentItem->insertChild( newItem, pos );
     endInsertRows();
     if ( newItem->inputItem() == THEMIM->currentInputItem() )
-        sigs->emit_currentIndexChanged( index( newItem, 0 ) );
+        emit currentIndexChanged( index( newItem, 0 ) );
 
     if( latestSearch.isEmpty() ) return;
     filter( latestSearch, index( rootItem, 0), false /*FIXME*/ );
@@ -729,7 +644,7 @@ void PLModel::rebuild( playlist_item_t *p_root )
 
     /* And signal the view */
     endResetModel();
-    if( p_root ) sigs->emit_rootIndexChanged();
+    if( p_root ) emit rootIndexChanged();
 }
 
 void PLModel::takeItem( PLItem *item )
@@ -894,9 +809,9 @@ void PLModel::sort( QModelIndex caller, QModelIndex rootIndex, const int column,
     }
     PL_UNLOCK;
     /* if we have popup item, try to make sure that you keep that item visible */
-    if( caller.isValid() ) sigs->emit_currentIndexChanged( caller );
+    if( caller.isValid() ) emit currentIndexChanged( caller );
 
-    else if( currentIndex().isValid() ) sigs->emit_currentIndexChanged( currentIndex() );
+    else if( currentIndex().isValid() ) emit currentIndexChanged( currentIndex() );
 }
 
 void PLModel::filter( const QString& search_text, const QModelIndex & idx, bool b_recursive )
@@ -974,7 +889,6 @@ bool PLModel::action( QAction *action, const QModelIndexList &indexes )
 {
     QModelIndex index;
     actionsContainerType a = action->data().value<actionsContainerType>();
-    input_item_t *p_input;
 
     switch ( a.action )
     {
@@ -1020,45 +934,23 @@ bool PLModel::action( QAction *action, const QModelIndexList &indexes )
 
     case ACTION_ENQUEUEFILE:
         foreach( const QString &uri, a.uris )
-            playlist_Add( THEPL, uri.toLatin1().constData(),
-                          NULL, PLAYLIST_APPEND | PLAYLIST_PREPARSE,
-                          PLAYLIST_END,
-                          getPLRootType() == ROOTTYPE_CURRENT_PLAYING,
-                          pl_Unlocked );
+            Open::openMRL( p_intf, uri.toLatin1().constData(),
+                           false, getPLRootType() == ROOTTYPE_CURRENT_PLAYING );
         return true;
 
     case ACTION_ENQUEUEDIR:
         if( a.uris.isEmpty() ) break;
-        p_input = input_item_New( a.uris.first().toLatin1().constData(), NULL );
-        if( unlikely( p_input == NULL ) ) break;
 
-        /* FIXME: playlist_AddInput() can fail */
-        playlist_AddInput( THEPL, p_input,
-                           PLAYLIST_APPEND,
-                           PLAYLIST_END,
-                           getPLRootType() == ROOTTYPE_CURRENT_PLAYING,
-                           pl_Unlocked );
-        vlc_gc_decref( p_input );
+        Open::openMRL( p_intf, a.uris.first().toLatin1().constData(),
+                       false, getPLRootType() == ROOTTYPE_CURRENT_PLAYING );
+
         return true;
 
     case ACTION_ENQUEUEGENERIC:
         foreach( const QString &uri, a.uris )
         {
-            p_input = input_item_New( qtu( uri ), NULL );
-            /* Insert options */
-            foreach( const QString &option, a.options.split( " :" ) )
-            {
-                QString temp = colon_unescape( option );
-                if( !temp.isEmpty() )
-                    input_item_AddOption( p_input, qtu( temp ),
-                                          VLC_INPUT_OPTION_TRUSTED );
-            }
-
-            /* FIXME: playlist_AddInput() can fail */
-            playlist_AddInput( THEPL, p_input,
-                    PLAYLIST_APPEND | PLAYLIST_PREPARSE,
-                    PLAYLIST_END, true, pl_Unlocked );
-            vlc_gc_decref( p_input );
+            QStringList options = a.options.split( " :" );
+            Open::openMRLwithOptions( p_intf, uri, &options, false );
         }
         return true;
 

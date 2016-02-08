@@ -42,6 +42,7 @@
 #include <limits.h>
 
 #include "libasf.h"
+#include "assert.h"
 
 /* TODO
  *  - add support for the newly added object: language, bitrate,
@@ -72,6 +73,7 @@ static int Control( demux_t *, int i_query, va_list args );
 static void FlushRemainingPackets( demux_t *p_demux );
 
 #define MAX_ASF_TRACKS 128
+#define ASF_PREROLL_FROM_CURRENT -1
 
 typedef struct
 {
@@ -79,11 +81,12 @@ typedef struct
 
     es_out_id_t     *p_es;
     es_format_t     *p_fmt; /* format backup for video changes */
+    bool             b_selected;
 
     asf_object_stream_properties_t *p_sp;
     asf_object_extended_stream_properties_t *p_esp;
 
-    mtime_t i_time;
+    mtime_t          i_time; /* track time*/
 
     block_t         *p_frame; /* use to gather complete frame */
 } asf_track_t;
@@ -106,7 +109,10 @@ struct demux_sys_t
     bool                b_index;
     bool                b_canfastseek;
     uint8_t             i_seek_track;
+    uint8_t             i_access_selected_track[ES_CATEGORY_COUNT]; /* mms, depends on access algorithm */
     unsigned int        i_wait_keyframe;
+
+    mtime_t             i_preroll_start;
 
     vlc_meta_t          *meta;
 };
@@ -152,6 +158,27 @@ static int Open( vlc_object_t * p_this )
 static int Demux( demux_t *p_demux )
 {
     demux_sys_t *p_sys = p_demux->p_sys;
+
+    for( int i=0; i<ES_CATEGORY_COUNT; i++ )
+    {
+        if ( p_sys->i_access_selected_track[i] > 0 )
+        {
+            es_out_Control( p_demux->out, ES_OUT_SET_ES_STATE,
+                            p_sys->track[p_sys->i_access_selected_track[i]]->p_es, true );
+            p_sys->i_access_selected_track[i] = 0;
+        }
+    }
+
+    /* Get selected tracks, especially for computing PCR */
+    for( int i=0; i<MAX_ASF_TRACKS; i++ )
+    {
+        asf_track_t *tk = p_sys->track[i];
+        if ( !tk ) continue;
+        if ( tk->p_es )
+            es_out_Control( p_demux->out, ES_OUT_GET_ES_STATE, tk->p_es, & tk->b_selected );
+        else
+            tk->b_selected = false;
+    }
 
     for( ;; )
     {
@@ -212,13 +239,14 @@ static int Demux( demux_t *p_demux )
     }
 
     /* Set the PCR */
+    /* WARN: Don't move it before the end of the whole chunk */
     p_sys->i_time = GetMoviePTS( p_sys );
     if( p_sys->i_time >= 0 )
     {
 #ifdef ASF_DEBUG
-        msg_Dbg( p_demux, "Setting PCR to %"PRId64, p_sys->i_time );
+        msg_Dbg( p_demux, "Demux Loop Setting PCR to %"PRId64, VLC_TS_0 + p_sys->i_time );
 #endif
-        es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_time+1 );
+        es_out_Control( p_demux->out, ES_OUT_SET_PCR, VLC_TS_0 + p_sys->i_time );
     }
 
     return 1;
@@ -247,16 +275,10 @@ static void WaitKeyframe( demux_t *p_demux )
         for ( int i=0; i<MAX_ASF_TRACKS; i++ )
         {
             asf_track_t *tk = p_sys->track[i];
-            if ( tk && tk->p_sp && tk->i_cat == VIDEO_ES )
+            if ( tk && tk->p_sp && tk->i_cat == VIDEO_ES && tk->b_selected )
             {
-                bool b_selected = false;
-                es_out_Control( p_demux->out, ES_OUT_GET_ES_STATE,
-                                tk->p_es, &b_selected );
-                if ( b_selected )
-                {
-                    p_sys->i_seek_track = tk->p_sp->i_stream_number;
-                    break;
-                }
+                p_sys->i_seek_track = tk->p_sp->i_stream_number;
+                break;
             }
         }
     }
@@ -313,9 +335,12 @@ static int SeekIndex( demux_t *p_demux, mtime_t i_date, float f_pos )
     if( i_date < 0 )
         i_date = p_sys->i_length * f_pos;
 
+    p_sys->i_preroll_start = i_date - (int64_t) p_sys->p_fp->i_preroll;
+    if ( p_sys->i_preroll_start < 0 ) p_sys->i_preroll_start = 0;
+
     p_index = ASF_FindObject( p_sys->p_root, &asf_object_simple_index_guid, 0 );
 
-    uint64_t i_entry = i_date * 10 / p_index->i_index_entry_time_interval;
+    uint64_t i_entry = p_sys->i_preroll_start * 10 / p_index->i_index_entry_time_interval;
     if( i_entry >= p_index->i_index_entry_count )
     {
         msg_Warn( p_demux, "Incomplete index" );
@@ -340,19 +365,20 @@ static void SeekPrepare( demux_t *p_demux )
     demux_sys_t *p_sys = p_demux->p_sys;
 
     p_sys->i_time = VLC_TS_INVALID;
+    p_sys->i_preroll_start = ASF_PREROLL_FROM_CURRENT;
     for( int i = 0; i < MAX_ASF_TRACKS ; i++ )
     {
         asf_track_t *tk = p_sys->track[i];
         if( !tk )
             continue;
 
-        tk->i_time = VLC_TS_INVALID;
+        tk->i_time = -1;
         if( tk->p_frame )
             block_ChainRelease( tk->p_frame );
         tk->p_frame = NULL;
     }
 
-    es_out_Control( p_demux->out, ES_OUT_RESET_PCR, VLC_TS_INVALID );
+    es_out_Control( p_demux->out, ES_OUT_RESET_PCR );
 }
 
 /*****************************************************************************
@@ -401,8 +427,19 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
     case DEMUX_SET_ES:
     {
         i = (int)va_arg( args, int );
-        int i_ret = stream_Control( p_demux->s,
-                                    STREAM_SET_PRIVATE_ID_STATE, i, true );
+        int i_ret;
+        if ( i >= 0 )
+        {
+            i++; /* video/audio-es variable starts 0 */
+            msg_Dbg( p_demux, "Requesting access to enable stream %d", i );
+            i_ret = stream_Control( p_demux->s, STREAM_SET_PRIVATE_ID_STATE, i, true );
+        }
+        else
+        {  /* i contains -1 * es_category */
+            msg_Dbg( p_demux, "Requesting access to disable stream %d", i );
+            i_ret = stream_Control( p_demux->s, STREAM_SET_PRIVATE_ID_STATE, i, false );
+        }
+
         if ( i_ret == VLC_SUCCESS )
         {
             SeekPrepare( p_demux );
@@ -478,15 +515,28 @@ static mtime_t GetMoviePTS( demux_sys_t *p_sys )
 {
     mtime_t i_time = -1;
     int     i;
-
+    /* As some tracks might have been deselected by access, the PCR might
+     * stop updating */
     for( i = 0; i < MAX_ASF_TRACKS ; i++ )
     {
-        asf_track_t *tk = p_sys->track[i];
+        const asf_track_t *tk = p_sys->track[i];
 
-        if( tk && tk->p_es && tk->i_time > 0)
+        if( tk && tk->p_es && tk->b_selected )
         {
-            if( i_time < 0 ) i_time = tk->i_time;
-            else i_time = __MIN( i_time, tk->i_time );
+            /* Skip discrete tracks */
+            if ( tk->i_cat != VIDEO_ES && tk->i_cat != AUDIO_ES )
+                continue;
+
+            /* We need to have all ES seen once, as they might have lower DTS */
+            if ( tk->i_time + (int64_t)p_sys->p_fp->i_preroll * 1000 < 0 )
+            {
+                /* early fail */
+                return -1;
+            }
+            else if ( tk->i_time > -1 && ( i_time == -1 || i_time > tk->i_time ) )
+            {
+                i_time = tk->i_time;
+            }
         }
     }
 
@@ -542,16 +592,15 @@ static void SendPacket(demux_t *p_demux, asf_track_t *tk)
     if( p_sys->i_time < VLC_TS_0 && tk->i_time > VLC_TS_INVALID )
     {
         p_sys->i_time = tk->i_time;
-        es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_sys->i_time );
+        es_out_Control( p_demux->out, ES_OUT_SET_PCR, VLC_TS_0 + p_sys->i_time );
 #ifdef ASF_DEBUG
-        msg_Dbg( p_demux, "    setting PCR to %"PRId64, p_sys->i_time );
+        msg_Dbg( p_demux, "    setting PCR to %"PRId64, VLC_TS_0 + p_sys->i_time );
 #endif
     }
 
 #ifdef ASF_DEBUG
     msg_Dbg( p_demux, "    sending packet dts %"PRId64" pts %"PRId64" pcr %"PRId64, p_gather->i_dts, p_gather->i_pts, p_sys->i_time );
 #endif
-
     es_out_Send( p_demux->out, tk->p_es, p_gather );
     tk->p_frame = NULL;
 }
@@ -658,15 +707,19 @@ static void ParsePayloadExtensions(demux_t *p_demux, asf_track_t *tk,
             uint8_t i_ratio_y = *(p_data + 1);
             if ( tk->p_fmt->video.i_sar_num != i_ratio_x || tk->p_fmt->video.i_sar_den != i_ratio_y )
             {
-                vout_thread_t *p_vout = input_GetVout( p_demux->p_input );
-                if ( p_vout )
+                /* Only apply if origin pixel size >= 1x1, due to broken yacast */
+                if ( tk->p_fmt->video.i_height * i_ratio_x > tk->p_fmt->video.i_width * i_ratio_y )
                 {
-                    msg_Info( p_demux, "Changing aspect ratio to %i/%i", i_ratio_x, i_ratio_y );
-                    tk->p_fmt->video.i_sar_num = i_ratio_x;
-                    tk->p_fmt->video.i_sar_den = i_ratio_y;
-                    vout_ChangeAspectRatio( p_vout, i_ratio_x, i_ratio_y );
-                    vlc_object_release( p_vout );
+                    vout_thread_t *p_vout = input_GetVout( p_demux->p_input );
+                    if ( p_vout )
+                    {
+                        msg_Info( p_demux, "Changing aspect ratio to %i/%i", i_ratio_x, i_ratio_y );
+                        vout_ChangeAspectRatio( p_vout, i_ratio_x, i_ratio_y );
+                        vlc_object_release( p_vout );
+                    }
                 }
+                tk->p_fmt->video.i_sar_num = i_ratio_x;
+                tk->p_fmt->video.i_sar_den = i_ratio_y;
             }
         }
         i_length -= i_payload_extensions_size;
@@ -707,8 +760,11 @@ static int DemuxPayload(demux_t *p_demux, struct asf_packet_t *pkt, int i_payloa
     uint8_t i_pts_delta = 0;
     uint32_t i_payload_data_length = 0;
     uint32_t i_temp_payload_length = 0;
-    bool b_preroll_done = false;
     p_sys->p_fp->i_preroll = __MIN( p_sys->p_fp->i_preroll, INT64_MAX );
+
+    /* First packet, in case we do not have index to guess preroll start time */
+    if ( p_sys->i_preroll_start == ASF_PREROLL_FROM_CURRENT )
+        p_sys->i_preroll_start = pkt->send_time * 1000;
 
     /* Non compressed */
     if( i_replicated_data_length > 7 ) // should be at least 8 bytes
@@ -719,8 +775,6 @@ static int DemuxPayload(demux_t *p_demux, struct asf_packet_t *pkt, int i_payloa
         /* Parsing extensions, See 7.3.1 */
         ParsePayloadExtensions( p_demux, p_sys->track[i_stream_number], pkt,
                                 i_replicated_data_length, &b_packet_keyframe );
-
-        b_preroll_done = ( i_base_pts > (int64_t)p_sys->p_fp->i_preroll );
         i_base_pts -= p_sys->p_fp->i_preroll;
         pkt->i_skip += i_replicated_data_length;
 
@@ -731,7 +785,7 @@ static int DemuxPayload(demux_t *p_demux, struct asf_packet_t *pkt, int i_payloa
     {
         /* optional DWORDS missing */
         i_base_pts = (mtime_t)pkt->send_time;
-        b_preroll_done = ( i_base_pts > (int64_t)p_sys->p_fp->i_preroll );
+        i_base_pts -= p_sys->p_fp->i_preroll;
     }
     /* Compressed payload */
     else if( i_replicated_data_length == 1 )
@@ -740,7 +794,6 @@ static int DemuxPayload(demux_t *p_demux, struct asf_packet_t *pkt, int i_payloa
         /* Next byte is Presentation Time Delta */
         i_pts_delta = pkt->p_peek[pkt->i_skip];
         i_base_pts = (mtime_t)i_media_object_offset;
-        b_preroll_done = ( i_base_pts > (int64_t)p_sys->p_fp->i_preroll );
         i_base_pts -= p_sys->p_fp->i_preroll;
         pkt->i_skip++;
         i_media_object_offset = 0;
@@ -752,6 +805,8 @@ static int DemuxPayload(demux_t *p_demux, struct asf_packet_t *pkt, int i_payloa
         i_payload_data_length = pkt->length - pkt->padding_length - pkt->i_skip;
         goto skip;
     }
+
+    bool b_preroll_done = ( pkt->send_time > (p_sys->i_preroll_start/1000 + p_sys->p_fp->i_preroll) );
 
     if (i_base_pts < 0) i_base_pts = 0; // FIXME?
     i_base_pts *= 1000;
@@ -805,11 +860,18 @@ static int DemuxPayload(demux_t *p_demux, struct asf_packet_t *pkt, int i_payloa
     if( !tk->p_es )
         goto skip;
 
-    if ( b_preroll_done )
+    bool b_hugedelay = ( p_sys->p_fp->i_preroll * 1000 > CLOCK_FREQ * 3 );
+
+    if ( b_preroll_done || b_hugedelay )
     {
-        tk->i_time = INT64_C(1000) * pkt->send_time;
-        tk->i_time -= p_sys->p_fp->i_preroll * 1000;
-        tk->i_time -= tk->p_sp->i_time_offset * 10;
+        if ( !b_hugedelay )
+        {
+            tk->i_time = INT64_C(1000) * pkt->send_time;
+            tk->i_time -= p_sys->p_fp->i_preroll * 1000;
+            tk->i_time -= tk->p_sp->i_time_offset * 10;
+        }
+        else
+            tk->i_time = i_base_pts;
     }
 
     uint32_t i_subpayload_count = 0;
@@ -829,6 +891,9 @@ static int DemuxPayload(demux_t *p_demux, struct asf_packet_t *pkt, int i_payloa
         mtime_t i_payload_dts = INT64_C(1000) * pkt->send_time;
         i_payload_dts -= p_sys->p_fp->i_preroll * 1000;
         i_payload_dts -= tk->p_sp->i_time_offset * 10;
+
+        if ( b_hugedelay )
+            i_payload_dts = i_base_pts;
 
         if ( i_sub_payload_data_length &&
              DemuxSubPayload(p_demux, tk, i_sub_payload_data_length,
@@ -1434,6 +1499,14 @@ static int DemuxInit( demux_t *p_demux )
             }
 
             tk->p_es = es_out_Add( p_demux->out, &fmt );
+
+            if( !stream_Control( p_demux->s, STREAM_GET_PRIVATE_ID_STATE,
+                                 (int) p_sp->i_stream_number, &b_access_selected ) &&
+                b_access_selected )
+            {
+                p_sys->i_access_selected_track[fmt.i_cat] = p_sp->i_stream_number;
+            }
+
         }
         else
         {

@@ -307,8 +307,10 @@ static ssize_t Read(access_t *access, uint8_t *data, size_t size)
     int r = avio_read(access->p_sys->context, data, size);
     if (r > 0)
         access->info.i_pos += r;
-    else
+    else {
         access->info.b_eof = true;
+        r = 0;
+    }
     return r;
 }
 
@@ -317,7 +319,7 @@ static ssize_t Read(access_t *access, uint8_t *data, size_t size)
  *****************************************************************************/
 static ssize_t Write(sout_access_out_t *p_access, block_t *p_buffer)
 {
-    access_sys_t *p_sys = (access_sys_t*)p_access->p_sys;
+    sout_access_out_sys_t *p_sys = (sout_access_out_sys_t*)p_access->p_sys;
     size_t i_write = 0;
     int val;
 
@@ -437,7 +439,7 @@ static int Control(access_t *access, int query, va_list args)
         return VLC_SUCCESS;
     case ACCESS_GET_PTS_DELAY: {
         int64_t *delay = va_arg(args, int64_t *);
-        *delay = DEFAULT_PTS_DELAY; /* FIXME */
+        *delay = INT64_C(1000) * var_InheritInteger(access, "network-caching");
         return VLC_SUCCESS;
     }
     case ACCESS_SET_PAUSE_STATE: {

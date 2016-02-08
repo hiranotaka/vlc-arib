@@ -154,31 +154,24 @@ static VLCOpen *_o_sharedMainInstance = nil;
 
     [o_disc_selector_pop removeAllItems];
     [o_disc_selector_pop setHidden: NO];
-    NSString *o_videots = _NS("Open VIDEO_TS folder");
-    NSString *o_bdmv = _NS("Open BDMV folder");
+    NSString *o_videots = _NS("Open VIDEO_TS / BDMV folder");
     [o_disc_nodisc_lbl setStringValue: _NS("Insert Disc")];
     [o_disc_nodisc_videots_btn setTitle: o_videots];
-    [o_disc_nodisc_bdmv_btn setTitle: o_bdmv];
     [o_disc_audiocd_lbl setStringValue: _NS("Audio CD")];
     [o_disc_audiocd_trackcount_lbl setStringValue: @""];
     [o_disc_audiocd_videots_btn setTitle: o_videots];
-    [o_disc_audiocd_bdmv_btn setTitle: o_bdmv];
     [o_disc_dvd_lbl setStringValue: @""];
     [o_disc_dvd_disablemenus_btn setTitle: _NS("Disable DVD menus")];
     [o_disc_dvd_videots_btn setTitle: o_videots];
-    [o_disc_dvd_bdmv_btn setTitle: o_bdmv];
     [o_disc_dvdwomenus_lbl setStringValue: @""];
     [o_disc_dvdwomenus_enablemenus_btn setTitle: _NS("Enable DVD menus")];
     [o_disc_dvdwomenus_videots_btn setTitle: o_videots];
-    [o_disc_dvdwomenus_bdmv_btn setTitle: o_bdmv];
     [o_disc_dvdwomenus_title_lbl setStringValue: _NS("Title")];
     [o_disc_dvdwomenus_chapter_lbl setStringValue: _NS("Chapter")];
     [o_disc_vcd_title_lbl setStringValue: _NS("Title")];
     [o_disc_vcd_chapter_lbl setStringValue: _NS("Chapter")];
     [o_disc_vcd_videots_btn setTitle: o_videots];
-    [o_disc_vcd_bdmv_btn setTitle: o_bdmv];
     [o_disc_bd_videots_btn setTitle: o_videots];
-    [o_disc_bd_bdmv_btn setTitle: o_bdmv];
 
     [o_net_udp_port_lbl setStringValue: _NS("Port")];
     [o_net_udpm_addr_lbl setStringValue: _NS("IP Address")];
@@ -324,8 +317,9 @@ static VLCOpen *_o_sharedMainInstance = nil;
 
     [[sharedWorkspace notificationCenter] addObserver:self selector:@selector(scanOpticalMedia:) name:NSWorkspaceDidMountNotification object:nil];
     [[sharedWorkspace notificationCenter] addObserver:self selector:@selector(scanOpticalMedia:) name:NSWorkspaceDidUnmountNotification object:nil];
-    [self performSelector:@selector(qtkToggleUIElements:) withObject:nil afterDelay:.3];
-    [self performSelector:@selector(scanOpticalMedia:) withObject:nil afterDelay:.5];
+
+    [self qtkToggleUIElements:nil];
+    [self scanOpticalMedia:nil];
 
     [self setMRL: @""];
 }
@@ -463,7 +457,7 @@ static VLCOpen *_o_sharedMainInstance = nil;
         if ([o_file_custom_timing_ckb state] == NSOnState) {
             NSArray * components = [[o_file_starttime_fld stringValue] componentsSeparatedByString:@":"];
             NSUInteger componentCount = [components count];
-            NSInteger tempValue;
+            NSInteger tempValue = 0;
             if (componentCount == 1)
                 tempValue = [[components objectAtIndex:0] intValue];
             else if (componentCount == 2)
@@ -1013,6 +1007,13 @@ out:
     NSImage *o_image = [[NSWorkspace sharedWorkspace] iconForFile: o_path];
     NSString *o_device_path;
 
+    // BDMV path must not end with BDMV directory
+    if([o_type isEqualToString: kVLCMediaBDMVFolder]) {
+        if([[o_path lastPathComponent] isEqualToString: @"BDMV"]) {
+            o_path = [o_path stringByDeletingLastPathComponent];
+        }
+    }
+
     if ([o_type isEqualToString: kVLCMediaVideoTSFolder] ||
         [o_type isEqualToString: kVLCMediaBD] ||
         [o_type isEqualToString: kVLCMediaBDMVFolder] ||
@@ -1493,7 +1494,7 @@ out:
     if (channels) {
         NSString *channel;
         [[o_eyetv_channels_pop menu] addItem: [NSMenuItem separatorItem]];
-        while (channel = [channels nextObject])
+        while ((channel = [channels nextObject]) != nil)
             /* we have to add items this way, because we accept duplicates
              * additionally, we save a bit of time */
             [[[o_eyetv_channels_pop menu] addItemWithTitle: channel action: nil keyEquivalent: @""] setTag:++x];

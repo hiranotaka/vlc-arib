@@ -213,10 +213,10 @@ static bool parse_playlist_node COMPLEX_INTERFACE
         /* attribute: xmlns */
         else if (!strcmp(name, "xmlns") || !strcmp(name, "xmlns:vlc"))
             ;
-        else if (!strcmp(name, "xml:base") && psz_value)
+        else if (!strcmp(name, "xml:base"))
         {
             free(p_demux->p_sys->psz_base);
-            p_demux->p_sys->psz_base = strdup(psz_value);
+            p_demux->p_sys->psz_base = strdup(value);
         }
         /* unknown attribute */
         else
@@ -428,7 +428,7 @@ static bool parse_track_node COMPLEX_INTERFACE
                 free(psz_uri);
 
             if (p_sys->i_track_id < 0
-             || (unsigned)p_sys->i_track_id >= (SIZE_MAX / sizeof(p_new_input)))
+             || (size_t)p_sys->i_track_id >= (SIZE_MAX / sizeof(p_new_input)))
             {
                 input_item_node_AppendNode(p_input_node, p_new_node);
                 vlc_gc_decref(p_new_input);

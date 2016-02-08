@@ -81,15 +81,18 @@ int OpenMux( vlc_object_t *p_this )
 {
     AVOutputFormat *file_oformat;
     sout_mux_t *p_mux = (sout_mux_t*)p_this;
-    sout_mux_sys_t *p_sys;
-    char *psz_mux;
+    bool dummy = !strcmp( p_mux->p_access->psz_access, "dummy");
+
+    if( dummy && strlen(p_mux->p_access->psz_path)
+                              >= sizeof (((AVFormatContext *)NULL)->filename) )
+        return VLC_EGENERIC;
 
     vlc_init_avformat(p_this);
 
     config_ChainParse( p_mux, "sout-avformat-", ppsz_mux_options, p_mux->p_cfg );
 
     /* Find the requested muxer */
-    psz_mux = var_GetNonEmptyString( p_mux, "sout-avformat-mux" );
+    char *psz_mux = var_InheritString( p_mux, "sout-avformat-mux" );
     if( psz_mux )
     {
         file_oformat = av_guess_format( psz_mux, NULL, NULL );
@@ -106,14 +109,15 @@ int OpenMux( vlc_object_t *p_this )
       return VLC_EGENERIC;
     }
 
-    p_mux->p_sys = p_sys = malloc( sizeof( sout_mux_sys_t ) );
-    if( !p_sys )
+    sout_mux_sys_t *p_sys = malloc( sizeof( sout_mux_sys_t ) );
+    if( unlikely(p_sys == NULL) )
         return VLC_ENOMEM;
 
+    p_mux->p_sys = p_sys;
     p_sys->oc = avformat_alloc_context();
     p_sys->oc->oformat = file_oformat;
     /* If we use dummy access, let avformat write output */
-    if( !strcmp( p_mux->p_access->psz_access, "dummy") )
+    if( dummy )
         strcpy( p_sys->oc->filename, p_mux->p_access->psz_path );
 
     /* Create I/O wrapper */
@@ -224,16 +228,23 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
         codec->sample_rate = fmt->audio.i_rate;
         codec->time_base = (AVRational){1, codec->sample_rate};
         codec->frame_size = fmt->audio.i_frame_length;
+        if (fmt->i_bitrate == 0) {
+            msg_Warn( p_mux, "Missing audio bitrate, assuming 64k" );
+            fmt->i_bitrate = 64000;
+        }
         break;
 
     case VIDEO_ES:
-        if( !fmt->video.i_frame_rate ||
-            !fmt->video.i_frame_rate_base )
-        {
+        if( !fmt->video.i_frame_rate || !fmt->video.i_frame_rate_base ) {
             msg_Warn( p_mux, "Missing frame rate, assuming 25fps" );
             fmt->video.i_frame_rate = 25;
             fmt->video.i_frame_rate_base = 1;
-        }
+        } else
+            msg_Dbg( p_mux, "Muxing framerate will be %d/%d = %.2f fps",
+                    fmt->video.i_frame_rate,
+                    fmt->video.i_frame_rate_base,
+                    (double)fmt->video.i_frame_rate/(double)fmt->video.i_frame_rate_base );
+
         codec->codec_type = AVMEDIA_TYPE_VIDEO;
         codec->width = fmt->video.i_width;
         codec->height = fmt->video.i_height;
@@ -241,10 +252,17 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
                    &codec->sample_aspect_ratio.den,
                    fmt->video.i_sar_num,
                    fmt->video.i_sar_den, 1 << 30 /* something big */ );
+        msg_Dbg(p_mux, "Muxing aspect ratio will be %d/%d",
+                fmt->video.i_sar_num, fmt->video.i_sar_den);
         stream->sample_aspect_ratio.den = codec->sample_aspect_ratio.den;
         stream->sample_aspect_ratio.num = codec->sample_aspect_ratio.num;
         codec->time_base.den = fmt->video.i_frame_rate;
         codec->time_base.num = fmt->video.i_frame_rate_base;
+        if (fmt->i_bitrate == 0) {
+            msg_Warn( p_mux, "Missing video bitrate, assuming 512k" );
+            fmt->i_bitrate = 512000;
+        } else
+            msg_Dbg( p_mux, "Muxing video bitrate will be %d", fmt->i_bitrate );
         break;
 
     }
@@ -427,6 +445,7 @@ static int Control( sout_mux_t *p_mux, int i_query, va_list args )
 static int IOWrite( void *opaque, uint8_t *buf, int buf_size )
 {
     sout_mux_t *p_mux = opaque;
+    sout_mux_sys_t *p_sys = p_mux->p_sys;
     int i_ret;
 
 #ifdef AVFORMAT_DEBUG
@@ -436,13 +455,13 @@ static int IOWrite( void *opaque, uint8_t *buf, int buf_size )
     block_t *p_buf = block_Alloc( buf_size );
     if( buf_size > 0 ) memcpy( p_buf->p_buffer, buf, buf_size );
 
-    if( p_mux->p_sys->b_write_header )
+    if( p_sys->b_write_header )
         p_buf->i_flags |= BLOCK_FLAG_HEADER;
 
-    if( p_mux->p_sys->b_write_keyframe )
+    if( p_sys->b_write_keyframe )
     {
         p_buf->i_flags |= BLOCK_FLAG_TYPE_I;
-        p_mux->p_sys->b_write_keyframe = false;
+        p_sys->b_write_keyframe = false;
     }
 
     i_ret = sout_AccessOutWrite( p_mux->p_access, p_buf );

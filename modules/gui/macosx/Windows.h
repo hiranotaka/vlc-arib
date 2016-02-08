@@ -98,10 +98,8 @@ static const float f_min_video_height = 70.0;
     VLCWindow       * o_fullscreen_window;
     NSViewAnimation * o_fullscreen_anim1;
     NSViewAnimation * o_fullscreen_anim2;
-    NSViewAnimation * o_makekey_anim;
     NSView          * o_temp_view;
 
-    BOOL              b_window_is_invisible;
     NSInteger i_originalLevel;
 
     BOOL              b_video_view_was_hidden;
@@ -110,11 +108,16 @@ static const float f_min_video_height = 70.0;
 
     // true when the window is in transition for entering or exiting fullscreen
     BOOL b_in_fullscreen_transition;
+
+    NSRect frameBeforeLionFullscreen;
+
+    BOOL b_windowShouldExitFullscreenWhenFinished;
 }
 
 @property (nonatomic, assign) VLCVoutView* videoView;
 @property (readonly) VLCControlsBarCommon* controlsBar;
 @property (readonly) BOOL inFullscreenTransition;
+@property (readonly) BOOL windowShouldExitFullscreenWhenFinished;
 
 - (void)setWindowLevel:(NSInteger)i_state;
 
@@ -126,8 +129,8 @@ static const float f_min_video_height = 70.0;
 - (void)setTitle:(NSString *)title;
 
 /* fullscreen handling */
-- (void)enterFullscreen;
-- (void)leaveFullscreen;
+- (void)enterFullscreenWithAnimation:(BOOL)b_animation;
+- (void)leaveFullscreenWithAnimation:(BOOL)b_animation;
 
 /* lion fullscreen handling */
 - (void)windowWillEnterFullScreen:(NSNotification *)notification;

@@ -191,7 +191,8 @@ void InterfacePreviewWidget::setPreview( enum_style e_style )
         break;
     }
 
-    setPixmap( QPixmap( pixmapLocationString ) );
+    setPixmap( QPixmap( pixmapLocationString ).
+               scaledToWidth( width(), Qt::SmoothTransformation ) );
     update();
 }
 
@@ -1131,6 +1132,7 @@ KeySelectorControl::KeySelectorControl( vlc_object_t *_p_this,
         qtr( "Select or double click an action to change the associated "
              "hotkey. Use delete key to remove hotkeys"), p );
 
+    label->setWordWrap( true );
     searchLabel = new QLabel( qtr( "Search" ), p );
     actionSearch = new SearchLineEdit();
 

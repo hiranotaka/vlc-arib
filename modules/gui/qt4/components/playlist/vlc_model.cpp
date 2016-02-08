@@ -27,12 +27,10 @@
 
 VLCModelSubInterface::VLCModelSubInterface()
 {
-    sigs = new VLCModelSignalsHandler( this );
 }
 
 VLCModelSubInterface::~VLCModelSubInterface()
 {
-    delete sigs;
 }
 
 int VLCModelSubInterface::columnFromMeta( int meta_col )
@@ -76,18 +74,10 @@ QString VLCModel::getMeta( const QModelIndex & index, int meta )
         data().toString();
 }
 
-QString VLCModel::getArtUrl( const QModelIndex & index )
-{
-    return index.model()->index( index.row(),
-                    columnFromMeta( COLUMN_COVER ),
-                    index.parent() )
-           .data().toString();
-}
-
 QPixmap VLCModel::getArtPixmap( const QModelIndex & index, const QSize & size )
 {
-    QString artUrl = VLCModel::getArtUrl( index ) ;
-
+    QString artUrl = index.sibling( index.row(),
+                     VLCModel::columnFromMeta(COLUMN_COVER) ).data().toString();
     QPixmap artPix;
 
     QString key = artUrl + QString("%1%2").arg(size.width()).arg(size.height());
@@ -139,6 +129,21 @@ int VLCModel::columnToMeta( int _column )
     }
 
     return meta;
+}
+
+int VLCModel::metaToColumn( int _meta )
+{
+    int meta = 1, column = 0;
+
+    while( meta != COLUMN_END )
+    {
+        if ( meta & _meta )
+            break;
+        meta <<= 1;
+        column++;
+    }
+
+    return column;
 }
 
 int VLCModel::itemId( const QModelIndex &index, int type ) const
@@ -193,14 +198,15 @@ void VLCModel::ensureArtRequested( const QModelIndex &index )
     if ( index.isValid() && hasChildren( index ) )
     {
         int i_art_policy = var_GetInteger( THEPL, "album-art" );
-        if ( i_art_policy != ALBUM_ART_ALL ) return;
+        bool b_access = var_InheritBool( THEPL, "metadata-network-access" );
+        if ( i_art_policy != ALBUM_ART_ALL && ! b_access ) return;
         int nbnodes = rowCount( index );
         QModelIndex child;
         for( int row = 0 ; row < nbnodes ; row++ )
         {
-            child = index.child( row, 0 );
-            if ( child.isValid() && getArtUrl( child ).isEmpty() )
-                THEMIM->getIM()->requestArtUpdate( getInputItem( child ) );
+            child = index.child( row, COLUMN_COVER );
+            if ( child.isValid() && child.data().toString().isEmpty() )
+                THEMIM->getIM()->requestArtUpdate( getInputItem( child ), false );
         }
     }
 }

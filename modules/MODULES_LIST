@@ -18,6 +18,8 @@ $Id$
  * access_output_shout: Shoutcast access output
  * access_output_udp: UDP Network access_output module
  * access_realrtsp: Real RTSP access
+ * addonsfsstorage: Local storage extensions repository
+ * addonsvorepository: Videolan extensions repository
  * adjust: Contrast/Hue/saturation/Brightness adjust module
  * adpcm: ADPCM audio decoder
  * adummy: dummy audio output
@@ -149,8 +151,10 @@ $Id$
  * grain: Grain Video filter
  * grey_yuv: grayscale to others conversion module
  * growl: announce currently playing stream to growl
+ * gstdecode: GStreamer based decoder module.
  * h264: H264 decoder
  * headphone_channel_mixer:  headphone channel mixer with virtual spatialization effect
+ * hevc: HEVC demuxer
  * hotkeys: hotkeys control module
  * hqdn3d: High Quality denoising filter
  * http: HTTP Network access module
@@ -173,6 +177,7 @@ $Id$
  * integer_mixer: Integer audio mixer
  * invert: inverse video filter
  * iomx: IPC/OpenMaxIL for Android
+ * ios_dialog_provider: Internal Dialog Provider for iOS
  * jack: jack server audio output
  * jpeg: JPEG image decoder
  * kai: OS/2 audio output
@@ -196,10 +201,13 @@ $Id$
  * marq: Overlays a marquee on the video
  * mediacodec: Android Jelly Bean MediaCodec decoder module
  * mediadirs: Picture/Music/Video user directories as service discoveries
+ * mft: Media Foundation Transform audio/video decoder
  * minimal_macosx: a minimal Mac OS X GUI, using the FrameWork
  * mirror: mirror video filter
  * mjpeg: a demuxer for multipart and concatenated JPEG data
  * mkv: Matroska demuxer
+ * mmal_codec: mmal based video decoder
+ * mmal_vout: mmal based video renderer
  * mmdevice: Windows Audio Session API audio output using MMDevice
  * mod: MOD demuxer
  * mono: stereo-to-mono downmix simple channel mixer
@@ -245,6 +253,7 @@ $Id$
  * packetizer_dirac: Dirac video packetizer
  * packetizer_flac: FLAC audio packetizer
  * packetizer_h264: H264 video packetizer
+ * packetizer_hevc: H.265/HEVC video packetizer
  * packetizer_mlp: MLP/TrueHD audio packetizer
  * packetizer_mpeg4audio: MPEG4 audio packetizer
  * packetizer_mpeg4video: MPEG4 video packetizer
@@ -335,13 +344,16 @@ $Id$
  * stream_out_setid: Set the ID/Lang of an ES when streaming
  * stream_out_smem: stream output module to a memory buffer
  * stream_out_standard: standard stream output module
+ * stream_out_stats: Print timing values and md5 for sout blocks
  * stream_out_transcode: audio & video transcoder
  * subsdec: a codec to output textual subtitles
  * subsdelay: subtitles delay filter
+ * substx3g: tx3g styled subtitles decoder
  * subsusf: a demuxer for USF subtitles
  * subtitle: a demuxer for subtitle files
  * svcdsub: SVCD subtitles decoder
  * svg: a svg renderer module
+ * svgdec: a svg decoder module
  * swscale: Video scaling filter
  * t140: T.140 text encoder
  * taglib: Taglib tags parser and writer
@@ -363,7 +375,8 @@ $Id$
  * uleaddvaudio: codec for DV Audio from Ulead
  * upnp: libupnp UPNP service discovery
  * v4l2: Video 4 Linux 2 input module
- * vaapi: VAAPI hardware-accelerated decoding
+ * vaapi_drm: VAAPI hardware-accelerated decoding with drm backend
+ * vaapi_x11: VAAPI hardware-accelerated decoding with x11 backend
  * vc1: VC-1 Video demuxer
  * vcd: input module for accessing Video CDs
  * vcdx: input module for accessing Video CDs with navigation & stills
@@ -385,20 +398,22 @@ $Id$
  * vod_rtsp: RTSP VoD module
  * volume_neon: audio volume optimized for ARM NEON
  * vorbis: a vorbis audio decoder/packetizer using the libvorbis library
- * vout_coregraphicslayer: CoreGraphics video output for NPAPI plugins
  * vout_ios2: iOS video provider using OpenGL ES 2
  * vout_macosx: Mac OS X OpenGL provider
  * vout_sdl: video output module using the SDL library
  * vpx: WebM decoder (VP8/VP9)
  * vsxu: audio visualization using Vovoid VSXu
  * wall: image wall filter
+ * wasapi: Wasapi audio output module
  * wav: Wav demuxer
  * wave: Wave video effect
  * waveout: simple audio output module for Windows
  * win32text: Text renderer using native Win32 API
  * win_hotkeys: module to catch hotkeys when application doesn't have the focus
+ * win_msg: Windows Messages module
  * windrive: Windows logical disc drives
  * wingdi: WIN 32 / WIN CE GDI video output
+ * winstore: Windows Store App audio output
  * wma_fixed: wma decoder using integer decoder from Rockbox
  * x262: MPEG-2 video encoder using x262
  * x26410b: H264 10 bit video encoder using x264

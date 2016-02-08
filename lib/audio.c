@@ -127,7 +127,53 @@ int libvlc_audio_output_set( libvlc_media_player_t *mp, const char *psz_name )
         return -1;
     var_SetString( mp, "aout", value );
     free( value );
+
+    /* Forget the existing audio output */
+    input_resource_ResetAout(mp->input.p_resource);
+
+    /* Create a new audio output */
+    audio_output_t *aout = input_resource_GetAout(mp->input.p_resource);
+    if( aout != NULL )
+        input_resource_PutAout(mp->input.p_resource, aout);
+
     return 0;
+}
+
+libvlc_audio_output_device_t *
+libvlc_audio_output_device_enum( libvlc_media_player_t *mp )
+{
+    audio_output_t *aout = GetAOut( mp );
+    if( aout == NULL )
+        return NULL;
+
+    libvlc_audio_output_device_t *list = NULL, **pp = &list;
+    char **values, **texts;
+
+    int n = aout_DevicesList( aout, &values, &texts );
+    vlc_object_release( aout );
+    if( n < 0 )
+        goto err;
+
+    for (int i = 0; i < n; i++)
+    {
+        libvlc_audio_output_device_t *item = malloc( sizeof(*item) );
+        if( unlikely(item == NULL) )
+        {
+            free( texts[i] );
+            free( values[i] );
+            continue;
+        }
+
+        *pp = item;
+        pp = &item->p_next;
+        item->psz_device = values[i];
+        item->psz_description = texts[i];
+    }
+
+    free( texts );
+    free( values );
+err:
+    return list;
 }
 
 libvlc_audio_output_device_t *
@@ -202,19 +248,32 @@ char *libvlc_audio_output_device_id( libvlc_instance_t *p_instance,
  * Set device for using
  *****************************/
 void libvlc_audio_output_device_set( libvlc_media_player_t *mp,
-                                     const char *psz_audio_output,
-                                     const char *psz_device_id )
+                                     const char *module, const char *devid )
 {
-    char *psz_config_name;
-    if( !psz_audio_output || !psz_device_id )
+    if( devid == NULL )
         return;
-    if( asprintf( &psz_config_name, "%s-audio-device", psz_audio_output ) == -1 )
+
+    if( module != NULL )
+    {
+        char *cfg_name;
+
+        if( asprintf( &cfg_name, "%s-audio-device", module ) == -1 )
+            return;
+
+        if( !var_Type( mp, cfg_name ) )
+            /* Don't recreate the same variable over and over and over... */
+            var_Create( mp, cfg_name, VLC_VAR_STRING );
+        var_SetString( mp, cfg_name, devid );
+        free( cfg_name );
         return;
-    if( !var_Type( mp, psz_config_name ) )
-        /* Don't recreate the same variable over and over and over... */
-        var_Create( mp, psz_config_name, VLC_VAR_STRING );
-    var_SetString( mp, psz_config_name, psz_device_id );
-    free( psz_config_name );
+    }
+
+    audio_output_t *aout = GetAOut( mp );
+    if( aout == NULL )
+        return;
+
+    aout_DeviceSet( aout, devid );
+    vlc_object_release( aout );
 }
 
 int libvlc_audio_output_get_device_type( libvlc_media_player_t *mp )
@@ -276,7 +335,7 @@ int libvlc_audio_get_volume( libvlc_media_player_t *mp )
 int libvlc_audio_set_volume( libvlc_media_player_t *mp, int volume )
 {
     float vol = volume / 100.f;
-    if (vol < 0.f)
+    if (!isgreaterequal(vol, 0.f))
     {
         libvlc_printerr( "Volume out of range" );
         return -1;
@@ -520,10 +579,12 @@ void libvlc_audio_equalizer_release( libvlc_equalizer_t *p_equalizer )
  *****************************************************************************/
 int libvlc_audio_equalizer_set_preamp( libvlc_equalizer_t *p_equalizer, float f_preamp )
 {
-    if ( f_preamp < -20.0f )
-        f_preamp = -20.0f;
-    else if ( f_preamp > 20.0f )
-        f_preamp = 20.0f;
+    if( isnan(f_preamp) )
+        return -1;
+    if( f_preamp < -20.f )
+        f_preamp = -20.f;
+    else if( f_preamp > 20.f )
+        f_preamp = 20.f;
 
     p_equalizer->f_preamp = f_preamp;
     return 0;
@@ -542,13 +603,14 @@ float libvlc_audio_equalizer_get_preamp( libvlc_equalizer_t *p_equalizer )
  *****************************************************************************/
 int libvlc_audio_equalizer_set_amp_at_index( libvlc_equalizer_t *p_equalizer, float f_amp, unsigned u_band )
 {
-    if ( u_band >= EQZ_BANDS_MAX )
+    if( u_band >= EQZ_BANDS_MAX || isnan(f_amp) )
         return -1;
 
-    if ( f_amp < -20.0f )
-        f_amp = -20.0f;
-    else if ( f_amp > 20.0f )
-        f_amp = 20.0f;
+
+    if( f_amp < -20.f )
+        f_amp = -20.f;
+    else if( f_amp > 20.f )
+        f_amp = 20.f;
 
     p_equalizer->f_amp[ u_band ] = f_amp;
     return 0;
@@ -560,7 +622,7 @@ int libvlc_audio_equalizer_set_amp_at_index( libvlc_equalizer_t *p_equalizer, fl
 float libvlc_audio_equalizer_get_amp_at_index( libvlc_equalizer_t *p_equalizer, unsigned u_band )
 {
     if ( u_band >= EQZ_BANDS_MAX )
-        return 0.f;
+        return nanf("");
 
     return p_equalizer->f_amp[ u_band ];
 }

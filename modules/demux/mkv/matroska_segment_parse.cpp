@@ -341,6 +341,7 @@ void matroska_segment_c::ParseTrackEntry( KaxTrackEntry *m )
             KaxTrackTimecodeScale &ttcs = *(KaxTrackTimecodeScale*)l;
 
             tk->f_timecodescale = float( ttcs );
+            if ( tk->f_timecodescale <= 0 ) tk->f_timecodescale = 1.0;
             msg_Dbg( &sys.demuxer, "|   |   |   + Track TimeCodeScale=%f", tk->f_timecodescale );
         }
         else  if( MKV_IS_ID( l, KaxMaxBlockAdditionID ) ) // UNUSED
@@ -621,7 +622,7 @@ void matroska_segment_c::ParseTrackEntry( KaxTrackEntry *m )
                 {
                     KaxVideoFrameRate &vfps = *(KaxVideoFrameRate*)l;
 
-                    tk->f_fps = float( vfps );
+                    tk->f_fps = __MAX( float( vfps ), 1 );
                     msg_Dbg( &sys.demuxer, "   |   |   |   + fps=%f", float( vfps ) );
                 }
 //                else if( MKV_IS_ID( l, KaxVideoGamma) ) //DEPRECATED by Matroska
@@ -1402,8 +1403,13 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
             MP4_ReadBox_sample_vide( p_mp4_stream, p_box ) )
         {
             p_tk->fmt.i_codec = p_box->i_type;
-            p_tk->fmt.video.i_width = p_box->data.p_sample_vide->i_width;
-            p_tk->fmt.video.i_height = p_box->data.p_sample_vide->i_height;
+            uint32_t i_width = p_box->data.p_sample_vide->i_width;
+            uint32_t i_height = p_box->data.p_sample_vide->i_height;
+            if( i_width && i_height )
+            {
+                p_tk->fmt.video.i_width = i_width;
+                p_tk->fmt.video.i_height = i_height;
+            }
             p_tk->fmt.i_extra = p_box->data.p_sample_vide->i_qt_image_description;
             p_tk->fmt.p_extra = xmalloc( p_tk->fmt.i_extra );
             memcpy( p_tk->fmt.p_extra, p_box->data.p_sample_vide->p_qt_image_description, p_tk->fmt.i_extra );
@@ -1709,6 +1715,20 @@ int32_t matroska_segment_c::TrackInit( mkv_track_t * p_tk )
                 fill_extra_data( p_tk, p_tk->fmt.i_codec == VLC_CODEC_RA_288 ? 0 : 78);
             }
         }
+    }
+    else if( !strncmp( p_tk->psz_codec, "A_QUICKTIME", 11 ) )
+    {
+        p_tk->fmt.i_cat = AUDIO_ES;
+        if ( !strncmp( p_tk->psz_codec+11, "/QDM2", 5 ) )
+            p_tk->fmt.i_codec = VLC_CODEC_QDM2;
+        else if( !strncmp( p_tk->psz_codec+11, "/QDMC", 5 ) )
+            p_tk->fmt.i_codec = VLC_FOURCC('Q','D','M','C');
+        else if( p_tk->i_extra_data >= 8)
+            p_tk->fmt.i_codec = VLC_FOURCC(p_tk->p_extra_data[4],
+                                           p_tk->p_extra_data[5],
+                                           p_tk->p_extra_data[6],
+                                           p_tk->p_extra_data[7]);
+        fill_extra_data( p_tk, 0 );
     }
     else if( !strcmp( p_tk->psz_codec, "S_KATE" ) )
     {

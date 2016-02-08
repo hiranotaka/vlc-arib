@@ -145,7 +145,7 @@ static seekpoint_t * getChapterEntry( unsigned int i_index, chapters_array_t *p_
     return p_array->pp_chapters[i_index];
 }
 
-void vorbis_ParseComment( vlc_meta_t **pp_meta,
+void vorbis_ParseComment( es_format_t *p_fmt, vlc_meta_t **pp_meta,
         const uint8_t *p_data, int i_data,
         int *i_attachments, input_attachment_t ***attachments,
         int *i_cover_score, int *i_cover_idx,
@@ -243,6 +243,14 @@ void vorbis_ParseComment( vlc_meta_t **pp_meta,
         has##var = true; \
     }
 
+#define IF_EXTRACT_FMT(txt,var,fmt,target) \
+    IF_EXTRACT(txt,var)\
+    if( fmt && !strncasecmp(psz_comment, txt, strlen(txt)) )\
+        {\
+            if ( fmt->target ) free( fmt->target );\
+            fmt->target = strdup(&psz_comment[strlen(txt)]);\
+        }
+
         IF_EXTRACT("TITLE=", Title )
         else IF_EXTRACT("ARTIST=", Artist )
         else IF_EXTRACT("GENRE=", Genre )
@@ -276,7 +284,7 @@ void vorbis_ParseComment( vlc_meta_t **pp_meta,
         else IF_EXTRACT("COMMENTS=", Description )
         else IF_EXTRACT("RATING=", Rating )
         else IF_EXTRACT("DATE=", Date )
-        else IF_EXTRACT("LANGUAGE=", Language )
+        else IF_EXTRACT_FMT("LANGUAGE=", Language, p_fmt, psz_language )
         else IF_EXTRACT("ORGANIZATION=", Publisher )
         else IF_EXTRACT("ENCODER=", EncodedBy )
         else if( !strncasecmp( psz_comment, "METADATA_BLOCK_PICTURE=", strlen("METADATA_BLOCK_PICTURE=")))

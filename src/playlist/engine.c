@@ -230,14 +230,6 @@ playlist_t *playlist_Create( vlc_object_t *p_parent )
 
     pl_priv(p_playlist)->b_doing_ml = false;
 
-    pl_priv(p_playlist)->b_auto_preparse =
-        var_InheritBool( p_parent, "auto-preparse" );
-
-   /* Preparser (and meta retriever) */
-   p->p_preparser = playlist_preparser_New( VLC_OBJECT(p_playlist) );
-   if( unlikely(p->p_preparser == NULL) )
-       msg_Err( p_playlist, "cannot create preparser" );
-
     /* Create the root node */
     PL_LOCK;
     p_playlist->p_root = playlist_NodeCreate( p_playlist, NULL, NULL,
@@ -284,11 +276,14 @@ playlist_t *playlist_Create( vlc_object_t *p_parent )
     pl_priv(p_playlist)->status.i_status = PLAYLIST_STOPPED;
 
     if(b_ml)
-    {
-        const bool b_auto_preparse = pl_priv(p_playlist)->b_auto_preparse;
-        pl_priv(p_playlist)->b_auto_preparse = false;
         playlist_MLLoad( p_playlist );
-        pl_priv(p_playlist)->b_auto_preparse = b_auto_preparse;
+
+    /* Preparser (and meta retriever) _after_ the Media Library*/
+    if( var_InheritBool( p_parent, "auto-preparse" ) )
+    {
+        p->p_preparser = playlist_preparser_New( VLC_OBJECT(p_playlist) );
+        if( unlikely(p->p_preparser == NULL) )
+            msg_Err( p_playlist, "cannot create preparser" );
     }
 
     /* Input resources */
@@ -475,6 +470,7 @@ static void VariablesInit( playlist_t *p_playlist )
 
     /* */
     var_Create( p_playlist, "album-art", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT );
+    var_Create( p_playlist, "metadata-network-access", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );
 
     /* Variables to preserve video output parameters */
     var_Create( p_playlist, "fullscreen", VLC_VAR_BOOL | VLC_VAR_DOINHERIT );

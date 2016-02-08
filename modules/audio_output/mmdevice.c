@@ -1,7 +1,7 @@
 /*****************************************************************************
  * mmdevice.c : Windows Multimedia Device API audio output plugin for VLC
  *****************************************************************************
- * Copyright (C) 2012 Rémi Denis-Courmont
+ * Copyright (C) 2012-2014 Rémi Denis-Courmont
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -22,16 +22,16 @@
 # include <config.h>
 #endif
 
-#undef _WIN32_WINNT
-#define _WIN32_WINNT 0x600 /* Windows Vista */
 #define INITGUID
 #define COBJMACROS
 #define CONST_VTABLE
 
 #include <stdlib.h>
+#include <math.h>
 #include <assert.h>
 #include <audiopolicy.h>
 #include <mmdeviceapi.h>
+#include <endpointvolume.h>
 
 DEFINE_PROPERTYKEY(PKEY_Device_FriendlyName, 0xa45c254e, 0xdf1c, 0x4efd,
    0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 14);
@@ -42,6 +42,37 @@ DEFINE_PROPERTYKEY(PKEY_Device_FriendlyName, 0xa45c254e, 0xdf1c, 0x4efd,
 #include <vlc_charset.h>
 #include <vlc_modules.h>
 #include "audio_output/mmdevice.h"
+
+#if (_WIN32_WINNT < 0x600)
+static VOID WINAPI (*InitializeConditionVariable)(PCONDITION_VARIABLE);
+static BOOL WINAPI (*SleepConditionVariableCS)(PCONDITION_VARIABLE,
+                                               PCRITICAL_SECTION, DWORD);
+static VOID WINAPI (*WakeConditionVariable)(PCONDITION_VARIABLE);
+#define LOOKUP(s) \
+    if (((s) = (void *)GetProcAddress(h, #s)) == NULL) return FALSE
+
+BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID); /* avoid warning */
+BOOL WINAPI DllMain(HINSTANCE dll, DWORD reason, LPVOID reserved)
+{
+    (void) dll;
+    (void) reserved;
+
+    switch (reason)
+    {
+        case DLL_PROCESS_ATTACH:
+        {
+            HANDLE h = GetModuleHandle(TEXT("kernel32.dll"));
+            if (unlikely(h == NULL))
+                return FALSE;
+            LOOKUP(InitializeConditionVariable);
+            LOOKUP(SleepConditionVariableCS);
+            LOOKUP(WakeConditionVariable);
+            break;
+        }
+    }
+    return TRUE;
+}
+#endif
 
 DEFINE_GUID (GUID_VLC_AUD_OUT, 0x4533f59d, 0x59ee, 0x00c6,
    0xad, 0xb2, 0xc6, 0x8b, 0x50, 0x1a, 0x66, 0x55);
@@ -76,15 +107,17 @@ struct aout_sys_t
 {
     aout_stream_t *stream; /**< Underlying audio output stream */
     module_t *module;
-#if !VLC_WINSTORE_APP
     audio_output_t *aout;
     IMMDeviceEnumerator *it; /**< Device enumerator, NULL when exiting */
     IMMDevice *dev; /**< Selected output device, NULL if none */
 
     struct IMMNotificationClient device_events;
+    struct IAudioEndpointVolumeCallback endpoint_callback;
     struct IAudioSessionEvents session_events;
+    struct IAudioVolumeDuckNotification duck;
 
     LONG refs;
+    unsigned ducks;
 
     wchar_t *device; /**< Requested device identifier, NULL if none */
     float volume; /**< Requested volume, negative if none */
@@ -93,9 +126,6 @@ struct aout_sys_t
     CONDITION_VARIABLE work;
     CONDITION_VARIABLE ready;
     vlc_thread_t thread; /**< Thread for audio session control */
-#else
-    void *client;
-#endif
 };
 
 /* NOTE: The Core Audio API documentation totally fails to specify the thread
@@ -161,26 +191,16 @@ static void Flush(audio_output_t *aout, bool wait)
     aout_sys_t *sys = aout->sys;
 
     EnterMTA();
-
-    if (wait)
-    {   /* Loosy drain emulation */
-        mtime_t delay;
-
-        if (SUCCEEDED(aout_stream_TimeGet(sys->stream, &delay)))
-            Sleep((delay / (CLOCK_FREQ / 1000)) + 1);
-    }
-    else
-        aout_stream_Flush(sys->stream);
-
+    aout_stream_Flush(sys->stream, wait);
     LeaveMTA();
 
 }
 
-#if !VLC_WINSTORE_APP
 static int VolumeSet(audio_output_t *aout, float vol)
 {
     aout_sys_t *sys = aout->sys;
 
+    vol = vol * vol * vol; /* ISimpleAudioVolume is tapered linearly. */
     EnterCriticalSection(&sys->lock);
     sys->volume = vol;
     WakeConditionVariable(&sys->work);
@@ -271,8 +291,9 @@ vlc_AudioSessionEvents_OnSimpleVolumeChanged(IAudioSessionEvents *this,
 
     msg_Dbg(aout, "simple volume changed: %f, muting %sabled", vol,
             mute ? "en" : "dis");
-    aout_VolumeReport(aout, vol);
-    aout_MuteReport(aout, mute == TRUE);
+    EnterCriticalSection(&sys->lock);
+    WakeConditionVariable(&sys->work); /* implicit state: vol & mute */
+    LeaveCriticalSection(&sys->lock);
     (void) ctx;
     return S_OK;
 }
@@ -365,6 +386,143 @@ static const struct IAudioSessionEventsVtbl vlc_AudioSessionEvents =
     vlc_AudioSessionEvents_OnStateChanged,
     vlc_AudioSessionEvents_OnSessionDisconnected,
 };
+
+static inline aout_sys_t *vlc_AudioVolumeDuckNotification_sys(IAudioVolumeDuckNotification *this)
+{
+    return (void *)(((char *)this) - offsetof(aout_sys_t, duck));
+}
+
+static STDMETHODIMP
+vlc_AudioVolumeDuckNotification_QueryInterface(
+    IAudioVolumeDuckNotification *this, REFIID riid, void **ppv)
+{
+    if (IsEqualIID(riid, &IID_IUnknown)
+     || IsEqualIID(riid, &IID_IAudioVolumeDuckNotification))
+    {
+        *ppv = this;
+        IUnknown_AddRef(this);
+        return S_OK;
+    }
+    else
+    {
+       *ppv = NULL;
+        return E_NOINTERFACE;
+    }
+}
+
+static STDMETHODIMP_(ULONG)
+vlc_AudioVolumeDuckNotification_AddRef(IAudioVolumeDuckNotification *this)
+{
+    aout_sys_t *sys = vlc_AudioVolumeDuckNotification_sys(this);
+    return InterlockedIncrement(&sys->refs);
+}
+
+static STDMETHODIMP_(ULONG)
+vlc_AudioVolumeDuckNotification_Release(IAudioVolumeDuckNotification *this)
+{
+    aout_sys_t *sys = vlc_AudioVolumeDuckNotification_sys(this);
+    return InterlockedDecrement(&sys->refs);
+}
+
+static STDMETHODIMP
+vlc_AudioVolumeDuckNotification_OnVolumeDuckNotification(
+    IAudioVolumeDuckNotification *this, LPCWSTR sid, UINT32 count)
+{
+    aout_sys_t *sys = vlc_AudioVolumeDuckNotification_sys(this);
+    audio_output_t *aout = sys->aout;
+
+    msg_Dbg(aout, "volume ducked by %ls of %u sessions", sid, count);
+    sys->ducks++;
+    aout_PolicyReport(aout, true);
+    return S_OK;
+}
+
+static STDMETHODIMP
+vlc_AudioVolumeDuckNotification_OnVolumeUnduckNotification(
+    IAudioVolumeDuckNotification *this, LPCWSTR sid)
+{
+    aout_sys_t *sys = vlc_AudioVolumeDuckNotification_sys(this);
+    audio_output_t *aout = sys->aout;
+
+    msg_Dbg(aout, "volume unducked by %ls", sid);
+    sys->ducks--;
+    aout_PolicyReport(aout, sys->ducks != 0);
+    return S_OK;
+}
+
+static const struct IAudioVolumeDuckNotificationVtbl vlc_AudioVolumeDuckNotification =
+{
+    vlc_AudioVolumeDuckNotification_QueryInterface,
+    vlc_AudioVolumeDuckNotification_AddRef,
+    vlc_AudioVolumeDuckNotification_Release,
+
+    vlc_AudioVolumeDuckNotification_OnVolumeDuckNotification,
+    vlc_AudioVolumeDuckNotification_OnVolumeUnduckNotification,
+};
+
+
+/*** Audio endpoint volume ***/
+static inline aout_sys_t *vlc_AudioEndpointVolumeCallback_sys(IAudioEndpointVolumeCallback *this)
+{
+    return (void *)(((char *)this) - offsetof(aout_sys_t, endpoint_callback));
+}
+
+static STDMETHODIMP
+vlc_AudioEndpointVolumeCallback_QueryInterface(IAudioEndpointVolumeCallback *this,
+                                               REFIID riid, void **ppv)
+{
+    if (IsEqualIID(riid, &IID_IUnknown)
+     || IsEqualIID(riid, &IID_IAudioEndpointVolumeCallback))
+    {
+        *ppv = this;
+        IUnknown_AddRef(this);
+        return S_OK;
+    }
+    else
+    {
+       *ppv = NULL;
+        return E_NOINTERFACE;
+    }
+}
+
+static STDMETHODIMP_(ULONG)
+vlc_AudioEndpointVolumeCallback_AddRef(IAudioEndpointVolumeCallback *this)
+{
+    aout_sys_t *sys = vlc_AudioEndpointVolumeCallback_sys(this);
+    return InterlockedIncrement(&sys->refs);
+}
+
+static STDMETHODIMP_(ULONG)
+vlc_AudioEndpointVolumeCallback_Release(IAudioEndpointVolumeCallback *this)
+{
+    aout_sys_t *sys = vlc_AudioEndpointVolumeCallback_sys(this);
+    return InterlockedDecrement(&sys->refs);
+}
+
+static STDMETHODIMP
+vlc_AudioEndpointVolumeCallback_OnNotify(IAudioEndpointVolumeCallback *this,
+                                  const PAUDIO_VOLUME_NOTIFICATION_DATA notify)
+{
+    aout_sys_t *sys = vlc_AudioEndpointVolumeCallback_sys(this);
+    audio_output_t *aout = sys->aout;
+
+    msg_Dbg(aout, "endpoint volume changed");
+    EnterCriticalSection(&sys->lock);
+    WakeConditionVariable(&sys->work); /* implicit state: endpoint volume */
+    LeaveCriticalSection(&sys->lock);
+    (void) notify;
+    return S_OK;
+}
+
+static const struct IAudioEndpointVolumeCallbackVtbl vlc_AudioEndpointVolumeCallback =
+{
+    vlc_AudioEndpointVolumeCallback_QueryInterface,
+    vlc_AudioEndpointVolumeCallback_AddRef,
+    vlc_AudioEndpointVolumeCallback_Release,
+
+    vlc_AudioEndpointVolumeCallback_OnNotify,
+};
+
 
 /*** Audio devices ***/
 
@@ -488,7 +646,7 @@ vlc_MMNotificationClient_OnDefaultDeviceChange(IMMNotificationClient *this,
 
     if (flow != eRender)
         return S_OK;
-    if (role != eConsole) /* FIXME? use eMultimedia instead */
+    if (role != eConsole)
         return S_OK;
 
     msg_Dbg(aout, "default device changed: %ls", wid); /* TODO? migrate */
@@ -536,9 +694,9 @@ vlc_MMNotificationClient_OnDeviceStateChanged(IMMNotificationClient *this,
 }
 
 static STDMETHODIMP
-vlc_MMNotificationClient_OnDevicePropertyChanged(IMMNotificationClient *this,
-                                                 LPCWSTR wid,
-                                                 const PROPERTYKEY key)
+vlc_MMNotificationClient_OnPropertyValueChanged(IMMNotificationClient *this,
+                                                LPCWSTR wid,
+                                                const PROPERTYKEY key)
 {
     aout_sys_t *sys = vlc_MMNotificationClient_sys(this);
     audio_output_t *aout = sys->aout;
@@ -561,7 +719,7 @@ static const struct IMMNotificationClientVtbl vlc_MMNotificationClient =
     vlc_MMNotificationClient_OnDeviceAdded,
     vlc_MMNotificationClient_OnDeviceRemoved,
     vlc_MMNotificationClient_OnDefaultDeviceChange,
-    vlc_MMNotificationClient_OnDevicePropertyChanged,
+    vlc_MMNotificationClient_OnPropertyValueChanged,
 };
 
 static int DevicesEnum(audio_output_t *aout, IMMDeviceEnumerator *it)
@@ -678,8 +836,10 @@ static HRESULT MMSession(audio_output_t *aout, IMMDeviceEnumerator *it)
     IAudioSessionManager *manager;
     IAudioSessionControl *control;
     ISimpleAudioVolume *volume;
+    IAudioEndpointVolume *endpoint;
     void *pv;
     HRESULT hr;
+    float base_volume = 1.f;
 
     assert(sys->device != NULL);
     assert(sys->dev == NULL);
@@ -688,16 +848,22 @@ static HRESULT MMSession(audio_output_t *aout, IMMDeviceEnumerator *it)
     {
         msg_Dbg(aout, "using selected device %ls", sys->device);
         hr = IMMDeviceEnumerator_GetDevice(it, sys->device, &sys->dev);
+        if (FAILED(hr))
+            msg_Err(aout, "cannot get selected device %ls (error 0x%lx)",
+                    sys->device, hr);
         free(sys->device);
     }
     else
         hr = AUDCLNT_E_DEVICE_INVALIDATED;
 
     while (hr == AUDCLNT_E_DEVICE_INVALIDATED)
-    {   /* Default device selected by policy */
+    {   /* Default device selected by policy and with stream routing.
+         * "Do not use eMultimedia" says MSDN. */
         msg_Dbg(aout, "using default device");
         hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(it, eRender,
                                                          eConsole, &sys->dev);
+        if (FAILED(hr))
+            msg_Err(aout, "cannot get default device (error 0x%lx)", hr);
     }
 
     sys->device = NULL;
@@ -721,7 +887,7 @@ static HRESULT MMSession(audio_output_t *aout, IMMDeviceEnumerator *it)
     }
     else
     {
-        msg_Err(aout, "cannot get device (error 0x%lx)", hr);
+        msg_Err(aout, "cannot get device identifier (error 0x%lx)", hr);
         return hr;
     }
 
@@ -750,25 +916,41 @@ static HRESULT MMSession(audio_output_t *aout, IMMDeviceEnumerator *it)
 
         hr = IAudioSessionManager_GetSimpleAudioVolume(manager, guid, FALSE,
                                                        &volume);
+        if (FAILED(hr))
+            msg_Err(aout, "cannot get simple volume (error 0x%lx)", hr);
+
+        /* Try to get version 2 (Windows 7) of the manager & control */
+        wchar_t *siid = NULL;
+
+        hr = IAudioSessionManager_QueryInterface(manager,
+                                              &IID_IAudioSessionControl2, &pv);
         if (SUCCEEDED(hr))
-        {   /* Get current values _after_ registering for notification */
-            BOOL mute;
-            float level;
+        {
+            IAudioSessionControl2 *c2 = pv;
 
-            hr = ISimpleAudioVolume_GetMute(volume, &mute);
-            if (SUCCEEDED(hr))
-                aout_MuteReport(aout, mute != FALSE);
-            else
-                msg_Err(aout, "cannot get mute (error 0x%lx)", hr);
-
-            hr = ISimpleAudioVolume_GetMasterVolume(volume, &level);
-            if (SUCCEEDED(hr))
-                aout_VolumeReport(aout, level);
-            else
-                msg_Err(aout, "cannot get mute (error 0x%lx)", hr);
+            IAudioSessionControl2_SetDuckingPreference(c2, FALSE);
+            hr = IAudioSessionControl2_GetSessionInstanceIdentifier(c2, &siid);
+            if (FAILED(hr))
+                siid = NULL;
+            IAudioSessionControl2_Release(c2);
         }
         else
-            msg_Err(aout, "cannot get simple volume (error 0x%lx)", hr);
+            msg_Dbg(aout, "version 2 session control unavailable");
+
+        hr = IAudioSessionManager_QueryInterface(manager,
+                                              &IID_IAudioSessionManager2, &pv);
+        if (SUCCEEDED(hr))
+        {
+            IAudioSessionManager2 *m2 = pv;
+
+            IAudioSessionManager2_RegisterDuckNotification(m2, siid,
+                                                           &sys->duck);
+            IAudioSessionManager2_Release(m2);
+        }
+        else
+            msg_Dbg(aout, "version 2 session management unavailable");
+
+        CoTaskMemFree(siid);
     }
     else
     {
@@ -777,32 +959,141 @@ static HRESULT MMSession(audio_output_t *aout, IMMDeviceEnumerator *it)
         volume = NULL;
     }
 
+    hr = IMMDevice_Activate(sys->dev, &IID_IAudioEndpointVolume,
+                            CLSCTX_ALL, NULL, &pv);
+    endpoint = pv;
+    if (SUCCEEDED(hr))
+    {
+        float min, max, inc;
+
+        hr = IAudioEndpointVolume_GetVolumeRange(endpoint, &min, &max, &inc);
+        if (SUCCEEDED(hr))
+        {
+            msg_Dbg(aout, "volume from %+f dB to %+f dB with %f dB increments",
+                    min, max, inc);
+            base_volume = powf(10.f, max / 20.f + .3f);
+        }
+        else
+            msg_Err(aout, "cannot get volume range (error 0x%lx)", hr);
+
+        IAudioEndpointVolume_RegisterControlChangeNotify(endpoint,
+                                                      &sys->endpoint_callback);
+    }
+    else
+        msg_Err(aout, "cannot activate endpoint volume (error %lx)", hr);
+
     /* Main loop (adjust volume as long as device is unchanged) */
     while (sys->device == NULL)
     {
-        if (volume != NULL && sys->volume >= 0.f)
+        float level = 1.f, master = 1.f;
+
+        if (volume != NULL)
         {
-            hr = ISimpleAudioVolume_SetMasterVolume(volume, sys->volume, NULL);
+            hr = ISimpleAudioVolume_GetMasterVolume(volume, &level);
             if (FAILED(hr))
-                msg_Err(aout, "cannot set master volume (error 0x%lx)", hr);
-            sys->volume = -1.f;
+                msg_Err(aout, "cannot get master volume (error 0x%lx)", hr);
         }
 
-        if (volume != NULL && sys->mute >= 0)
+        if (endpoint != NULL)
         {
-            hr = ISimpleAudioVolume_SetMute(volume,
-                                            sys->mute ? TRUE : FALSE, NULL);
-            if (FAILED(hr))
-                msg_Err(aout, "cannot set mute (error 0x%lx)", hr);
+            float db;
+
+            hr = IAudioEndpointVolume_GetMasterVolumeLevel(endpoint, &db);
+            if (SUCCEEDED(hr))
+                master = powf(10.f, db / 20.f);
+            else
+                msg_Err(aout, "cannot get endpoint volume (error 0x%lx)", hr);
+        }
+
+        aout_VolumeReport(aout, cbrtf(level * master * base_volume));
+
+    /* The WASAPI simple volume is relative to the endpoint volume, and it
+     * cannot exceed 100%. Therefore the endpoint master volume must be
+     * increased to reach an overall volume above the current endpoint master
+     * volume. Unfortunately, that means the volume of other applications will
+     * also be changed (which may or may not be what the user wants) and
+     * introduces race conditions between updates. */
+
+        level = sys->volume / base_volume;
+        sys->volume = -1.f;
+
+        if (level > master)
+        {
+            master = level;
+            level = 1.f;
+        }
+        else
+        {
+            if (master > 0.f)
+                level /= master;
+            master = -1.f;
+        }
+
+        if (volume != NULL)
+        {
+            if (level >= 0.f)
+            {
+                assert(level <= 1.f);
+                hr = ISimpleAudioVolume_SetMasterVolume(volume, level, NULL);
+                if (FAILED(hr))
+                    msg_Err(aout, "cannot set master volume (error 0x%lx)",
+                            hr);
+            }
+
+            BOOL mute;
+
+            hr = ISimpleAudioVolume_GetMute(volume, &mute);
+            if (SUCCEEDED(hr))
+                aout_MuteReport(aout, mute != FALSE);
+            else
+                msg_Err(aout, "cannot get mute (error 0x%lx)", hr);
+
+            if (sys->mute >= 0)
+            {
+                mute = sys->mute ? TRUE : FALSE;
+
+                hr = ISimpleAudioVolume_SetMute(volume, mute, NULL);
+                if (FAILED(hr))
+                    msg_Err(aout, "cannot set mute (error 0x%lx)", hr);
+            }
             sys->mute = -1;
         }
 
+        if (endpoint != NULL && master >= 0.f)
+        {
+            float v = 20.f * log10f(master);
+
+            msg_Warn(aout, "overriding endpoint volume: %+f dB", v);
+            hr = IAudioEndpointVolume_SetMasterVolumeLevel(endpoint, v, NULL);
+            if (FAILED(hr))
+                msg_Err(aout, "cannot set endpoint volume (error 0x%lx)", hr);
+        }
+
+        sys->volume = -1.f;
+
         SleepConditionVariableCS(&sys->work, &sys->lock, INFINITE);
+    }
+    LeaveCriticalSection(&sys->lock);
+
+    if (endpoint != NULL)
+    {
+        IAudioEndpointVolume_UnregisterControlChangeNotify(endpoint,
+                                                      &sys->endpoint_callback);
+        IAudioEndpointVolume_Release(endpoint);
     }
 
     if (manager != NULL)
-    {
-        /* Deregister session control */
+    {   /* Deregister callbacks *without* the lock */
+        hr = IAudioSessionManager_QueryInterface(manager,
+                                              &IID_IAudioSessionManager2, &pv);
+        if (SUCCEEDED(hr))
+        {
+            IAudioSessionManager2 *m2 = pv;
+
+            IAudioSessionManager2_UnregisterDuckNotification(m2, &sys->duck);
+            IAudioSessionManager2_Release(m2);
+        }
+
         if (volume != NULL)
             ISimpleAudioVolume_Release(volume);
 
@@ -816,6 +1107,7 @@ static HRESULT MMSession(audio_output_t *aout, IMMDeviceEnumerator *it)
         IAudioSessionManager_Release(manager);
     }
 
+    EnterCriticalSection(&sys->lock);
     IMMDevice_Release(sys->dev);
     sys->dev = NULL;
     return S_OK;
@@ -825,15 +1117,25 @@ static void *MMThread(void *data)
 {
     audio_output_t *aout = data;
     aout_sys_t *sys = aout->sys;
+    IMMDeviceEnumerator *it = sys->it;
 
     EnterMTA();
+    IMMDeviceEnumerator_RegisterEndpointNotificationCallback(it,
+                                                          &sys->device_events);
+    DevicesEnum(aout, it);
+
     EnterCriticalSection(&sys->lock);
 
-    while (sys->it != NULL)
-        if (FAILED(MMSession(aout, sys->it)))
+    do
+        if (FAILED(MMSession(aout, it)))
             SleepConditionVariableCS(&sys->work, &sys->lock, INFINITE);
+    while (sys->it != NULL);
 
     LeaveCriticalSection(&sys->lock);
+
+    IMMDeviceEnumerator_UnregisterEndpointNotificationCallback(it,
+                                                          &sys->device_events);
+    IMMDeviceEnumerator_Release(it);
     LeaveMTA();
     return NULL;
 }
@@ -848,17 +1150,6 @@ static HRESULT ActivateDevice(void *opaque, REFIID iid, PROPVARIANT *actparms,
     IMMDevice *dev = opaque;
     return IMMDevice_Activate(dev, iid, CLSCTX_ALL, actparms, pv);
 }
-#else /* VLC_WINSTORE_APP */
-static HRESULT ActivateDevice(void *opaque, REFIID iid, PROPVARIANT *actparms,
-                              void **restrict pv)
-{
-    aout_sys_t *sys = opaque;
-
-    (void)iid; (void)actparms;
-    *pv = sys->client;
-    return S_OK;
-}
-#endif /* VLC_WINSTORE_APP */
 
 static int aout_stream_Start(void *func, va_list ap)
 {
@@ -884,6 +1175,7 @@ static void aout_stream_Stop(void *func, va_list ap)
 static int Start(audio_output_t *aout, audio_sample_format_t *restrict fmt)
 {
     aout_sys_t *sys = aout->sys;
+
     if (sys->dev == NULL)
         return -1;
 
@@ -891,11 +1183,7 @@ static int Start(audio_output_t *aout, audio_sample_format_t *restrict fmt)
     if (unlikely(s == NULL))
         return -1;
 
-#if !VLC_WINSTORE_APP
     s->owner.device = sys->dev;
-#else
-    s->owner.device = sys->client;
-#endif
     s->owner.activate = ActivateDevice;
 
     EnterMTA();
@@ -945,12 +1233,15 @@ static int Open(vlc_object_t *obj)
 
     aout->sys = sys;
     sys->stream = NULL;
-#if !VLC_WINSTORE_APP
     sys->aout = aout;
     sys->it = NULL;
     sys->dev = NULL;
+    sys->device_events.lpVtbl = &vlc_MMNotificationClient;
+    sys->endpoint_callback.lpVtbl = &vlc_AudioEndpointVolumeCallback;
     sys->session_events.lpVtbl = &vlc_AudioSessionEvents;
+    sys->duck.lpVtbl = &vlc_AudioVolumeDuckNotification;
     sys->refs = 1;
+    sys->ducks = 0;
 
     sys->device = default_device;
     sys->volume = -1.f;
@@ -981,62 +1272,42 @@ static int Open(vlc_object_t *obj)
         goto error;
     }
 
-    DeviceSelect(aout, NULL);
+    EnterCriticalSection(&sys->lock);
+    while (sys->device != NULL)
+        SleepConditionVariableCS(&sys->ready, &sys->lock, INFINITE);
+    LeaveCriticalSection(&sys->lock);
     LeaveMTA(); /* Leave MTA after thread has entered MTA */
-#else
-    sys->client = var_InheritAddress(aout, "mmdevice-audioclient");
-    assert(sys->client != NULL);
-#endif
+
     aout->start = Start;
     aout->stop = Stop;
     aout->time_get = TimeGet;
     aout->play = Play;
     aout->pause = Pause;
     aout->flush = Flush;
-#if !VLC_WINSTORE_APP
     aout->volume_set = VolumeSet;
     aout->mute_set = MuteSet;
     aout->device_select = DeviceSelect;
-    EnterMTA();
-    IMMDeviceEnumerator_RegisterEndpointNotificationCallback(sys->it,
-                                                          &sys->device_events);
-    DevicesEnum(aout, sys->it);
-    LeaveMTA();
     return VLC_SUCCESS;
 
 error:
     DeleteCriticalSection(&sys->lock);
     free(sys);
     return VLC_EGENERIC;
-#else
-    return VLC_SUCCESS;
-#endif
 }
 
 static void Close(vlc_object_t *obj)
 {
     audio_output_t *aout = (audio_output_t *)obj;
     aout_sys_t *sys = aout->sys;
-#if !VLC_WINSTORE_APP
-    IMMDeviceEnumerator *it = sys->it;
 
-    EnterMTA(); /* Enter MTA before thread leaves MTA */
     EnterCriticalSection(&sys->lock);
     sys->device = default_device; /* break out of MMSession() loop */
     sys->it = NULL; /* break out of MMThread() loop */
     WakeConditionVariable(&sys->work);
     LeaveCriticalSection(&sys->lock);
 
-    IMMDeviceEnumerator_UnregisterEndpointNotificationCallback(it,
-                                                          &sys->device_events);
-    IMMDeviceEnumerator_Release(it);
-    LeaveMTA();
-
     vlc_join(sys->thread, NULL);
     DeleteCriticalSection(&sys->lock);
-#else
-    free(sys->client);
-#endif
     free(sys);
 }
 
@@ -1044,10 +1315,6 @@ vlc_module_begin()
     set_shortname("MMDevice")
     set_description(N_("Windows Multimedia Device output"))
     set_capability("audio output", 150)
-#if VLC_WINSTORE_APP
-    /* Pointer to the activated AudioClient* */
-    add_integer("mmdevice-audioclient", 0x0, NULL, NULL, true);
-#endif
     set_category(CAT_AUDIO)
     set_subcategory(SUBCAT_AUDIO_AOUT)
     add_shortcut("wasapi")

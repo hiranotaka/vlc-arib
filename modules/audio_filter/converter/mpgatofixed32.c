@@ -86,10 +86,6 @@ static void DoWork( filter_t * p_filter,
 {
     filter_sys_t *p_sys = p_filter->p_sys;
 
-    p_out_buf->i_nb_samples = p_in_buf->i_nb_samples;
-    p_out_buf->i_buffer = p_in_buf->i_nb_samples * sizeof(float) *
-                               aout_FormatNbChannels( &p_filter->fmt_out.audio );
-
     /* Do the actual decoding now. */
     mad_stream_buffer( &p_sys->mad_stream, p_in_buf->p_buffer,
                        p_in_buf->i_buffer );
@@ -107,6 +103,7 @@ static void DoWork( filter_t * p_filter,
 
     if( p_sys->i_reject_count > 0 )
     {
+reject:
         memset( p_out_buf->p_buffer, 0, p_out_buf->i_buffer );
         p_sys->i_reject_count--;
         return;
@@ -121,7 +118,22 @@ static void DoWork( filter_t * p_filter,
     mad_fixed_t const * p_right = p_pcm->samples[1];
     float *p_samples = (float *)p_out_buf->p_buffer;
 
-    assert( i_samples == p_out_buf->i_nb_samples );
+    if (p_pcm->channels > p_filter->fmt_out.audio.i_channels)
+    {
+        msg_Err( p_filter, "wrong channels count (corrupt stream?): %u > %u",
+                 p_pcm->channels, p_filter->fmt_out.audio.i_channels);
+        p_sys->i_reject_count = 3;
+        goto reject;
+    }
+
+    if( i_samples != p_out_buf->i_nb_samples )
+    {
+        msg_Err( p_filter, "unexpected samples count (corrupt stream?): "
+                 "%u / %u", i_samples, p_out_buf->i_nb_samples );
+        p_sys->i_reject_count = 3;
+        goto reject;
+    }
+
     /* Interleave and keep buffers in mad_fixed_t format */
     if ( p_pcm->channels == 2 )
     {

@@ -274,7 +274,7 @@ static int Open(vlc_object_t *p_this)
     vd->display = Display;
     vd->control = Control;
     vd->prepare = NULL;
-    vd->manage  = NULL;
+    vd->manage  = Manage;
 
     /* Fix initial state */
     vout_display_SendEventFullscreen(vd, false);
@@ -329,6 +329,13 @@ static void SetupPictureYV12( SurfaceInfo* p_surfaceInfo, picture_t *p_picture )
         p->p_pixels = o->p_pixels + o->i_lines * o->i_pitch;
         p->i_pitch  = i_c_stride;
         p->i_lines  = p_picture->format.i_height / 2;
+        /*
+          Explicitly set the padding lines of the picture to black (127 for YUV)
+          since they might be used by Android during rescaling.
+        */
+        int visible_lines = p_picture->format.i_visible_height / 2;
+        if (visible_lines < p->i_lines)
+            memset(&p->p_pixels[visible_lines * p->i_pitch], 127, (p->i_lines - visible_lines) * p->i_pitch);
     }
 
     if( vlc_fourcc_AreUVPlanesSwapped( p_picture->format.i_chroma,

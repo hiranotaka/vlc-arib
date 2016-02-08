@@ -274,6 +274,10 @@ static void FixParameters( int *pi_fmt, bool *pb_has_a, bool *pb_swap_uv, vlc_fo
         *pi_fmt = PIX_FMT_BGR32_1;
         *pb_has_a = true;
         break;
+    case VLC_CODEC_BGRA:
+        *pi_fmt = PIX_FMT_RGB32;
+        *pb_has_a = true;
+        break;
     case VLC_CODEC_YV12:
         *pi_fmt = PIX_FMT_YUV420P;
         *pb_swap_uv = true;
@@ -355,12 +359,16 @@ static int Init( filter_t *p_filter )
     const video_format_t *p_fmti = &p_filter->fmt_in.video;
     video_format_t       *p_fmto = &p_filter->fmt_out.video;
 
+    if( p_fmti->orientation != p_fmto->orientation )
+        return VLC_EGENERIC;
+
     if( video_format_IsSimilar( p_fmti, &p_sys->fmt_in ) &&
         video_format_IsSimilar( p_fmto, &p_sys->fmt_out ) &&
         p_sys->ctx )
     {
         return VLC_SUCCESS;
     }
+
     Clean( p_filter );
 
     /* Init with new parameters */
@@ -424,6 +432,26 @@ static int Init( filter_t *p_filter )
         msg_Err( p_filter, "could not init SwScaler and/or allocate memory" );
         Clean( p_filter );
         return VLC_EGENERIC;
+    }
+
+    if (p_filter->b_allow_fmt_out_change)
+    {
+        /*
+         * If the transformation is not homothetic we must modify the
+         * aspect ratio of the output format in order to have the
+         * output picture displayed correctly and not stretched
+         * horizontally or vertically.
+         * WARNING: this is a hack, ideally this should not be needed
+         * and the vout should update its video format instead.
+         */
+        unsigned i_sar_num = p_fmti->i_sar_num * p_fmti->i_visible_width;
+        unsigned i_sar_den = p_fmti->i_sar_den * p_fmto->i_visible_width;
+        vlc_ureduce(&i_sar_num, &i_sar_den, i_sar_num, i_sar_den, 65536);
+        i_sar_num *= p_fmto->i_visible_height;
+        i_sar_den *= p_fmti->i_visible_height;
+        vlc_ureduce(&i_sar_num, &i_sar_den, i_sar_num, i_sar_den, 65536);
+        p_fmto->i_sar_num = i_sar_num;
+        p_fmto->i_sar_den = i_sar_den;
     }
 
     p_sys->b_add_a = cfg.b_add_a;
@@ -622,7 +650,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     if( p_sys->ctxA )
     {
         /* We extract the A plane to rescale it, and then we reinject it. */
-        if( p_fmti->i_chroma == VLC_CODEC_RGBA )
+        if( p_fmti->i_chroma == VLC_CODEC_RGBA || p_fmti->i_chroma == VLC_CODEC_BGRA )
             ExtractA( p_sys->p_src_a, p_src, p_fmti->i_visible_width * p_sys->i_extend_factor, p_fmti->i_visible_height, OFFSET_A );
         else if( p_fmti->i_chroma == VLC_CODEC_ARGB )
             ExtractA( p_sys->p_src_a, p_src, p_fmti->i_visible_width * p_sys->i_extend_factor, p_fmti->i_visible_height, 0 );
@@ -630,7 +658,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
             plane_CopyPixels( p_sys->p_src_a->p, p_src->p+A_PLANE );
 
         Convert( p_filter, p_sys->ctxA, p_sys->p_dst_a, p_sys->p_src_a, p_fmti->i_visible_height, 0, 1, false, false );
-        if( p_fmto->i_chroma == VLC_CODEC_RGBA )
+        if( p_fmto->i_chroma == VLC_CODEC_RGBA || p_fmto->i_chroma == VLC_CODEC_BGRA )
             InjectA( p_dst, p_sys->p_dst_a, p_fmto->i_visible_width * p_sys->i_extend_factor, p_fmto->i_visible_height, OFFSET_A );
         else if( p_fmto->i_chroma == VLC_CODEC_ARGB )
             InjectA( p_dst, p_sys->p_dst_a, p_fmto->i_visible_width * p_sys->i_extend_factor, p_fmto->i_visible_height, 0 );
@@ -640,7 +668,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
     else if( p_sys->b_add_a )
     {
         /* We inject a complete opaque alpha plane */
-        if( p_fmto->i_chroma == VLC_CODEC_RGBA )
+        if( p_fmto->i_chroma == VLC_CODEC_RGBA || p_fmto->i_chroma == VLC_CODEC_BGRA )
             FillA( &p_dst->p[0], OFFSET_A );
         else if( p_fmto->i_chroma == VLC_CODEC_ARGB )
             FillA( &p_dst->p[0], 0 );

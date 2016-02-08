@@ -9,9 +9,6 @@ SOURCES_vout_sdl = sdl.c
 SOURCES_directfb = directfb.c
 SOURCES_vmem = vmem.c
 SOURCES_yuv = yuv.c
-SOURCES_vout_macosx = macosx.m opengl.h opengl.c
-SOURCES_vout_coregraphicslayer = coregraphicslayer.m
-SOURCES_vout_ios2 = ios2.m opengl.h opengl.c
 SOURCES_android_surface = android/surface.c android/utils.c
 SOURCES_android_opaque = android/opaque.c
 
@@ -22,12 +19,26 @@ libdecklinkoutput_plugin_la_LIBADD = $(LIBS_decklink) $(LIBDL)
 vout_LTLIBRARIES += libdecklinkoutput_plugin.la
 endif
 
-if HAVE_DARWIN
+if HAVE_OSX
+libvout_macosx_plugin_la_SOURCES = macosx.m opengl.c opengl.h
+libvout_macosx_plugin_la_CFLAGS = $(AM_CFLAGS) $(GL_CFLAGS)
+libvout_macosx_plugin_la_LIBADD = $(GL_LIBS)
+libvout_macosx_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(voutdir)' -Wl,-framework,OpenGL,-framework,Cocoa
+
 libcaopengllayer_plugin_la_SOURCES = caopengllayer.m opengl.c opengl.h
 libcaopengllayer_plugin_la_CFLAGS = $(AM_CFLAGS) $(GL_CFLAGS)
 libcaopengllayer_plugin_la_LIBADD = $(GL_LIBS)
 libcaopengllayer_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(voutdir)' -Wl,-framework,OpenGL,-framework,Cocoa,-framework,QuartzCore
-vout_LTLIBRARIES += libcaopengllayer_plugin.la
+vout_LTLIBRARIES += libvout_macosx_plugin.la libcaopengllayer_plugin.la
+endif
+
+libvout_ios2_plugin_la_SOURCES = ios2.m opengl.h opengl.c
+libvout_ios2_plugin_la_CFLAGS = $(AM_CFLAGS) $(GL_CFLAGS)
+libvout_ios2_plugin_la_OBJCFLAGS = $(AM_OBJCFLAGS) $(GL_OBJCFLAGS)
+libvout_ios2_plugin_la_LIBADD = $(AM_LIBADD) $(GL_LIBS)
+libvout_ios2_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(voutdir)' -Wl,-framework,OpenGLES,-framework,QuartzCore,-framework,UIKit
+if HAVE_IOS
+vout_LTLIBRARIES += libvout_ios2_plugin.la
 endif
 
 ### OpenGL ###
@@ -82,7 +93,7 @@ libxcb_glx_plugin_la_SOURCES = \
 libxcb_glx_plugin_la_CFLAGS = $(AM_CFLAGS) \
 	$(XCB_CFLAGS) $(GL_CFLAGS)
 libxcb_glx_plugin_la_LIBADD = libvlc_xcb_events.la \
-	$(XCB_LIBS) $(GL_LIBS) $(X_LIBS) $(X_PRE_LIBS) -lX11
+	$(XCB_LIBS) $(GL_LIBS)
 
 libxcb_window_plugin_la_SOURCES = xcb/window.c xcb/keys.c xcb/keysym.h xcb/xcb_keysym.h
 libxcb_window_plugin_la_CFLAGS = $(AM_CFLAGS) \
@@ -119,7 +130,8 @@ endif
 
 ### Win32 ###
 libdirect2d_plugin_la_SOURCES = msw/direct2d.c \
-	msw/common.c msw/common.h msw/events.c msw/events.h
+	msw/common.c msw/common.h msw/events.c msw/events.h \
+	msw/win32touch.c msw/win32touch.h
 libdirect2d_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DMODULE_NAME_IS_direct2d
 libdirect2d_plugin_la_LIBADD = -lgdi32 -lole32 -luuid
@@ -128,7 +140,8 @@ vout_LTLIBRARIES += $(LTLIBdirect2d)
 EXTRA_LTLIBRARIES += libdirect2d_plugin.la
 
 libdirect3d_plugin_la_SOURCES = msw/direct3d.c \
-	msw/common.c msw/common.h msw/events.c msw/events.h
+	msw/common.c msw/common.h msw/events.c msw/events.h msw/builtin_shaders.h \
+	msw/win32touch.c msw/win32touch.h
 libdirect3d_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DMODULE_NAME_IS_direct3d
 libdirect3d_plugin_la_LIBADD = -lgdi32 -lole32 -luuid
@@ -137,7 +150,8 @@ vout_LTLIBRARIES += $(LTLIBdirect3d)
 EXTRA_LTLIBRARIES += libdirect3d_plugin.la
 
 libdirectdraw_plugin_la_SOURCES = msw/directx.c \
-	msw/common.c msw/common.h msw/events.c msw/events.h
+	msw/common.c msw/common.h msw/events.c msw/events.h \
+	msw/win32touch.c msw/win32touch.h
 libdirectdraw_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DMODULE_NAME_IS_directdraw
 libdirectdraw_plugin_la_LIBADD = -luser32 -lgdi32 -lole32 -luuid
@@ -146,7 +160,8 @@ vout_LTLIBRARIES += libdirectdraw_plugin.la
 endif
 
 libglwin32_plugin_la_SOURCES = msw/glwin32.c opengl.c opengl.h \
-	msw/common.c msw/common.h msw/events.c msw/events.h
+	msw/common.c msw/common.h msw/events.c msw/events.h \
+	msw/win32touch.c msw/win32touch.h
 libglwin32_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DMODULE_NAME_IS_glwin32
 libglwin32_plugin_la_LIBADD = -lopengl32 -lgdi32 -lole32 -luuid
@@ -155,7 +170,8 @@ vout_LTLIBRARIES += $(LTLIBglwin32)
 EXTRA_LTLIBRARIES += libglwin32_plugin.la
 
 libwingdi_plugin_la_SOURCES = msw/wingdi.c \
-	msw/common.c msw/common.h msw/events.c msw/events.h
+	msw/common.c msw/common.h msw/events.c msw/events.h \
+	msw/win32touch.c msw/win32touch.h
 libwingdi_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DMODULE_NAME_IS_wingdi
 libwingdi_plugin_la_LIBADD = -lgdi32 -lole32 -luuid
@@ -218,6 +234,14 @@ endif
 libcaca_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(voutdir)'
 EXTRA_LTLIBRARIES += libcaca_plugin.la
 vout_LTLIBRARIES += $(LTLIBcaca)
+
+### MMAL ###
+libmmal_vout_plugin_la_SOURCES = mmal.c
+libmmal_vout_plugin_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_mmal_vout)
+libmmal_vout_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(voutdir)' $(LDFLAGS_mmal_vout)
+libmmal_vout_plugin_la_LIBADD = $(LIBS_mmal_vout)
+EXTRA_LTLIBRARIES += libmmal_vout_plugin.la
+vout_LTLIBRARIES += $(LTLIBmmal_vout)
 
 ### Common ###
 libvdummy_plugin_la_SOURCES = vdummy.c

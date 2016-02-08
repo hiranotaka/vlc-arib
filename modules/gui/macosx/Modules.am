@@ -20,6 +20,10 @@ SOURCES_macosx = \
 	ExtensionsManager.m \
 	ExtensionsDialogProvider.h \
 	ExtensionsDialogProvider.m \
+	AddonManager.h \
+	AddonManager.m \
+	AddonListDataSource.h \
+	AddonListDataSource.m \
 	VLCUIWidgets.h \
 	VLCUIWidgets.m \
 	about.h \
@@ -90,4 +94,5 @@ SOURCES_macosx = \
 	BWQuincyUI.h \
 	BWQuincyUI.m \
 	iTunes.h \
+	Spotify.h \
 	$(NULL)

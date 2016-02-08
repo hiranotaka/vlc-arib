@@ -1,8 +1,8 @@
 /*****************************************************************************
  * vaapi.c: VAAPI helpers for the libavcodec decoder
  *****************************************************************************
- * Copyright (C) 2009 Laurent Aimar
- * $Id$
+ * Copyright (C) 2009-2010 Laurent Aimar
+ * Copyright (C) 2012-2014 Rémi Denis-Courmont
  *
  * Authors: Laurent Aimar <fenrir_AT_ videolan _DOT_ org>
  *
@@ -30,12 +30,20 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_fourcc.h>
-#include <vlc_xlib.h>
 
+#ifdef VLC_VA_BACKEND_XLIB
+# include <vlc_xlib.h>
+# include <va/va_x11.h>
+#endif
+#ifdef VLC_VA_BACKEND_DRM
+# include <sys/types.h>
+# include <sys/stat.h>
+# include <fcntl.h>
+# include <vlc_fs.h>
+# include <va/va_drm.h>
+#endif
 #include <libavcodec/avcodec.h>
 #include <libavcodec/vaapi.h>
-#include <X11/Xlib.h>
-#include <va/va_x11.h>
 
 #include "avcodec.h"
 #include "va.h"
@@ -46,15 +54,20 @@
     vaCreateSurfaces(d, w, h, f, ns, s)
 #endif
 
-static int Create( vlc_va_t *, int, const es_format_t * );
+static int Create( vlc_va_t *, AVCodecContext *, const es_format_t * );
 static void Delete( vlc_va_t * );
 
 vlc_module_begin ()
-    set_description( N_("Video Acceleration (VA) API") )
+#if defined (VLC_VA_BACKEND_XLIB)
+    set_description( N_("VA-API video decoder via X11") )
+#elif defined (VLC_VA_BACKEND_DRM)
+    set_description( N_("VA-API video decoder via DRM") )
+#endif
     set_capability( "hw decoder", 0 )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_VCODEC )
     set_callbacks( Create, Delete )
+    add_shortcut( "vaapi" )
 vlc_module_end ()
 
 typedef struct
@@ -67,17 +80,18 @@ typedef struct
 
 struct vlc_va_sys_t
 {
-    Display      *p_display_x11;
+#ifdef VLC_VA_BACKEND_XLIB
+        Display  *p_display_x11;
+#endif
+#ifdef VLC_VA_BACKEND_DRM
+        int       drm_fd;
+#endif
     VADisplay     p_display;
 
     VAConfigID    i_config_id;
     VAContextID   i_context_id;
 
     struct vaapi_context hw_ctx;
-
-    /* */
-    int i_version_major;
-    int i_version_minor;
 
     /* */
     vlc_mutex_t  lock;
@@ -96,7 +110,7 @@ struct vlc_va_sys_t
 };
 
 /* */
-static int Open( vlc_va_t *va, int i_codec_id )
+static int Open( vlc_va_t *va, int i_codec_id, int i_thread_count )
 {
     vlc_va_sys_t *sys = calloc( 1, sizeof(*sys) );
     if ( unlikely(sys == NULL) )
@@ -113,7 +127,7 @@ static int Open( vlc_va_t *va, int i_codec_id )
     case AV_CODEC_ID_MPEG1VIDEO:
     case AV_CODEC_ID_MPEG2VIDEO:
         i_profile = VAProfileMPEG2Main;
-        i_surface_count = 2+1;
+        i_surface_count = 2 + 2;
         break;
     case AV_CODEC_ID_MPEG4:
         i_profile = VAProfileMPEG4AdvancedSimple;
@@ -129,9 +143,10 @@ static int Open( vlc_va_t *va, int i_codec_id )
         break;
     case AV_CODEC_ID_H264:
         i_profile = VAProfileH264High;
-        i_surface_count = 16+1;
-        break;
+        i_surface_count = 16 + i_thread_count + 2;
+        break;;
     default:
+        free( sys );
         return VLC_EGENERIC;
     }
 
@@ -141,6 +156,7 @@ static int Open( vlc_va_t *va, int i_codec_id )
     sys->image.image_id = VA_INVALID_ID;
 
     /* Create a VA display */
+#ifdef VLC_VA_BACKEND_XLIB
     sys->p_display_x11 = XOpenDisplay(NULL);
     if( !sys->p_display_x11 )
     {
@@ -149,13 +165,26 @@ static int Open( vlc_va_t *va, int i_codec_id )
     }
 
     sys->p_display = vaGetDisplay( sys->p_display_x11 );
+#endif
+#ifdef VLC_VA_BACKEND_DRM
+    sys->drm_fd = vlc_open("/dev/dri/card0", O_RDWR);
+    if( sys->drm_fd == -1 )
+    {
+        msg_Err( va, "Could not access rendering device: %m" );
+        goto error;
+    }
+
+    sys->p_display = vaGetDisplayDRM( sys->drm_fd );
+#endif
     if( !sys->p_display )
     {
         msg_Err( va, "Could not get a VAAPI device" );
         goto error;
     }
 
-    if( vaInitialize( sys->p_display, &sys->i_version_major, &sys->i_version_minor ) )
+    int major, minor;
+
+    if( vaInitialize( sys->p_display, &major, &minor ) )
     {
         msg_Err( va, "Failed to initialize the VAAPI device" );
         goto error;
@@ -210,15 +239,22 @@ static int Open( vlc_va_t *va, int i_codec_id )
 
     vlc_mutex_init(&sys->lock);
 
-    if( asprintf( &va->description, "VA API version %d.%d",
-                  sys->i_version_major, sys->i_version_minor ) < 0 )
-        va->description = NULL;
-
     va->sys = sys;
+    va->description = vaQueryVendorString( sys->p_display );
     return VLC_SUCCESS;
 
 error:
-#warning Leaks!
+    if( sys->p_display != NULL )
+        vaTerminate( sys->p_display );
+#ifdef VLC_VA_BACKEND_XLIB
+    if( sys->p_display_x11 != NULL )
+        XCloseDisplay( sys->p_display_x11 );
+#endif
+#ifdef VLC_VA_BACKEND_DRM
+    if( sys->drm_fd != -1 )
+        close( sys->drm_fd );
+#endif
+    free( sys );
     return VLC_EGENERIC;
 }
 
@@ -316,12 +352,11 @@ static int CreateSurfaces( vlc_va_sys_t *sys, void **pp_hw_ctx, vlc_fourcc_t *pi
     }
 
     vlc_fourcc_t  i_chroma = 0;
-    VAImageFormat fmt;
     for( int i = 0; i < i_fmt_count; i++ )
     {
-        if( p_fmt[i].fourcc == VA_FOURCC( 'Y', 'V', '1', '2' ) ||
-            p_fmt[i].fourcc == VA_FOURCC( 'I', '4', '2', '0' ) ||
-            p_fmt[i].fourcc == VA_FOURCC( 'N', 'V', '1', '2' ) )
+        if( p_fmt[i].fourcc == VA_FOURCC_YV12 ||
+            p_fmt[i].fourcc == VA_FOURCC_IYUV ||
+            p_fmt[i].fourcc == VA_FOURCC_NV12 )
         {
             if( vaCreateImage(  sys->p_display, &p_fmt[i], i_width, i_height, &sys->image ) )
             {
@@ -339,7 +374,6 @@ static int CreateSurfaces( vlc_va_sys_t *sys, void **pp_hw_ctx, vlc_fourcc_t *pi
             }
 
             i_chroma = VLC_CODEC_YV12;
-            fmt = p_fmt[i];
             break;
         }
     }
@@ -431,10 +465,10 @@ static int Extract( vlc_va_t *va, picture_t *p_picture, void *opaque,
         return VLC_EGENERIC;
 
     const uint32_t i_fourcc = sys->image.format.fourcc;
-    if( i_fourcc == VA_FOURCC('Y','V','1','2') ||
-        i_fourcc == VA_FOURCC('I','4','2','0') )
+    if( i_fourcc == VA_FOURCC_YV12 ||
+        i_fourcc == VA_FOURCC_IYUV )
     {
-        bool b_swap_uv = i_fourcc == VA_FOURCC('I','4','2','0');
+        bool b_swap_uv = i_fourcc == VA_FOURCC_IYUV;
         uint8_t *pp_plane[3];
         size_t  pi_pitch[3];
 
@@ -451,7 +485,7 @@ static int Extract( vlc_va_t *va, picture_t *p_picture, void *opaque,
     }
     else
     {
-        assert( i_fourcc == VA_FOURCC('N','V','1','2') );
+        assert( i_fourcc == VA_FOURCC_NV12 );
         uint8_t *pp_plane[2];
         size_t  pi_pitch[2];
 
@@ -527,31 +561,36 @@ static void Close( vlc_va_sys_t *sys )
 
     if( sys->i_config_id != VA_INVALID_ID )
         vaDestroyConfig( sys->p_display, sys->i_config_id );
-    if( sys->p_display )
-        vaTerminate( sys->p_display );
-    if( sys->p_display_x11 )
-        XCloseDisplay( sys->p_display_x11 );
+    vaTerminate( sys->p_display );
+#ifdef VLC_VA_BACKEND_XLIB
+    XCloseDisplay( sys->p_display_x11 );
+#endif
+#ifdef VLC_VA_BACKEND_DRM
+    close( sys->drm_fd );
+#endif
 }
 
 static void Delete( vlc_va_t *va )
 {
     vlc_va_sys_t *sys = va->sys;
     Close( sys );
-    free( va->description );
     free( sys );
 }
 
-static int Create( vlc_va_t *p_va, int i_codec_id, const es_format_t *fmt )
+static int Create( vlc_va_t *p_va, AVCodecContext *ctx,
+                   const es_format_t *fmt )
 {
+#ifdef VLC_VA_BACKEND_XLIB
     if( !vlc_xlib_init( VLC_OBJECT(p_va) ) )
     {
         msg_Warn( p_va, "Ignoring VA API" );
         return VLC_EGENERIC;
     }
+#endif
 
     (void) fmt;
 
-    int err = Open( p_va, i_codec_id );
+    int err = Open( p_va, ctx->codec_id, ctx->thread_count );
     if( err )
         return err;
 

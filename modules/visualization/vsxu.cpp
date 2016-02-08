@@ -280,7 +280,7 @@ static void *Thread( void *p_data )
         goto error;
 
     video_format_Init( &fmt, 0 );
-    video_format_Setup( &fmt, VLC_CODEC_RGB32,
+    video_format_Setup( &fmt, VLC_CODEC_RGB32, p_sys->i_width, p_sys->i_height,
                         p_sys->i_width, p_sys->i_height, 0, 1 );
     fmt.i_sar_num = 1;
     fmt.i_sar_den = 1;
@@ -315,6 +315,7 @@ static void *Thread( void *p_data )
 
     // tell main thread we are ready
     vlc_sem_post( &p_sys->ready );
+    vlc_gl_MakeCurrent( gl );
 
     while ( run )
     {
@@ -391,6 +392,8 @@ static void *Thread( void *p_data )
 
     // delete the intro (if ever allocated)
     if (intro) delete intro;
+
+    vlc_gl_ReleaseCurrent( gl );
 
     var_DelCallback( p_vout, "fullscreen", VoutCallback, p_vd );
 

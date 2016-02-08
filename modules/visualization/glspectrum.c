@@ -40,6 +40,7 @@
 #include <math.h>
 
 #include "visual/fft.h"
+#include "visual/window.h"
 
 
 /*****************************************************************************
@@ -94,6 +95,9 @@ struct filter_sys_t
     /* Window size */
     int i_width;
     int i_height;
+
+    /* FFT window parameters */
+    window_param wind_param;
 };
 
 
@@ -134,6 +138,9 @@ static int Open(vlc_object_t * p_this)
 
     p_sys->f_rotationAngle = 0;
     p_sys->f_rotationIncrement = ROTATION_INCREMENT;
+
+    /* Fetch the FFT window parameters */
+    window_get_param( VLC_OBJECT( p_filter ), &p_sys->wind_param );
 
     /* Create the FIFO for the audio data. */
     p_sys->fifo = block_FifoNew();
@@ -208,7 +215,7 @@ static block_t *DoWork(filter_t *p_filter, block_t *p_in_buf)
 /**
   * Init the OpenGL scene.
   **/
-static void initOpenGLScene()
+static void initOpenGLScene(void)
 {
     glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
@@ -240,7 +247,7 @@ static void initOpenGLScene()
 /**
  * Draw one bar of the Spectrum.
  */
-static void drawBar()
+static void drawBar(void)
 {
     const float w = SPECTRUM_WIDTH / NB_BANDS - 0.05;
 
@@ -362,7 +369,7 @@ static void *Thread( void *p_data )
 
     /* Configure the video format for the opengl provider. */
     video_format_Init(&fmt, 0);
-    video_format_Setup(&fmt, VLC_CODEC_RGB32,
+    video_format_Setup(&fmt, VLC_CODEC_RGB32, p_sys->i_width, p_sys->i_height,
                        p_sys->i_width, p_sys->i_height, 0, 1 );
     fmt.i_sar_num = 1;
     fmt.i_sar_den = 1;
@@ -396,7 +403,9 @@ static void *Thread( void *p_data )
 
     vlc_sem_post(&p_sys->ready);
 
+    vlc_gl_MakeCurrent(gl);
     initOpenGLScene();
+    vlc_gl_ReleaseCurrent(gl);
 
     float height[NB_BANDS] = {0};
 
@@ -406,6 +415,7 @@ static void *Thread( void *p_data )
 
         int canc = vlc_savecancel();
 
+        vlc_gl_MakeCurrent(gl);
         /* Manage the events */
         vout_ManageDisplay(p_sys->p_vd, true);
         if (p_sys->p_vd->cfg->display.width != i_last_width ||
@@ -425,6 +435,7 @@ static void *Thread( void *p_data )
                                    36,47,62,82,107,141,184,255};
 
         fft_state *p_state = NULL; /* internal FFT data */
+        DEFINE_WIND_CONTEXT(wind_ctx); /* internal window data */
 
         unsigned i, j;
         float p_output[FFT_BUFFER_SIZE];           /* Raw FFT Result  */
@@ -435,6 +446,11 @@ static void *Thread( void *p_data )
 
         int16_t  *p_buffs;                         /* int16_t converted buffer */
         int16_t  *p_s16_buff;                      /* int16_t converted buffer */
+
+        if (!block->i_nb_samples) {
+            msg_Err(p_filter, "no samples yet");
+            goto release;
+        }
 
         /* Allocate the buffer only if the number of samples change */
         if (block->i_nb_samples != p_sys->i_prev_nb_samples)
@@ -471,6 +487,11 @@ static void *Thread( void *p_data )
             msg_Err(p_filter,"unable to initialize FFT transform");
             goto release;
         }
+        if (!window_init(FFT_BUFFER_SIZE, &p_sys->wind_param, &wind_ctx))
+        {
+            msg_Err(p_filter,"unable to initialize FFT window");
+            goto release;
+        }
         p_buffs = p_s16_buff;
         for (i = 0 ; i < FFT_BUFFER_SIZE; i++)
         {
@@ -481,6 +502,7 @@ static void *Thread( void *p_data )
             if (p_buffs >= &p_s16_buff[block->i_nb_samples * p_sys->i_channels])
                 p_buffs = p_s16_buff;
         }
+        window_scale_in_place (p_buffer1, &wind_ctx);
         fft_perform (p_buffer1, p_output, p_state);
 
         for (i = 0; i< FFT_BUFFER_SIZE; ++i)
@@ -532,7 +554,9 @@ static void *Thread( void *p_data )
         }
 
 release:
+        window_close(&wind_ctx);
         fft_close(p_state);
+        vlc_gl_ReleaseCurrent(gl);
         block_Release(block);
         vlc_restorecancel(canc);
     }
@@ -544,4 +568,3 @@ error:
     vlc_sem_post(&p_sys->ready);
     return NULL;
 }
-

@@ -57,30 +57,18 @@ vout_thread_t *getVout(void);
 vout_thread_t *getVoutForActiveWindow(void);
 audio_output_t *getAout(void);
 
-/*****************************************************************************
- * intf_sys_t: description and status of the interface
- *****************************************************************************/
-struct intf_sys_t
-{
-    /* menus handlers */
-    bool b_input_update;
-    bool b_aout_update;
-    bool b_vout_update;
-};
 
 /*****************************************************************************
  * VLCMain interface
  *****************************************************************************/
 @class AppleRemote;
-@class VLCInformation;
-@class VLCEmbeddedWindow;
 @class VLCControls;
 @class VLCPlaylist;
 
 @interface VLCMain : NSObject <NSWindowDelegate, NSApplicationDelegate>
 {
     intf_thread_t *p_intf;      /* The main intf object */
-    input_thread_t *p_current_input, *p_input_changed;
+    input_thread_t *p_current_input;
     BOOL launched;              /* finishedLaunching */
     int items_at_launch;        /* items in playlist after launch */
     id o_mainmenu;              /* VLCMainMenu */
@@ -125,11 +113,14 @@ struct intf_sys_t
 
     VLCVoutWindowController *o_vout_controller;
 
-    /* iTunes play/pause support */
+    /* iTunes/Spotify play/pause support */
     BOOL b_has_itunes_paused;
+    BOOL b_has_spotify_paused;
     NSTimer *o_itunes_play_timer;
 
     BOOL b_playlist_updated_selector_in_queue;
+
+    dispatch_queue_t informInputChangedQueue;
 }
 
 @property (readonly) VLCVoutWindowController* voutController;
@@ -160,7 +151,6 @@ struct intf_sys_t
 - (BOOL)hasDefinedShortcutKey:(NSEvent *)o_event force:(BOOL)b_force;
 
 - (void)PlaylistItemChanged;
-- (void)informInputChanged;
 - (void)playbackStatusUpdated;
 - (void)sendDistributedNotificationWithUpdatedPlaybackStatus;
 - (void)playbackModeUpdated;

@@ -176,8 +176,8 @@ enum input_item_option_e
      * By default options are untrusted */
     VLC_INPUT_OPTION_TRUSTED = 0x2,
 
-    /* Change the value associated to an option if already present, otherwise
-     * add the option */
+    /* Add the option, unless the same option
+     * is already present. */
     VLC_INPUT_OPTION_UNIQUE  = 0x100,
 };
 
@@ -230,6 +230,11 @@ INPUT_META(EncodedBy)
 INPUT_META(ArtworkURL)
 INPUT_META(TrackID)
 INPUT_META(TrackTotal)
+INPUT_META(Director)
+INPUT_META(Season)
+INPUT_META(Episode)
+INPUT_META(ShowName)
+INPUT_META(Actors)
 
 #define input_item_SetTrackNum input_item_SetTrackNumber
 #define input_item_GetTrackNum input_item_GetTrackNumber
@@ -279,8 +284,18 @@ VLC_API void input_item_Release(input_item_t *);
 #define vlc_gc_incref(i) input_item_Hold(i)
 #define vlc_gc_decref(i) input_item_Release(i)
 
-VLC_API int libvlc_MetaRequest(libvlc_int_t *, input_item_t *);
-VLC_API int libvlc_ArtRequest(libvlc_int_t *, input_item_t *);
+typedef enum input_item_meta_request_option_t
+{
+    META_REQUEST_OPTION_NONE          = 0x00,
+    META_REQUEST_OPTION_SCOPE_LOCAL   = 0x01,
+    META_REQUEST_OPTION_SCOPE_NETWORK = 0x02,
+    META_REQUEST_OPTION_SCOPE_ANY     = 0x03
+} input_item_meta_request_option_t;
+
+VLC_API int libvlc_MetaRequest(libvlc_int_t *, input_item_t *,
+                               input_item_meta_request_option_t );
+VLC_API int libvlc_ArtRequest(libvlc_int_t *, input_item_t *,
+                              input_item_meta_request_option_t );
 
 /******************
  * Input stats

@@ -36,6 +36,7 @@
 #include "dialogs_provider.hpp" /* THEDP creation */
 #include "main_interface.hpp"   /* MainInterface creation */
 #include "extensions_manager.hpp" /* Extensions manager */
+#include "managers/addons_manager.hpp" /* Addons manager */
 #include "dialogs/help.hpp"     /* Launch Update */
 #include "recents.hpp"          /* Recents Item destruction */
 #include "util/qvlcapp.hpp"     /* QVLCApplication definition */
@@ -50,8 +51,13 @@
 
 #ifdef _WIN32 /* For static builds */
  #include <QtPlugin>
- Q_IMPORT_PLUGIN(qjpeg)
- Q_IMPORT_PLUGIN(qtaccessiblewidgets)
+ #if HAS_QT5
+  Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
+  Q_IMPORT_PLUGIN(AccessibleFactory)
+ #else
+  Q_IMPORT_PLUGIN(qjpeg)
+  Q_IMPORT_PLUGIN(qtaccessiblewidgets)
+ #endif
 #endif
 
 /*****************************************************************************
@@ -297,13 +303,12 @@ vlc_module_begin ()
         set_capability( "vout window xid", 0 )
         set_callbacks( WindowOpen, WindowClose )
 #endif
-#if defined (Q_WS_WIN) || (defined (Q_WS_QPA) && defined (_WIN32)) \
- || defined (Q_WS_PM)  || (defined (Q_WS_QPA) && defined (__OS2__))
+#if (defined (Q_OS_WIN) && !defined (_WIN32_X11_)) || defined (Q_OS_OS2)
     add_submodule ()
         set_capability( "vout window hwnd", 0 )
         set_callbacks( WindowOpen, WindowClose )
 #endif
-#if defined (Q_WS_MAC) || (defined (Q_WS_QPA) && defined (__APPLE__))
+#if defined (Q_OS_DARWIN)
     add_submodule ()
         set_capability( "vout window nsobject", 0 )
         set_callbacks( WindowOpen, WindowClose )
@@ -481,12 +486,9 @@ static void *Thread( void *obj )
         app.setWindowIcon( QIcon::fromTheme( "vlc", QIcon( ":/logo/vlc256.png" ) ) );
 #endif
 
-    /* Initialize timers and the Dialog Provider */
+    /* Initialize the Dialog Provider and the Main Input Manager */
     DialogsProvider::getInstance( p_intf );
-
-    /* Detect screensize for small screens like TV or Netbooks */
-    p_intf->p_sys->i_screenHeight =
-        app.QApplication::desktop()->availableGeometry().height();
+    MainInputManager::getInstance( p_intf );
 
 #ifdef UPDATE_CHECK
     /* Checking for VLC updates */
@@ -518,10 +520,14 @@ static void *Thread( void *obj )
 
     /* Check window type from the Qt platform back-end */
     p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_INVALID;
-#if defined (Q_WS_QPA)
+#if defined (Q_WS_QPA) || HAS_QT5
     QString platform = app.platformName();
     if( platform == qfu("xcb") )
         p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_XID;
+    else if( platform == qfu("windows") )
+        p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_HWND;
+    else if( platform == qfu("cocoa" ) )
+        p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_NSOBJECT;
     else
         msg_Err( p_intf, "unknown Qt platform: %s", qtu(platform) );
 #elif defined (Q_WS_X11)
@@ -573,6 +579,7 @@ static void *Thread( void *obj )
 
     /* */
     ExtensionsManager::killInstance();
+    AddonsManager::killInstance();
 
     /* Destroy all remaining windows,
        because some are connected to some slots
@@ -697,9 +704,9 @@ static void WindowClose( vout_window_t *p_wnd )
     QMutexLocker locker (&lock);
 
     /* Normally, the interface terminates after the video. In the contrary, the
-     * Qt4 main loop is gone, so we cannot send any event to the user interface
-     * widgets. Ideally, we would keep the Qt4 main loop running until after
-     * the video window is released. But it is far simpler to just have the Qt4
+     * Qt main loop is gone, so we cannot send any event to the user interface
+     * widgets. Ideally, we would keep the Qt main loop running until after
+     * the video window is released. But it is far simpler to just have the Qt
      * thread destroy the window early, and to turn this function into a stub.
      *
      * That assumes the video output will behave sanely if it window is

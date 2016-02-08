@@ -38,11 +38,11 @@
 #include "vlc_vdpau.h"
 #include "../../codec/avcodec/va.h"
 
-static int Open(vlc_va_t *, int, const es_format_t *);
+static int Open(vlc_va_t *, AVCodecContext *, const es_format_t *);
 static void Close(vlc_va_t *);
 
 vlc_module_begin()
-    set_description(N_("VDPAU hardware-accelerated decoder"))
+    set_description(N_("VDPAU video decoder"))
     set_capability("hw decoder", 100)
     set_category(CAT_INPUT)
     set_subcategory(SUBCAT_INPUT_VCODEC)
@@ -52,10 +52,10 @@ vlc_module_end()
 
 struct vlc_va_sys_t
 {
+    AVVDPAUContext *context;
     vdp_t *vdp;
     VdpDevice device;
     VdpDecoderProfile profile;
-    AVVDPAUContext context;
     uint16_t width;
     uint16_t height;
 };
@@ -130,16 +130,16 @@ static int Init(vlc_va_t *va, void **ctxp, vlc_fourcc_t *chromap,
     }
 
     err = vdp_decoder_create(sys->vdp, sys->device, sys->profile, width,
-                             height, surfaces, &sys->context.decoder);
+                             height, surfaces, &sys->context->decoder);
     if (err != VDP_STATUS_OK)
     {
         msg_Err(va, "%s creation failure: %s", "decoder",
                 vdp_get_error_string(sys->vdp, err));
-        sys->context.decoder = VDP_INVALID_HANDLE;
+        sys->context->decoder = VDP_INVALID_HANDLE;
         return VLC_EGENERIC;
     }
 
-    *ctxp = &sys->context;
+    *ctxp = sys->context;
     /* TODO: select better chromas when appropriate */
     *chromap = VLC_CODEC_VDPAU_VIDEO_420;
     return VLC_SUCCESS;
@@ -149,11 +149,8 @@ static void Deinit(vlc_va_t *va)
 {
     vlc_va_sys_t *sys = va->sys;
 
-    assert(sys->context.decoder != VDP_INVALID_HANDLE);
-    vdp_decoder_destroy(sys->vdp, sys->context.decoder);
-#if (LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55, 13, 0))
-    av_freep(&sys->context.bitstream_buffers);
-#endif
+    assert(sys->context->decoder != VDP_INVALID_HANDLE);
+    vdp_decoder_destroy(sys->vdp, sys->context->decoder);
 }
 
 static int Setup(vlc_va_t *va, void **ctxp, vlc_fourcc_t *chromap,
@@ -161,112 +158,47 @@ static int Setup(vlc_va_t *va, void **ctxp, vlc_fourcc_t *chromap,
 {
     vlc_va_sys_t *sys = va->sys;
 
-    if (sys->context.decoder != VDP_INVALID_HANDLE)
+    if (sys->context->decoder != VDP_INVALID_HANDLE)
     {
         if (sys->width == width && sys->height == height)
             return VLC_SUCCESS;
         Deinit(va);
-        sys->context.decoder = VDP_INVALID_HANDLE;
+        sys->context->decoder = VDP_INVALID_HANDLE;
     }
 
     return Init(va, ctxp, chromap, width, height);
 }
 
-static int Open(vlc_va_t *va, int codec, const es_format_t *fmt)
+static int Open(vlc_va_t *va, AVCodecContext *ctx, const es_format_t *fmt)
 {
     VdpStatus err;
     VdpDecoderProfile profile;
-    int level;
+    int level = fmt->i_level;
 
-    switch (codec)
+    if (av_vdpau_get_profile(ctx, &profile))
     {
-      case AV_CODEC_ID_MPEG1VIDEO:
-        profile = VDP_DECODER_PROFILE_MPEG1;
-        level = VDP_DECODER_LEVEL_MPEG1_NA;
-        break;
-
-      case AV_CODEC_ID_MPEG2VIDEO:
-        switch (fmt->i_profile)
-        {
-          case FF_PROFILE_MPEG2_MAIN:
-            profile = VDP_DECODER_PROFILE_MPEG2_MAIN;
-            break;
-          case FF_PROFILE_MPEG2_SIMPLE:
-            profile = VDP_DECODER_PROFILE_MPEG2_SIMPLE;
-            break;
-          default:
-            msg_Err(va, "unsupported %s profile %d", "MPEG2", fmt->i_profile);
-            return VLC_EGENERIC;
-        }
-        level = VDP_DECODER_LEVEL_MPEG2_HL;
-        break;
-
-      case AV_CODEC_ID_H263:
-        profile = VDP_DECODER_PROFILE_MPEG4_PART2_ASP;
-        level = VDP_DECODER_LEVEL_MPEG4_PART2_ASP_L5;
-        break;
-      case AV_CODEC_ID_MPEG4:
-        switch (fmt->i_profile)
-        {
-          case FF_PROFILE_MPEG4_SIMPLE:
-            profile = VDP_DECODER_PROFILE_MPEG4_PART2_SP;
-            break;
-          case FF_PROFILE_MPEG4_ADVANCED_SIMPLE:
-            profile = VDP_DECODER_PROFILE_MPEG4_PART2_ASP;
-            break;
-          default:
-            msg_Err(va, "unsupported %s profile %d", "MPEG4", fmt->i_profile);
-            return VLC_EGENERIC;
-        }
-        level = fmt->i_level;
-        break;
-
-      case AV_CODEC_ID_H264:
-        switch (fmt->i_profile
-                        & ~(FF_PROFILE_H264_CONSTRAINED|FF_PROFILE_H264_INTRA))
-        {
-          case FF_PROFILE_H264_BASELINE:
-            profile = VDP_DECODER_PROFILE_H264_BASELINE;
-            break;
-          case FF_PROFILE_H264_MAIN:
-            profile = VDP_DECODER_PROFILE_H264_MAIN;
-            break;
-          case FF_PROFILE_H264_HIGH:
-            profile = VDP_DECODER_PROFILE_H264_HIGH;
-            break;
-          case FF_PROFILE_H264_EXTENDED:
-          default:
-            msg_Err(va, "unsupported %s profile %d", "H.264", fmt->i_profile);
-            return VLC_EGENERIC;
-        }
-        level = fmt->i_level;
-        if ((fmt->i_profile & FF_PROFILE_H264_INTRA) && (fmt->i_level == 11))
-            level = VDP_DECODER_LEVEL_H264_1b;
-        break;
-
-      case AV_CODEC_ID_WMV3:
-      case AV_CODEC_ID_VC1:
-        switch (fmt->i_profile)
-        {
-          case FF_PROFILE_VC1_SIMPLE:
-            profile = VDP_DECODER_PROFILE_VC1_SIMPLE;
-            break;
-          case FF_PROFILE_VC1_MAIN:
-            profile = VDP_DECODER_PROFILE_VC1_MAIN;
-            break;
-          case FF_PROFILE_VC1_ADVANCED:
-            profile = VDP_DECODER_PROFILE_VC1_ADVANCED;
-            break;
-          default:
-            msg_Err(va, "unsupported %s profile %d", "VC-1", fmt->i_profile);
-            return VLC_EGENERIC;
-        }
-        level = fmt->i_level;
-        break;
-
-      default:
-        msg_Err(va, "unknown codec %d", codec);
+        msg_Err(va, "unsupported codec %d or profile %d", ctx->codec_id,
+                fmt->i_profile);
         return VLC_EGENERIC;
+    }
+
+    switch (ctx->codec_id)
+    {
+        case AV_CODEC_ID_MPEG1VIDEO:
+            level = VDP_DECODER_LEVEL_MPEG1_NA;
+            break;
+        case AV_CODEC_ID_MPEG2VIDEO:
+            level = VDP_DECODER_LEVEL_MPEG2_HL;
+            break;
+        case AV_CODEC_ID_H263:
+            level = VDP_DECODER_LEVEL_MPEG4_PART2_ASP_L5;
+            break;
+        case AV_CODEC_ID_H264:
+            if ((fmt->i_profile & FF_PROFILE_H264_INTRA)
+             && (fmt->i_level == 11))
+                level = VDP_DECODER_LEVEL_H264_1b;
+         default:
+            break;
     }
 
     if (!vlc_xlib_init(VLC_OBJECT(va)))
@@ -279,13 +211,17 @@ static int Open(vlc_va_t *va, int codec, const es_format_t *fmt)
     if (unlikely(sys == NULL))
        return VLC_ENOMEM;
 
-    sys->profile = profile;
-    memset(&sys->context, 0, sizeof (sys->context));
-    sys->context.decoder = VDP_INVALID_HANDLE;
+    sys->context = av_vdpau_alloc_context();
+    if (unlikely(sys->context == NULL))
+    {
+        free(sys);
+        return VLC_ENOMEM;
+    }
 
     err = vdp_get_x11(NULL, -1, &sys->vdp, &sys->device);
     if (err != VDP_STATUS_OK)
     {
+        free(sys->context);
         free(sys);
         return VLC_EGENERIC;
     }
@@ -295,7 +231,10 @@ static int Open(vlc_va_t *va, int codec, const es_format_t *fmt)
                                VDP_FUNC_ID_DECODER_RENDER, &func);
     if (err != VDP_STATUS_OK)
         goto error;
-    sys->context.render = func;
+
+    sys->context->decoder = VDP_INVALID_HANDLE;
+    sys->context->render = func;
+    sys->profile = profile;
 
     /* Check capabilities */
     VdpBool support;
@@ -339,7 +278,7 @@ static int Open(vlc_va_t *va, int codec, const es_format_t *fmt)
         infos = "VDPAU";
 
     va->sys = sys;
-    va->description = (char *)infos;
+    va->description = infos;
     va->pix_fmt = AV_PIX_FMT_VDPAU;
     va->setup = Setup;
     va->get = Lock;
@@ -349,6 +288,7 @@ static int Open(vlc_va_t *va, int codec, const es_format_t *fmt)
 
 error:
     vdp_release_x11(sys->vdp);
+    av_free(sys->context);
     free(sys);
     return VLC_EGENERIC;
 }
@@ -357,8 +297,9 @@ static void Close(vlc_va_t *va)
 {
     vlc_va_sys_t *sys = va->sys;
 
-    if (sys->context.decoder != VDP_INVALID_HANDLE)
+    if (sys->context->decoder != VDP_INVALID_HANDLE)
         Deinit(va);
     vdp_release_x11(sys->vdp);
+    av_free(sys->context);
     free(sys);
 }

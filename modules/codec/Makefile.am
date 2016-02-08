@@ -24,6 +24,7 @@ libaes3_plugin_la_SOURCES = codec/aes3.c
 codec_LTLIBRARIES += libaes3_plugin.la
 
 libaraw_plugin_la_SOURCES = codec/araw.c
+libaraw_plugin_la_LIBADD = $(LIBM)
 codec_LTLIBRARIES += libaraw_plugin.la
 
 libdts_plugin_la_SOURCES = codec/dts.c codec/dts_header.c codec/dts_header.h
@@ -109,6 +110,13 @@ libjpeg_plugin_la_LIBADD = -ljpeg
 EXTRA_LTLIBRARIES += libjpeg_plugin.la
 codec_LTLIBRARIES += $(LTLIBjpeg)
 
+libsvgdec_plugin_la_SOURCES = codec/svg.c
+libsvgdec_plugin_la_CFLAGS = $(AM_CLAGS) $(CFLAGS_svgdec)
+libsvgdec_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(codecdir)'  $(LDFLAGS_svg)
+libsvgdec_plugin_la_LIBADD = $(LIBS_svgdec)
+EXTRA_LTLIBRARIES += libsvgdec_plugin.la
+codec_LTLIBRARIES += $(LTLIBsvgdec)
+
 libsdl_image_plugin_la_SOURCES = codec/sdl_image.c
 libsdl_image_plugin_la_CFLAGS = $(AM_CFLAGS) $(SDL_IMAGE_CFLAGS)
 libsdl_image_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(codecdir)'
@@ -183,6 +191,8 @@ endif
 EXTRA_LTLIBRARIES += libzvbi_plugin.la
 codec_LTLIBRARIES += $(LTLIBzvbi)
 
+libsubstx3g_plugin_la_SOURCES = codec/substx3g.c codec/substext.h
+codec_LTLIBRARIES += libsubstx3g_plugin.la
 
 ### Xiph ###
 
@@ -244,7 +254,6 @@ libavcodec_plugin_la_SOURCES = \
 	codec/avcodec/video.c \
 	codec/avcodec/subtitle.c \
 	codec/avcodec/audio.c \
-	codec/avcodec/cpu.c \
 	codec/avcodec/fourcc.c \
 	codec/avcodec/chroma.c codec/avcodec/chroma.h \
 	codec/avcodec/va.c codec/avcodec/va.h \
@@ -271,14 +280,27 @@ endif
 
 ### avcodec hardware acceleration ###
 
-libvaapi_plugin_la_SOURCES = \
+libvaapi_drm_plugin_la_SOURCES = \
 	video_chroma/copy.c video_chroma/copy.h \
 	codec/avcodec/vaapi.c
-libvaapi_plugin_la_CFLAGS = $(AM_CFLAGS) \
-	$(LIBVA_CFLAGS) $(X_CFLAGS) $(AVCODEC_CFLAGS)
-libvaapi_plugin_la_LIBADD = $(LIBVA_LIBS) $(X_LIBS) $(X_PRE_LIBS) -lX11
+libvaapi_drm_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) -DVLC_VA_BACKEND_DRM
+libvaapi_drm_plugin_la_CFLAGS = $(AM_CFLAGS) \
+	$(LIBVA_DRM_CFLAGS) $(AVCODEC_CFLAGS)
+libvaapi_drm_plugin_la_LIBADD = $(LIBVA_DRM_LIBS)
+libvaapi_x11_plugin_la_SOURCES = \
+	video_chroma/copy.c video_chroma/copy.h \
+	codec/avcodec/vaapi.c
+libvaapi_x11_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) -DVLC_VA_BACKEND_XLIB
+libvaapi_x11_plugin_la_CFLAGS = $(AM_CFLAGS) \
+	$(LIBVA_X11_CFLAGS) $(X_CFLAGS) $(AVCODEC_CFLAGS)
+libvaapi_x11_plugin_la_LIBADD = $(LIBVA_X11_LIBS) $(X_LIBS) $(X_PRE_LIBS) -lX11
 if HAVE_AVCODEC_VAAPI
-codec_LTLIBRARIES += libvaapi_plugin.la
+if HAVE_VAAPI_DRM
+codec_LTLIBRARIES += libvaapi_drm_plugin.la
+endif
+if HAVE_VAAPI_X11
+codec_LTLIBRARIES += libvaapi_x11_plugin.la
+endif
 endif
 
 libdxva2_plugin_la_SOURCES = \
@@ -350,6 +372,16 @@ EXTRA_LTLIBRARIES += libomxil_plugin.la libomxil_vout_plugin.la
 if HAVE_ANDROID
 codec_LTLIBRARIES += libiomx_plugin.la libmediacodec_plugin.la
 endif
+
+
+### MMAL ###
+
+libmmal_codec_plugin_la_SOURCES = codec/mmal.c
+libmmal_codec_plugin_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_mmal_codec)
+libmmal_codec_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(codecdir)' $(LDFLAGS_mmal_codec)
+libmmal_codec_plugin_la_LIBADD = $(LIBS_mmal_codec)
+EXTRA_LTLIBRARIES += libmmal_codec_plugin.la
+codec_LTLIBRARIES += $(LTLIBmmal_codec)
 
 
 ### X26x encoders ###
@@ -445,8 +477,21 @@ libdmo_plugin_la_LIBADD += -lole32 -luuid
 codec_LTLIBRARIES += libdmo_plugin.la
 endif
 
+libmft_plugin_la_SOURCES = codec/mft.c
+if HAVE_WIN32
+libmft_plugin_la_LIBADD = -lole32 -luuid
+codec_LTLIBRARIES += libmft_plugin.la
+endif
+
 libquicktime_plugin_la_SOURCES = codec/quicktime.c
 libquicktime_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(codecdir)'
 libquicktime_plugin_la_LIBADD = $(LIBM)
 EXTRA_LTLIBRARIES += libquicktime_plugin.la
 codec_LTLIBRARIES += $(LTLIBquicktime)
+
+libgstdecode_plugin_la_SOURCES = codec/gstdecode.c
+libgstdecode_plugin_la_CFLAGS = $(AM_CFLAGS) $(GST_VIDEO_CFLAGS) $(GST_APP_CFLAGS)
+libgstdecode_plugin_la_LIBADD = $(GST_VIDEO_LIBS) $(GST_APP_LIBS)
+if HAVE_GST_DECODE
+codec_LTLIBRARIES += libgstdecode_plugin.la
+endif

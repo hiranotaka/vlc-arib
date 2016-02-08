@@ -152,6 +152,11 @@ static int vlclua_input_metas_internal( lua_State *L, input_item_t *p_item )
         PUSH_META( ArtworkURL, "artwork_url" );
         PUSH_META( TrackID, "track_id" );
         PUSH_META( TrackTotal, "track_total" );
+        PUSH_META( Director, "director" );
+        PUSH_META( Season, "season" );
+        PUSH_META( Episode, "episode" );
+        PUSH_META( ShowName, "show_name" );
+        PUSH_META( Actors, "actors" );
 
 #undef PUSH_META
 
@@ -213,9 +218,9 @@ static int vlclua_input_add_subtitle( lua_State *L )
     if( !p_input )
         return luaL_error( L, "can't add subtitle: no current input" );
     if( !lua_isstring( L, 1 ) )
-        return luaL_error( L, "vlc.input.add_subtitle() usage: (url)" );
-    const char *psz_url = luaL_checkstring( L, 1 );
-    input_AddSubtitle( p_input, psz_url, false );
+        return luaL_error( L, "vlc.input.add_subtitle() usage: (path)" );
+    const char *psz_path = luaL_checkstring( L, 1 );
+    input_AddSubtitle( p_input, psz_path, false );
     vlc_object_release( p_input );
     return 1;
 }
@@ -349,6 +354,11 @@ static int vlclua_input_item_set_meta( lua_State *L )
         META_TYPE( ArtworkURL, "artwork_url" )
         META_TYPE( TrackID, "track_id" )
         META_TYPE( TrackTotal, "track_total" )
+        META_TYPE( Director, "director" )
+        META_TYPE( Season, "season" )
+        META_TYPE( Episode, "episode" )
+        META_TYPE( ShowName, "show_name" )
+        META_TYPE( Actors, "actors" )
     };
 #undef META_TYPE
 

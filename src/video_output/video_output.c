@@ -795,7 +795,7 @@ static void ThreadChangeFilters(vout_thread_t *vout,
         fmt_current = *filter_chain_GetFmtOut(chain);
         vlc_array_clear(array);
     }
-    VideoFormatCopyCropAr(&fmt_target.video, &fmt_current.video);
+
     if (!es_format_IsSimilar(&fmt_current, &fmt_target)) {
         msg_Dbg(vout, "Adding a filter to compensate for format changes");
         if (!filter_chain_AppendFilter(vout->p->filter.chain_interactive, NULL, NULL,
@@ -917,7 +917,13 @@ static int ThreadDisplayRenderPicture(vout_thread_t *vout, bool is_forced)
     const bool do_dr_spu = !do_snapshot &&
                            vd->info.subpicture_chromas &&
                            *vd->info.subpicture_chromas != 0;
+
+    //FIXME: Denying do_early_spu if vd->source.orientation != ORIENT_NORMAL
+    //will have the effect that snapshots miss the subpictures. We do this
+    //because there is currently no way to transform subpictures to match
+    //the source format.
     const bool do_early_spu = !do_dr_spu &&
+                               vd->source.orientation == ORIENT_NORMAL &&
                               (vd->info.is_slow ||
                                sys->display.use_dr ||
                                do_snapshot ||
@@ -964,8 +970,10 @@ static int ThreadDisplayRenderPicture(vout_thread_t *vout, bool is_forced)
         }
     }
 
+    video_format_t fmt_spu_rot;
+    video_format_ApplyRotation(&fmt_spu_rot, &fmt_spu);
     subpicture_t *subpic = spu_Render(vout->p->spu,
-                                      subpicture_chromas, &fmt_spu,
+                                      subpicture_chromas, &fmt_spu_rot,
                                       &vd->source,
                                       render_subtitle_date, render_osd_date,
                                       do_snapshot);

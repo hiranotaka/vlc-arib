@@ -95,7 +95,7 @@ vlc_module_begin ()
                  OPAQUE_TEXT, OPAQUE_LONGTEXT, false )
     add_integer( "vbi-position", 8, POS_TEXT, POS_LONGTEXT, false )
         change_integer_list( pi_pos_values, ppsz_pos_descriptions );
-    add_bool( "vbi-text", true,
+    add_bool( "vbi-text", false,
               TELX_TEXT, TELX_LONGTEXT, false )
 vlc_module_end ()
 
@@ -168,7 +168,7 @@ static subpicture_t *Subpicture( decoder_t *p_dec, video_format_t *p_fmt,
                                  int i_align, mtime_t i_pts );
 
 static void EventHandler( vbi_event *ev, void *user_data );
-static int OpaquePage( picture_t *p_src, const vbi_page p_page,
+static int OpaquePage( picture_t *p_src, const vbi_page *p_page,
                        const video_format_t fmt, bool b_opaque, const int text_offset );
 static int get_first_visible_row( vbi_char *p_text, int rows, int columns);
 static int get_last_visible_row( vbi_char *p_text, int rows, int columns);
@@ -399,9 +399,13 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
 
     /* Ignore transparent rows at the beginning and end */
     int i_first_row = get_first_visible_row( p_page.text, p_page.rows, p_page.columns );
-    if ( i_first_row < 0 )
-        goto error;
-    int i_num_rows = get_last_visible_row( p_page.text, p_page.rows, p_page.columns ) - i_first_row + 1;
+    int i_num_rows;
+    if ( i_first_row < 0 ) {
+        i_first_row = p_page.rows - 1;
+        i_num_rows = 0;
+    } else {
+        i_num_rows = get_last_visible_row( p_page.text, p_page.rows, p_page.columns ) - i_first_row + 1;
+    }
 #ifdef ZVBI_DEBUG
     msg_Dbg( p_dec, "After top and tail of page we have rows %i-%i of %i",
              i_first_row + 1, i_first_row + i_num_rows, p_page.rows );
@@ -465,7 +469,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
         memcpy( p_sys->nav_link, &p_page.nav_link, sizeof( p_sys->nav_link )) ;
         vlc_mutex_unlock( &p_sys->lock );
 
-        OpaquePage( p_pic, p_page, fmt, b_opaque, i_first_row * p_page.columns );
+        OpaquePage( p_pic, &p_page, fmt, b_opaque, i_first_row * p_page.columns );
     }
 
 exit:
@@ -533,7 +537,7 @@ static subpicture_t *Subpicture( decoder_t *p_dec, video_format_t *p_fmt,
     p_spu->p_region->i_y = 0;
 
     p_spu->i_start = i_pts;
-    p_spu->i_stop = i_pts + 10000000;
+    p_spu->i_stop = b_text ? i_pts + (10*CLOCK_FREQ): 0;
     p_spu->b_ephemer = true;
     p_spu->b_absolute = b_text ? false : true;
 
@@ -598,7 +602,7 @@ static int get_first_visible_row( vbi_char *p_text, int rows, int columns)
         }
     }
 
-    return rows;
+    return -1;
 }
 
 static int get_last_visible_row( vbi_char *p_text, int rows, int columns)
@@ -611,10 +615,10 @@ static int get_last_visible_row( vbi_char *p_text, int rows, int columns)
         }
     }
 
-    return 0;
+    return -1;
 }
 
-static int OpaquePage( picture_t *p_src, const vbi_page p_page,
+static int OpaquePage( picture_t *p_src, const vbi_page *p_page,
                        const video_format_t fmt, bool b_opaque, const int text_offset )
 {
     unsigned int    x, y;
@@ -626,8 +630,8 @@ static int OpaquePage( picture_t *p_src, const vbi_page p_page,
     {
         for( x = 0; x < fmt.i_width; x++ )
         {
-            const vbi_opacity opacity = p_page.text[ text_offset + y/10 * p_page.columns + x/12 ].opacity;
-            const int background = p_page.text[ text_offset + y/10 * p_page.columns + x/12 ].background;
+            const vbi_opacity opacity = p_page->text[ text_offset + y/10 * p_page->columns + x/12 ].opacity;
+            const int background = p_page->text[ text_offset + y/10 * p_page->columns + x/12 ].background;
             uint32_t *p_pixel = (uint32_t*)&p_src->p->p_pixels[y * p_src->p->i_pitch + 4*x];
 
             switch( opacity )
@@ -647,7 +651,7 @@ static int OpaquePage( picture_t *p_src, const vbi_page p_page,
                     break;
             /* Full text transparency. only foreground color is show */
             case VBI_TRANSPARENT_FULL:
-                if( (*p_pixel) == (0xff000000 | p_page.color_map[background] ) )
+                if( (*p_pixel) == (0xff000000 | p_page->color_map[background] ) )
                     *p_pixel = 0;
                 break;
             }

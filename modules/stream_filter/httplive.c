@@ -566,6 +566,7 @@ static int string_to_IV(char *string_hexa, uint8_t iv[AES_BLOCK_SIZE])
 static char *relative_URI(const char *psz_url, const char *psz_path)
 {
     char *ret = NULL;
+    const char *fmt;
     assert(psz_url != NULL && psz_path != NULL);
 
 
@@ -587,6 +588,7 @@ static char *relative_URI(const char *psz_url, const char *psz_path)
         if (unlikely(slash == NULL))
             goto end;
         *slash = '\0';
+        fmt = "%s%s";
     } else {
         int levels = 0;
         while(len >= 3 && !strncmp(psz_path, "../", 3)) {
@@ -600,9 +602,10 @@ static char *relative_URI(const char *psz_url, const char *psz_path)
                 goto end;
             *slash = '\0';
         } while (levels--);
+	fmt = "%s/%s";
     }
 
-    if (asprintf(&ret, "%s/%s", new_url, psz_path) < 0)
+    if (asprintf(&ret, fmt, new_url, psz_path) < 0)
         ret = NULL;
 
 end:
@@ -1753,8 +1756,12 @@ static void* hls_Reload(void *p_this)
 
             /* determine next time to update playlist */
             p_sys->playlist.last = now;
-            p_sys->playlist.wakeup = now + ((mtime_t)(hls->max_segment_length * wait)
-                                                   * (mtime_t)1000000);
+            p_sys->playlist.wakeup = now;
+            /* If there is no new segments,use playlist duration as sleep period base */
+            if( likely( hls->max_segment_length > 0 ) )
+                p_sys->playlist.wakeup += (mtime_t)((hls->max_segment_length * wait) * CLOCK_FREQ);
+            else
+                p_sys->playlist.wakeup += (mtime_t)((hls->duration * wait) * CLOCK_FREQ);
         }
 
         mwait(p_sys->playlist.wakeup);
@@ -2082,7 +2089,7 @@ static int Open(vlc_object_t *p_this)
         hls_stream_t *hls = hls_Get(p_sys->hls_stream, current);
         p_sys->playlist.last = mdate();
         p_sys->playlist.wakeup = p_sys->playlist.last +
-                ((mtime_t)hls->duration * UINT64_C(1000000));
+                ((mtime_t)hls->duration * CLOCK_FREQ );
 
         if (vlc_clone(&p_sys->reload, hls_Reload, s, VLC_THREAD_PRIORITY_LOW))
         {
@@ -2379,7 +2386,7 @@ static int Read(stream_t *s, void *buffer, unsigned int i_read)
             mtime_t start = mdate();
 
             // Wait for 10 seconds
-            mtime_t timeout_limit = start + (10 * UINT64_C(1000000));
+            mtime_t timeout_limit = start + (10 * CLOCK_FREQ);
 
             int res = vlc_cond_timedwait(&p_sys->read.wait, &p_sys->read.lock_wait, timeout_limit);
 
@@ -2686,7 +2693,7 @@ static int Control(stream_t *s, int i_query, va_list args)
             *(va_arg (args, uint64_t *)) = GetStreamSize(s);
             break;
         case STREAM_GET_PTS_DELAY:
-            *va_arg (args, int64_t *) =
+            *va_arg (args, int64_t *) = INT64_C(1000) *
                 var_InheritInteger(s, "network-caching");
              break;
         default:

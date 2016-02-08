@@ -620,7 +620,11 @@ static void EsOutDecodersStopBuffering( es_out_t *out, bool b_forced )
 
     if( i_stream_duration <= i_buffering_duration && !b_forced )
     {
-        const double f_level = __MAX( (double)i_stream_duration / i_buffering_duration, 0 );
+        double f_level;
+        if (i_buffering_duration == 0)
+            f_level = 0;
+        else
+            f_level = __MAX( (double)i_stream_duration / i_buffering_duration, 0 );
         input_SendEventCache( p_sys->p_input, f_level );
 
         msg_Dbg( p_sys->p_input, "Buffering %d%%", (int)(100 * f_level) );
@@ -1300,7 +1304,7 @@ static void EsOutProgramEpg( es_out_t *out, int i_group, const vlc_epg_t *p_epg 
     if( p_pgrm->psz_now_playing )
     {
         input_Control( p_input, INPUT_ADD_INFO, psz_cat,
-            vlc_meta_TypeToLocalizedString(vlc_meta_NowPlaying),
+            vlc_meta_TypeToLocalizedString(vlc_meta_NowPlaying), "%s",
             p_pgrm->psz_now_playing );
     }
     else
@@ -1839,6 +1843,9 @@ static void EsOutSelect( es_out_t *out, es_out_id_t *es, bool b_force )
                     ( p_sys->p_es_sub && 
                       p_sys->p_es_sub->fmt.i_priority < es->fmt.i_priority ) )
                     i_wanted = es->i_channel;
+                else if( p_sys->p_es_sub &&
+                         p_sys->p_es_sub->fmt.i_priority >= es->fmt.i_priority )
+                    i_wanted = p_sys->p_es_sub->i_channel;
             }
 
             if( p_sys->i_sub_last >= 0 )
@@ -2479,7 +2486,7 @@ static int EsOutControlLocked( es_out_t *out, int i_query, va_list args )
     {
         const int i_id = (int)va_arg( args, int );
         es_out_id_t *p_es = EsOutGetFromID( out, i_id );
-        int i_new_query;
+        int i_new_query = 0;
 
         switch( i_query )
         {

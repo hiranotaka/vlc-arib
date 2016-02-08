@@ -41,6 +41,7 @@
 #endif
 
 #define HAS_QT47 ( QT_VERSION >= 0x040700 )
+#define HAS_QT5  ( QT_VERSION >= 0x050000 )
 
 enum {
     DialogEventTypeOffset = 0,
@@ -75,7 +76,6 @@ struct intf_sys_t
 
     QString filepath;        /* Last path used in dialogs */
 
-    int  i_screenHeight;     /* Detection of Small screens */
     unsigned voutWindowType; /* Type of vout_window_t provided */
     bool b_isDialogProvider; /* Qt mode or Skins mode */
     playlist_t *p_playlist;  /* playlist */

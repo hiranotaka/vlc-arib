@@ -197,6 +197,13 @@ void vout_display_GetDefaultDisplaySize(unsigned *width, unsigned *height,
 
     *width  = *width  * cfg->zoom.num / cfg->zoom.den;
     *height = *height * cfg->zoom.num / cfg->zoom.den;
+
+    if (ORIENT_IS_SWAP(source->orientation)) {
+
+        unsigned store = *width;
+        *width = *height;
+        *height = store;
+    }
 }
 
 /* */
@@ -213,6 +220,10 @@ void vout_display_PlacePicture(vout_display_place_t *place,
     /* */
     unsigned display_width;
     unsigned display_height;
+
+    video_format_t source_rot;
+    video_format_ApplyRotation(&source_rot, source);
+    source = &source_rot;
 
     if (cfg->is_display_filled) {
         display_width  = cfg->display.width;
@@ -273,6 +284,62 @@ void vout_display_PlacePicture(vout_display_place_t *place,
     }
 }
 
+void vout_display_SendMouseMovedDisplayCoordinates(vout_display_t *vd, video_orientation_t orient_display, int m_x, int m_y, vout_display_place_t *place)
+{
+    video_format_t source_rot = vd->source;
+    video_format_TransformTo(&source_rot, orient_display);
+
+    if (place->width > 0 && place->height > 0) {
+
+        int x = (int)(source_rot.i_x_offset +
+                            (int64_t)(m_x - place->x) * source_rot.i_visible_width / place->width);
+        int y = (int)(source_rot.i_y_offset +
+                            (int64_t)(m_y - place->y) * source_rot.i_visible_height/ place->height);
+
+        video_transform_t transform = video_format_GetTransform(vd->source.orientation, orient_display);
+
+        int store;
+
+        switch (transform) {
+
+            case TRANSFORM_R90:
+                store = x;
+                x = y;
+                y = vd->source.i_visible_height - store;
+                break;
+            case TRANSFORM_R180:
+                x = vd->source.i_visible_width - x;
+                y = vd->source.i_visible_height - y;
+                break;
+            case TRANSFORM_R270:
+                store = x;
+                x = vd->source.i_visible_width - y;
+                y = store;
+                break;
+            case TRANSFORM_HFLIP:
+                x = vd->source.i_visible_width - x;
+                break;
+            case TRANSFORM_VFLIP:
+                y = vd->source.i_visible_height - y;
+                break;
+            case TRANSFORM_TRANSPOSE:
+                store = x;
+                x = y;
+                y = store;
+                break;
+            case TRANSFORM_ANTI_TRANSPOSE:
+                store = x;
+                x = vd->source.i_visible_width - y;
+                y = vd->source.i_visible_height - store;
+                break;
+            default:
+                break;
+        }
+
+        vout_display_SendEventMouseMoved (vd, x, y);
+    }
+}
+
 struct vout_display_owner_sys_t {
     vout_thread_t   *vout;
     bool            is_wrapper;  /* Is the current display a wrapper */
@@ -301,8 +368,8 @@ struct vout_display_owner_sys_t {
 
     bool ch_zoom;
     struct {
-        int  num;
-        int  den;
+        unsigned num;
+        unsigned den;
     } zoom;
 
     bool ch_wm_state;
@@ -859,7 +926,7 @@ bool vout_ManageDisplay(vout_display_t *vd, bool allow_reset_pictures)
 
             if (!cfg.is_fullscreen != !display_is_fullscreen ||
                 vout_display_Control(vd, VOUT_DISPLAY_CHANGE_DISPLAY_SIZE, &cfg, display_is_forced)) {
-                if (!cfg.is_fullscreen == !display_is_fullscreen)
+                if (!display_is_forced)
                     msg_Err(vd, "Failed to resize display");
 
                 /* We ignore the resized */
@@ -1141,9 +1208,16 @@ void vout_SetDisplayFilled(vout_display_t *vd, bool is_filled)
     }
 }
 
-void vout_SetDisplayZoom(vout_display_t *vd, int num, int den)
+void vout_SetDisplayZoom(vout_display_t *vd, unsigned num, unsigned den)
 {
     vout_display_owner_sys_t *osys = vd->owner.sys;
+
+    if (num > 0 && den > 0) {
+        vlc_ureduce(&num, &den, num, den, 0);
+    } else {
+        num = 1;
+        den = 1;
+    }
 
     if (osys->is_display_filled ||
         osys->zoom.num != num || osys->zoom.den != den) {

@@ -584,10 +584,6 @@ int var_Change( vlc_object_t *p_this, const char *psz_name,
             p_val->psz_string = p_var->psz_text ? strdup( p_var->psz_text )
                                                 : NULL;
             break;
-        case VLC_VAR_SETISCOMMAND:
-            p_var->i_type |= VLC_VAR_ISCOMMAND;
-            break;
-
         default:
             break;
     }
@@ -1278,6 +1274,10 @@ int (var_InheritURational)(vlc_object_t *object,
             n = 0;
             d = 0;
         }
+    } else if ( *next == '\0' ) {
+        /* plain integer given */
+        *num = n;
+        *den = 1;
     }
 
     if (n > 0 && d > 0)

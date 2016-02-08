@@ -353,6 +353,7 @@ static const struct action actions[] =
     { "subsync-markaudio", ACTIONID_SUBSYNC_MARKAUDIO, },
     { "subsync-marksub", ACTIONID_SUBSYNC_MARKSUB, },
     { "subsync-reset", ACTIONID_SUBSYNC_RESET, },
+    { "subtitle-toggle", ACTIONID_SUBTITLE_TOGGLE, },
     { "subtitle-track", ACTIONID_SUBTITLE_TRACK, },
     { "title-next", ACTIONID_TITLE_NEXT, },
     { "title-prev", ACTIONID_TITLE_PREV, },
@@ -396,7 +397,7 @@ struct vlc_actions
 {
     void *map; /* Key map */
     void *global_map; /* Grabbed/global key map */
-    struct hotkey keys[0];
+    struct hotkey keys[1];
 };
 
 static int vlc_key_to_action (vlc_object_t *obj, const char *varname,
@@ -474,7 +475,7 @@ struct vlc_actions *vlc_InitActions (libvlc_int_t *libvlc)
 {
     vlc_object_t *obj = VLC_OBJECT(libvlc);
     struct hotkey *keys;
-    struct vlc_actions *as = malloc (sizeof (*as) + (ACTIONS_COUNT + 1) * sizeof (*keys));
+    struct vlc_actions *as = malloc (sizeof (*as) + ACTIONS_COUNT * sizeof (*keys));
 
     if (unlikely(as == NULL))
         return NULL;

@@ -32,7 +32,7 @@ struct vlc_va_t {
 
     vlc_va_sys_t *sys;
     module_t *module;
-    char *description;
+    const char *description;
     int pix_fmt;
 
     int  (*setup)(vlc_va_t *, void **hw, vlc_fourcc_t *output,
@@ -45,11 +45,10 @@ struct vlc_va_t {
 /**
  * Creates an accelerated video decoding back-end for libavcodec.
  * @param obj parent VLC object
- * @param codec_id libavcodec codec ID of the content to decode
  * @param fmt VLC format of the content to decode
  * @return a new VLC object on success, NULL on error.
  */
-vlc_va_t *vlc_va_New(vlc_object_t *obj, int codec_id, const es_format_t *fmt);
+vlc_va_t *vlc_va_New(vlc_object_t *obj, AVCodecContext *, const es_format_t *fmt);
 
 /**
  * Initializes the acceleration video decoding back-end for libavcodec.

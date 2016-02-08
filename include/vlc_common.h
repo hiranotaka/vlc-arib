@@ -335,6 +335,7 @@ typedef struct vlm_message_t vlm_message_t;
 /* misc */
 typedef struct vlc_meta_t    vlc_meta_t;
 typedef struct input_stats_t input_stats_t;
+typedef struct addon_entry_t addon_entry_t;
 
 /* Update */
 typedef struct update_t update_t;
@@ -408,6 +409,7 @@ typedef int ( * vlc_callback_t ) ( vlc_object_t *,      /* variable's object */
 #   define OS2EMX_PLAIN_CHAR
 #   define INCL_BASE
 #   define INCL_PM
+#   include <os2safe.h>
 #   include <os2.h>
 #endif
 

@@ -379,6 +379,7 @@ struct sout_mux_sys_t
     int64_t         i_pcr_delay;
 
     int64_t         i_dts_delay;
+    mtime_t         first_dts;
 
     bool            b_use_key_frames;
 
@@ -895,6 +896,8 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
     /* VIDEO */
 
     case VLC_CODEC_MPGV:
+    case VLC_CODEC_MP2V:
+    case VLC_CODEC_MP1V:
         /* TODO: do we need to check MPEG-I/II ? */
         p_stream->i_stream_type = 0x02;
         p_stream->i_stream_id = 0xe0;
@@ -903,6 +906,10 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
         p_stream->i_stream_type = 0x10;
         p_stream->i_stream_id = 0xe0;
         p_stream->i_es_id = p_stream->i_pid;
+        break;
+    case VLC_CODEC_HEVC:
+        p_stream->i_stream_type = 0x24;
+        p_stream->i_stream_id = 0xe0;
         break;
     case VLC_CODEC_H264:
         p_stream->i_stream_type = 0x1b;
@@ -933,6 +940,7 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
     /* AUDIO */
 
     case VLC_CODEC_MPGA:
+    case VLC_CODEC_MP3:
         p_stream->i_stream_type =
             p_input->p_fmt->audio.i_rate >= 32000 ? 0x03 : 0x04;
         p_stream->i_stream_id = 0xc0;
@@ -959,7 +967,6 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
         //p_stream->i_stream_type = 0x11; /* LOAS/LATM */
         p_stream->i_stream_type = 0x0f; /* ADTS */
         p_stream->i_stream_id = 0xc0;
-        p_sys->i_mpeg4_streams++;
         p_stream->i_es_id = p_stream->i_pid;
         break;
 
@@ -1267,7 +1274,7 @@ static bool MuxStreams(sout_mux_t *p_mux )
                 /* Don't mux the SPU yet if it is too early */
                 block_t *p_spu = block_FifoShow( p_input->p_fifo );
 
-                int64_t i_spu_delay = p_spu->i_dts - p_pcr_stream->i_pes_dts;
+                int64_t i_spu_delay = p_spu->i_dts - p_sys->first_dts - p_pcr_stream->i_pes_dts;
                 if( ( i_spu_delay > i_shaping_delay ) &&
                     ( i_spu_delay < INT64_C(100000000) ) )
                     continue;
@@ -1287,7 +1294,8 @@ static bool MuxStreams(sout_mux_t *p_mux )
 
         block_t *p_data;
         if( p_stream == p_pcr_stream || p_sys->b_data_alignment
-             || p_input->p_fmt->i_codec != VLC_CODEC_MPGA )
+             || ((p_input->p_fmt->i_codec != VLC_CODEC_MPGA ) &&
+                 (p_input->p_fmt->i_codec != VLC_CODEC_MP3) ) )
         {
             p_data = block_FifoGet( p_input->p_fifo );
             if (p_data->i_pts <= VLC_TS_INVALID)
@@ -1308,6 +1316,12 @@ static bool MuxStreams(sout_mux_t *p_mux )
         else if( p_input->p_fmt->i_codec !=
                    VLC_CODEC_SUBT )
             p_data->i_length = 1000;
+
+        if (p_sys->first_dts == 0)
+            p_sys->first_dts = p_data->i_dts;
+
+        p_data->i_dts -= p_sys->first_dts;
+        p_data->i_pts -= p_sys->first_dts;
 
         if( ( p_pcr_stream->i_pes_dts > 0 &&
               p_data->i_dts - 10000000 > p_pcr_stream->i_pes_dts +

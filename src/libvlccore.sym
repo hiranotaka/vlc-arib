@@ -162,6 +162,7 @@ httpd_StreamDelete
 httpd_StreamHeader
 httpd_StreamNew
 httpd_StreamSend
+httpd_StreamSetHTTPHeaders
 httpd_UrlCatch
 httpd_UrlDelete
 httpd_UrlNew
@@ -216,7 +217,10 @@ input_resource_New
 input_resource_Release
 input_resource_TerminateVout
 input_resource_Terminate
+input_resource_GetAout
 input_resource_HoldAout
+input_resource_PutAout
+input_resource_ResetAout
 input_Start
 input_Stop
 input_vaControl
@@ -464,6 +468,10 @@ var_LocationParse
 video_format_CopyCrop
 video_format_ScaleCropAr
 video_format_FixRgb
+video_format_ApplyRotation
+video_format_TransformBy
+video_format_TransformTo
+video_format_GetTransform
 video_format_IsSimilar
 video_format_Setup
 video_format_Print
@@ -628,6 +636,7 @@ vout_SetDisplayAspect
 vout_SetDisplayCrop
 vout_display_GetDefaultDisplaySize
 vout_display_PlacePicture
+vout_display_SendMouseMovedDisplayCoordinates
 xml_Create
 text_style_Copy
 text_style_Delete
@@ -641,3 +650,12 @@ vlc_keycode2str
 vlc_str2keycode
 fingerprinter_Create
 fingerprinter_Destroy
+addons_manager_New
+addons_manager_Delete
+addons_manager_Gather
+addons_manager_LoadCatalog
+addons_manager_Install
+addons_manager_Remove
+addon_entry_New
+addon_entry_Hold
+addon_entry_Release

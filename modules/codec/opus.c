@@ -283,7 +283,7 @@ static int ProcessInitialHeader( decoder_t *p_dec, ogg_packet *p_oggpacket )
     msg_Dbg( p_dec, "Opus audio with %d channels", p_header->channels);
 
     if((p_header->channels>2 && p_header->channel_mapping==0) ||
-       (p_header->channels>8 && p_header->channel_mapping==1) ||
+        p_header->channels>8 ||
         p_header->channel_mapping>1)
     {
         msg_Err( p_dec, "Unsupported channel mapping" );
@@ -297,7 +297,7 @@ static int ProcessInitialHeader( decoder_t *p_dec, ogg_packet *p_oggpacket )
     p_dec->fmt_out.audio.i_channels = p_header->channels;
     p_dec->fmt_out.audio.i_rate = 48000;
 
-    if( p_header->channels>2 && p_header->channels<9 )
+    if( p_header->channels>2 )
     {
         static const uint32_t *pi_ch[6] = { pi_3channels_in, pi_4channels_in,
                                             pi_5channels_in, pi_6channels_in,
@@ -614,7 +614,10 @@ static int OpenEncoder(vlc_object_t *p_this)
         goto error;
     }
 
-    /* TODO: vbr, bitrate, fec */
+    /* TODO: vbr, fec */
+
+    if( enc->fmt_out.i_bitrate )
+        opus_multistream_encoder_ctl(sys->enc, OPUS_SET_BITRATE( enc->fmt_out.i_bitrate ));
 
     /* Buffer for incoming audio, since opus only accepts frame sizes that are
        multiples of 2.5ms */
@@ -638,7 +641,7 @@ static int OpenEncoder(vlc_object_t *p_this)
 
     /* Now that we have preskip, we can write the header to extradata */
     if (opus_write_header((uint8_t **) &enc->fmt_out.p_extra,
-                          &enc->fmt_out.i_extra, &header))
+                          &enc->fmt_out.i_extra, &header, opus_get_version_string()))
     {
         msg_Err(enc, "Failed to write header.");
         status = VLC_ENOMEM;

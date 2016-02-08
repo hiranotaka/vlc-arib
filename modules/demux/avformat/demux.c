@@ -38,20 +38,21 @@
 #include <vlc_charset.h>
 #include <vlc_avcodec.h>
 
-#include <libavformat/avformat.h>
-
 #include "../../codec/avcodec/avcodec.h"
 #include "../../codec/avcodec/chroma.h"
-#include "../../codec/avcodec/avcommon.h"
+#include "../../codec/avcodec/avcommon_compat.h"
 #include "avformat.h"
 #include "../xiph.h"
 #include "../vobsub.h"
 
-/* Support for deprecated APIs */
+#include <libavformat/avformat.h>
 
-#if LIBAVFORMAT_VERSION_MAJOR < 54
-# define AVDictionaryEntry AVMetadataTag
-# define av_dict_get av_metadata_get
+#if ( (LIBAVUTIL_VERSION_MICRO <  100 && LIBAVUTIL_VERSION_INT >= AV_VERSION_INT( 53, 15, 0) ) || \
+      (LIBAVUTIL_VERSION_MICRO >= 100 && LIBAVUTIL_VERSION_INT >= AV_VERSION_INT( 52, 85, 100 ) )  )
+# if LIBAVFORMAT_VERSION_CHECK( 55, 18, 0, 40, 100)
+#  include <libavutil/display.h>
+#  define HAVE_AV_STREAM_GET_SIDE_DATA
+# endif
 #endif
 
 //#define AVFORMAT_DEBUG 1
@@ -96,9 +97,62 @@ static block_t *BuildSsaFrame( const AVPacket *p_pkt, unsigned i_order );
 static void UpdateSeekPoint( demux_t *p_demux, int64_t i_time );
 static void ResetTime( demux_t *p_demux, int64_t i_time );
 
+static vlc_fourcc_t CodecTagToFourcc( uint32_t codec_tag )
+{
+    // convert from little-endian avcodec codec_tag to VLC native-endian fourcc
+#ifdef WORDS_BIGENDIAN
+    return bswap32(codec_tag);
+#else
+    return codec_tag;
+#endif
+}
+
 /*****************************************************************************
  * Open
  *****************************************************************************/
+
+static void get_rotation(es_format_t *fmt, AVStream *s)
+{
+    char const *kRotateKey = "rotate";
+    AVDictionaryEntry *rotation = av_dict_get(s->metadata, kRotateKey, NULL, 0);
+    long angle = 0;
+
+    if( rotation )
+    {
+        angle = strtol(rotation->value, NULL, 10);
+
+        if (angle > 45 && angle < 135)
+            fmt->video.orientation = ORIENT_ROTATED_90;
+
+        else if (angle > 135 && angle < 225)
+            fmt->video.orientation = ORIENT_ROTATED_180;
+
+        else if (angle > 225 && angle < 315)
+            fmt->video.orientation = ORIENT_ROTATED_270;
+
+        else
+            fmt->video.orientation = ORIENT_NORMAL;
+    }
+#ifdef HAVE_AV_STREAM_GET_SIDE_DATA
+    int32_t *matrix = (int32_t *)av_stream_get_side_data(s, AV_PKT_DATA_DISPLAYMATRIX, NULL);
+    if( matrix ) {
+        angle = lround(av_display_rotation_get(matrix));
+
+        if (angle > 45 && angle < 135)
+            fmt->video.orientation = ORIENT_ROTATED_270;
+
+        else if (angle > 135 || angle < -135)
+            fmt->video.orientation = ORIENT_ROTATED_180;
+
+        else if (angle < -45 && angle > -135)
+            fmt->video.orientation = ORIENT_ROTATED_90;
+
+        else
+            fmt->video.orientation = ORIENT_NORMAL;
+    }
+#endif
+}
+
 int OpenDemux( vlc_object_t *p_this )
 {
     demux_t       *p_demux = (demux_t*)p_this;
@@ -293,6 +347,7 @@ int OpenDemux( vlc_object_t *p_this )
         {
         case AVMEDIA_TYPE_AUDIO:
             es_format_Init( &fmt, AUDIO_ES, fcc );
+            fmt.i_original_fourcc = CodecTagToFourcc( cc->codec_tag );
             fmt.i_bitrate = cc->bit_rate;
             fmt.audio.i_channels = cc->channels;
             fmt.audio.i_rate = cc->sample_rate;
@@ -303,6 +358,7 @@ int OpenDemux( vlc_object_t *p_this )
 
         case AVMEDIA_TYPE_VIDEO:
             es_format_Init( &fmt, VIDEO_ES, fcc );
+            fmt.i_original_fourcc = CodecTagToFourcc( cc->codec_tag );
 
             fmt.video.i_bits_per_pixel = cc->bits_per_coded_sample;
             /* Special case for raw video data */
@@ -323,6 +379,9 @@ int OpenDemux( vlc_object_t *p_this )
 
             fmt.video.i_width = cc->width;
             fmt.video.i_height = cc->height;
+
+            get_rotation(&fmt, s);
+
 #if LIBAVCODEC_VERSION_MAJOR < 54
             if( cc->palctrl )
             {
@@ -344,6 +403,7 @@ int OpenDemux( vlc_object_t *p_this )
 
         case AVMEDIA_TYPE_SUBTITLE:
             es_format_Init( &fmt, SPU_ES, fcc );
+            fmt.i_original_fourcc = CodecTagToFourcc( cc->codec_tag );
             if( strncmp( p_sys->ic->iformat->name, "matroska", 8 ) == 0 &&
                 cc->codec_id == AV_CODEC_ID_DVD_SUBTITLE &&
                 cc->extradata != NULL &&
@@ -391,6 +451,7 @@ int OpenDemux( vlc_object_t *p_this )
 
         default:
             es_format_Init( &fmt, UNKNOWN_ES, 0 );
+            fmt.i_original_fourcc = CodecTagToFourcc( cc->codec_tag );
 #ifdef HAVE_AVUTIL_CODEC_ATTACHMENT
             if( cc->codec_type == AVMEDIA_TYPE_ATTACHMENT )
             {

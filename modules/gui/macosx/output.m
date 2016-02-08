@@ -201,7 +201,7 @@
     [NSApp endSheet: o_output_sheet];
 }
 
-- (void)outputMethodChanged:(NSNotification *)o_notification
+- (IBAction)outputMethodChanged:(id)sender
 {
     NSString *o_mode;
     o_mode = [[o_method selectedCell] title];
@@ -314,7 +314,7 @@
     [self outputInfoChanged: nil];
 }
 
-- (void)outputInfoChanged:(NSNotification *)o_notification
+- (IBAction)outputInfoChanged:(id)object
 {
     NSString *o_mode, *o_mux, *o_mux_string;
     NSMutableString *o_announce = [NSMutableString stringWithString:@""];
@@ -372,8 +372,7 @@
              * port correctly. Not need, if there isn't any path following the
              * hostname. */
             NSArray * o_urlItems = [[o_stream_address stringValue] componentsSeparatedByString: @"/"];
-            NSMutableString * o_finalStreamAddress;
-            o_finalStreamAddress = [[NSMutableString alloc] init];
+            NSMutableString * o_finalStreamAddress = [[[NSMutableString alloc] init] autorelease];
 
             if ([o_urlItems count] == 1)
                 [o_finalStreamAddress appendFormat: @"\"%@:%@\"", [o_stream_address stringValue],[o_stream_port stringValue]];
@@ -475,7 +474,7 @@
     [self TTLChanged:nil];
 }
 
-- (void)transcodeChanged:(NSNotification *)o_notification
+- (IBAction)transcodeChanged:(id)sender
 {
     if ([o_transcode_video_chkbox state] == NSOnState) {
         [o_transcode_video_selector setEnabled: YES];
@@ -499,7 +498,7 @@
     [self transcodeInfoChanged:nil];
 }
 
-- (void)transcodeInfoChanged:(NSNotification *)o_notification
+- (IBAction)transcodeInfoChanged:(id)object
 {
     NSMutableString *o_transcode_string = [NSMutableString stringWithCapacity:200];
 

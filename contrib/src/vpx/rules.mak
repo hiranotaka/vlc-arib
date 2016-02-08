@@ -10,16 +10,9 @@ $(TARBALLS)/libvpx-$(VPX_VERSION).tar.bz2:
 
 libvpx: libvpx-$(VPX_VERSION).tar.bz2 .sum-vpx
 	$(UNPACK)
+	$(APPLY) $(SRC)/vpx/libvpx-sysroot.patch
 	$(APPLY) $(SRC)/vpx/libvpx-no-cross.patch
-	$(APPLY) $(SRC)/vpx/windows.patch
-ifdef HAVE_MACOSX
 	$(APPLY) $(SRC)/vpx/libvpx-mac.patch
-endif
-ifneq ($(which bash),/bin/bash)
-	sed -i.orig \
-		s,^\#!/bin/bash,\#!`which bash`,g \
-		`grep -Rl ^\#!/bin/bash libvpx-$(VPX_VERSION)`
-endif
 	$(MOVE)
 
 DEPS_vpx =
@@ -46,7 +39,9 @@ else ifeq ($(ARCH),x86_64)
 VPX_ARCH := x86_64
 endif
 
-ifdef HAVE_LINUX
+ifdef HAVE_ANDROID
+VPX_OS := android
+else ifdef HAVE_LINUX
 VPX_OS := linux
 else ifdef HAVE_DARWIN_OS
 ifeq ($(ARCH),arm)
@@ -91,9 +86,18 @@ endif
 ifdef HAVE_IOS
 VPX_CONF += --sdk-path=$(SDKROOT)
 endif
+ifdef HAVE_ANDROID
+# vpx configure.sh overrides our sysroot and it looks for it itself, and
+# uses that path to look for the compiler (which we already know)
+VPX_CONF += --sdk-path=$(shell dirname $(shell which $(HOST)-gcc))
+# needed for cpu-features.h
+VPX_CONF += --extra-cflags="-I $(ANDROID_NDK)/sources/cpufeatures/"
+endif
 
 .vpx: libvpx
 	cd $< && CROSS=$(VPX_CROSS) ./configure --target=$(VPX_TARGET) \
 		$(VPX_CONF) --prefix=$(PREFIX)
+	cd $< && $(MAKE)
+	cd $< && ../../../contrib/src/pkg-static.sh vpx.pc
 	cd $< && $(MAKE) install
 	touch $@

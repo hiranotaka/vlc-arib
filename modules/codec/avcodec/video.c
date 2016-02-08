@@ -136,9 +136,12 @@ static inline picture_t *ffmpeg_NewPictBuf( decoder_t *p_dec,
         avcodec_align_dimensions2(p_context, &width, &height, aligns);
     }
 
-    if( width == 0 || height == 0)
-        return NULL; /* invalid display size */
 
+    if( width == 0 || height == 0 || width > 8192 || height > 8192 )
+    {
+        msg_Err( p_dec, "Invalid frame size %dx%d.", width, height );
+        return NULL; /* invalid display size */
+    }
     p_dec->fmt_out.video.i_width = width;
     p_dec->fmt_out.video.i_height = height;
 
@@ -146,6 +149,11 @@ static inline picture_t *ffmpeg_NewPictBuf( decoder_t *p_dec,
     {
         p_dec->fmt_out.video.i_visible_width = p_context->width;
         p_dec->fmt_out.video.i_visible_height = p_context->height;
+    }
+    else
+    {
+        p_dec->fmt_out.video.i_visible_width = width;
+        p_dec->fmt_out.video.i_visible_height = height;
     }
 
     if( !p_sys->p_va && GetVlcChroma( &p_dec->fmt_out.video, p_context->pix_fmt ) )
@@ -363,6 +371,8 @@ int InitVideoDec( decoder_t *p_dec, AVCodecContext *p_context,
     }
     p_dec->fmt_out.i_codec = p_dec->fmt_out.video.i_chroma;
 
+    p_dec->fmt_out.video.orientation = p_dec->fmt_in.video.orientation;
+
 #if LIBAVCODEC_VERSION_MAJOR < 54
     /* Setup palette */
     memset( &p_sys->palette, 0, sizeof(p_sys->palette) );
@@ -427,7 +437,6 @@ picture_t *DecodeVideo( decoder_t *p_dec, block_t **pp_block )
     decoder_sys_t *p_sys = p_dec->p_sys;
     AVCodecContext *p_context = p_sys->p_context;
     int b_drawpicture;
-    int b_null_size = false;
     block_t *p_block;
 
     if( !pp_block )
@@ -485,13 +494,13 @@ picture_t *DecodeVideo( decoder_t *p_dec, block_t **pp_block )
     {
         if( p_sys->i_pts > VLC_TS_INVALID )
         {
-            msg_Err( p_dec, "more than 5 seconds of late video -> "
-                     "dropping frame (computer too slow ?)" );
             p_sys->i_pts = VLC_TS_INVALID; /* To make sure we recover properly */
         }
         if( p_block )
             block_Release( p_block );
         p_sys->i_late_frames--;
+        msg_Err( p_dec, "more than 5 seconds of late video -> "
+                 "dropping frame (computer too slow ?)" );
         return NULL;
     }
 
@@ -514,6 +523,7 @@ picture_t *DecodeVideo( decoder_t *p_dec, block_t **pp_block )
             p_sys->i_late_frames--; /* needed else it will never be decrease */
             if( p_block )
                 block_Release( p_block );
+            msg_Warn( p_dec, "More than 4 late frames, dropping frame" );
             return NULL;
         }
     }
@@ -531,7 +541,6 @@ picture_t *DecodeVideo( decoder_t *p_dec, block_t **pp_block )
     {
         if( p_sys->b_hurry_up )
             p_context->skip_frame = p_sys->i_skip_frame;
-        b_null_size = true;
     }
     else if( !b_drawpicture )
     {
@@ -607,16 +616,6 @@ picture_t *DecodeVideo( decoder_t *p_dec, block_t **pp_block )
         i_used = avcodec_decode_video2( p_context, p_sys->p_ff_pic,
                                        &b_gotpicture, &pkt );
 
-        if( b_null_size && !p_sys->b_flush &&
-            p_context->width > 0 && p_context->height > 0 )
-        {
-            /* Reparse it to not drop the I frame */
-            b_null_size = false;
-            if( p_sys->b_hurry_up )
-                p_context->skip_frame = p_sys->i_skip_frame;
-            i_used = avcodec_decode_video2( p_context, p_sys->p_ff_pic,
-                                           &b_gotpicture, &pkt );
-        }
         wait_mt( p_sys );
 
         if( p_sys->b_flush )
@@ -1320,7 +1319,7 @@ static enum PixelFormat ffmpeg_GetFormat( AVCodecContext *p_context,
     if( p_context->level != FF_LEVEL_UNKNOWN)
         p_dec->fmt_in.i_level = p_context->level;
 
-    p_va = vlc_va_New( VLC_OBJECT(p_dec), p_sys->i_codec_id, &p_dec->fmt_in );
+    p_va = vlc_va_New( VLC_OBJECT(p_dec), p_context, &p_dec->fmt_in );
     if( p_va == NULL )
         goto end;
 

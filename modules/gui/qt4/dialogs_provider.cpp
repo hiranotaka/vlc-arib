@@ -440,16 +440,14 @@ QStringList DialogsProvider::showSimpleOpen( const QString& help,
 void DialogsProvider::addFromSimple( bool pl, bool go)
 {
     QStringList files = DialogsProvider::showSimpleOpen();
-    int mode = go ? PLAYLIST_GO : PLAYLIST_PREPARSE;
 
+    bool first = go;
     files.sort();
     foreach( const QString &file, files )
     {
         QString url = toURI( toNativeSeparators( file ) );
-        playlist_Add( THEPL, qtu( url ), NULL, PLAYLIST_APPEND | mode,
-                      PLAYLIST_END, pl, pl_Unlocked );
-        RecentsMRL::getInstance( p_intf )->addRecent( url );
-        mode = PLAYLIST_PREPARSE;
+        Open::openMRL( p_intf, url, first, pl);
+        first = false;
     }
 }
 
@@ -481,11 +479,8 @@ void DialogsProvider::openUrlDialog()
         url = qfu(uri);
         free( uri );
     }
-    playlist_Add( THEPL, qtu(url), NULL,
-                  !oud.shouldEnqueue() ? ( PLAYLIST_APPEND | PLAYLIST_GO )
-                                     : ( PLAYLIST_APPEND | PLAYLIST_PREPARSE ),
-                  PLAYLIST_END, true, false );
-    RecentsMRL::getInstance( p_intf )->addRecent( url );
+
+    Open::openMRL( p_intf, qtu(url), !oud.shouldEnqueue() );
 }
 
 /* Directory */
@@ -496,43 +491,15 @@ void DialogsProvider::openUrlDialog()
  **/
 static void openDirectory( intf_thread_t *p_intf, bool pl, bool go )
 {
-    QString dir = QFileDialog::getExistingDirectory( NULL, qtr( I_OP_DIR_WINTITLE ), p_intf->p_sys->filepath );
-
-    if( dir.isEmpty() )
-        return;
-
-    p_intf->p_sys->filepath = dir;
-
-    const char *scheme = "directory";
-    if( dir.endsWith( DIR_SEP "VIDEO_TS", Qt::CaseInsensitive ) )
-        scheme = "dvd";
-    else if( dir.endsWith( DIR_SEP "BDMV", Qt::CaseInsensitive ) )
-    {
-        scheme = "bluray";
-        dir.remove( "BDMV" );
-    }
-
-    char *uri = vlc_path2uri( qtu( toNativeSeparators( dir ) ), scheme );
-    if( unlikely(uri == NULL) )
-        return;
-
-    RecentsMRL::getInstance( p_intf )->addRecent( qfu(uri) );
-
-    input_item_t *p_input = input_item_New( uri, NULL );
-    free( uri );
-    if( unlikely( p_input == NULL ) )
-        return;
-
-    /* FIXME: playlist_AddInput() can fail */
-    playlist_AddInput( THEPL, p_input,
-                       go ? ( PLAYLIST_APPEND | PLAYLIST_GO ) : PLAYLIST_APPEND,
-                       PLAYLIST_END, pl, pl_Unlocked );
-    vlc_gc_decref( p_input );
+    QString uri = DialogsProvider::getDirectoryDialog( p_intf );
+    if( !uri.isEmpty() )
+        Open::openMRL( p_intf, uri, go, pl );
 }
 
-QString DialogsProvider::getDirectoryDialog()
+QString DialogsProvider::getDirectoryDialog( intf_thread_t *p_intf )
 {
-    QString dir = QFileDialog::getExistingDirectory( NULL, qtr( I_OP_DIR_WINTITLE ), p_intf->p_sys->filepath );
+    QString dir = QFileDialog::getExistingDirectory( NULL,
+            qtr( I_OP_DIR_WINTITLE ), p_intf->p_sys->filepath );
 
     if( dir.isEmpty() ) return QString();
 
@@ -548,7 +515,9 @@ QString DialogsProvider::getDirectoryDialog()
     }
 
     char *uri = vlc_path2uri( qtu( toNativeSeparators( dir ) ), scheme );
-    if( unlikely(uri == NULL) ) return QString();
+    if( unlikely(uri == NULL) )
+        return QString();
+
     dir = qfu( uri );
     free( uri );
 
@@ -716,29 +685,7 @@ void DialogsProvider::streamingDialog( QWidget *parent,
     {
         options += soutoption.split( " :");
 
-        /* Create Input */
-        input_item_t *p_input;
-        p_input = input_item_New( qtu( mrl ), _("Streaming") );
-
-        /* Add normal Options */
-        for( int j = 0; j < options.count(); j++ )
-        {
-            QString qs = colon_unescape( options[j] );
-            if( !qs.isEmpty() )
-            {
-                input_item_AddOption( p_input, qtu( qs ),
-                        VLC_INPUT_OPTION_TRUSTED );
-                msg_Dbg( p_intf, "Adding option: %s", qtu( qs ) );
-            }
-        }
-
-        /* Switch between enqueuing and starting the item */
-        /* FIXME: playlist_AddInput() can fail */
-        playlist_AddInput( THEPL, p_input,
-                PLAYLIST_APPEND | PLAYLIST_GO, PLAYLIST_END, true, pl_Unlocked );
-        vlc_gc_decref( p_input );
-
-        RecentsMRL::getInstance( p_intf )->addRecent( mrl );
+        Open::openMRLwithOptions( p_intf, mrl, &options, true, true, _("Streaming") );
     }
 }
 
@@ -781,8 +728,8 @@ void DialogsProvider::loadSubtitlesFile()
     free( path2 );
     foreach( const QString &qsFile, qsl )
     {
-        if( input_AddSubtitle( p_input, qtu( toNativeSeparators( qsFile ) ),
-                    true ) )
+        if( input_AddSubtitleOSD( p_input, qtu( toNativeSeparators( qsFile ) ),
+                    true, true ) )
             msg_Warn( p_intf, "unable to load subtitles from '%s'",
                       qtu( qsFile ) );
     }
@@ -813,12 +760,3 @@ void DialogsProvider::SDMenuAction( const QString& data )
         playlist_ServicesDiscoveryRemove( THEPL, qtu( data ) );
 }
 
-/**
- * Play the MRL contained in the Recently played menu.
- **/
-void DialogsProvider::playMRL( const QString &mrl )
-{
-    playlist_Add( THEPL, qtu(mrl), NULL,
-                  PLAYLIST_APPEND | PLAYLIST_GO , PLAYLIST_END, true, false );
-    RecentsMRL::getInstance( p_intf )->addRecent( mrl );
-}

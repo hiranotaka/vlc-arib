@@ -64,6 +64,7 @@
 - (playlist_item_t *)currentPlaylistRoot;
 - (playlist_item_t *)selectedPlaylistItem;
 - (NSOutlineView *)outlineView;
+- (void)reloadStyles;
 @end
 
 /*****************************************************************************
@@ -85,7 +86,6 @@
     IBOutlet id o_btn_playlist;
     IBOutlet id o_playlist_view;
     IBOutlet id o_search_field;
-    IBOutlet id o_search_field_other;
     IBOutlet id o_mi_save_playlist;
     IBOutlet id o_ctx_menu;
 
@@ -139,4 +139,7 @@
 - (void)appendNodeArray:(NSArray*)o_array inNode:(playlist_item_t *)p_node atPos:(int)i_position enqueue:(BOOL)b_enqueue;
 
 - (void)setColumn: (NSString *)o_column state: (NSInteger)i_state translationDict:(NSDictionary *)o_dict;
+- (void)continuePlaybackWhereYouLeftOff:(input_thread_t *)p_input_thread;
+- (void)storePlaybackPositionForItem:(input_thread_t *)p_input_thread;
+
 @end

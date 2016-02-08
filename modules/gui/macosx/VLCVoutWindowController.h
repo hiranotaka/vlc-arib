@@ -38,6 +38,8 @@
     // save the status level if at least one video window is on status level
     NSUInteger i_statusLevelWindowCounter;
     NSInteger i_currentWindowLevel;
+
+    BOOL b_mainwindow_has_video;
 }
 
 @property (readonly, nonatomic) NSInteger currentWindowLevel;
@@ -46,7 +48,7 @@
 - (void)removeVoutforDisplay:(NSValue *)o_key;
 - (void)setNativeVideoSize:(NSSize)size forWindow:(vout_window_t *)p_wnd;
 - (void)setWindowLevel:(NSInteger)i_level forWindow:(vout_window_t *)p_wnd;
-- (void)setFullscreen:(int)i_full forWindow:(vout_window_t *)p_wnd;
+- (void)setFullscreen:(int)i_full forWindow:(vout_window_t *)p_wnd withAnimation:(BOOL)b_animation;
 
 - (void)updateWindowsControlsBarWithSelector:(SEL)aSel;
 - (void)updateWindowsUsingBlock:(void (^)(VLCVideoWindowCommon *o_window))windowUpdater;

@@ -109,7 +109,16 @@ static int Open( vlc_object_t * p_this )
 
     if( p_peek[0]!='f' || p_peek[1]!='L' || p_peek[2]!='a' || p_peek[3]!='C' )
     {
-        if( !p_demux->b_force ) return VLC_EGENERIC;
+        if( !p_demux->b_force )
+        {
+            char *psz_mime = stream_ContentType( p_demux->s );
+            if ( !psz_mime || strcmp( psz_mime, "audio/flac" ) )
+            {
+                free( psz_mime );
+                return VLC_EGENERIC;
+            }
+            free( psz_mime );
+        }
 
         /* User forced */
         msg_Err( p_demux, "this doesn't look like a flac stream, "
@@ -548,7 +557,7 @@ static void ParseSeekTable( demux_t *p_demux, const uint8_t *p_data, int i_data,
             continue;
 
         s = vlc_seekpoint_New();
-        s->i_time_offset = i_sample * INT64_C(1000000)/i_sample_rate;
+        s->i_time_offset = i_sample * CLOCK_FREQ / i_sample_rate;
         s->i_byte_offset = GetQWBE( &p_data[4+18*i+8] );
 
         /* Check for duplicate entry */
@@ -577,7 +586,7 @@ static void ParseComment( demux_t *p_demux, const uint8_t *p_data, int i_data )
     if( i_data < 4 )
         return;
 
-    vorbis_ParseComment( &p_sys->p_meta, &p_data[4], i_data - 4,
+    vorbis_ParseComment( NULL, &p_sys->p_meta, &p_data[4], i_data - 4,
         &p_sys->i_attachments, &p_sys->attachments,
         &p_sys->i_cover_score, &p_sys->i_cover_idx, NULL, NULL, NULL, NULL );
 }

@@ -153,6 +153,15 @@ static int aout_GainNotify (audio_output_t *aout, float gain)
     return 0;
 }
 
+static int FilterCallback (vlc_object_t *obj, const char *var,
+                           vlc_value_t prev, vlc_value_t cur, void *data)
+{
+    if (strcmp(prev.psz_string, cur.psz_string))
+        aout_InputRequestRestart ((audio_output_t *)obj);
+    (void) var; (void) data;
+    return VLC_SUCCESS;
+}
+
 #undef aout_New
 /**
  * Creates an audio output object and initializes an output module.
@@ -266,23 +275,8 @@ audio_output_t *aout_New (vlc_object_t *parent)
         free (str);
     }
 
-    /* Equalizer */
-    var_Create (aout, "equalizer", VLC_VAR_STRING | VLC_VAR_HASCHOICE);
-    text.psz_string = _("Equalizer");
-    var_Change (aout, "equalizer", VLC_VAR_SETTEXT, &text, NULL);
-    val.psz_string = (char*)"";
-    text.psz_string = _("Disable");
-    var_Change (aout, "equalizer", VLC_VAR_ADDCHOICE, &val, &text);
-    cfg = config_FindConfig (VLC_OBJECT(aout), "equalizer-preset");
-    if (likely(cfg != NULL))
-        for (unsigned i = 0; i < cfg->list_count; i++)
-        {
-            val.psz_string = cfg->list.psz[i];
-            text.psz_string = vlc_gettext(cfg->list_text[i]);
-            var_Change (aout, "equalizer", VLC_VAR_ADDCHOICE, &val, &text);
-        }
-
     var_Create (aout, "audio-filter", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
+    var_AddCallback (aout, "audio-filter", FilterCallback, NULL);
     text.psz_string = _("Audio filters");
     var_Change (aout, "audio-filter", VLC_VAR_SETTEXT, &text, NULL);
 
@@ -306,8 +300,10 @@ audio_output_t *aout_New (vlc_object_t *parent)
                             &val, &text);
         }
 
+    /* Equalizer */
     var_Create (aout, "equalizer-preamp", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
     var_Create (aout, "equalizer-bands", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
+    var_Create (aout, "equalizer-preset", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
 
     return aout;
 }
@@ -324,8 +320,10 @@ void aout_Destroy (audio_output_t *aout)
     /* Protect against late call from intf.c */
     aout->volume_set = NULL;
     aout->mute_set = NULL;
+    aout->device_select = NULL;
     aout_OutputUnlock (aout);
 
+    var_DelCallback (aout, "audio-filter", FilterCallback, NULL);
     var_DelCallback (aout, "mute", var_Copy, aout->p_parent);
     var_SetFloat (aout, "volume", -1.f);
     var_DelCallback (aout, "volume", var_Copy, aout->p_parent);

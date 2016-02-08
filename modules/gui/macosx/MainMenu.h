@@ -35,6 +35,7 @@
     BOOL b_nib_tracksynchro_loaded;
     BOOL b_nib_bookmarks_loaded;
     BOOL b_nib_convertandsave_loaded;
+    BOOL b_nib_addonmanager_loaded;
 
     id o_about;                 /* VLAboutBox     */
     id o_videoeffects;          /* VLCVideoEffects */
@@ -42,6 +43,7 @@
     id o_trackSynchronization;  /* VLCTrackSynchronization */
     id o_bookmarks;             /* VLCBookmarks */
     id o_convertandsave;        /* VLCConvertAndSave */
+    id o_addonManager;          /* VLCAddonManager */
 
     id o_extMgr;                /* Extensions Manager */
 
@@ -52,6 +54,7 @@
     IBOutlet NSMenuItem * o_mi_checkForUpdate;
     IBOutlet NSMenuItem * o_mi_extensions;
     IBOutlet NSMenu * o_mu_extensions;
+    IBOutlet NSMenuItem * o_mi_addonManager;
     IBOutlet NSMenuItem * o_mi_add_intf;
     IBOutlet NSMenu * o_mu_add_intf;
     IBOutlet NSMenuItem * o_mi_services;
@@ -237,6 +240,8 @@
 - (void)setupExtensionsMenu;
 - (void)updateSidebarMenuItem;
 
+- (IBAction)openAddonManager:(id)sender;
+
 - (IBAction)intfOpenFile:(id)sender;
 - (IBAction)intfOpenFileGeneric:(id)sender;
 - (IBAction)intfOpenDisc:(id)sender;
@@ -249,7 +254,7 @@
 - (IBAction)togglePlaymodeButtons:(id)sender;
 - (IBAction)toggleSidebar:(id)sender;
 - (IBAction)togglePlaylistColumnTable:(id)sender;
-- (void)setPlaylistColumnTableState:(NSInteger)i_state forColumn:(NSString *)o_column;
+- (BOOL)setPlaylistColumnTableState:(NSInteger)i_state forColumn:(NSString *)o_column;
 - (NSMenu *)setupPlaylistTableColumnsMenu;
 
 - (IBAction)quitAfterPlayback:(id)sender;

@@ -67,7 +67,7 @@ static const char caps[][20] = {
 
 static int ScanExtensions( extensions_manager_t *p_this );
 static int ScanLuaCallback( vlc_object_t *p_this, const char *psz_script,
-                            void *dummy );
+                            const struct luabatch_context_t * );
 static int Control( extensions_manager_t *, int, va_list );
 static int GetMenuEntries( extensions_manager_t *p_mgr, extension_t *p_ext,
                     char ***pppsz_titles, uint16_t **ppi_ids );
@@ -275,7 +275,7 @@ static int vlclua_extension_require( lua_State *L )
  * @param dummy: unused
  **/
 int ScanLuaCallback( vlc_object_t *p_this, const char *psz_filename,
-                     void *dummy )
+                     const struct luabatch_context_t *dummy )
 {
     VLC_UNUSED(dummy);
     extensions_manager_t *p_mgr = ( extensions_manager_t* ) p_this;
@@ -650,6 +650,8 @@ int lua_ExtensionDeactivate( extensions_manager_t *p_mgr, extension_t *p_ext )
     if( !p_ext->p_sys->L )
         return VLC_SUCCESS;
 
+    vlclua_fd_interrupt( &p_ext->p_sys->dtable );
+
     // Unset and release input objects
     if( p_ext->p_sys->p_input )
     {
@@ -666,6 +668,7 @@ int lua_ExtensionDeactivate( extensions_manager_t *p_mgr, extension_t *p_ext )
     int i_ret = lua_ExecuteFunction( p_mgr, p_ext, "deactivate", LUA_END );
 
     /* Clear Lua State */
+    vlclua_fd_cleanup( &p_ext->p_sys->dtable );
     lua_close( p_ext->p_sys->L );
     p_ext->p_sys->L = NULL;
 
@@ -824,11 +827,15 @@ static lua_State* GetLuaState( extensions_manager_t *p_mgr,
             luaopen_dialog( L, p_ext );
             luaopen_input( L );
             luaopen_msg( L );
-            luaopen_net_generic( L );
+            if( vlclua_fd_init( L, &p_ext->p_sys->dtable ) )
+            {
+                lua_close( L );
+                return NULL;
+            }
             luaopen_object( L );
             luaopen_osd( L );
             luaopen_playlist( L );
-            luaopen_sd( L );
+            luaopen_sd_intf( L );
             luaopen_stream( L );
             luaopen_strings( L );
             luaopen_variables( L );
@@ -859,6 +866,7 @@ static lua_State* GetLuaState( extensions_manager_t *p_mgr,
                 {
                     msg_Warn( p_mgr, "Error while setting the module "
                               "search path for %s", p_ext->psz_name );
+                    vlclua_fd_cleanup( &p_ext->p_sys->dtable );
                     lua_close( L );
                     return NULL;
                 }
@@ -868,6 +876,7 @@ static lua_State* GetLuaState( extensions_manager_t *p_mgr,
             {
                 msg_Warn( p_mgr, "Error loading script %s: %s", p_ext->psz_name,
                           lua_tostring( L, lua_gettop( L ) ) );
+                vlclua_fd_cleanup( &p_ext->p_sys->dtable );
                 lua_close( L );
                 return NULL;
             }
@@ -1044,7 +1053,10 @@ static int TriggerExtension( extensions_manager_t *p_mgr,
 
     /* Close lua state for trigger-only extensions */
     if( p_ext->p_sys->L )
+    {
+        vlclua_fd_cleanup( &p_ext->p_sys->dtable );
         lua_close( p_ext->p_sys->L );
+    }
     p_ext->p_sys->L = NULL;
 
     return i_ret;

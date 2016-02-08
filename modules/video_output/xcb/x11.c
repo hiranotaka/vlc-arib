@@ -128,7 +128,7 @@ static int Open (vlc_object_t *obj)
 
     /* Determine our pixel format */
     video_format_t fmt_pic;
-    xcb_visualid_t vid;
+    xcb_visualid_t vid = 0;
     sys->depth = 0;
 
     for (const xcb_format_t *fmt = xcb_setup_pixmap_formats (setup),
@@ -139,7 +139,7 @@ static int Open (vlc_object_t *obj)
         if (fmt->depth <= sys->depth)
             continue; /* no better than earlier format */
 
-        fmt_pic = vd->fmt;
+        video_format_ApplyRotation(&fmt_pic, &vd->fmt);
 
         /* Check that the pixmap format is supported by VLC. */
         switch (fmt->depth)
@@ -533,13 +533,16 @@ static int Control (vout_display_t *vd, int query, va_list ap)
         vout_display_place_t place;
         vout_display_PlacePicture (&place, &vd->source, vd->cfg, false);
 
-        vd->fmt.i_width  = vd->source.i_width  * place.width  / vd->source.i_visible_width;
-        vd->fmt.i_height = vd->source.i_height * place.height / vd->source.i_visible_height;
+        video_format_t src;
+        video_format_ApplyRotation(&src, &vd->source);
+
+        vd->fmt.i_width  = src.i_width  * place.width / src.i_visible_width;
+        vd->fmt.i_height = src.i_height * place.height / src.i_visible_height;
 
         vd->fmt.i_visible_width  = place.width;
         vd->fmt.i_visible_height = place.height;
-        vd->fmt.i_x_offset = vd->source.i_x_offset * place.width  / vd->source.i_visible_width;
-        vd->fmt.i_y_offset = vd->source.i_y_offset * place.height / vd->source.i_visible_height;
+        vd->fmt.i_x_offset = src.i_x_offset * place.width / src.i_visible_width;
+        vd->fmt.i_y_offset = src.i_y_offset * place.height / src.i_visible_height;
         return VLC_SUCCESS;
     }
 

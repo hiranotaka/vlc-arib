@@ -51,6 +51,14 @@
 #include <QSpinBox>
 #include <QTextEdit>
 
+static inline void setSpinBounds( QSpinBox *spinbox ) {
+    spinbox->setRange( 0, INT_MAX );
+    spinbox->setAccelerated( true );
+    spinbox->setAlignment( Qt::AlignRight );
+    spinbox->setSpecialValueText("");
+}
+
+
 /************************************************************************
  * Single panels
  ************************************************************************/
@@ -461,7 +469,7 @@ InfoPanel::InfoPanel( QWidget *parent ) : QWidget( parent )
      InfoTree = new QTreeWidget(this);
      InfoTree->setColumnCount( 1 );
      InfoTree->header()->hide();
-#if QT_VERSION >= 0x050000
+#if HAS_QT5
      InfoTree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
 #else
      InfoTree->header()->setResizeMode(QHeaderView::ResizeToContents);

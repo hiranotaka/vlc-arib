@@ -9,11 +9,15 @@ AM_CPPFLAGS += -I$(srcdir)/access
 libattachment_plugin_la_SOURCES = access/attachment.c
 access_LTLIBRARIES += libattachment_plugin.la
 
-libdcp_plugin_la_SOURCES = access/dcp/dcpparser.h access/dcp/dcp.cpp access/dcp/dcpparser.cpp
-libdcp_plugin_la_CPPFLAGS = $(AM_CPPFLAGS)
-libdcp_plugin_la_LIBADD = $(AM_LIBADD) -lasdcp
+libdcp_plugin_la_SOURCES = access/dcp/dcpparser.h access/dcp/dcp.cpp access/dcp/dcpparser.cpp access/dcp/dcpdecrypt.cpp
 if HAVE_ASDCP
+libdcp_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(ASDCP_CFLAGS)
+libdcp_plugin_la_LIBADD = $(AM_LIBADD) $(ASDCP_LIBS)
+if HAVE_GCRYPT
+libdcp_plugin_la_CPPFLAGS += $(GCRYPT_CFLAGS)
+libdcp_plugin_la_LIBADD += $(GCRYPT_LIBS)
 access_LTLIBRARIES += libdcp_plugin.la
+endif
 endif
 
 libfilesystem_plugin_la_SOURCES = access/fs.h access/file.c access/directory.c access/fs.c
@@ -132,7 +136,7 @@ liblinsys_sdi_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
 access_LTLIBRARIES += $(LTLIBlinsys_hdsdi) $(LTLIBlinsys_sdi)
 EXTRA_LTLIBRARIES += liblinsys_hdsdi_plugin.la liblinsys_sdi_plugin.la
 
-libdecklink_plugin_la_SOURCES = access/decklink.cpp
+libdecklink_plugin_la_SOURCES = access/decklink.cpp access/sdi.c access/sdi.h
 libdecklink_plugin_la_CXXFLAGS = $(AM_CFLAGS) $(CPPFLAGS_decklink)
 libdecklink_plugin_la_LIBADD = $(LIBS_decklink) -ldl
 if HAVE_DECKLINK
@@ -202,7 +206,7 @@ access_LTLIBRARIES += libscreen_plugin.la
 endif
 
 librdp_plugin_la_SOURCES = access/rdp.c
-librdp_plugin_la_CFLAGS = $(AM_CFLAGS) $(FREERDP_CFLAGSp)
+librdp_plugin_la_CFLAGS = $(AM_CFLAGS) $(FREERDP_CFLAGS)
 librdp_plugin_la_LIBADD = $(FREERDP_LIBS)
 librdp_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
 access_LTLIBRARIES += $(LTLIBrdp)
@@ -244,8 +248,9 @@ libvcdx_plugin_la_SOURCES = \
 	access/vcdx/vcdplayer.h access/vcdx/vcdplayer.c \
 	access/vcdx/info.c access/vcdx/info.h
 libvcdx_plugin_la_CPPFLAGS = $(AM_CPPFLAGS)
+libvcdx_plugin_la_LIBADD = $(VCDX_LIBS)
 if HAVE_WIN32
-libvcdx_plugin_la_LIBADD = -lwinmm
+libvcdx_plugin_la_LIBADD += -lwinmm
 endif
 libvcdx_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
 if HAVE_DARWIN
@@ -258,6 +263,9 @@ libdvdnav_plugin_la_SOURCES = access/dvdnav.c
 libdvdnav_plugin_la_CFLAGS = $(AM_CFLAGS) $(DVDNAV_CFLAGS)
 libdvdnav_plugin_la_LIBADD = $(DVDNAV_LIBS)
 libdvdnav_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
+if HAVE_DARWIN
+libdvdnav_plugin_la_LDFLAGS += -Wl,-framework,IOKit,-framework,CoreFoundation
+endif
 access_LTLIBRARIES += $(LTLIBdvdnav)
 EXTRA_LTLIBRARIES += libdvdnav_plugin.la
 
@@ -265,6 +273,9 @@ libdvdread_plugin_la_SOURCES = access/dvdread.c
 libdvdread_plugin_la_CFLAGS = $(AM_CFLAGS) $(DVDREAD_CFLAGS)
 libdvdread_plugin_la_LIBADD = $(DVDREAD_LIBS)
 libdvdread_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
+if HAVE_DARWIN
+libdvdread_plugin_la_LDFLAGS += -Wl,-framework,IOKit,-framework,CoreFoundation
+endif
 access_LTLIBRARIES += $(LTLIBdvdread)
 EXTRA_LTLIBRARIES += libdvdread_plugin.la
 
@@ -403,7 +414,7 @@ libaccess_realrtsp_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
 access_LTLIBRARIES += $(LTLIBaccess_realrtsp)
 EXTRA_LTLIBRARIES += libaccess_realrtsp_plugin.la
 
-libavio_plugin_la_SOURCES = access/avio.c access/avio.h codec/avcodec/cpu.c
+libavio_plugin_la_SOURCES = access/avio.c access/avio.h
 libavio_plugin_la_CFLAGS = $(AM_CFLAGS) $(AVFORMAT_CFLAGS) $(AVUTIL_CFLAGS)
 libavio_plugin_la_LDFLAGS = $(AM_LDFLAGS) $(SYMBOLIC_LDFLAGS)
 libavio_plugin_la_LIBADD = $(AVFORMAT_LIBS) $(AVUTIL_LIBS) $(LIBM)

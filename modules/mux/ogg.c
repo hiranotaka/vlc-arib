@@ -389,6 +389,8 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
         {
         case VLC_CODEC_MP4V:
         case VLC_CODEC_MPGV:
+        case VLC_CODEC_MP1V:
+        case VLC_CODEC_MP2V:
         case VLC_CODEC_DIV3:
         case VLC_CODEC_MJPG:
         case VLC_CODEC_WMV1:
@@ -835,12 +837,14 @@ static void OggGetSkeletonFisbone( uint8_t **pp_buffer, long *pi_size,
     if ( p_input->p_fmt->p_extra )
         SetDWLE( &(*pp_buffer)[44], xiph_CountHeaders( p_input->p_fmt->p_extra, p_input->p_fmt->i_extra ) );
 
-    psz_header = *pp_buffer + FISBONE_BASE_SIZE;
-    memcpy( psz_header, headers.psz_content_type, strlen( headers.psz_content_type ) );
-    psz_header += strlen( headers.psz_content_type );
-    if ( headers.psz_role )
-        memcpy( psz_header, headers.psz_role, strlen( headers.psz_role ) );
-
+    if ( headers.i_size > 0 )
+    {
+        psz_header = *pp_buffer + FISBONE_BASE_SIZE;
+        memcpy( psz_header, headers.psz_content_type, strlen( headers.psz_content_type ) );
+        psz_header += strlen( headers.psz_content_type );
+        if ( headers.psz_role )
+            memcpy( psz_header, headers.psz_role, strlen( headers.psz_role ) );
+    }
     *pi_size = FISBONE_BASE_SIZE + headers.i_size;
 
     free( headers.psz_content_type );
@@ -1119,6 +1123,11 @@ static bool OggCreateHeaders( sout_mux_t *p_mux )
     }
 
     /* Write previous headers */
+    for( p_og = p_hdr; p_og != NULL; p_og = p_og->p_next )
+    {
+        /* flag headers to be resent for streaming clients */
+        p_og->i_flags |= BLOCK_FLAG_HEADER;
+    }
     p_mux->p_sys->i_pos += sout_AccessOutWrite( p_mux->p_access, p_hdr );
     p_hdr = NULL;
 
@@ -1272,6 +1281,7 @@ static bool OggCreateHeaders( sout_mux_t *p_mux )
     }
 
     /* set HEADER flag */
+    /* flag headers to be resent for streaming clients */
     for( p_og = p_hdr; p_og != NULL; p_og = p_og->p_next )
     {
         p_og->i_flags |= BLOCK_FLAG_HEADER;

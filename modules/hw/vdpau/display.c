@@ -166,11 +166,16 @@ static picture_pool_t *Pool(vout_display_t *vd, unsigned requested_count)
 }
 
 static void RenderRegion(vout_display_t *vd, VdpOutputSurface target,
-                         const subpicture_region_t *reg, int alpha)
+                         const subpicture_t *subpic,
+                         const subpicture_region_t *reg)
 {
     vout_display_sys_t *sys = vd->sys;
     VdpBitmapSurface surface;
-    VdpRGBAFormat fmt = VDP_RGBA_FORMAT_R8G8B8A8; /* TODO? YUVA */
+#ifdef WORDS_BIGENDIAN
+    VdpRGBAFormat fmt = VDP_RGBA_FORMAT_B8G8R8A8;
+#else
+    VdpRGBAFormat fmt = VDP_RGBA_FORMAT_R8G8B8A8;
+#endif
     VdpStatus err;
 
     /* Create GPU surface for sub-picture */
@@ -185,9 +190,9 @@ static void RenderRegion(vout_display_t *vd, VdpOutputSurface target,
     }
 
     /* Upload sub-picture to GPU surface */
-    picture_t *subpic = reg->p_picture;
-    const void *data = subpic->p[0].p_pixels;
-    uint32_t pitch = subpic->p[0].i_pitch;
+    picture_t *pic = reg->p_picture;
+    const void *data = pic->p[0].p_pixels;
+    uint32_t pitch = pic->p[0].i_pitch;
 
     err = vdp_bitmap_surface_put_bits_native(sys->vdp, surface, &data, &pitch,
                                              NULL);
@@ -200,12 +205,17 @@ static void RenderRegion(vout_display_t *vd, VdpOutputSurface target,
 
     /* Render onto main surface */
     VdpRect area = {
-        reg->i_x,
-        reg->i_y,
-        reg->i_x + reg->fmt.i_visible_width,
-        reg->i_y + reg->fmt.i_visible_height,
+        reg->i_x * vd->fmt.i_visible_width
+            / subpic->i_original_picture_width,
+        reg->i_y * vd->fmt.i_visible_height
+            / subpic->i_original_picture_height,
+        (reg->i_x + reg->fmt.i_visible_width) * vd->fmt.i_visible_width
+            / subpic->i_original_picture_width,
+        (reg->i_y + reg->fmt.i_visible_height) * vd->fmt.i_visible_height
+            / subpic->i_original_picture_height,
     };
-    VdpColor color = { 1.f, 1.f, 1.f, reg->i_alpha * alpha / 65535.f };
+    VdpColor color = { 1.f, 1.f, 1.f,
+        reg->i_alpha * subpic->i_alpha / 65535.f };
     VdpOutputSurfaceRenderBlendState state = {
         .struct_version = VDP_OUTPUT_SURFACE_RENDER_BLEND_STATE_VERSION,
         .blend_factor_source_color =
@@ -247,7 +257,7 @@ static void Queue(vout_display_t *vd, picture_t *pic, subpicture_t *subpic)
     if (subpic != NULL)
         for (subpicture_region_t *r = subpic->p_region; r != NULL;
              r = r->p_next)
-            RenderRegion(vd, surface, r, subpic->i_alpha);
+            RenderRegion(vd, surface, subpic, r);
 
     /* Compute picture presentation time */
     mtime_t now = mdate();
@@ -460,13 +470,17 @@ static int Open(vlc_object_t *obj)
         msg_Dbg(vd, "using back-end %s", info);
 
     /* Check source format */
+    video_format_t fmt;
     VdpChromaType chroma;
     VdpYCbCrFormat format;
-    if (vd->fmt.i_chroma == VLC_CODEC_VDPAU_VIDEO_420
-     || vd->fmt.i_chroma == VLC_CODEC_VDPAU_VIDEO_422)
+
+    video_format_ApplyRotation(&fmt, &vd->fmt);
+
+    if (fmt.i_chroma == VLC_CODEC_VDPAU_VIDEO_420
+     || fmt.i_chroma == VLC_CODEC_VDPAU_VIDEO_422)
         ;
     else
-    if (vlc_fourcc_to_vdp_ycc(vd->fmt.i_chroma, &chroma, &format))
+    if (vlc_fourcc_to_vdp_ycc(fmt.i_chroma, &chroma, &format))
     {
         uint32_t w, h;
         VdpBool ok;
@@ -479,7 +493,7 @@ static int Open(vlc_object_t *obj)
                     vdp_get_error_string(sys->vdp, err));
             goto error;
         }
-        if (!ok || w < vd->fmt.i_width || h < vd->fmt.i_height)
+        if (!ok || w < fmt.i_width || h < fmt.i_height)
         {
             msg_Err(vd, "source video %s not supported", "chroma type");
             goto error;
@@ -516,7 +530,7 @@ static int Open(vlc_object_t *obj)
                     vdp_get_error_string(sys->vdp, err));
             goto error;
         }
-        if (min > vd->fmt.i_width || vd->fmt.i_width > max)
+        if (min > fmt.i_width || fmt.i_width > max)
         {
             msg_Err(vd, "source video %s not supported", "width");
             goto error;
@@ -528,16 +542,17 @@ static int Open(vlc_object_t *obj)
         if (err != VDP_STATUS_OK)
         {
             msg_Err(vd, "%s capabilities query failure: %s",
-                    "video mixer surface width",
+                    "video mixer surface height",
                     vdp_get_error_string(sys->vdp, err));
             goto error;
         }
-        if (min > vd->fmt.i_height || vd->fmt.i_height > max)
+        if (min > fmt.i_height || fmt.i_height > max)
         {
             msg_Err(vd, "source video %s not supported", "height");
             goto error;
         }
     }
+    fmt.i_chroma = VLC_CODEC_VDPAU_OUTPUT;
 
     /* Select surface format */
     static const VdpRGBAFormat rgb_fmts[] = {
@@ -560,7 +575,7 @@ static int Open(vlc_object_t *obj)
             continue;
         }
         /* NOTE: Wrong! No warranties that zoom <= 100%! */
-        if (!ok || w < vd->fmt.i_width || h < vd->fmt.i_height)
+        if (!ok || w < fmt.i_width || h < fmt.i_height)
             continue;
 
         sys->rgb_fmt = rgb_fmts[i];
@@ -606,7 +621,11 @@ static int Open(vlc_object_t *obj)
     /* Check bitmap capabilities (for SPU) */
     const vlc_fourcc_t *spu_chromas = NULL;
     {
+#ifdef WORDS_BIGENDIAN
+        static const vlc_fourcc_t subpicture_chromas[] = { VLC_CODEC_ARGB, 0 };
+#else
         static const vlc_fourcc_t subpicture_chromas[] = { VLC_CODEC_RGBA, 0 };
+#endif
         uint32_t w, h;
         VdpBool ok;
 
@@ -653,7 +672,7 @@ static int Open(vlc_object_t *obj)
     vd->info.has_pictures_invalid = true;
     vd->info.has_event_thread = true;
     vd->info.subpicture_chromas = spu_chromas;
-    vd->fmt.i_chroma = VLC_CODEC_VDPAU_OUTPUT;
+    vd->fmt = fmt;
 
     vd->pool = Pool;
     vd->prepare = Queue;

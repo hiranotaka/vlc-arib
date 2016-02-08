@@ -110,7 +110,10 @@ static inline int PESHeader( uint8_t *p_hdr, mtime_t i_pts, mtime_t i_dts,
 
                 if( i_pts > 0 && i_dts > 0 &&
                     ( i_pts != i_dts || ( p_fmt->i_cat == VIDEO_ES &&
-                      p_fmt->i_codec != VLC_CODEC_MPGV ) ) )
+                      p_fmt->i_codec != VLC_CODEC_MPGV &&
+                      p_fmt->i_codec != VLC_CODEC_MP2V &&
+                      p_fmt->i_codec != VLC_CODEC_MP1V 
+                      ) ) )
                 {
                     i_pts_dts = 0x03;
                     if ( !i_header_size ) i_header_size = 0xa;
@@ -341,7 +344,8 @@ int  EStoPES ( block_t **pp_pes, block_t *p_es,
     }
 
     if( ( p_fmt->i_codec == VLC_CODEC_MP4V ||
-          p_fmt->i_codec == VLC_CODEC_H264 ) &&
+          p_fmt->i_codec == VLC_CODEC_H264 ||
+          p_fmt->i_codec == VLC_CODEC_HEVC) &&
         p_es->i_flags & BLOCK_FLAG_TYPE_I )
     {
         /* For MPEG4 video, add VOL before I-frames,

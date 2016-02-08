@@ -7,9 +7,9 @@ demux_LTLIBRARIES += libflacsys_plugin.la
 
 libogg_plugin_la_SOURCES = demux/ogg.c demux/ogg.h demux/oggseek.c demux/oggseek.h \
 	demux/xiph_metadata.h demux/xiph.h demux/xiph_metadata.c
-libogg_plugin_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_ogg)
+libogg_plugin_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_ogg) $(LIBVORBIS_CFLAGS)
 libogg_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(demuxdir)'
-libogg_plugin_la_LIBADD = $(LIBS_ogg)
+libogg_plugin_la_LIBADD = $(LIBS_ogg) $(LIBVORBIS_LIBS)
 EXTRA_LTLIBRARIES += libogg_plugin.la
 demux_LTLIBRARIES += $(LTLIBogg)
 
@@ -41,7 +41,7 @@ libps_plugin_la_SOURCES = demux/ps.c demux/ps.h
 demux_LTLIBRARIES += libps_plugin.la
 
 libmod_plugin_la_SOURCES = demux/mod.c
-libmod_plugin_la_CXXFLAGS = $(AM_CXXFLAGS) $(CXXFLAGS_mod)
+libmod_plugin_la_CFLAGS = $(AM_CFLAGS) $(CFLAGS_mod)
 libmod_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(demuxdir)'
 libmod_plugin_la_LIBADD = $(LIBS_mod)
 EXTRA_LTLIBRARIES += libmod_plugin.la
@@ -133,7 +133,6 @@ demux_LTLIBRARIES += libcaf_plugin.la
 libavformat_plugin_la_SOURCES = demux/avformat/demux.c \
 	codec/avcodec/fourcc.c \
 	codec/avcodec/chroma.c \
-	codec/avcodec/cpu.c \
 	codec/avcodec/avcommon.h \
 	codec/avcodec/avcommon_compat.h \
 	demux/vobsub.h \
@@ -162,6 +161,9 @@ demux_LTLIBRARIES += libes_plugin.la
 libh264_plugin_la_SOURCES = demux/mpeg/h264.c
 demux_LTLIBRARIES += libh264_plugin.la
 
+libhevc_plugin_la_SOURCES = demux/mpeg/hevc.c demux/mpeg/mpeg_parser_helpers.h
+demux_LTLIBRARIES += libhevc_plugin.la
+
 libmkv_plugin_la_SOURCES = \
 	demux/mkv/util.hpp demux/mkv/util.cpp \
 	demux/mkv/virtual_segment.hpp demux/mkv/virtual_segment.cpp \
@@ -184,7 +186,8 @@ endif
 demux_LTLIBRARIES += $(LTLIBmkv)
 EXTRA_LTLIBRARIES += libmkv_plugin.la
 
-libmp4_plugin_la_SOURCES = demux/mp4/mp4.c demux/mp4/libmp4.c demux/mp4/libmp4.h demux/mp4/id3genres.h
+libmp4_plugin_la_SOURCES = demux/mp4/mp4.c demux/mp4/mp4.h \
+                           demux/mp4/libmp4.c demux/mp4/libmp4.h demux/mp4/id3genres.h
 libmp4_plugin_la_LIBADD = $(LIBM)
 libmp4_plugin_la_LDFLAGS = $(AM_LDFLAGS)
 if HAVE_ZLIB

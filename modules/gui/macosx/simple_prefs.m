@@ -1,7 +1,7 @@
 /*****************************************************************************
 * simple_prefs.m: Simple Preferences for Mac OS X
 *****************************************************************************
-* Copyright (C) 2008-2013 VLC authors and VideoLAN
+* Copyright (C) 2008-2014 VLC authors and VideoLAN
 * $Id$
 *
 * Authors: Felix Paul Kühne <fkuehne at videolan dot org>
@@ -234,7 +234,7 @@ static VLCSimplePrefs *_o_sharedInstance = nil;
     [o_hotkeys_listbox setDoubleAction:@selector(hotkeyTableDoubleClick:)];
 
     /* setup useful stuff */
-    o_hotkeysNonUseableKeys = [[NSArray arrayWithObjects:@"Command-c", @"Command-x", @"Command-v", @"Command-a", @"Command-," , @"Command-h", @"Command-Alt-h", @"Command-Shift-o", @"Command-o", @"Command-d", @"Command-n", @"Command-s", @"Command-z", @"Command-l", @"Command-r", @"Command-3", @"Command-m", @"Command-w", @"Command-Shift-w", @"Command-Shift-c", @"Command-Shift-p", @"Command-i", @"Command-e", @"Command-Shift-e", @"Command-b", @"Command-Shift-m", @"Command-Ctrl-m", @"Command-?", @"Command-Alt-?", nil] retain];
+    o_hotkeysNonUseableKeys = [[NSArray arrayWithObjects:@"Command-c", @"Command-x", @"Command-v", @"Command-a", @"Command-," , @"Command-h", @"Command-Alt-h", @"Command-Shift-o", @"Command-o", @"Command-d", @"Command-n", @"Command-s", @"Command-l", @"Command-r", @"Command-3", @"Command-m", @"Command-w", @"Command-Shift-w", @"Command-Shift-c", @"Command-Shift-p", @"Command-i", @"Command-e", @"Command-Shift-e", @"Command-b", @"Command-Shift-m", @"Command-Ctrl-m", @"Command-?", @"Command-Alt-?", nil] retain];
 }
 
 #define CreateToolbarItem(o_name, o_desc, o_img, sel) \
@@ -306,7 +306,7 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
 {
     /* audio */
     [o_audio_dolby_txt setStringValue: _NS("Force detection of Dolby Surround")];
-    [o_audio_effects_box setTitle: _NS("Effects")];
+    [o_audio_effects_box setTitle: _NS("Audio Effects")];
     [o_audio_enable_ckb setTitle: _NS("Enable audio")];
     [o_audio_general_box setTitle: _NS("General Audio")];
     [o_audio_lang_txt setStringValue: _NS("Preferred Audio language")];
@@ -356,7 +356,6 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_intf_style_txt setStringValue: _NS("Interface style")];
     [o_intf_style_dark_bcell setTitle: _NS("Dark")];
     [o_intf_style_bright_bcell setTitle: _NS("Bright")];
-    [o_intf_art_txt setStringValue: _NS("Album art download policy")];
     [o_intf_embedded_ckb setTitle: _NS("Show video within the main window")];
     [o_intf_nativefullscreen_ckb setTitle: _NS("Use the native fullscreen mode")];
     [o_intf_fspanel_ckb setTitle: _NS("Show Fullscreen Controller")];
@@ -364,6 +363,7 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_intf_appleremote_ckb setTitle: _NS("Control playback with the Apple Remote")];
     [o_intf_appleremote_sysvol_ckb setTitle: _NS("Control system volume with the Apple Remote")];
     [o_intf_mediakeys_ckb setTitle: _NS("Control playback with media keys")];
+    [o_intf_art_ckb setTitle: _NS("Allow metadata network access")];
     [o_intf_update_ckb setTitle: _NS("Automatically check for updates")];
     [o_intf_last_update_lbl setStringValue: @""];
     [o_intf_enableGrowl_ckb setTitle: _NS("Enable Growl notifications (on playlist item change)")];
@@ -371,7 +371,8 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_intf_pauseminimized_ckb setTitle: _NS("Pause the video playback when minimized")];
     [o_intf_luahttp_box setTitle:_NS("Lua HTTP")];
     [o_intf_luahttppwd_lbl setStringValue:_NS("Password")];
-    [o_intf_pauseitunes_lbl setStringValue:_NS("Control iTunes during playback")];
+    [o_intf_pauseitunes_lbl setStringValue:_NS("Control external music players")];
+    [o_intf_continueplayback_lbl setStringValue:_NS("Continue playback")];
 
     /* Subtitles and OSD */
     [o_osd_encoding_txt setStringValue: _NS("Default Encoding")];
@@ -396,8 +397,7 @@ create_toolbar_item(NSString * o_itemIdent, NSString * o_name, NSString * o_desc
     [o_video_enable_ckb setTitle: _NS("Enable video")];
     [o_video_fullscreen_ckb setTitle: _NS("Fullscreen")];
     [o_video_videodeco_ckb setTitle: _NS("Window decorations")];
-    [o_video_onTop_ckb setTitle: _NS("Always on top")];
-    [o_video_output_txt setStringValue: _NS("Output module")];
+    [o_video_onTop_ckb setTitle: _NS("Float on Top")];
     [o_video_skipFrames_ckb setTitle: _NS("Skip frames")];
     [o_video_snap_box setTitle: _NS("Video snapshots")];
     [o_video_snap_folder_btn setTitle: _NS("Browse...")];
@@ -557,7 +557,7 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     }
     [o_intf_language_pop selectItemAtIndex:sel];
 
-    [self setupButton: o_intf_art_pop forIntList: "album-art"];
+    [self setupButton: o_intf_art_ckb forBoolValue: "metadata-network-access"];
 
     [self setupButton: o_intf_fspanel_ckb forBoolValue: "macosx-fspanel"];
 
@@ -598,6 +598,7 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     [self setupButton: o_intf_pauseminimized_ckb forBoolValue: "macosx-pause-minimized"];
     [self setupField: o_intf_luahttppwd_fld forOption: "http-password"];
     [self setupButton: o_intf_pauseitunes_pop forIntList: "macosx-control-itunes"];
+    [self setupButton: o_intf_continueplayback_pop forIntList: "macosx-continue-playback"];
 
     /******************
      * audio settings *
@@ -658,8 +659,6 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     [self setupButton: o_video_black_ckb forBoolValue: "macosx-black"];
     [self setupButton: o_video_videodeco_ckb forBoolValue: "video-deco"];
 
-    [self setupButton: o_video_output_pop forModuleList: "vout"];
-
     [o_video_device_pop removeAllItems];
     i = 0;
     y = [[NSScreen screens] count];
@@ -682,6 +681,9 @@ static inline char * __config_GetLabel(vlc_object_t *p_this, const char *psz_nam
     [self setupButton: o_video_snap_format_pop forStringList: "snapshot-format"];
     [self setupButton: o_video_deinterlace_pop forIntList: "deinterlace"];
     [self setupButton: o_video_deinterlace_mode_pop forStringList: "deinterlace-mode"];
+
+    // set lion fullscreen mode restrictions
+    [self enableLionFullscreenMode: [o_intf_nativefullscreen_ckb state]];
 
     /***************************
      * input & codecs settings *
@@ -908,7 +910,7 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
         [defaults setObject:[NSString stringWithUTF8String:ppsz_language[index]] forKey:@"language"];
         [defaults synchronize];
 
-        SaveIntList(o_intf_art_pop, "album-art");
+        config_PutInt(p_intf, "metadata-network-access", [o_intf_art_ckb state]);
 
         config_PutInt(p_intf, "macosx-fspanel", [o_intf_fspanel_ckb state]);
         config_PutInt(p_intf, "embedded-video", [o_intf_embedded_ckb state]);
@@ -943,6 +945,7 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
         config_PutPsz(p_intf, "http-password", [[o_intf_luahttppwd_fld stringValue] UTF8String]);
 
         SaveIntList(o_intf_pauseitunes_pop, "macosx-control-itunes");
+        SaveIntList(o_intf_continueplayback_pop, "macosx-continue-playback");
 
         /* activate stuff without restart */
         if ([o_intf_appleremote_ckb state] == YES)
@@ -996,7 +999,6 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
         config_PutInt(p_intf, "skip-frames", [o_video_skipFrames_ckb state]);
         config_PutInt(p_intf, "macosx-black", [o_video_black_ckb state]);
 
-        SaveModuleList(o_video_output_pop, "vout");
         config_PutInt(p_intf, "macosx-vdev", [[o_video_device_pop selectedItem] tag]);
 
         config_PutPsz(p_intf, "snapshot-path", [[o_video_snap_folder_fld stringValue] UTF8String]);
@@ -1086,6 +1088,9 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
     o_win_rect = [o_sprefs_win frame];
     o_view_rect = [o_new_category_view frame];
 
+    if (o_currentlyShownCategoryView == o_new_category_view)
+        return;
+
     if (o_currentlyShownCategoryView != nil) {
         /* restore our window's height, if we've shown another category previously */
         o_old_view_rect = [o_currentlyShownCategoryView frame];
@@ -1117,8 +1122,30 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
 #pragma mark -
 #pragma mark Specific actions
 
+// disables some video settings which do not work in lion mode
+- (void)enableLionFullscreenMode: (BOOL)b_value
+{
+    [o_video_videodeco_ckb setEnabled: !b_value];
+    [o_video_black_ckb setEnabled: !b_value];
+
+    if (b_value) {
+        [o_video_videodeco_ckb setState: NSOnState];
+        [o_video_black_ckb setState: NSOffState];
+
+        NSString *o_tooltipText = _NS("This setting cannot be changed because the native fullscreen mode is enabled.");
+        [o_video_videodeco_ckb setToolTip: o_tooltipText];
+        [o_video_black_ckb setToolTip: o_tooltipText];
+    } else {
+        [self setupButton: o_video_videodeco_ckb forBoolValue: "video-deco"];
+        [self setupButton: o_video_black_ckb forBoolValue: "macosx-black"];
+    }
+}
+
 - (IBAction)interfaceSettingChanged:(id)sender
 {
+    if (sender == o_intf_nativefullscreen_ckb)
+        [self enableLionFullscreenMode:[sender state]];
+
     b_intfSettingChanged = YES;
 }
 
@@ -1235,7 +1262,8 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
         [[NSFontManager sharedFontManager] setSelectedFont:font isMultiple:NO];
     }
     [[NSFontManager sharedFontManager] setTarget: self];
-    [[NSFontPanel sharedFontPanel] orderFront:self];
+    [[NSFontPanel sharedFontPanel] setDelegate:self];
+    [[NSFontPanel sharedFontPanel] makeKeyAndOrderFront:self];
 }
 
 - (void)changeFont:(id)sender
@@ -1243,6 +1271,11 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
     NSFont * font = [sender convertFont:[[NSFontManager sharedFontManager] selectedFont]];
     [o_osd_font_fld setStringValue:[font fontName]];
     [self osdSettingChanged:self];
+}
+
+- (NSUInteger)validModesForFontPanel:(NSFontPanel *)fontPanel
+{
+    return NSFontPanelFaceModeMask | NSFontPanelCollectionModeMask;
 }
 
 - (IBAction)inputSettingChanged:(id)sender
@@ -1564,9 +1597,9 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
     else if (key == NSEndFunctionKey)
         [tempString appendString:@"End"];
     else if (key == NSPageUpFunctionKey)
-        [tempString appendString:@"Pageup"];
+        [tempString appendString:@"Page Up"];
     else if (key == NSPageDownFunctionKey)
-        [tempString appendString:@"Pagedown"];
+        [tempString appendString:@"Page Down"];
     else if (key == NSMenuFunctionKey)
         [tempString appendString:@"Menu"];
     else if (key == NSTabCharacter)

@@ -31,15 +31,18 @@
 #endif
 
 #include "input_manager.hpp"
-#include <vlc_keys.h>
-#include <vlc_url.h>
-#include <vlc_strings.h>
-#include <vlc_aout.h>
+#include "recents.hpp"
+
+#include <vlc_keys.h>           /* ACTION_ID */
+#include <vlc_url.h>            /* decode_URI */
+#include <vlc_strings.h>        /* str_format_meta */
+#include <vlc_aout.h>           /* audio_output_t */
 
 #include <QApplication>
 #include <QFile>
 #include <QDir>
 #include <QSignalMapper>
+#include <QMessageBox>
 
 #include <assert.h>
 
@@ -108,6 +111,7 @@ void InputManager::setInput( input_thread_t *_p_input )
         msg_Dbg( p_intf, "IM: Setting an input" );
         vlc_object_hold( p_input );
         addCallbacks();
+
         UpdateStatus();
         UpdateName();
         UpdateArt();
@@ -117,6 +121,25 @@ void InputManager::setInput( input_thread_t *_p_input )
 
         p_item = input_GetItem( p_input );
         emit rateChanged( var_GetFloat( p_input, "rate" ) );
+
+        /* Get Saved Time */
+        int i_time = RecentsMRL::getInstance( p_intf )->time( p_item->psz_uri );
+        if( i_time > 0 &&
+            !var_GetFloat( p_input, "run-time" ) &&
+            !var_GetFloat( p_input, "start-time" ) &&
+            !var_GetFloat( p_input, "stop-time" ) )
+        {
+            playlist_Pause( THEPL );
+
+            if( QMessageBox::question( NULL,
+                        _("Continue playback?"),
+                        _("Do you want to restart the playback where left off?"),
+                        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes )
+                    == QMessageBox::Yes )
+                var_SetTime( p_input, "time", (int64_t)i_time * 1000 );
+
+            playlist_Play( THEPL );
+        }
     }
     else
     {
@@ -133,6 +156,15 @@ void InputManager::delInput()
 {
     if( !p_input ) return;
     msg_Dbg( p_intf, "IM: Deleting the input" );
+
+    /* Save time / position */
+    float f_pos = var_GetFloat( p_input , "position" );
+    int64_t i_time = var_GetTime( p_input, "time");
+    int i_length = var_GetTime( p_input , "length" ) / CLOCK_FREQ;
+    if( f_pos < 0.05 || f_pos > 0.95 || i_length < 60) {
+        i_time = -1;
+    }
+    RecentsMRL::getInstance( p_intf )->setTime( p_item->psz_uri, i_time );
 
     delCallbacks();
     i_old_playing_status = END_S;
@@ -636,7 +668,7 @@ void InputManager::UpdateCaching()
     }
 }
 
-void InputManager::requestArtUpdate( input_item_t *p_item )
+void InputManager::requestArtUpdate( input_item_t *p_item, bool b_forced )
 {
     bool b_current_item = false;
     if ( !p_item && hasInput() )
@@ -648,13 +680,15 @@ void InputManager::requestArtUpdate( input_item_t *p_item )
     if ( p_item )
     {
         /* check if it has already been enqueued */
-        if ( p_item->p_meta )
+        if ( p_item->p_meta && !b_forced )
         {
             int status = vlc_meta_GetStatus( p_item->p_meta );
             if ( status & ( ITEM_ART_NOTFOUND|ITEM_ART_FETCHED ) )
                 return;
         }
-        libvlc_ArtRequest( p_intf->p_libvlc, p_item );
+        libvlc_ArtRequest( p_intf->p_libvlc, p_item,
+                           (b_forced) ? META_REQUEST_OPTION_SCOPE_ANY
+                                      : META_REQUEST_OPTION_NONE );
         /* No input will signal the cover art to update,
              * let's do it ourself */
         if ( b_current_item )

@@ -143,7 +143,7 @@ static VLCInfo *_o_sharedInstance = nil;
 
 - (void)initPanel
 {
-    b_stats = config_GetInt(VLCIntf, "stats");
+    b_stats = var_InheritBool(VLCIntf, "stats");
     if (!b_stats) {
         if ([o_tab_view numberOfTabViewItems] > 2)
             [o_tab_view removeTabViewItem: [o_tab_view tabViewItemAtIndex: 2]];
@@ -212,7 +212,7 @@ static VLCInfo *_o_sharedInstance = nil;
         [o_image_well setImage: [NSImage imageNamed: @"noart.png"]];
     } else {
         if (!input_item_IsPreparsed(p_item))
-            libvlc_MetaRequest(VLCIntf->p_libvlc, p_item);
+            libvlc_MetaRequest(VLCIntf->p_libvlc, p_item, META_REQUEST_OPTION_NONE);
 
         /* fill uri info */
         char * psz_url = decode_URI(input_item_GetURI(p_item));
@@ -263,6 +263,7 @@ static VLCInfo *_o_sharedInstance = nil;
     /* reload the advanced table */
     [rootItem refresh];
     [o_outline_view reloadData];
+    [o_outline_view expandItem:nil expandChildren:YES];
 
     /* update the stats once to display p_item change faster */
     [self updateStatistics];
@@ -364,7 +365,7 @@ error:
 - (IBAction)downloadCoverArt:(id)sender
 {
     playlist_t * p_playlist = pl_Get(VLCIntf);
-    if (p_item) libvlc_ArtRequest(VLCIntf->p_libvlc, p_item);
+    if (p_item) libvlc_ArtRequest(VLCIntf->p_libvlc, p_item, META_REQUEST_OPTION_NONE);
 }
 
 - (input_item_t *)item

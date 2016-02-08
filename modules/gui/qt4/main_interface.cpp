@@ -63,6 +63,12 @@
 #include <vlc_keys.h>                       /* Wheel event */
 #include <vlc_vout_display.h>               /* vout_thread_t and VOUT_ events */
 
+
+#if defined(_WIN32) && HAS_QT5
+#include <QWindow>
+#include <qpa/qplatformnativeinterface.h>
+#endif
+
 // #define DEBUG_INTF
 
 /* Callback prototypes */
@@ -162,11 +168,6 @@ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
      **************/
     createStatusBar();
     setStatusBarVisibility( getSettings()->value( "MainWindow/status-bar-visible", false ).toBool() );
-
-    /********************
-     * Input Manager    *
-     ********************/
-    MainInputManager::getInstance( p_intf );
 
 #ifdef _WIN32
     himl = NULL;
@@ -535,7 +536,7 @@ void MainInterface::debug()
 #endif
 }
 
-inline void MainInterface::showVideo() { showTab( videoWidget ); }
+inline void MainInterface::showVideo() { showTab( videoWidget ); setRaise(); }
 inline void MainInterface::restoreStackOldWidget()
             { showTab( stackCentralOldWidget ); }
 
@@ -634,8 +635,8 @@ void MainInterface::toggleFSC()
 
 /**
  * NOTE:
- * You must not change the state of this object or other Qt4 UI objects,
- * from the video output thread - only from the Qt4 UI main loop thread.
+ * You must not change the state of this object or other Qt UI objects,
+ * from the video output thread - only from the Qt UI main loop thread.
  * All window provider queries must be handled through signals or events.
  * That's why we have all those emit statements...
  */
@@ -685,7 +686,7 @@ void MainInterface::releaseVideoSlot( void )
 {
     /* This function is called when the embedded video window is destroyed,
      * or in the rare case that the embedded window is still here but the
-     * Qt4 interface exits. */
+     * Qt interface exits. */
     assert( videoWidget );
     videoWidget->release();
     setVideoOnTop( false );
@@ -971,8 +972,10 @@ void MainInterface::setStatusBarVisibility( bool b_visible )
 
 void MainInterface::setPlaylistVisibility( bool b_visible )
 {
-    if ( !isPlDocked() && !THEDP->isDying() )
-        playlistVisible = b_visible;
+    if( isPlDocked() || THEDP->isDying() || (playlistWidget && playlistWidget->isMinimized() ) )
+        return;
+
+    playlistVisible = b_visible;
 }
 
 #if 0
@@ -1102,10 +1105,18 @@ void MainInterface::toggleUpdateSystrayMenu()
         /* check if any visible window is above vlc in the z-order,
          * but ignore the ones always on top
          * and the ones which can't be activated */
+        HWND winId;
+#if HAS_QT5
+        QWindow *window = windowHandle();
+        winId = static_cast<HWND>(QGuiApplication::platformNativeInterface()->nativeResourceForWindow("handle", window));
+#else
+        winId = internalWinId();
+#endif
+
         WINDOWINFO wi;
         HWND hwnd;
         wi.cbSize = sizeof( WINDOWINFO );
-        for( hwnd = GetNextWindow( internalWinId(), GW_HWNDPREV );
+        for( hwnd = GetNextWindow( winId, GW_HWNDPREV );
                 hwnd && ( !IsWindowVisible( hwnd ) ||
                     ( GetWindowInfo( hwnd, &wi ) &&
                       (wi.dwExStyle&WS_EX_NOACTIVATE) ) );
@@ -1121,7 +1132,7 @@ void MainInterface::toggleUpdateSystrayMenu()
             }
 #else
         hide();
-#endif
+#endif // _WIN32
     }
     if( sysTray )
         VLCMenuBar::updateSystrayMenu( this, p_intf );
@@ -1276,9 +1287,9 @@ void MainInterface::dropEventPlay( QDropEvent *event, bool b_play, bool b_playli
     /* D&D of a subtitles file, add it on the fly */
     if( mimeData->urls().count() == 1 && THEMIM->getIM()->hasInput() )
     {
-        if( !input_AddSubtitle( THEMIM->getInput(),
+        if( !input_AddSubtitleOSD( THEMIM->getInput(),
                  qtu( toNativeSeparators( mimeData->urls()[0].toLocalFile() ) ),
-                 true ) )
+                 true, true ) )
         {
             event->accept();
             return;
@@ -1308,11 +1319,8 @@ void MainInterface::dropEventPlay( QDropEvent *event, bool b_play, bool b_playli
             }
             if( mrl.length() > 0 )
             {
-                playlist_Add( THEPL, qtu(mrl), NULL,
-                          PLAYLIST_APPEND | (first ? PLAYLIST_GO: PLAYLIST_PREPARSE),
-                          PLAYLIST_END, b_playlist, pl_Unlocked );
+                Open::openMRL( p_intf, mrl, first, b_playlist );
                 first = false;
-                RecentsMRL::getInstance( p_intf )->addRecent( mrl );
             }
         }
     }
@@ -1324,9 +1332,7 @@ void MainInterface::dropEventPlay( QDropEvent *event, bool b_play, bool b_playli
         QUrl(mimeData->text()).isValid() )
     {
         QString mrl = toURI( mimeData->text() );
-        playlist_Add( THEPL, qtu(mrl), NULL,
-                      PLAYLIST_APPEND | (first ? PLAYLIST_GO: PLAYLIST_PREPARSE),
-                      PLAYLIST_END, b_playlist, pl_Unlocked );
+        Open::openMRL( p_intf, mrl, first, b_playlist );
     }
     event->accept();
 }

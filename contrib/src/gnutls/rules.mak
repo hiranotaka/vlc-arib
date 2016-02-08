@@ -1,6 +1,6 @@
 # GnuTLS
 
-GNUTLS_VERSION := 3.1.17
+GNUTLS_VERSION := 3.1.25
 GNUTLS_URL := ftp://ftp.gnutls.org/gcrypt/gnutls/v3.1/gnutls-$(GNUTLS_VERSION).tar.xz
 
 ifdef BUILD_NETWORK
@@ -28,9 +28,7 @@ endif
 	$(APPLY) $(SRC)/gnutls/gnutls-no-egd.patch
 	$(APPLY) $(SRC)/gnutls/read-file-limits.h.patch
 	$(APPLY) $(SRC)/gnutls/downgrade-automake-requirement.patch
-ifdef HAVE_MACOSX
 	$(APPLY) $(SRC)/gnutls/mac-keychain-lookup.patch
-endif
 	$(call pkg_static,"lib/gnutls.pc.in")
 	$(UPDATE_AUTOCONFIG)
 	$(MOVE)

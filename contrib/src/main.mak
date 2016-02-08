@@ -97,8 +97,8 @@ endif
 
 ifdef HAVE_MACOSX
 MIN_OSX_VERSION=10.6
-CC=xcrun llvm-gcc-4.2
-CXX=xcrun llvm-g++-4.2
+CC=xcrun cc
+CXX=xcrun c++
 AR=xcrun ar
 LD=xcrun ld
 STRIP=xcrun strip
@@ -145,6 +145,16 @@ endif
 ifdef HAVE_WIN32
 ifneq ($(shell $(CC) $(CFLAGS) -E -dM -include _mingw.h - < /dev/null | grep -E __MINGW64_VERSION_MAJOR),)
 HAVE_MINGW_W64 := 1
+endif
+endif
+
+ifdef HAVE_SOLARIS
+ifeq ($(ARCH),x86_64)
+EXTRA_CFLAGS += -m64
+EXTRA_LDFLAGS += -m64
+else
+EXTRA_CFLAGS += -m32
+EXTRA_LDFLAGS += -m32
 endif
 endif
 
@@ -244,6 +254,9 @@ endif
 # Common helpers
 #
 HOSTCONF := --prefix="$(PREFIX)"
+HOSTCONF += --datarootdir="$(PREFIX)/share"
+HOSTCONF += --includedir="$(PREFIX)/include"
+HOSTCONF += --libdir="$(PREFIX)/lib"
 HOSTCONF += --build="$(BUILD)" --host="$(HOST)" --target="$(HOST)"
 HOSTCONF += --program-prefix=""
 # libtool stuff:
@@ -291,7 +304,7 @@ UNPACK = $(RM) -R $@ \
 	$(foreach f,$(filter %.tar.bz2,$^), && tar xvjf $(f)) \
 	$(foreach f,$(filter %.tar.xz,$^), && tar xvJf $(f)) \
 	$(foreach f,$(filter %.zip,$^), && unzip $(f))
-UNPACK_DIR = $(basename $(basename $(notdir $<)))
+UNPACK_DIR = $(patsubst %.tar,%,$(basename $(notdir $<)))
 APPLY = (cd $(UNPACK_DIR) && patch -fp1) <
 pkg_static = (cd $(UNPACK_DIR) && ../../../contrib/src/pkg-static.sh $(1))
 MOVE = mv $(UNPACK_DIR) $@ && touch $@

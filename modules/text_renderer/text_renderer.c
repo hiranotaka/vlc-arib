@@ -325,7 +325,7 @@ int HandleFontAttributes( xml_reader_t *p_xml_reader,
     uint32_t   i_font_color = 0xffffff;
     int        i_font_alpha = 255;
     uint32_t   i_karaoke_bg_color = 0x00ffffff;
-    int        i_font_size  = 24;
+    int        i_font_size  = STYLE_DEFAULT_FONT_SIZE;
 
     /* Default all attributes to the top font in the stack -- in case not
      * all attributes are specified in the sub-font
@@ -398,7 +398,7 @@ int HandleFontAttributes( xml_reader_t *p_xml_reader,
     rv = PushFont( p_fonts,
                    psz_fontname,
                    i_font_size,
-                   (i_font_color & 0xffffff) | ((i_font_alpha & 0xff) << 24),
+                   (i_font_color & 0xffffff) | ((uint32_t)(i_font_alpha & 0xff) << 24),
                    i_karaoke_bg_color );
 
     free( psz_fontname );
@@ -411,7 +411,7 @@ int HandleTT(font_stack_t **p_fonts, const char *p_fontfamily )
     char      *psz_unused_fontname = NULL;
     uint32_t   i_font_color = 0xffffff;
     uint32_t   i_karaoke_bg_color = 0x00ffffff;
-    int        i_font_size  = 24;
+    int        i_font_size  = STYLE_DEFAULT_FONT_SIZE;
 
     /* Default all attributes to the top font in the stack -- in case not
      * all attributes are specified in the sub-font
@@ -572,7 +572,7 @@ int ProcessNodes( filter_t *p_filter,
                        p_default_style->psz_fontname,
                        i_font_size,
                        (i_font_color & 0xffffff) |
-                          ((i_font_alpha & 0xff) << 24),
+                       ((uint32_t)(i_font_alpha & 0xff) << 24),
                        0x00ffffff );
     }
     if( p_default_style->i_style_flags & STYLE_BOLD )

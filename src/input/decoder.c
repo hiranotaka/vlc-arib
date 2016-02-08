@@ -666,8 +666,10 @@ static mtime_t DecoderGetDisplayDate( decoder_t *p_dec, mtime_t i_ts )
     if( !p_owner->p_clock || i_ts <= VLC_TS_INVALID )
         return i_ts;
 
-    if( input_clock_ConvertTS( p_owner->p_clock, NULL, &i_ts, NULL, INT64_MAX ) )
+    if( input_clock_ConvertTS( p_owner->p_clock, NULL, &i_ts, NULL, INT64_MAX ) ) {
+        msg_Err(p_dec, "Could not get display date for timestamp %"PRId64"", i_ts);
         return VLC_TS_INVALID;
+    }
 
     return i_ts;
 }
@@ -807,6 +809,7 @@ static decoder_t * CreateDecoder( vlc_object_t *p_parent,
             {
                 es_format_Clean( &p_owner->p_packetizer->fmt_in );
                 vlc_object_release( p_owner->p_packetizer );
+                p_owner->p_packetizer = NULL;
             }
         }
     }
@@ -1062,8 +1065,14 @@ static void DecoderFixTs( decoder_t *p_dec, mtime_t *pi_ts0, mtime_t *pi_ts1,
         *pi_ts0 += i_es_delay;
         if( pi_ts1 && *pi_ts1 > VLC_TS_INVALID )
             *pi_ts1 += i_es_delay;
-        if( input_clock_ConvertTS( p_clock, &i_rate, pi_ts0, pi_ts1, i_ts_bound ) )
+        if( input_clock_ConvertTS( p_clock, &i_rate, pi_ts0, pi_ts1, i_ts_bound ) ) {
+            if( pi_ts1 != NULL )
+                msg_Err(p_dec, "Could not convert timestamps %"PRId64
+                        ", %"PRId64"", *pi_ts0, *pi_ts1);
+            else
+                msg_Err(p_dec, "Could not convert timestamp %"PRId64, *pi_ts0);
             *pi_ts0 = VLC_TS_INVALID;
+        }
     }
     else
     {
@@ -1463,7 +1472,7 @@ static void DecoderPlaySpu( decoder_t *p_dec, subpicture_t *p_subpic )
 }
 
 #ifdef ENABLE_SOUT
-static void DecoderPlaySout( decoder_t *p_dec, block_t *p_sout_block )
+static int DecoderPlaySout( decoder_t *p_dec, block_t *p_sout_block )
 {
     decoder_owner_sys_t *p_owner = p_dec->p_owner;
 
@@ -1486,9 +1495,15 @@ static void DecoderPlaySout( decoder_t *p_dec, block_t *p_sout_block )
     vlc_mutex_unlock( &p_owner->lock );
 
     if( !b_reject )
-        sout_InputSendBuffer( p_owner->p_sout_input, p_sout_block ); // FIXME --VLC_TS_INVALID inspect stream_output/*
+    {
+        /* FIXME --VLC_TS_INVALID inspect stream_output*/
+        return sout_InputSendBuffer( p_owner->p_sout_input, p_sout_block );
+    }
     else
+    {
         block_Release( p_sout_block );
+        return VLC_EGENERIC;
+    }
 }
 #endif
 
@@ -1526,12 +1541,7 @@ static void DecoderProcessSout( decoder_t *p_dec, block_t *p_block )
                          (char *)&p_owner->sout.i_codec );
                 p_dec->b_error = true;
 
-                while( p_sout_block )
-                {
-                    block_t *p_next = p_sout_block->p_next;
-                    block_Release( p_sout_block );
-                    p_sout_block = p_next;
-                }
+                block_ChainRelease(p_sout_block);
                 break;
             }
         }
@@ -1542,7 +1552,16 @@ static void DecoderProcessSout( decoder_t *p_dec, block_t *p_block )
 
             p_sout_block->p_next = NULL;
 
-            DecoderPlaySout( p_dec, p_sout_block );
+            if( DecoderPlaySout( p_dec, p_sout_block ) == VLC_EGENERIC )
+            {
+                msg_Err( p_dec, "cannot continue streaming due to errors" );
+
+                p_dec->b_error = true;
+
+                /* Cleanup */
+                block_ChainRelease( p_next );
+                return;
+            }
 
             p_sout_block = p_next;
         }
@@ -1569,6 +1588,21 @@ static void DecoderProcessVideo( decoder_t *p_dec, block_t *p_block, bool b_flus
                 es_format_Clean( &p_dec->fmt_in );
                 es_format_Copy( &p_dec->fmt_in, &p_packetizer->fmt_out );
             }
+
+            /* If the packetizer provides aspect ratio information, pass it
+             * to the decoder as a hint if the decoder itself can't provide
+             * it. Copy it regardless of the current value of the decoder input
+             * format aspect ratio, to properly propagate changes in aspect
+             * ratio. */
+            if( p_packetizer->fmt_out.video.i_sar_num > 0 &&
+                    p_packetizer->fmt_out.video.i_sar_den > 0)
+            {
+                p_dec->fmt_in.video.i_sar_num =
+                    p_packetizer->fmt_out.video.i_sar_num;
+                p_dec->fmt_in.video.i_sar_den=
+                    p_packetizer->fmt_out.video.i_sar_den;
+            }
+
             if( p_packetizer->pf_get_cc )
                 DecoderGetCc( p_dec, p_packetizer );
 
@@ -2017,7 +2051,8 @@ static picture_t *vout_new_buffer( decoder_t *p_dec )
         p_dec->fmt_out.video.i_y_offset != p_owner->video.i_y_offset  ||
         p_dec->fmt_out.i_codec != p_owner->video.i_chroma ||
         (int64_t)p_dec->fmt_out.video.i_sar_num * p_owner->video.i_sar_den !=
-        (int64_t)p_dec->fmt_out.video.i_sar_den * p_owner->video.i_sar_num )
+        (int64_t)p_dec->fmt_out.video.i_sar_den * p_owner->video.i_sar_num ||
+        p_dec->fmt_out.video.orientation != p_owner->video.orientation )
     {
         vout_thread_t *p_vout;
 

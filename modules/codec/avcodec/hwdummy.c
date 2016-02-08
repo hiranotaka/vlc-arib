@@ -35,11 +35,11 @@
 #include <vlc_picture.h>
 #include "../../codec/avcodec/va.h"
 
-static int Open(vlc_va_t *, int, const es_format_t *);
+static int Open(vlc_va_t *, AVCodecContext *, const es_format_t *);
 static void Close(vlc_va_t *);
 
 vlc_module_begin()
-    set_description(N_("Dummy video decoding accelerator"))
+    set_description(N_("Dummy video decoder"))
     set_capability("hw decoder", 0)
     set_category(CAT_INPUT)
     set_subcategory(SUBCAT_INPUT_VCODEC)
@@ -50,11 +50,6 @@ vlc_module_end()
 #define DECODER_MAGIC 0xdec0dea0
 #define DATA_MAGIC    0xda1a0000
 #define OPAQUE_MAGIC  0x0da00e00
-
-struct vlc_va_sys_t
-{
-    AVVDPAUContext context;
-};
 
 static int Lock(vlc_va_t *va, void **opaque, uint8_t **data)
 {
@@ -104,16 +99,13 @@ static int Copy(vlc_va_t *va, picture_t *pic, void *opaque, uint8_t *data)
 static int Setup(vlc_va_t *va, void **ctxp, vlc_fourcc_t *chromap,
                  int width, int height)
 {
-    vlc_va_sys_t *sys = va->sys;
-
     (void) width; (void) height;
-
-    *ctxp = &sys->context;
+    *ctxp = (AVVDPAUContext *)va->sys;
     *chromap = VLC_CODEC_YV12;
     return VLC_SUCCESS;
 }
 
-static int Open(vlc_va_t *va, int codec, const es_format_t *fmt)
+static int Open(vlc_va_t *va, AVCodecContext *ctx, const es_format_t *fmt)
 {
     union
     {
@@ -121,18 +113,18 @@ static int Open(vlc_va_t *va, int codec, const es_format_t *fmt)
         vlc_fourcc_t fourcc;
     } u = { .fourcc = fmt->i_codec };
 
-    vlc_va_sys_t *sys = calloc(1, sizeof (*sys));
-    if (unlikely(sys == NULL))
+    AVVDPAUContext *hwctx = av_vdpau_alloc_context();
+    if (unlikely(hwctx == NULL))
        return VLC_ENOMEM;
 
-    msg_Dbg(va, "codec %d (%4.4s) profile %d level %d", codec, u.str,
+    msg_Dbg(va, "codec %d (%4.4s) profile %d level %d", ctx->codec_id, u.str,
             fmt->i_profile, fmt->i_level);
 
-    sys->context.decoder = DECODER_MAGIC;
-    sys->context.render = Render;
+    hwctx->decoder = DECODER_MAGIC;
+    hwctx->render = Render;
 
-    va->sys = sys;
-    va->description = (char *)"Dummy video decoding accelerator";
+    va->sys = (vlc_va_sys_t *)hwctx;
+    va->description = "Dummy video decoding accelerator";
     va->pix_fmt = AV_PIX_FMT_VDPAU;
     va->setup = Setup;
     va->get = Lock;
@@ -143,10 +135,5 @@ static int Open(vlc_va_t *va, int codec, const es_format_t *fmt)
 
 static void Close(vlc_va_t *va)
 {
-    vlc_va_sys_t *sys = va->sys;
-
-#if (LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55, 13, 0))
-    av_freep(&sys->context.bitstream_buffers);
-#endif
-    free(sys);
+    av_free(va->sys);
 }

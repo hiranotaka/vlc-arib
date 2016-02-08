@@ -777,8 +777,8 @@ static const char *const ppsz_prefres[] = {
 #  define DVD_DEVICE     "/dev/cd0c"
 #  define CD_DEVICE      "/dev/cd0c"
 # elif defined(__linux__)
-#  define DVD_DEVICE     "/dev/dvd1"
-#  define CD_DEVICE      "/dev/cdrom1"
+#  define DVD_DEVICE     "/dev/sr0"
+#  define CD_DEVICE      "/dev/sr0"
 # else
 #  define DVD_DEVICE     "/dev/dvd"
 #  define CD_DEVICE      "/dev/cdrom"
@@ -1030,10 +1030,6 @@ static const char *const ppsz_prefres[] = {
      "This option is useful if you want to lower the latency when " \
      "reading a stream")
 
-#define PLUGIN_PATH_LONGTEXT N_( \
-    "Additional path for VLC to look for its modules. You can add " \
-    "several paths by concatenating them using \" PATH_SEP \" as separator")
-
 #define VLM_CONF_TEXT N_("VLM configuration file")
 #define VLM_CONF_LONGTEXT N_( \
     "Read a VLM configuration file as soon as VLM is started." )
@@ -1117,17 +1113,7 @@ static const char *const ppsz_prefres[] = {
     "Automatically preparse files added to the playlist " \
     "(to retrieve some metadata)." )
 
-#define ALBUM_ART_TEXT N_( "Album art policy" )
-#define ALBUM_ART_LONGTEXT N_( \
-    "Choose how album art will be downloaded." )
-
-static const int pi_albumart_values[] = { ALBUM_ART_WHEN_ASKED,
-                                          ALBUM_ART_WHEN_PLAYED,
-                                          ALBUM_ART_ALL };
-static const char *const ppsz_albumart_descriptions[] =
-    { N_("Manual download only"),
-      N_("When track starts playing"),
-      N_("As soon as track is added") };
+#define METADATA_NETWORK_TEXT N_( "Allow metadata network access" )
 
 #define SD_TEXT N_( "Services discovery modules")
 #define SD_LONGTEXT N_( \
@@ -1171,10 +1157,6 @@ static const char *const ppsz_albumart_descriptions[] =
 #define ML_LONGTEXT N_( \
     "The media library is automatically saved and reloaded each time you " \
     "start VLC." )
-
-#define LOAD_ML_TEXT N_( "Load Media Library" )
-#define LOAD_ML_LONGTEXT N_( \
-    "Enable this option to load the SQL-based Media Library at VLC startup" )
 
 #define PLTREE_TEXT N_("Display playlist tree")
 #define PLTREE_LONGTEXT N_( \
@@ -1367,6 +1349,8 @@ static const char *const mouse_wheel_texts[] =
 #define AUDIO_TRACK_KEY_LONGTEXT N_("Cycle through the available audio tracks(languages).")
 #define SUBTITLE_TRACK_KEY_TEXT N_("Cycle subtitle track")
 #define SUBTITLE_TRACK_KEY_LONGTEXT N_("Cycle through the available subtitle tracks.")
+#define SUBTITLE_TOGGLE_KEY_TEXT N_("Toggle subtitles")
+#define SUBTITLE_TOGGLE_KEY_LONGTEXT N_("Toggle subtitle track visibility.")
 #define PROGRAM_SID_NEXT_KEY_TEXT N_("Cycle next program Service ID")
 #define PROGRAM_SID_NEXT_KEY_LONGTEXT N_("Cycle through the available next program Service IDs (SIDs).")
 #define PROGRAM_SID_PREV_KEY_TEXT N_("Cycle previous program Service ID")
@@ -1637,7 +1621,7 @@ vlc_module_begin ()
     set_section( N_("On Screen Display") , NULL )
     add_category_hint( N_("Subpictures"), SUB_CAT_LONGTEXT , false )
 
-    add_bool( "spu", 1, SPU_TEXT, SPU_LONGTEXT, true )
+    add_bool( "spu", 1, SPU_TEXT, SPU_LONGTEXT, false )
         change_safe ()
     add_bool( "osd", 1, OSD_TEXT, OSD_LONGTEXT, false )
     add_module( "text-renderer", "text renderer", NULL, TEXTRENDERER_TEXT,
@@ -1888,7 +1872,7 @@ vlc_module_begin ()
     add_module( "access", "access", NULL, ACCESS_TEXT, ACCESS_LONGTEXT, true )
 
     set_subcategory( SUBCAT_INPUT_DEMUX )
-    add_module( "demux", "demux", NULL, DEMUX_TEXT, DEMUX_LONGTEXT, true )
+    add_module( "demux", "demux", "any", DEMUX_TEXT, DEMUX_LONGTEXT, true )
     set_subcategory( SUBCAT_INPUT_VCODEC )
     set_subcategory( SUBCAT_INPUT_ACODEC )
     set_subcategory( SUBCAT_INPUT_SCODEC )
@@ -1909,7 +1893,7 @@ vlc_module_begin ()
                                 SOUT_DISPLAY_LONGTEXT, true )
     add_bool( "sout-keep", false, SOUT_KEEP_TEXT,
                                 SOUT_KEEP_LONGTEXT, true )
-    add_bool( "sout-all", 0, SOUT_ALL_TEXT,
+    add_bool( "sout-all", true, SOUT_ALL_TEXT,
                                 SOUT_ALL_LONGTEXT, true )
     add_bool( "sout-audio", 1, SOUT_AUDIO_TEXT,
                                 SOUT_AUDIO_LONGTEXT, true )
@@ -2045,10 +2029,9 @@ vlc_module_begin ()
     add_bool( "auto-preparse", true, PREPARSE_TEXT,
               PREPARSE_LONGTEXT, false )
 
-    add_integer( "album-art", ALBUM_ART_WHEN_ASKED, ALBUM_ART_TEXT,
-                 ALBUM_ART_LONGTEXT, false )
-        change_integer_list( pi_albumart_values,
-                             ppsz_albumart_descriptions )
+    add_obsolete_integer( "album-art" )
+    add_bool( "metadata-network-access", false, METADATA_NETWORK_TEXT,
+                 METADATA_NETWORK_TEXT, false )
 
     set_subcategory( SUBCAT_PLAYLIST_SD )
     add_string( "services-discovery", "", SD_TEXT, SD_LONGTEXT, true )
@@ -2250,7 +2233,7 @@ vlc_module_begin ()
 #   define KEY_PLAY_BOOKMARK9     NULL
 #   define KEY_PLAY_BOOKMARK10    NULL
 #   define KEY_RECORD             "Command+Shift+r"
-#   define KEY_WALLPAPER          "w"
+#   define KEY_WALLPAPER          NULL
 #   define KEY_AUDIODEVICE_CYCLE  "Shift+a"
 #   define KEY_PLAY_CLEAR         NULL
 
@@ -2325,6 +2308,7 @@ vlc_module_begin ()
 
 #   define KEY_AUDIO_TRACK        "b"
 #   define KEY_SUBTITLE_TRACK     "v"
+#   define KEY_SUBTITLE_TOGGLE    "Shift+v"
 #   define KEY_PROGRAM_SID_NEXT   "x"
 #   define KEY_PROGRAM_SID_PREV   "Shift+x"
 #   define KEY_ASPECT_RATIO       "a"
@@ -2495,6 +2479,8 @@ vlc_module_begin ()
              AUDI_DEVICE_CYCLE_KEY_LONGTEXT, false )
     add_key( "key-subtitle-track", KEY_SUBTITLE_TRACK,
              SUBTITLE_TRACK_KEY_TEXT, SUBTITLE_TRACK_KEY_LONGTEXT, false )
+    add_key( "key-subtitle-toggle", KEY_SUBTITLE_TOGGLE,
+             SUBTITLE_TOGGLE_KEY_TEXT, SUBTITLE_TOGGLE_KEY_LONGTEXT, false )
     add_key( "key-program-sid-next", KEY_PROGRAM_SID_NEXT,
              PROGRAM_SID_NEXT_KEY_TEXT, PROGRAM_SID_NEXT_KEY_LONGTEXT, false )
     add_key( "key-program-sid-prev", KEY_PROGRAM_SID_PREV,

@@ -23,10 +23,10 @@ pluginsincludedir = $(pkgincludedir)/plugins
 
 pluginsinclude_HEADERS = \
 	../include/vlc_access.h \
+	../include/vlc_addons.h \
 	../include/vlc_aout.h \
 	../include/vlc_aout_volume.h \
 	../include/vlc_arrays.h \
-	../include/vlc_art_finder.h \
 	../include/vlc_atomic.h \
 	../include/vlc_avcodec.h \
 	../include/vlc_bits.h \
@@ -61,6 +61,7 @@ pluginsinclude_HEADERS = \
 	../include/vlc_md5.h \
 	../include/vlc_messages.h \
 	../include/vlc_meta.h \
+	../include/vlc_meta_fetcher.h \
 	../include/vlc_media_library.h \
 	../include/vlc_mime.h \
 	../include/vlc_modules.h \
@@ -475,6 +476,7 @@ SOURCES_libvlc_common = \
 	misc/xml.c \
 	extras/libc.c \
 	extras/tdestroy.c \
+	misc/addons.c \
 	misc/filter.c \
 	misc/filter_chain.c \
 	misc/http_auth.c \

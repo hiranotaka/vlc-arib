@@ -222,8 +222,8 @@ static picture_t *DecodeBlock(decoder_t *p_dec, block_t **pp_block)
 
     /* Set output properties */
     p_dec->fmt_out.i_codec = VLC_CODEC_RGB24;
-    p_dec->fmt_out.video.i_width = p_sys->p_jpeg.output_width;
-    p_dec->fmt_out.video.i_height = p_sys->p_jpeg.output_height;
+    p_dec->fmt_out.video.i_visible_width  = p_dec->fmt_out.video.i_width  = p_sys->p_jpeg.output_width;
+    p_dec->fmt_out.video.i_visible_height = p_dec->fmt_out.video.i_height = p_sys->p_jpeg.output_height;
     p_dec->fmt_out.video.i_sar_num = 1;
     p_dec->fmt_out.video.i_sar_den = 1;
     p_dec->fmt_out.video.i_rmask = 0x000000ff;
@@ -332,6 +332,10 @@ static block_t *EncodeBlock(encoder_t *p_enc, picture_t *p_pic)
 {
     encoder_sys_t *p_sys = p_enc->p_sys;
 
+    if (unlikely(!p_pic))
+    {
+        return NULL;
+    }
     block_t *p_block = block_Alloc(p_sys->i_blocksize);
     if (p_block == NULL)
     {
@@ -400,6 +404,8 @@ static block_t *EncodeBlock(encoder_t *p_enc, picture_t *p_pic)
         free(p_row_pointers[i]);
     }
     free(p_row_pointers);
+
+    p_block->i_dts = p_block->i_pts = p_pic->date;
 
     return p_block;
 

@@ -189,6 +189,16 @@ void matroska_segment_c::LoadCues( KaxCues *cues )
                                 cbnum.ReadData( es.I_O() );
                                 idx.i_block_number = uint32( cbnum );
                             }
+#if LIBMATROSKA_VERSION >= 0x010401
+                            else if( MKV_IS_ID( el, KaxCueRelativePosition ) )
+                            {
+                                /* For future use */
+                            }
+                            else if( MKV_IS_ID( el, KaxCueDuration ) )
+                            {
+                                /* For future use */
+                            }
+#endif
                             else
                             {
                                 msg_Dbg( &sys.demuxer, "         * Unknown (%s)", typeid(*el).name() );
@@ -991,6 +1001,12 @@ void matroska_segment_c::Seek( mtime_t i_date, mtime_t i_time_offset, int64_t i_
             if( BlockGet( block, simpleblock, &b_key_picture, &b_discardable_picture, &i_block_duration ) )
             {
                 msg_Warn( &sys.demuxer, "cannot get block EOF?" );
+                while( p_first )
+                {
+                    spoint *tmp = p_first;
+                    p_first = p_first->p_next;
+                    delete tmp;
+                }
                 return;
             }
 
@@ -1425,7 +1441,11 @@ int matroska_segment_c::BlockGet( KaxBlock * & pp_block, KaxSimpleBlock * & pp_s
                     else if( MKV_IS_ID( el, KaxDiscardPadding ) )
                     {
                         KaxDiscardPadding &dp = *(KaxDiscardPadding*) el;
-                        *pi_duration -= int64(dp);
+                        dp.ReadData( es.I_O() );
+                        if ( *pi_duration < int64(dp) )
+                            *pi_duration = 0;
+                        else
+                            *pi_duration -= int64(dp);
                     }
 #endif
                     break;

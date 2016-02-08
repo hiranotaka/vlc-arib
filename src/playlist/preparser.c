@@ -44,8 +44,6 @@ struct playlist_preparser_t
     bool            b_live;
     input_item_t  **pp_waiting;
     int             i_waiting;
-
-    int             i_art_policy;
 };
 
 static void *Thread( void * );
@@ -67,16 +65,17 @@ playlist_preparser_t *playlist_preparser_New( vlc_object_t *parent )
     vlc_mutex_init( &p_preparser->lock );
     vlc_cond_init( &p_preparser->wait );
     p_preparser->b_live = false;
-    p_preparser->i_art_policy = var_InheritInteger( parent, "album-art" );
     p_preparser->i_waiting = 0;
     p_preparser->pp_waiting = NULL;
 
     return p_preparser;
 }
 
-void playlist_preparser_Push( playlist_preparser_t *p_preparser, input_item_t *p_item )
+void playlist_preparser_Push( playlist_preparser_t *p_preparser, input_item_t *p_item,
+                              input_item_meta_request_option_t i_options )
 {
     vlc_gc_incref( p_item );
+    VLC_UNUSED( i_options );
 
     vlc_mutex_lock( &p_preparser->lock );
     INSERT_ELEM( p_preparser->pp_waiting, p_preparser->i_waiting,
@@ -93,10 +92,10 @@ void playlist_preparser_Push( playlist_preparser_t *p_preparser, input_item_t *p
 }
 
 void playlist_preparser_fetcher_Push( playlist_preparser_t *p_preparser,
-                                      input_item_t *p_item )
+             input_item_t *p_item, input_item_meta_request_option_t i_options )
 {
     if( p_preparser->p_fetcher != NULL )
-        playlist_fetcher_Push( p_preparser->p_fetcher, p_item );
+        playlist_fetcher_Push( p_preparser->p_fetcher, p_item, i_options );
 }
 
 void playlist_preparser_Delete( playlist_preparser_t *p_preparser )
@@ -171,10 +170,8 @@ static void Art( playlist_preparser_t *p_preparser, input_item_t *p_item )
         const char *psz_arturl = vlc_meta_Get( p_item->p_meta, vlc_meta_ArtworkURL );
         const char *psz_name = vlc_meta_Get( p_item->p_meta, vlc_meta_Title );
 
-        if( p_preparser->i_art_policy == ALBUM_ART_ALL &&
-                ( !psz_arturl ||
-                  ( strncmp( psz_arturl, "file://", 7 ) &&
-                    strncmp( psz_arturl, "attachment://", 13 ) ) ) )
+        if( !psz_arturl || ( strncmp( psz_arturl, "file://", 7 ) &&
+                             strncmp( psz_arturl, "attachment://", 13 ) ) )
         {
             msg_Dbg( obj, "meta ok for %s, need to fetch art",
                      psz_name ? psz_name : "(null)" );
@@ -190,7 +187,7 @@ static void Art( playlist_preparser_t *p_preparser, input_item_t *p_item )
     vlc_mutex_unlock( &p_item->lock );
 
     if( b_fetch && p_fetcher )
-        playlist_fetcher_Push( p_fetcher, p_item );
+        playlist_fetcher_Push( p_fetcher, p_item, 0 );
 }
 
 /**

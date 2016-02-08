@@ -40,6 +40,7 @@ libqt4_plugin_la_SOURCES = \
 	input_manager.cpp input_manager.hpp \
 	actions_manager.cpp actions_manager.hpp \
 	extensions_manager.cpp extensions_manager.hpp \
+	managers/addons_manager.cpp managers/addons_manager.hpp \
 	recents.cpp recents.hpp \
 	adapters/seekpoints.cpp adapters/seekpoints.hpp \
 	adapters/chromaprint.cpp adapters/chromaprint.hpp \
@@ -48,7 +49,6 @@ libqt4_plugin_la_SOURCES = \
 	dialogs/bookmarks.cpp dialogs/bookmarks.hpp \
 	dialogs/preferences.cpp dialogs/preferences.hpp \
 	dialogs/mediainfo.cpp dialogs/mediainfo.hpp \
-	dialogs/ml_configuration.cpp dialogs/ml_configuration.hpp \
 	dialogs/epg.cpp dialogs/epg.hpp \
 	dialogs/extended.cpp dialogs/extended.hpp \
 	dialogs/messages.cpp dialogs/messages.hpp \
@@ -72,7 +72,7 @@ libqt4_plugin_la_SOURCES = \
 	components/info_widgets.cpp components/info_widgets.hpp \
 	components/preferences_widgets.cpp components/preferences_widgets.hpp \
 	components/complete_preferences.cpp \
-		components/complete_preferences.hpp \
+	components/complete_preferences.hpp \
 	components/simple_preferences.cpp components/simple_preferences.hpp \
 	components/open_panels.cpp components/open_panels.hpp \
 	components/interface_widgets.cpp components/interface_widgets.hpp \
@@ -84,22 +84,21 @@ libqt4_plugin_la_SOURCES = \
 	components/epg/EPGView.cpp components/epg/EPGView.hpp \
 	components/epg/EPGWidget.cpp components/epg/EPGWidget.hpp \
 	components/playlist/views.cpp components/playlist/views.hpp \
-	components/playlist/ml_item.cpp components/playlist/ml_item.hpp \
-	components/playlist/ml_model.cpp components/playlist/ml_model.hpp \
 	components/playlist/vlc_model.cpp components/playlist/vlc_model.hpp \
 	components/playlist/playlist_model.cpp \
-		components/playlist/playlist_model.hpp \
+	components/playlist/playlist_model.hpp \
 	components/playlist/playlist_item.cpp \
-		components/playlist/playlist_item.hpp \
+	components/playlist/playlist_item.hpp \
 	components/playlist/standardpanel.cpp \
-		components/playlist/standardpanel.hpp \
+	components/playlist/standardpanel.hpp \
 	components/playlist/playlist.cpp components/playlist/playlist.hpp \
 	components/playlist/selector.cpp components/playlist/selector.hpp \
-		components/playlist/sorting.h \
+	components/playlist/sorting.h \
 	components/sout/profile_selector.cpp \
-		components/sout/profile_selector.hpp \
+	components/sout/profile_selector.hpp \
 	components/sout/sout_widgets.cpp components/sout/sout_widgets.hpp \
-		components/sout/profiles.hpp \
+	components/sout/profiles.hpp \
+	util/animators.cpp util/animators.hpp \
 	util/input_slider.cpp util/input_slider.hpp \
 	util/timetooltip.cpp util/timetooltip.hpp \
 	util/customwidgets.cpp util/customwidgets.hpp \
@@ -112,9 +111,9 @@ libqt4_plugin_la_SOURCES = \
 	util/buttons/BrowseButton.cpp util/buttons/BrowseButton.hpp \
 	util/buttons/DeckButtonsLayout.cpp util/buttons/DeckButtonsLayout.hpp \
 	util/buttons/RoundButton.cpp util/buttons/RoundButton.hpp \
-		util/qvlcframe.hpp \
-		util/qvlcapp.hpp \
-		util/singleton.hpp \
+	util/qvlcframe.hpp \
+	util/qvlcapp.hpp \
+	util/singleton.hpp \
 	styles/seekstyle.cpp styles/seekstyle.hpp
 if HAVE_WIN32
 libqt4_plugin_la_SOURCES += main_interface_win32.cpp
@@ -140,6 +139,7 @@ nodist_libqt4_plugin_la_SOURCES = \
 	input_manager.moc.cpp \
 	actions_manager.moc.cpp \
 	extensions_manager.moc.cpp \
+	managers/addons_manager.moc.cpp \
 	recents.moc.cpp \
 	adapters/seekpoints.moc.cpp \
 	adapters/chromaprint.moc.cpp \
@@ -166,7 +166,6 @@ nodist_libqt4_plugin_la_SOURCES = \
 	dialogs/firstrun.moc.cpp \
 	dialogs/extensions.moc.cpp \
 	dialogs/fingerprintdialog.moc.cpp \
-	dialogs/ml_configuration.moc.cpp \
 	components/extended_panels.moc.cpp \
 	components/info_panels.moc.cpp \
 	components/info_widgets.moc.cpp \
@@ -187,9 +186,9 @@ nodist_libqt4_plugin_la_SOURCES = \
 	components/playlist/playlist.moc.cpp \
 	components/playlist/standardpanel.moc.cpp \
 	components/playlist/selector.moc.cpp \
-	components/playlist/ml_model.moc.cpp \
 	components/sout/profile_selector.moc.cpp \
 	components/sout/sout_widgets.moc.cpp \
+	util/animators.moc.cpp \
 	util/input_slider.moc.cpp \
 	util/timetooltip.moc.cpp \
 	util/customwidgets.moc.cpp \
@@ -284,6 +283,9 @@ DEPS_res = \
 	pixmaps/faster.png \
 	pixmaps/faster2.png \
 	pixmaps/go-next.png \
+	pixmaps/addons/addon.png \
+	pixmaps/addons/addon_broken.png \
+	pixmaps/addons/score.png \
 	pixmaps/menus/exit_16px.png \
 	pixmaps/menus/help_16px.png \
 	pixmaps/menus/info_16px.png \

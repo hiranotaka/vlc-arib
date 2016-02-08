@@ -33,6 +33,7 @@
 #include <vlc_plugin.h>
 #include <vlc_input.h>
 #include <vlc_sout.h>
+#include <vlc_block.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -50,13 +51,14 @@ vlc_module_end ()
 /*****************************************************************************
  * Exported prototypes
  *****************************************************************************/
-static sout_stream_id_t *Add ( sout_stream_t *, es_format_t * );
-static int               Del ( sout_stream_t *, sout_stream_id_t * );
-static int               Send( sout_stream_t *, sout_stream_id_t *, block_t* );
+static sout_stream_id_sys_t *Add ( sout_stream_t *, es_format_t * );
+static int               Del ( sout_stream_t *, sout_stream_id_sys_t * );
+static int               Send( sout_stream_t *, sout_stream_id_sys_t *, block_t* );
 
-struct sout_stream_id_t
+struct sout_stream_id_sys_t
 {
     bool    b_used;
+    bool    b_streamswap;
 
     es_format_t fmt;
     void          *id;
@@ -65,7 +67,7 @@ struct sout_stream_id_t
 struct sout_stream_sys_t
 {
     int              i_id;
-    sout_stream_id_t **id;
+    sout_stream_id_sys_t **id;
 };
 
 /*****************************************************************************
@@ -105,7 +107,7 @@ static void Close( vlc_object_t * p_this )
 
     for( i = 0; i < p_sys->i_id; i++ )
     {
-        sout_stream_id_t *id = p_sys->id[i];
+        sout_stream_id_sys_t *id = p_sys->id[i];
 
         sout_StreamIdDel( p_stream->p_next, id->id );
         es_format_Clean( &id->fmt );
@@ -119,10 +121,10 @@ static void Close( vlc_object_t * p_this )
 /*****************************************************************************
  * Add:
  *****************************************************************************/
-static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
+static sout_stream_id_sys_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
-    sout_stream_id_t  *id;
+    sout_stream_id_sys_t  *id;
     int i;
 
     /* search a compatible output */
@@ -154,6 +156,7 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
         /* */
         msg_Dbg( p_stream, "reusing already opened output" );
         id->b_used = true;
+        id->b_streamswap = true;
         return id;
     }
 
@@ -174,7 +177,7 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
     }
 
     msg_Dbg( p_stream, "creating new output" );
-    id = malloc( sizeof( sout_stream_id_t ) );
+    id = malloc( sizeof( sout_stream_id_sys_t ) );
     if( id == NULL )
         return NULL;
     es_format_Copy( &id->fmt, p_fmt );
@@ -193,7 +196,7 @@ static sout_stream_id_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
 /*****************************************************************************
  * Del:
  *****************************************************************************/
-static int Del( sout_stream_t *p_stream, sout_stream_id_t *id )
+static int Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
 {
     VLC_UNUSED(p_stream);
     id->b_used = false;
@@ -204,7 +207,12 @@ static int Del( sout_stream_t *p_stream, sout_stream_id_t *id )
  * Send:
  *****************************************************************************/
 static int Send( sout_stream_t *p_stream,
-                 sout_stream_id_t *id, block_t *p_buffer )
+                 sout_stream_id_sys_t *id, block_t *p_buffer )
 {
+    if ( id->b_streamswap )
+    {
+        id->b_streamswap = false;
+        p_buffer->i_flags |= BLOCK_FLAG_DISCONTINUITY;
+    }
     return sout_StreamIdSend( p_stream->p_next, id->id, p_buffer );
 }

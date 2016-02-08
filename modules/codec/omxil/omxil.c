@@ -108,39 +108,12 @@ static OMX_ERRORTYPE ImplementationSpecificWorkarounds(decoder_t *p_dec,
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     OMX_PARAM_PORTDEFINITIONTYPE *def = &p_port->definition;
-    int i_profile = 0xFFFF, i_level = 0xFFFF;
+    size_t i_profile = 0xFFFF, i_level = 0xFFFF;
 
     /* Try to find out the profile of the video */
-    while(p_fmt->i_cat == VIDEO_ES && def->eDir == OMX_DirInput &&
-          p_fmt->i_codec == VLC_CODEC_H264)
-    {
-        uint8_t *p = (uint8_t*)p_dec->fmt_in.p_extra;
-        if(!p || !p_dec->fmt_in.p_extra) break;
-
-        /* Check the profile / level */
-        if(p_dec->fmt_in.i_original_fourcc == VLC_FOURCC('a','v','c','1') &&
-           p[0] == 1)
-        {
-            if(p_dec->fmt_in.i_extra < 12) break;
-            p_sys->i_nal_size_length = 1 + (p[4]&0x03);
-            if( !(p[5]&0x1f) ) break;
-            p += 8;
-        }
-        else
-        {
-            if(p_dec->fmt_in.i_extra < 8) break;
-            if(!p[0] && !p[1] && !p[2] && p[3] == 1) p += 4;
-            else if(!p[0] && !p[1] && p[2] == 1) p += 3;
-            else break;
-        }
-
-        if( ((*p++)&0x1f) != 7) break;
-
-        /* Get profile/level out of first SPS */
-        i_profile = p[0];
-        i_level = p[2];
-        break;
-    }
+    if(p_fmt->i_cat == VIDEO_ES && def->eDir == OMX_DirInput &&
+       p_fmt->i_codec == VLC_CODEC_H264)
+	h264_get_profile_level(&p_dec->fmt_in, &i_profile, &i_level, &p_sys->i_nal_size_length);
 
     if(!strcmp(p_sys->psz_component, "OMX.TI.Video.Decoder"))
     {
@@ -732,9 +705,10 @@ static OMX_ERRORTYPE InitialiseComponent(decoder_t *p_dec,
 
         omx_error = OMX_SetParameter(omx_handle,
                 OMX_IndexConfigRequestCallback, &notifications);
-        if (omx_error == OMX_ErrorNone)
+        if (omx_error == OMX_ErrorNone) {
             msg_Dbg(p_dec, "Enabled aspect ratio notifications");
-        else
+            p_sys->b_aspect_ratio_handled = true;
+        } else
             msg_Dbg(p_dec, "Could not enable aspect ratio notifications");
     }
 
@@ -805,6 +779,11 @@ static int OpenDecoder( vlc_object_t *p_this )
 {
     decoder_t *p_dec = (decoder_t*)p_this;
     int status;
+
+#ifdef __ANDROID__
+    if( p_dec->fmt_in.i_cat == AUDIO_ES )
+        return VLC_EGENERIC;
+#endif
 
     if( 0 || !GetOmxRole(p_dec->fmt_in.i_codec, p_dec->fmt_in.i_cat, false) )
         return VLC_EGENERIC;
@@ -1243,6 +1222,19 @@ static picture_t *DecodeVideo( decoder_t *p_dec, block_t **pp_block )
         }
         p_sys->in.b_flushed = true;
         return NULL;
+    }
+
+    /* Use the aspect ratio provided by the input (ie read from packetizer).
+     * In case the we get aspect ratio info from the decoder (as in the
+     * broadcom OMX implementation on RPi), don't let the packetizer values
+     * override what the decoder says, if anything - otherwise always update
+     * even if it already is set (since it can change within a stream). */
+    if((p_dec->fmt_in.video.i_sar_num != 0 && p_dec->fmt_in.video.i_sar_den != 0) &&
+       (p_dec->fmt_out.video.i_sar_num == 0 || p_dec->fmt_out.video.i_sar_den == 0 ||
+             !p_sys->b_aspect_ratio_handled))
+    {
+        p_dec->fmt_out.video.i_sar_num = p_dec->fmt_in.video.i_sar_num;
+        p_dec->fmt_out.video.i_sar_den = p_dec->fmt_in.video.i_sar_den;
     }
 
     /* Take care of decoded frames first */

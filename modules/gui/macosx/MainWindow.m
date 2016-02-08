@@ -158,6 +158,10 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
     BOOL b_splitviewShouldBeHidden = NO;
 
+    if (!OSX_SNOW_LEOPARD)
+        [self setRestorable: NO];
+    [self setFrameAutosaveName:@"mainwindow"];
+
     /* setup the styled interface */
     b_nativeFullscreenMode = NO;
 #ifdef MAC_OS_X_VERSION_10_7
@@ -185,7 +189,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
     [o_podcast_unsubscribe_cancel_btn setTitle: _NS("Cancel")];
 
     /* interface builder action */
-    float f_threshold_height = f_min_video_height + [o_controls_bar height];
+    CGFloat f_threshold_height = f_min_video_height + [o_controls_bar height];
     if (b_dark_interface)
         f_threshold_height += [o_titlebar_view frame].size.height;
     if ([[self contentView] frame].size.height < f_threshold_height)
@@ -334,6 +338,10 @@ static VLCMainWindow *_o_sharedInstance = nil;
             [o_sidebar_view expandItem: [o_sidebaritems objectAtIndex:x] expandChildren: YES];
 
         [o_fspanel center];
+
+        NSAlert *albumArtAlert = [NSAlert alertWithMessageText:_NS("Check for album art and metadata?") defaultButton:_NS("Enable Metadata Retrieval") alternateButton:_NS("No, Thanks") otherButton:nil informativeTextWithFormat:@"%@",_NS("VLC can check online for album art and metadata to enrich your playback experience, e.g. by providing track information when playing Audio CDs. To provide this functionality, VLC will send information about your contents to trusted services in an anonymized form.")];
+        NSInteger returnValue = [albumArtAlert runModal];
+        config_PutInt(VLCIntf, "metadata-network-access", returnValue == NSAlertDefaultReturn);
     }
 
     // select playlist item by default
@@ -382,7 +390,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
     if (b_splitviewShouldBeHidden) {
         [self hideSplitView: YES];
-        i_lastSplitViewHeight = 300;
+        f_lastSplitViewHeight = 300;
     }
 
     /* sanity check for the window size */
@@ -398,7 +406,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [o_controls_bar setFullscreenState:YES];
 
     /* restore split view */
-    i_lastLeftSplitViewWidth = 200;
+    f_lastLeftSplitViewWidth = 200;
     /* trick NSSplitView implementation, which pretends to know better than us */
     if (!config_GetInt(VLCIntf, "macosx-show-sidebar"))
         [self performSelector:@selector(toggleLeftSubSplitView) withObject:nil afterDelay:0.05];
@@ -439,7 +447,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
         [self setContentMinSize: NSMakeSize(604., 288.)];
 
     NSRect old_frame = [self frame];
-    float newHeight = [self minSize].height;
+    CGFloat newHeight = [self minSize].height;
     if (old_frame.size.height < newHeight) {
         NSRect new_frame = old_frame;
         new_frame.origin.y = old_frame.origin.y + old_frame.size.height - newHeight;
@@ -450,7 +458,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
     [o_video_view setHidden: YES];
     [o_split_view setHidden: NO];
-    if ([self fullscreen]) {
+    if (b_nativeFullscreenMode && [self fullscreen]) {
         [[o_controls_bar bottomBarView] setHidden: NO];
         [o_fspanel setNonActive:nil];
     }
@@ -467,7 +475,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
     [o_split_view setHidden: YES];
     [o_video_view setHidden: NO];
-    if ([self fullscreen]) {
+    if (b_nativeFullscreenMode && [self fullscreen]) {
         [[o_controls_bar bottomBarView] setHidden: YES];
         [o_fspanel setActive:nil];
     }
@@ -592,23 +600,23 @@ static VLCMainWindow *_o_sharedInstance = nil;
     b_dropzone_active = YES;
     [o_right_split_view addSubview: o_dropzone_view positioned:NSWindowAbove relativeTo:o_playlist_table];
     [o_dropzone_view setFrame: [o_playlist_table frame]];
-    [[o_playlist_table animator] setHidden:YES];
+    [o_playlist_table setHidden:YES];
 }
 
 - (void)hideDropZone
 {
     b_dropzone_active = NO;
     [o_dropzone_view removeFromSuperview];
-    [[o_playlist_table animator] setHidden: NO];
+    [o_playlist_table setHidden: NO];
 }
 
 - (void)hideSplitView:(BOOL)b_with_resize
 {
     if (b_with_resize) {
         NSRect winrect = [self frame];
-        i_lastSplitViewHeight = [o_split_view frame].size.height;
-        winrect.size.height = winrect.size.height - i_lastSplitViewHeight;
-        winrect.origin.y = winrect.origin.y + i_lastSplitViewHeight;
+        f_lastSplitViewHeight = [o_split_view frame].size.height;
+        winrect.size.height = winrect.size.height - f_lastSplitViewHeight;
+        winrect.origin.y = winrect.origin.y + f_lastSplitViewHeight;
         [self setFrame: winrect display: YES animate: YES];
     }
 
@@ -636,8 +644,8 @@ static VLCMainWindow *_o_sharedInstance = nil;
     if (b_with_resize) {
         NSRect winrect;
         winrect = [self frame];
-        winrect.size.height = winrect.size.height + i_lastSplitViewHeight;
-        winrect.origin.y = winrect.origin.y - i_lastSplitViewHeight;
+        winrect.size.height = winrect.size.height + f_lastSplitViewHeight;
+        winrect.origin.y = winrect.origin.y - f_lastSplitViewHeight;
         [self setFrame: winrect display: YES animate: YES];
     }
 
@@ -782,9 +790,10 @@ static VLCMainWindow *_o_sharedInstance = nil;
         if (!b_nonembedded && (!b_nativeFullscreenMode || (b_nativeFullscreenMode && !b_fullscreen)) && frameBeforePlayback.size.width > 0 && frameBeforePlayback.size.height > 0) {
 
             // only resize back to minimum view of this is still desired final state
-            float f_threshold_height = f_min_video_height + [o_controls_bar height];
-            if(frameBeforePlayback.size.height > f_threshold_height || b_minimized_view)
+            CGFloat f_threshold_height = f_min_video_height + [o_controls_bar height];
+            if(frameBeforePlayback.size.height > f_threshold_height || b_minimized_view) {
                 [[self animator] setFrame:frameBeforePlayback display:YES];
+            }
         }
 
         frameBeforePlayback = NSMakeRect(0, 0, 0, 0);
@@ -810,8 +819,6 @@ static VLCMainWindow *_o_sharedInstance = nil;
             [o_fspanel setNonActive: nil];
         }
     }
-
-    [self changePlaylistState: psVideoStartedOrStoppedEvent];
 }
 
 #pragma mark -
@@ -888,7 +895,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 
 - (void)mainSplitViewDidResizeSubviews:(id)object
 {
-    i_lastLeftSplitViewWidth = [o_left_split_view frame].size.width;
+    f_lastLeftSplitViewWidth = [o_left_split_view frame].size.width;
     config_PutInt(VLCIntf, "macosx-show-sidebar", ![o_split_view isSubviewCollapsed:o_left_split_view]);
     [[[VLCMain sharedInstance] mainMenu] updateSidebarMenuItem];
 }
@@ -897,7 +904,7 @@ static VLCMainWindow *_o_sharedInstance = nil;
 {
     [o_split_view adjustSubviews];
     if ([o_split_view isSubviewCollapsed:o_left_split_view])
-        [o_split_view setPosition:i_lastLeftSplitViewWidth ofDividerAtIndex:0];
+        [o_split_view setPosition:f_lastLeftSplitViewWidth ofDividerAtIndex:0];
     else
         [o_split_view setPosition:[o_split_view minPossiblePositionOfDividerAtIndex:0] ofDividerAtIndex:0];
     [[[VLCMain sharedInstance] mainMenu] updateSidebarMenuItem];
@@ -1032,10 +1039,9 @@ static VLCMainWindow *_o_sharedInstance = nil;
 {
     if ([theEvent type] == NSRightMouseDown || ([theEvent type] == NSLeftMouseDown && ([theEvent modifierFlags] & NSControlKeyMask) == NSControlKeyMask)) {
         if (item != nil) {
-            NSMenu * m;
             if ([item sdtype] > 0)
             {
-                m = [[NSMenu alloc] init];
+                NSMenu *m = [[NSMenu alloc] init];
                 playlist_t * p_playlist = pl_Get(VLCIntf);
                 BOOL sd_loaded = playlist_IsServicesDiscoveryLoaded(p_playlist, [[item identifier] UTF8String]);
                 if (!sd_loaded)
@@ -1043,8 +1049,9 @@ static VLCMainWindow *_o_sharedInstance = nil;
                 else
                     [m addItemWithTitle:_NS("Disable") action:@selector(sdmenuhandler:) keyEquivalent:@""];
                 [[m itemAtIndex:0] setRepresentedObject: [item identifier]];
+
+                return [m autorelease];
             }
-            return [m autorelease];
         }
     }
 

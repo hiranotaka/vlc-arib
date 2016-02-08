@@ -30,16 +30,13 @@
  * Preamble
  *****************************************************************************/
 #import <stdlib.h>                                                 /* free() */
-#import <string.h>
 
 #import "CompatibilityFixes.h"
 #import "intf.h"
 #import "VideoView.h"
 #import "CoreInteraction.h"
 #import "MainMenu.h"
-#import "MainWindow.h"
 
-#import <vlc_common.h>
 #import <vlc_keys.h>
 
 
@@ -154,8 +151,9 @@
 - (void)mouseDown:(NSEvent *)o_event
 {
     if (([o_event type] == NSLeftMouseDown) && (! ([o_event modifierFlags] &  NSControlKeyMask))) {
-        if ([o_event clickCount] > 1)
+        if ([o_event clickCount] == 2)
             [[VLCCoreInteraction sharedInstance] toggleFullscreen];
+
     } else if (([o_event type] == NSRightMouseDown) ||
                (([o_event type] == NSLeftMouseDown) &&
                ([o_event modifierFlags] &  NSControlKeyMask)))

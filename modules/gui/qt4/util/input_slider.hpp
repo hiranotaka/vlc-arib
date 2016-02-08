@@ -30,12 +30,12 @@
 # include "config.h"
 #endif
 
-#include <vlc_common.h>
 #include "timetooltip.hpp"
 #include "styles/seekstyle.hpp"
 
 #include <QSlider>
 #include <QPainter>
+#include <QTime>
 
 #define MSTRTIME_MAX_SIZE 22
 
@@ -55,7 +55,7 @@ class SeekSlider : public QSlider
     Q_PROPERTY(qreal handleOpacity READ handleOpacity WRITE setHandleOpacity)
 public:
     SeekSlider( Qt::Orientation q, QWidget *_parent = 0, bool _classic = false );
-    ~SeekSlider();
+    virtual ~SeekSlider();
     void setChapters( SeekPoints * );
 
 protected:
@@ -66,13 +66,13 @@ protected:
     virtual void enterEvent( QEvent * );
     virtual void leaveEvent( QEvent * );
     virtual void hideEvent( QHideEvent * );
+    virtual void paintEvent(QPaintEvent *ev);
 
     virtual bool eventFilter( QObject *obj, QEvent *event );
 
     virtual QSize sizeHint() const;
 
     void processReleasedButton();
-    bool isAnimationRunning() const;
     qreal handleOpacity() const;
     void setHandleOpacity( qreal opacity );
     int handleLength();
@@ -85,6 +85,7 @@ private:
     QTimer *seekLimitTimer;
     TimeTooltip *mTimeTooltip;
     float f_buffering;
+    QTime bufferingStart;
     SeekPoints* chapters;
     bool b_classic;
     bool b_seekable;
@@ -118,8 +119,6 @@ private slots:
 signals:
     void sliderDragged( float );
 
-
-    friend class SeekStyle;
 };
 
 /* Sound Slider inherited directly from QAbstractSlider */

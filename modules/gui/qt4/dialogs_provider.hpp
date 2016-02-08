@@ -83,10 +83,6 @@ public:
         delete instance;
         instance = NULL;
     }
-    static bool isAlive()
-    {
-        return ( instance != NULL );
-    }
 
     QStringList showSimpleOpen( const QString& help = QString(),
                                 int filters = EXT_FILTER_MEDIA |
@@ -94,6 +90,8 @@ public:
                                 EXT_FILTER_PLAYLIST,
                                 const QString& path = QString() );
     bool isDying() { return b_isDying; }
+    static QString getDirectoryDialog( intf_thread_t *p_intf);
+
 protected:
     QSignalMapper *menusMapper;
     QSignalMapper *menusUpdateMapper;
@@ -114,8 +112,6 @@ private:
     void saveAPlaylist(playlist_t *p_playlist, playlist_item_t *p_node);
 
 public slots:
-    void playMRL( const QString & );
-
     void playlistDialog();
     void bookmarksDialog();
     void mediaInfoDialog();
@@ -149,7 +145,6 @@ public slots:
     void openNetDialog();
     void openCaptureDialog();
 
-    QString getDirectoryDialog();
     void PLAppendDialog( int tab = OPEN_FILE_TAB );
     void MLAppendDialog( int tab = OPEN_FILE_TAB );
 

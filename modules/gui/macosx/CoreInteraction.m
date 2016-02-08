@@ -35,9 +35,6 @@
 #import <vlc_strings.h>
 #import <vlc_url.h>
 
-@interface VLCMainWindow (Internal)
-- (void)jumpWithValue:(char *)p_value forward:(BOOL)b_value;
-@end
 
 @implementation VLCCoreInteraction
 static VLCCoreInteraction *_o_sharedInstance = nil;
@@ -67,13 +64,6 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     [super dealloc];
 }
 
-- (void)awakeFromNib
-{
-    [[NSNotificationCenter defaultCenter] addObserver: self
-                                             selector: @selector(applicationWillFinishLaunching:)
-                                                 name: NSApplicationWillFinishLaunchingNotification
-                                               object: nil];
-}
 
 #pragma mark -
 #pragma mark Playback Controls
@@ -556,6 +546,25 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
     return f_maxVolume;
 }
 
+- (void)addSubtitlesToCurrentInput:(NSArray *)paths
+{
+    input_thread_t * p_input = pl_CurrentInput(VLCIntf);
+    if (!p_input)
+        return;
+
+    NSUInteger count = [paths count];
+
+    for (int i = 0; i < count ; i++) {
+        const char *path = [[[paths objectAtIndex:i] path] UTF8String];
+        msg_Dbg(VLCIntf, "loading subs from %s", path);
+
+        int i_result = input_AddSubtitleOSD(p_input, path, true, true);
+        if (i_result != VLC_SUCCESS)
+            msg_Warn(VLCIntf, "unable to load subtitles from '%s'", path);
+    }
+    vlc_object_release(p_input);
+}
+
 #pragma mark -
 #pragma mark drag and drop support for VLCVoutView, VLCDragDropView and VLCThreePartDropView
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
@@ -573,12 +582,11 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
             NSUInteger count = [o_values count];
 
             input_thread_t * p_input = pl_CurrentInput(VLCIntf);
-            BOOL b_returned = NO;
 
             if (count == 1 && p_input) {
-                b_returned = input_AddSubtitle(p_input, [[o_values objectAtIndex:0] UTF8String], true);
+                int i_result = input_AddSubtitleOSD(p_input, [[o_values objectAtIndex:0] UTF8String], true, true);
                 vlc_object_release(p_input);
-                if (!b_returned)
+                if (i_result == VLC_SUCCESS)
                     return YES;
             }
             else if (p_input)
@@ -632,7 +640,7 @@ static VLCCoreInteraction *_o_sharedInstance = nil;
         vlc_object_release(p_vout);
     } else { // e.g. lion fullscreen toggle
         BOOL b_fs = var_ToggleBool(pl_Get(p_intf), "fullscreen");
-        [[[VLCMain sharedInstance] voutController] setFullscreen:b_fs forWindow:nil];
+        [[[VLCMain sharedInstance] voutController] setFullscreen:b_fs forWindow:nil withAnimation:YES];
     }
 }
 

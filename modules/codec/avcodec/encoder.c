@@ -41,6 +41,7 @@
 #include <vlc_cpu.h>
 
 #include <libavcodec/avcodec.h>
+#include <libavutil/audioconvert.h>
 
 #include "avcodec.h"
 #include "avcommon.h"
@@ -122,6 +123,10 @@ struct encoder_sys_t
     mtime_t i_pts;
     date_t  buffer_date;
 
+    /* Multichannel (>2) channel reordering */
+    uint8_t    i_channels_to_reorder;
+    uint8_t    pi_reorder_layout[AOUT_CHAN_MAX];
+
     /* Encoding settings */
     int        i_key_int;
     int        i_b_frames;
@@ -146,6 +151,45 @@ struct encoder_sys_t
     int        i_aac_profile; /* AAC profile to use.*/
 
     AVFrame    *frame;
+};
+
+
+/* Taken from audio.c*/
+static const uint64_t pi_channels_map[][2] =
+{
+    { AV_CH_FRONT_LEFT,        AOUT_CHAN_LEFT },
+    { AV_CH_FRONT_RIGHT,       AOUT_CHAN_RIGHT },
+    { AV_CH_FRONT_CENTER,      AOUT_CHAN_CENTER },
+    { AV_CH_LOW_FREQUENCY,     AOUT_CHAN_LFE },
+    { AV_CH_BACK_LEFT,         AOUT_CHAN_REARLEFT },
+    { AV_CH_BACK_RIGHT,        AOUT_CHAN_REARRIGHT },
+    { AV_CH_FRONT_LEFT_OF_CENTER, 0 },
+    { AV_CH_FRONT_RIGHT_OF_CENTER, 0 },
+    { AV_CH_BACK_CENTER,       AOUT_CHAN_REARCENTER },
+    { AV_CH_SIDE_LEFT,         AOUT_CHAN_MIDDLELEFT },
+    { AV_CH_SIDE_RIGHT,        AOUT_CHAN_MIDDLERIGHT },
+    { AV_CH_TOP_CENTER,        0 },
+    { AV_CH_TOP_FRONT_LEFT,    0 },
+    { AV_CH_TOP_FRONT_CENTER,  0 },
+    { AV_CH_TOP_FRONT_RIGHT,   0 },
+    { AV_CH_TOP_BACK_LEFT,     0 },
+    { AV_CH_TOP_BACK_CENTER,   0 },
+    { AV_CH_TOP_BACK_RIGHT,    0 },
+    { AV_CH_STEREO_LEFT,       0 },
+    { AV_CH_STEREO_RIGHT,      0 },
+};
+
+static const uint32_t channel_mask[][2] = {
+    {0,0},
+    {AOUT_CHAN_CENTER, AV_CH_LAYOUT_MONO},
+    {AOUT_CHANS_STEREO, AV_CH_LAYOUT_STEREO},
+    {AOUT_CHANS_2_1, AV_CH_LAYOUT_2POINT1},
+    {AOUT_CHANS_4_0, AV_CH_LAYOUT_4POINT0},
+    {AOUT_CHANS_4_1, AV_CH_LAYOUT_4POINT1},
+    {AOUT_CHANS_5_1, AV_CH_LAYOUT_5POINT1_BACK},
+    {AOUT_CHANS_7_0, AV_CH_LAYOUT_7POINT0},
+    {AOUT_CHANS_7_1, AV_CH_LAYOUT_7POINT1},
+    {AOUT_CHANS_8_1, AV_CH_LAYOUT_OCTAGONAL},
 };
 
 static const char *const ppsz_enc_options[] = {
@@ -316,13 +360,6 @@ int OpenEncoder( vlc_object_t *p_this )
     p_context->debug = var_InheritInteger( p_enc, "avcodec-debug" );
     p_context->opaque = (void *)p_this;
 
-    /* set CPU capabilities */
-#if LIBAVUTIL_VERSION_CHECK(51, 25, 0, 42, 100)
-    av_set_cpu_flags_mask( INT_MAX & ~GetVlcDspMask() );
-#else
-    p_context->dsp_mask = GetVlcDspMask();
-#endif
-
     p_sys->i_key_int = var_GetInteger( p_enc, ENC_CFG_PREFIX "keyint" );
     p_sys->i_b_frames = var_GetInteger( p_enc, ENC_CFG_PREFIX "bframes" );
     p_sys->i_vtolerance = var_GetInteger( p_enc, ENC_CFG_PREFIX "vt" ) * 1000;
@@ -393,10 +430,8 @@ int OpenEncoder( vlc_object_t *p_this )
             p_sys->i_aac_profile = FF_PROFILE_AAC_MAIN;
         else if( !strncmp( psz_val, "low", 3 ) )
             p_sys->i_aac_profile = FF_PROFILE_AAC_LOW;
-#if 0    /* Not supported by FAAC encoder */
         else if( !strncmp( psz_val, "ssr", 3 ) )
             p_sys->i_aac_profile = FF_PROFILE_AAC_SSR;
-#endif
         else if( !strncmp( psz_val, "ltp", 3 ) )
             p_sys->i_aac_profile = FF_PROFILE_AAC_LTP;
 #if LIBAVCODEC_VERSION_CHECK( 54, 19, 0, 35, 100 )
@@ -405,6 +440,10 @@ int OpenEncoder( vlc_object_t *p_this )
             p_sys->i_aac_profile = FF_PROFILE_AAC_HE_V2;
         else if( !strncmp( psz_val, "hev1", 4 ) )
             p_sys->i_aac_profile = FF_PROFILE_AAC_HE;
+        else if( !strncmp( psz_val, "ld", 2 ) )
+            p_sys->i_aac_profile = FF_PROFILE_AAC_LD;
+        else if( !strncmp( psz_val, "eld", 3 ) )
+            p_sys->i_aac_profile = FF_PROFILE_AAC_ELD;
 #endif
         else
         {
@@ -480,6 +519,11 @@ int OpenEncoder( vlc_object_t *p_this )
 
 
         p_enc->fmt_in.i_codec = VLC_CODEC_I420;
+
+        /* Very few application support YUV in TIFF, not even VLC */
+        if( p_enc->fmt_out.i_codec == VLC_CODEC_TIFF )
+            p_enc->fmt_in.i_codec = VLC_CODEC_RGB24;
+
         p_enc->fmt_in.video.i_chroma = p_enc->fmt_in.i_codec;
         GetFfmpegChroma( &p_context->pix_fmt, &p_enc->fmt_in.video );
 
@@ -656,7 +700,51 @@ int OpenEncoder( vlc_object_t *p_this )
         p_context->time_base.den = p_context->sample_rate;
         p_context->channels      = p_enc->fmt_out.audio.i_channels;
 #if LIBAVUTIL_VERSION_CHECK( 52, 2, 6, 0, 0)
-        p_context->channel_layout = av_get_default_channel_layout( p_context->channels );
+        p_context->channel_layout = channel_mask[p_context->channels][1];
+
+        /* Setup Channel ordering for multichannel audio
+         * as VLC channel order isn't same as libavcodec expects
+         */
+
+        p_sys->i_channels_to_reorder = 0;
+
+        /* Specified order
+         * Copied from audio.c
+         */
+        const unsigned i_order_max = 8 * sizeof(p_context->channel_layout);
+        uint32_t pi_order_dst[AOUT_CHAN_MAX];
+        int i_channels_src = 0;
+
+        if( p_context->channel_layout )
+        {
+            msg_Dbg( p_enc, "Creating channel order for reordering");
+            for( unsigned i = 0; i < sizeof(pi_channels_map)/sizeof(*pi_channels_map); i++ )
+            {
+                if( p_context->channel_layout & pi_channels_map[i][0] )
+                {
+                    msg_Dbg( p_enc, "%d %"PRIx64" mapped to %"PRIx64"", i_channels_src, pi_channels_map[i][0], pi_channels_map[i][1]);
+                    pi_order_dst[i_channels_src++] = pi_channels_map[i][1];
+                }
+            }
+        }
+        else
+        {
+            msg_Dbg( p_enc, "Creating default channel order for reordering");
+            /* Create default order  */
+            for( unsigned int i = 0; i < __MIN( i_order_max, (unsigned)p_sys->p_context->channels ); i++ )
+            {
+                if( i < sizeof(pi_channels_map)/sizeof(*pi_channels_map) )
+                {
+                    msg_Dbg( p_enc, "%d channel is %"PRIx64"", i_channels_src, pi_channels_map[i][1]);
+                    pi_order_dst[i_channels_src++] = pi_channels_map[i][1];
+                }
+            }
+        }
+        if( i_channels_src != p_context->channels )
+            msg_Err( p_enc, "Channel layout not understood" );
+
+        p_sys->i_channels_to_reorder = aout_CheckChannelReorder( NULL, pi_order_dst,
+            channel_mask[p_context->channels][0], p_sys->pi_reorder_layout );
 #endif
 
         if ( p_enc->fmt_out.i_codec == VLC_CODEC_MP4A )
@@ -882,11 +970,12 @@ errmsg:
         p_sys->i_buffer_out = av_samples_get_buffer_size(NULL,
                 p_sys->p_context->channels, p_sys->i_frame_size,
                 p_sys->p_context->sample_fmt, DEFAULT_ALIGN);
-        p_sys->p_buffer = malloc( p_sys->i_buffer_out );
+        p_sys->p_buffer = av_malloc( p_sys->i_buffer_out );
         if ( unlikely( p_sys->p_buffer == NULL ) )
         {
             goto error;
         }
+        p_enc->fmt_out.audio.i_frame_length = p_context->frame_size;
         p_enc->fmt_out.audio.i_blockalign = p_context->block_align;
         p_enc->fmt_out.audio.i_bitspersample = aout_BitsPerSample( p_enc->fmt_out.i_codec );
         //b_variable tells if we can feed any size frames to encoder
@@ -895,7 +984,7 @@ errmsg:
 
         if( p_sys->b_planar )
         {
-            p_sys->p_interleave_buf = malloc( p_sys->i_buffer_out );
+            p_sys->p_interleave_buf = av_malloc( p_sys->i_buffer_out );
             if( unlikely( p_sys->p_interleave_buf == NULL ) )
                 goto error;
         }
@@ -907,7 +996,7 @@ errmsg:
         goto error;
     }
     msg_Dbg( p_enc, "found encoder %s", psz_namecodec );
-    
+
     p_enc->pf_encode_video = EncodeVideo;
     p_enc->pf_encode_audio = EncodeAudio;
 
@@ -915,8 +1004,8 @@ errmsg:
     return VLC_SUCCESS;
 error:
     free( p_enc->fmt_out.p_extra );
-    free( p_sys->p_buffer );
-    free( p_sys->p_interleave_buf );
+    av_free( p_sys->p_buffer );
+    av_free( p_sys->p_interleave_buf );
     free( p_sys );
     return VLC_ENOMEM;
 }
@@ -932,9 +1021,12 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
      * This is done here instead of OpenEncoder() because we need the actual
      * bits_per_pixel value, without having to assume anything.
      */
-    const int bytesPerPixel = p_enc->fmt_out.video.i_bits_per_pixel ?
-                         p_enc->fmt_out.video.i_bits_per_pixel / 8 : 3;
-    const int blocksize = __MAX( FF_MIN_BUFFER_SIZE,bytesPerPixel * p_sys->p_context->height * p_sys->p_context->width + 200 );
+    const int bitsPerPixel = p_enc->fmt_out.video.i_bits_per_pixel ?
+                         p_enc->fmt_out.video.i_bits_per_pixel :
+                         p_sys->p_context->bits_per_coded_sample ?
+                         p_sys->p_context->bits_per_coded_sample :
+                         24;
+    const int blocksize = __MAX( FF_MIN_BUFFER_SIZE, ( bitsPerPixel * p_sys->p_context->height * p_sys->p_context->width ) / 8 + 200 );
     block_t *p_block = block_Alloc( blocksize );
     if( unlikely(p_block == NULL) )
         return NULL;
@@ -1002,6 +1094,7 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
             {
                 msg_Warn( p_enc, "almost fed libavcodec with two frames with "
                           "the same PTS (%"PRId64 ")", frame->pts );
+                block_Release( p_block );
                 return NULL;
             }
             else if ( p_sys->i_last_pts > frame->pts )
@@ -1009,6 +1102,7 @@ static block_t *EncodeVideo( encoder_t *p_enc, picture_t *p_pict )
                 msg_Warn( p_enc, "almost fed libavcodec with a frame in the "
                          "past (current: %"PRId64 ", last: %"PRId64")",
                          frame->pts, p_sys->i_last_pts );
+                block_Release( p_block );
                 return NULL;
             }
             else
@@ -1238,6 +1332,14 @@ static block_t *EncodeAudio( encoder_t *p_enc, block_t *p_aout_buf )
         if( p_sys->i_samples_delay > 0 )
             date_Decrement( &p_sys->buffer_date, p_sys->i_samples_delay );
     }
+    /* Handle reordering here so we have p_sys->p_buffer always in correct
+     * order already */
+    if( p_aout_buf && p_sys->i_channels_to_reorder > 0 )
+    {
+        aout_ChannelReorder( p_aout_buf->p_buffer, p_aout_buf->i_buffer,
+             p_sys->i_channels_to_reorder, p_sys->pi_reorder_layout,
+             p_enc->fmt_in.i_codec );
+    }
 
     // Check if we have enough samples in delay_buffer and current p_aout_buf to fill frame
     // Or if we are cleaning up
@@ -1344,8 +1446,8 @@ void CloseEncoder( vlc_object_t *p_this )
     av_free( p_sys->p_context );
 
 
-    free( p_sys->p_interleave_buf );
-    free( p_sys->p_buffer );
+    av_free( p_sys->p_interleave_buf );
+    av_free( p_sys->p_buffer );
 
     free( p_sys );
 }

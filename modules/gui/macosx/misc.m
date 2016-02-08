@@ -320,6 +320,18 @@ static bool b_old_spaces_style = YES;
 @implementation VLCDragDropView
 
 @synthesize dropHandler=_dropHandler;
+@synthesize drawBorder;
+
+- (id)initWithFrame:(NSRect)frame
+{
+    self = [super initWithFrame:frame];
+    if (self) {
+        // default value
+        [self setDrawBorder:YES];
+    }
+
+    return self;
+}
 
 - (void)enablePlaylistItems
 {
@@ -391,8 +403,7 @@ static bool b_old_spaces_style = YES;
 
 - (void)drawRect:(NSRect)dirtyRect
 {
-
-    if (b_activeDragAndDrop) {
+    if ([self drawBorder] && b_activeDragAndDrop) {
         NSRect frameRect = [self bounds];
 
         [[NSColor selectedControlColor] set];
@@ -477,7 +488,6 @@ void _drawFrameInRect(NSRect frameRect)
 
 - (void)scrollWheel:(NSEvent *)o_event
 {
-    intf_thread_t * p_intf = VLCIntf;
     BOOL b_forward = NO;
     CGFloat f_deltaY = [o_event deltaY];
     CGFloat f_deltaX = [o_event deltaX];
@@ -582,7 +592,6 @@ void _drawFrameInRect(NSRect frameRect)
 
 - (void)scrollWheel:(NSEvent *)o_event
 {
-    intf_thread_t * p_intf = VLCIntf;
     BOOL b_up = NO;
     CGFloat f_deltaY = [o_event deltaY];
     CGFloat f_deltaX = [o_event deltaX];
@@ -595,7 +604,6 @@ void _drawFrameInRect(NSRect frameRect)
     // positive for left / down, negative otherwise
     CGFloat f_delta = f_deltaX + f_deltaY;
     CGFloat f_abs;
-    int i_vlckey;
 
     if (f_delta > 0.0f)
         f_abs = f_delta;
@@ -866,52 +874,6 @@ void _drawFrameInRect(NSRect frameRect)
 
 @end
 
-@implementation VLCThreePartDropView
-
-- (BOOL)mouseDownCanMoveWindow
-{
-    return YES;
-}
-
-- (void)dealloc
-{
-    [self unregisterDraggedTypes];
-    [super dealloc];
-}
-
-- (void)awakeFromNib
-{
-    [self registerForDraggedTypes:[NSArray arrayWithObject:NSFilenamesPboardType]];
-}
-
-- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
-{
-    if ((NSDragOperationGeneric & [sender draggingSourceOperationMask]) == NSDragOperationGeneric)
-        return NSDragOperationGeneric;
-
-    return NSDragOperationNone;
-}
-
-- (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)sender
-{
-    return YES;
-}
-
-- (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
-{
-    BOOL b_returned;
-    b_returned = [[VLCCoreInteraction sharedInstance] performDragOperation: sender];
-
-    [self setNeedsDisplay:YES];
-    return YES;
-}
-
-- (void)concludeDragOperation:(id <NSDraggingInfo>)sender
-{
-    [self setNeedsDisplay:YES];
-}
-
-@end
 
 @implementation PositionFormatter
 
@@ -948,7 +910,7 @@ void _drawFrameInRect(NSRect frameRect)
     return YES;
 }
 
-- (bool)isPartialStringValid:(NSString*)partialString newEditingString:(NSString**)newString errorDescription:(NSString**)error
+- (BOOL)isPartialStringValid:(NSString*)partialString newEditingString:(NSString**)newString errorDescription:(NSString**)error
 {
     if ([partialString rangeOfCharacterFromSet:o_forbidden_characters options:NSLiteralSearch].location != NSNotFound) {
         return NO;
@@ -956,7 +918,6 @@ void _drawFrameInRect(NSRect frameRect)
         return YES;
     }
 }
-
 
 @end
 
@@ -989,19 +950,15 @@ void _drawFrameInRect(NSRect frameRect)
  * VLCByteCountFormatter addition
  *****************************************************************************/
 
-#ifndef MAC_OS_X_VERSION_10_8
-@interface NSByteCountFormatter (IntroducedInMountainLion)
-+ (NSString *)stringFromByteCount:(long long)byteCount countStyle:(NSByteCountFormatterCountStyle)countStyle;
-@end
-#endif
-
-
 @implementation VLCByteCountFormatter
 
 + (NSString *)stringFromByteCount:(long long)byteCount countStyle:(NSByteCountFormatterCountStyle)countStyle
 {
-    if (OSX_MAVERICKS || OSX_MOUNTAIN_LION)
-        return [NSByteCountFormatter stringFromByteCount:byteCount countStyle:NSByteCountFormatterCountStyleFile];
+    // Use native implementation on >= mountain lion
+    Class byteFormatterClass = NSClassFromString(@"NSByteCountFormatter");
+    if (byteFormatterClass && [byteFormatterClass respondsToSelector:@selector(stringFromByteCount:countStyle:)]) {
+        return [byteFormatterClass stringFromByteCount:byteCount countStyle:NSByteCountFormatterCountStyleFile];
+    }
 
     float devider = 0.;
     float returnValue = 0.;

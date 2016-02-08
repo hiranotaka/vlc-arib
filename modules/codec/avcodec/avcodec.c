@@ -135,7 +135,7 @@ vlc_module_begin ()
     add_obsolete_string( "ffmpeg-codec" ) /* removed since 2.1.0 */
     add_string( "avcodec-codec", NULL, CODEC_TEXT, CODEC_LONGTEXT, true )
     add_obsolete_bool( "ffmpeg-hw" ) /* removed since 2.1.0 */
-    add_module( "avcodec-hw", "hw decoder", NULL, HW_TEXT, HW_LONGTEXT, false )
+    add_module( "avcodec-hw", "hw decoder", "any", HW_TEXT, HW_LONGTEXT, false )
 #if defined(FF_THREAD_FRAME)
     add_obsolete_integer( "ffmpeg-threads" ) /* removed since 2.1.0 */
     add_integer( "avcodec-threads", 0, THREADS_TEXT, THREADS_LONGTEXT, true );
@@ -300,13 +300,6 @@ static int OpenDecoder( vlc_object_t *p_this )
         return VLC_ENOMEM;
     p_context->debug = var_InheritInteger( p_dec, "avcodec-debug" );
     p_context->opaque = (void *)p_this;
-
-    /* set CPU capabilities */
-#if LIBAVUTIL_VERSION_CHECK(51, 25, 0, 42, 100)
-    av_set_cpu_flags_mask( INT_MAX & ~GetVlcDspMask() );
-#else
-    p_context->dsp_mask = GetVlcDspMask();
-#endif
 
     p_dec->b_need_packetized = true;
     switch( i_cat )

@@ -147,18 +147,18 @@ static int Open( vlc_object_t *p_this )
     if( psz_name[0] && psz_name[1] == ':' &&
         psz_name[2] == '\\' && psz_name[3] == '\0' ) psz_name[2] = '\0';
 #endif
+    /* Set up p_access */
+    STANDARD_BLOCK_ACCESS_INIT
 
     /* Open CDDA */
     if( (vcddev = ioctl_Open( VLC_OBJECT(p_access), psz_name ) ) == NULL )
     {
         msg_Warn( p_access, "could not open %s", psz_name );
         free( psz_name );
+        free( p_sys );
         return VLC_EGENERIC;
     }
     free( psz_name );
-
-    /* Set up p_access */
-    STANDARD_BLOCK_ACCESS_INIT
     p_sys->vcddev = vcddev;
 
     /* Do we play a single track ? */
@@ -414,6 +414,8 @@ static int GetTracks( access_t *p_access, input_item_t *p_current )
             psz_artist = psz_track_artist;
         }
     }
+    else
+        msg_Dbg( p_access, "GetCDDBInfo failed" );
 #endif
 
     /* CD-Text */
@@ -585,8 +587,12 @@ static int GetTracks( access_t *p_access, input_item_t *p_current )
 #ifdef HAVE_LIBCDDB
 static cddb_disc_t *GetCDDBInfo( access_t *p_access, int i_titles, int *p_sectors )
 {
-    if( var_InheritInteger( p_access, "album-art" ) == ALBUM_ART_WHEN_ASKED )
+    if( var_InheritInteger( p_access, "album-art" ) != ALBUM_ART_ALL &&
+        !  var_InheritBool( p_access, "metadata-network-access" ) )
+    {
+        msg_Dbg( p_access, "Album art policy set to manual; no automatic fetching" );
         return NULL;
+    }
 
     /* */
     cddb_conn_t *p_cddb = cddb_new();

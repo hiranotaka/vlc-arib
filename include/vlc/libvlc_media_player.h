@@ -828,6 +828,16 @@ LIBVLC_API int libvlc_media_player_is_seekable( libvlc_media_player_t *p_mi );
  */
 LIBVLC_API int libvlc_media_player_can_pause( libvlc_media_player_t *p_mi );
 
+/**
+ * Check if the current program is scrambled
+ *
+ * \param p_mi the media player
+ * \return true if the current program is scrambled
+ *
+ * \libvlc_return_bool
+ * \version LibVLC 2.2.0 or later
+ */
+LIBVLC_API int libvlc_media_player_program_scrambled( libvlc_media_player_t *p_mi );
 
 /**
  * Display the next frame (if supported)
@@ -1407,7 +1417,7 @@ typedef enum libvlc_audio_output_channel_t {
 
 
 /**
- * Gets the list of available audio outputs
+ * Gets the list of available audio output modules.
  *
  * \param p_instance libvlc instance
  * \return list of available audio outputs. It must be freed it with
@@ -1418,7 +1428,7 @@ LIBVLC_API libvlc_audio_output_t *
 libvlc_audio_output_list_get( libvlc_instance_t *p_instance );
 
 /**
- * Frees the list of available audio outputs
+ * Frees the list of available audio output modules.
  *
  * \param p_list list with audio outputs for release
  */
@@ -1426,7 +1436,7 @@ LIBVLC_API
 void libvlc_audio_output_list_release( libvlc_audio_output_t *p_list );
 
 /**
- * Sets the audio output.
+ * Selects an audio output module.
  * \note Any change will take be effect only after playback is stopped and
  * restarted. Audio output cannot be changed while playing.
  *
@@ -1464,7 +1474,28 @@ LIBVLC_DEPRECATED LIBVLC_API
 char *libvlc_audio_output_device_id( libvlc_instance_t *, const char *, int );
 
 /**
- * Gets a list of audio output devices for a given audio output.
+ * Gets a list of potential audio output devices,
+ * \see libvlc_audio_output_device_set().
+ *
+ * \note Not all audio outputs support enumerating devices.
+ * The audio output may be functional even if the list is empty (NULL).
+ *
+ * \note The list may not be exhaustive.
+ *
+ * \warning Some audio output devices in the list might not actually work in
+ * some circumstances. By default, it is recommended to not specify any
+ * explicit audio device.
+ *
+ * \param mp media player
+ * \return A NULL-terminated linked list of potential audio output devices.
+ * It must be freed it with libvlc_audio_output_device_list_release()
+ * \version LibVLC 2.2.0 or later.
+ */
+LIBVLC_API libvlc_audio_output_device_t *
+libvlc_audio_output_device_enum( libvlc_media_player_t *mp );
+
+/**
+ * Gets a list of audio output devices for a given audio output module,
  * \see libvlc_audio_output_device_set().
  *
  * \note Not all audio outputs support this. In particular, an empty (NULL)
@@ -1498,26 +1529,45 @@ LIBVLC_API void libvlc_audio_output_device_list_release(
                                         libvlc_audio_output_device_t *p_list );
 
 /**
- * Configures an explicit audio output device for a given audio output plugin.
- * A list of possible devices can be obtained with
+ * Configures an explicit audio output device.
+ *
+ * If the module paramater is NULL, audio output will be moved to the device
+ * specified by the device identifier string immediately. This is the
+ * recommended usage.
+ *
+ * A list of adequate potential device strings can be obtained with
+ * libvlc_audio_output_device_enum().
+ *
+ * However passing NULL is supported in LibVLC version 2.2.0 and later only;
+ * in earlier versions, this function would have no effects when the module
+ * parameter was NULL.
+ *
+ * If the module parameter is not NULL, the device parameter of the
+ * corresponding audio output, if it exists, will be set to the specified
+ * string. Note that some audio output modules do not have such a parameter
+ * (notably MMDevice and PulseAudio).
+ *
+ * A list of adequate potential device strings can be obtained with
  * libvlc_audio_output_device_list_get().
  *
  * \note This function does not select the specified audio output plugin.
  * libvlc_audio_output_set() is used for that purpose.
  *
  * \warning The syntax for the device parameter depends on the audio output.
- * This is not portable. Only use this function if you know what you are doing.
- * Some audio outputs do not support this function (e.g. PulseAudio, WASAPI).
- * Some audio outputs require further parameters (e.g. ALSA: channels map).
  *
- * \param p_mi media player
- * \param psz_audio_output - name of audio output, \see libvlc_audio_output_t
- * \param psz_device_id device
- * \return Nothing. Errors are ignored.
+ * Some audio output modules require further parameters (e.g. a channels map
+ * in the case of ALSA).
+ *
+ * \param mp media player
+ * \param module If NULL, current audio output module.
+ *               if non-NULL, name of audio output module
+                 (\see libvlc_audio_output_t)
+ * \param device_id device identifier string
+ * \return Nothing. Errors are ignored (this is a design bug).
  */
-LIBVLC_API void libvlc_audio_output_device_set( libvlc_media_player_t *p_mi,
-                                                const char *psz_audio_output,
-                                                const char *psz_device_id );
+LIBVLC_API void libvlc_audio_output_device_set( libvlc_media_player_t *mp,
+                                                const char *module,
+                                                const char *device_id );
 
 /**
  * Stub for backward compatibility.
@@ -1783,7 +1833,7 @@ LIBVLC_API int libvlc_audio_equalizer_set_amp_at_index( libvlc_equalizer_t *p_eq
  *
  * \param p_equalizer valid equalizer handle, must not be NULL
  * \param u_band index, counting from zero, of the frequency band to get
- * \return amplification value (Hz); zero if there is no such frequency band
+ * \return amplification value (Hz); NaN if there is no such frequency band
  * \version LibVLC 2.2.0 or later
  */
 LIBVLC_API float libvlc_audio_equalizer_get_amp_at_index( libvlc_equalizer_t *p_equalizer, unsigned u_band );

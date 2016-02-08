@@ -24,6 +24,7 @@
 #import "MainMenu.h"
 #import <vlc_common.h>
 #import <vlc_playlist.h>
+#import <vlc_input.h>
 
 #import "intf.h"
 #import "open.h"
@@ -45,6 +46,7 @@
 #import "ExtensionsManager.h"
 #import "ConvertAndSave.h"
 #import "DebugMessageVisualizer.h"
+#import "AddonManager.h"
 
 @implementation VLCMainMenu
 static VLCMainMenu *_o_sharedInstance = nil;
@@ -291,8 +293,11 @@ static VLCMainMenu *_o_sharedInstance = nil;
             mi = [[NSMenuItem alloc] initWithTitle: _NS(p_item->list_text[i]) action:NULL keyEquivalent: @""];
         else if (p_item->list.i[i])
             mi = [[NSMenuItem alloc] initWithTitle: [NSString stringWithFormat: @"%d", p_item->list.i[i]] action:NULL keyEquivalent: @""];
-        else
+        else {
             msg_Err(p_intf, "item %d of pref %s failed to be created", i, psz_name);
+            continue;
+        }
+
         [mi setTarget:self];
         [mi setAction:selector];
         [mi setTag:p_item->list.i[i]];
@@ -312,6 +317,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [o_mi_prefs setTitle: _NS("Preferences...")];
     [o_mi_extensions setTitle: _NS("Extensions")];
     [o_mu_extensions setTitle: _NS("Extensions")];
+    [o_mi_addonManager setTitle: _NS("Addons Manager")];
     [o_mi_add_intf setTitle: _NS("Add Interface")];
     [o_mu_add_intf setTitle: _NS("Add Interface")];
     [o_mi_services setTitle: _NS("Services")];
@@ -592,7 +598,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
 
 - (void)refreshVoutDeviceMenu:(NSNotification *)o_notification
 {
-    NSUInteger count = [o_mu_screen numberOfItems];
+    NSUInteger count = (NSUInteger) [o_mu_screen numberOfItems];
     NSMenu * o_submenu = o_mu_screen;
     if (count > 0)
         [o_submenu removeAllItems];
@@ -746,12 +752,18 @@ static VLCMainMenu *_o_sharedInstance = nil;
     [[[VLCMain sharedInstance] playlist] setColumn: o_column state: i_new_state translationDict: o_ptc_translation_dict];
 }
 
-- (void)setPlaylistColumnTableState:(NSInteger)i_state forColumn:(NSString *)o_column
+- (BOOL)setPlaylistColumnTableState:(NSInteger)i_state forColumn:(NSString *)o_column
 {
-    NSInteger i_tag = [o_ptc_menuorder indexOfObject: o_column];
+    NSUInteger i_tag = [o_ptc_menuorder indexOfObject: o_column];
+    // prevent setting unknown columns
+    if(i_tag == NSNotFound)
+        return NO;
+
     [[o_mu_playlistTableColumns            itemWithTag: i_tag] setState: i_state];
     [[o_mu_playlistTableColumnsContextMenu itemWithTag: i_tag] setState: i_state];
     [[[VLCMain sharedInstance] playlist] setColumn: o_column state: i_state translationDict: o_ptc_translation_dict];
+
+    return YES;
 }
 
 #pragma mark -
@@ -896,7 +908,9 @@ static VLCMainMenu *_o_sharedInstance = nil;
     if (p_input) {
         vout_thread_t *p_vout = getVoutForActiveWindow();
         if (p_vout) {
-            var_ToggleBool(p_vout, "video-on-top");
+            BOOL b_fs = var_ToggleBool(p_vout, "video-on-top");
+            var_SetBool(pl_Get(p_intf), "video-on-top", b_fs);
+
             vlc_object_release(p_vout);
         }
         vlc_object_release(p_input);
@@ -957,24 +971,12 @@ static VLCMainMenu *_o_sharedInstance = nil;
     o_url = [o_url URLByDeletingLastPathComponent];
     [openPanel setDirectoryURL: o_url];
     free(path);
+    vlc_object_release(p_input);
 
     i_returnValue = [openPanel runModal];
 
-    if (i_returnValue == NSOKButton) {
-        NSUInteger c = 0;
-        if (!p_input)
-            return;
-
-        c = [[openPanel URLs] count];
-
-        for (int i = 0; i < c ; i++) {
-            msg_Dbg(VLCIntf, "loading subs from %s", [[[[openPanel URLs] objectAtIndex:i] path] UTF8String]);
-            if (input_AddSubtitle(p_input, [[[[openPanel URLs] objectAtIndex:i] path] UTF8String], TRUE))
-                msg_Warn(VLCIntf, "unable to load subtitles from '%s'",
-                         [[[[openPanel URLs] objectAtIndex:i] path] UTF8String]);
-        }
-    }
-    vlc_object_release(p_input);
+    if (i_returnValue == NSOKButton)
+        [[VLCCoreInteraction sharedInstance] addSubtitlesToCurrentInput:[openPanel URLs]];
 }
 
 - (IBAction)switchSubtitleOption:(id)sender
@@ -985,7 +987,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
     config_PutInt(p_intf, [representedObject UTF8String], intValue);
 
     NSMenu *menu = [sender menu];
-    NSUInteger count = [menu numberOfItems];
+    NSUInteger count = (NSUInteger) [menu numberOfItems];
     for (NSUInteger x = 0; x < count; x++)
         [[menu itemAtIndex:x] setState:NSOffState];
     [[menu itemWithTag:intValue] setState:NSOnState];
@@ -1009,7 +1011,6 @@ static VLCMainMenu *_o_sharedInstance = nil;
 
 - (IBAction)telxNavLink:(id)sender
 {
-    intf_thread_t * p_intf = VLCIntf;
     vlc_object_t *p_vbi;
     int i_page = 0;
 
@@ -1124,6 +1125,17 @@ static VLCMainMenu *_o_sharedInstance = nil;
 {
     NSInteger i_level = [[[VLCMain sharedInstance] voutController] currentWindowLevel];
     [[[VLCMain sharedInstance] simplePreferences] showSimplePrefsWithLevel:i_level];
+}
+
+- (IBAction)openAddonManager:(id)sender
+{
+    if (!o_addonManager)
+        o_addonManager = [[VLCAddonManager alloc] init];
+
+    if (!b_nib_addonmanager_loaded)
+        b_nib_addonmanager_loaded = [NSBundle loadNibNamed:@"AddonManager" owner:NSApp];
+
+    [o_addonManager showWindow];
 }
 
 - (IBAction)showMessagesPanel:(id)showMessagesPanel
@@ -1457,10 +1469,6 @@ static VLCMainMenu *_o_sharedInstance = nil;
     assert([data isKindOfClass:[VLCAutoGeneratedMenuContent class]]);
     VLCAutoGeneratedMenuContent *menuContent = (VLCAutoGeneratedMenuContent *)data;
 
-    /* Preserve settings across vouts via the playlist object: */
-    if (!strcmp([menuContent name], "fullscreen") || !strcmp([menuContent name], "video-on-top"))
-        var_Set(pl_Get(VLCIntf), [menuContent name] , [menuContent value]);
-
     p_object = [menuContent vlcObject];
 
     if (p_object != NULL) {
@@ -1516,7 +1524,7 @@ static VLCMainMenu *_o_sharedInstance = nil;
         [o_mi setState: i_state];
     } else if ([o_title isEqualToString: _NS("Step Forward")] ||
                [o_title isEqualToString: _NS("Step Backward")] ||
-               [o_title isEqualToString: _NS("Jump To Time")]) {
+               [o_title isEqualToString: _NS("Jump to Time")]) {
         if (p_input != NULL) {
             var_Get(p_input, "can-seek", &val);
             bEnabled = val.b_bool;

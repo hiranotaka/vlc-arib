@@ -36,7 +36,6 @@
 
 #include "avcommon_compat.h"
 
-
 #ifdef HAVE_LIBAVUTIL_AVUTIL_H
 # include <libavutil/avutil.h>
 # include <libavutil/dict.h>
@@ -81,10 +80,10 @@ static inline void vlc_init_avutil(vlc_object_t *obj)
     }
 
     av_log_set_level(level);
+
+    msg_Dbg(obj, "CPU flags: 0x%08x", av_get_cpu_flags());
 }
 #endif
-
-unsigned GetVlcDspMask( void );
 
 #ifdef HAVE_LIBAVFORMAT_AVFORMAT_H
 # include <libavformat/avformat.h>
@@ -94,9 +93,7 @@ static inline void vlc_init_avformat(vlc_object_t *obj)
 
     vlc_init_avutil(obj);
 
-#if LIBAVUTIL_VERSION_CHECK(51, 25, 0, 42, 100)
-    av_set_cpu_flags_mask( INT_MAX & ~GetVlcDspMask() );
-#endif
+    avformat_network_init();
 
     av_register_all();
 
