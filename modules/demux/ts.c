@@ -1565,7 +1565,9 @@ static void PIDInit( ts_pid_t *pid, bool b_psi, ts_psi_t *p_owner )
             prg->i_number   = -1;
             prg->i_pid_pcr  = -1;
             prg->i_pid_pmt  = -1;
+#ifdef HAVE_ARIB
             prg->i_pid_ecm  = -1;
+#endif
             prg->i_pcr_value= -1;
             prg->iod        = NULL;
             prg->handle     = NULL;
