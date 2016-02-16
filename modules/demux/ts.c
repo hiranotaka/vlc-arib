@@ -1262,6 +1262,17 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                     }
                 }
             }
+            else
+            {
+                for( int i = 0; i < p_sys->i_pmt; i++ )
+                {
+                    ts_pid_t *pmt = p_sys->pmt[i];
+                    for( int i_prg = 0; i_prg < pmt->psi->i_prg; i_prg++ )
+                    {
+                        SetPrgFilter( p_demux, pmt->psi->prg[i_prg]->i_number, true );
+                    }
+                 }
+            }
         }
         return VLC_SUCCESS;
     }
