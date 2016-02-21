@@ -4313,7 +4313,7 @@ static int AttachEMM( demux_t *p_demux, int i_pid )
         return 0;
 
     p_decoder = (emm_decoder_t *) dvbpsi_decoder_new( EMMCallBack, 1024, true,
-						      sizeof(ecm_decoder_t) );
+						      sizeof(emm_decoder_t) );
     if( !p_decoder )
     {
         return 0;
