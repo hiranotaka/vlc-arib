@@ -4335,6 +4335,8 @@ static int AttachEMM( demux_t *p_demux, int i_pid )
         return 0;
     }
 
+    emm->psi->handle = handle;
+
     p_sys->i_pid_emm = i_pid;
 
     stream_Control( p_demux->s, STREAM_SET_PRIVATE_ID_STATE, i_pid, true );
