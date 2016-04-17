@@ -1518,8 +1518,27 @@ static void DecoderProcessSout( decoder_t *p_dec, block_t *p_block )
     while( ( p_sout_block =
                  p_dec->pf_packetize( p_dec, p_block ? &p_block : NULL ) ) )
     {
-        if( !p_owner->p_sout_input )
+#if 0
+        char  tmpstr[32];
+        form_time( tmpstr );
+        msg_Dbg( p_dec, "DecoderProcessSout-1: %s", tmpstr );
+#endif
+        if( p_dec->fmt_in.i_cat == AUDIO_ES ){
+            msg_Dbg( p_dec, "pass fmt_out (%d,%d)",
+                p_dec->fmt_out.audio.i_channels, p_dec->fmt_out.audio.i_rate );
+        }
+        if( !p_owner->p_sout_input ||
+                ((p_dec->fmt_out.i_cat == AUDIO_ES) &&
+                  ((p_dec->fmt_out.audio.i_channels != p_owner->sout.audio.i_channels) ||
+                   (p_dec->fmt_out.audio.i_rate != p_owner->sout.audio.i_rate) ||
+                   (p_dec->fmt_out.i_extra != p_owner->sout.i_extra) ||
+                   ((p_dec->fmt_out.i_extra > 0) && memcmp( p_dec->fmt_out.p_extra, p_owner->sout.p_extra, p_dec->fmt_out.i_extra )))) )
         {
+            if( p_owner->p_sout_input ){
+                sout_InputDelete( p_owner->p_sout_input );
+                es_format_Clean( &p_owner->sout );
+            }
+
             es_format_Copy( &p_owner->sout, &p_dec->fmt_out );
 
             p_owner->sout.i_group = p_dec->fmt_in.i_group;
@@ -1648,7 +1667,14 @@ static void DecoderProcessAudio( decoder_t *p_dec, block_t *p_block, bool b_flus
         while( (p_packetized_block =
                 p_packetizer->pf_packetize( p_packetizer, p_block ? &p_block : NULL )) )
         {
-            if( p_packetizer->fmt_out.i_extra && !p_dec->fmt_in.i_extra )
+            /*
+             * FIXME: Should we use "es_format_IsSimilar()" ?,
+             * to compare decoder's fmt_in and packetizer's fmt_out.
+             */
+            if( (p_packetizer->fmt_out.audio.i_channels != p_dec->fmt_in.audio.i_channels) ||
+                (p_packetizer->fmt_out.audio.i_rate != p_dec->fmt_in.audio.i_rate) ||
+                (p_packetizer->fmt_out.i_extra != p_dec->fmt_in.i_extra) ||
+                ((p_packetizer->fmt_out.i_extra > 0) && memcmp( p_packetizer->fmt_out.p_extra, p_dec->fmt_in.p_extra, p_packetizer->fmt_out.i_extra )) )
             {
                 es_format_Clean( &p_dec->fmt_in );
                 es_format_Copy( &p_dec->fmt_in, &p_packetizer->fmt_out );
