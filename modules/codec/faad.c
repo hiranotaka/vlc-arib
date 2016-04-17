@@ -81,6 +81,12 @@ struct decoder_sys_t
     uint32_t pi_channel_positions[MAX_CHANNEL_POSITIONS];
 
     bool b_sbr, b_ps;
+
+    /* store parameters from input chain */
+    int  input_channels;
+    void*  p_extra_store;
+    void*  p_extra_work;
+    int  i_extra_store;
 };
 
 static const uint32_t pi_channels_in[MAX_CHANNEL_POSITIONS] =
@@ -151,14 +157,34 @@ static int Open( vlc_object_t *p_this )
     p_dec->fmt_out.audio.i_physical_channels =
         p_dec->fmt_out.audio.i_original_channels = 0;
 
+    p_sys->input_channels = -1;
+    p_sys->p_extra_store = NULL;
+    p_sys->p_extra_work = NULL;
+    p_sys->i_extra_store = 0;
+
     if( p_dec->fmt_in.i_extra > 0 )
     {
         /* We have a decoder config so init the handle */
         unsigned long i_rate;
         unsigned char i_channels;
 
-        if( faacDecInit2( p_sys->hfaad, p_dec->fmt_in.p_extra,
-                          p_dec->fmt_in.i_extra,
+        p_sys->p_extra_store = malloc( p_dec->fmt_in.i_extra );
+        p_sys->p_extra_work = malloc( p_dec->fmt_in.i_extra );
+        if( !p_sys->p_extra_store || !p_sys->p_extra_work ){
+            return VLC_ENOMEM;
+        }
+        memcpy( p_sys->p_extra_store, p_dec->fmt_in.p_extra, p_dec->fmt_in.i_extra );
+        memcpy( p_sys->p_extra_work, p_dec->fmt_in.p_extra, p_dec->fmt_in.i_extra );
+        p_sys->i_extra_store = p_dec->fmt_in.i_extra;
+
+        /* fix-up channel_configuration for ARIB dual-monoral */
+        if( (((uint8_t *)p_sys->p_extra_work)[1] & 0x78) == 0 ){
+            ((uint8_t *)p_sys->p_extra_work)[1] &= 0x87;
+            ((uint8_t *)p_sys->p_extra_work)[1] |= (p_dec->fmt_in.audio.i_channels << 3);
+            msg_Dbg( p_dec, "Open: channel_configuration dirty fix for ARIB." );
+        }
+
+        if( faacDecInit2( p_sys->hfaad, p_sys->p_extra_work, p_sys->i_extra_store,
                           &i_rate, &i_channels ) < 0 )
         {
             msg_Err( p_dec, "Failed to initialize faad using extra data" );
@@ -208,6 +234,7 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     block_t *p_block;
+    bool  b_extra_changed = false;
 
     if( !pp_block || !*pp_block ) return NULL;
 
@@ -260,14 +287,61 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         p_block->i_buffer = 0;
     }
 
-    if( p_dec->fmt_out.audio.i_rate == 0 && p_dec->fmt_in.i_extra > 0 )
+    /* check whether the contents of extra buffer is same */
+    if( p_dec->fmt_in.i_extra == p_sys->i_extra_store ){
+        if( p_dec->fmt_in.i_extra > 0 ){
+            b_extra_changed =
+                (memcmp( p_dec->fmt_in.p_extra, p_sys->p_extra_store, p_dec->fmt_in.i_extra ) != 0);
+            if( b_extra_changed ){
+                memcpy( p_sys->p_extra_store, p_dec->fmt_in.p_extra, p_dec->fmt_in.i_extra );
+                memcpy( p_sys->p_extra_work, p_dec->fmt_in.p_extra, p_dec->fmt_in.i_extra );
+            }
+        }
+    } else{
+        b_extra_changed = true;
+        if( p_dec->fmt_in.i_extra > 0 ){
+            p_sys->p_extra_store = realloc( p_sys->p_extra_store, p_dec->fmt_in.i_extra );
+            p_sys->p_extra_work = realloc( p_sys->p_extra_work, p_dec->fmt_in.i_extra );
+            memcpy( p_sys->p_extra_store, p_dec->fmt_in.p_extra, p_dec->fmt_in.i_extra );
+            memcpy( p_sys->p_extra_work, p_dec->fmt_in.p_extra, p_dec->fmt_in.i_extra );
+        } else{
+            if( p_sys->p_extra_store != NULL ){
+                free( p_sys->p_extra_store );
+                p_sys->p_extra_store = NULL;
+            }
+            if( p_sys->p_extra_work != NULL ){
+                free( p_sys->p_extra_work );
+                p_sys->p_extra_work = NULL;
+            }
+        }
+        p_sys->i_extra_store = p_dec->fmt_in.i_extra;
+    }
+
+    if( ((p_dec->fmt_out.audio.i_rate == 0) ||
+                (p_dec->fmt_in.audio.i_rate != p_dec->fmt_out.audio.i_rate) ||
+                (p_dec->fmt_in.audio.i_channels != p_sys->input_channels) || b_extra_changed) &&
+            p_dec->fmt_in.i_extra > 0 )
     {
         /* We have a decoder config so init the handle */
         unsigned long i_rate;
         unsigned char i_channels;
+        faacDecConfiguration *cfg;
 
-        if( faacDecInit2( p_sys->hfaad, p_dec->fmt_in.p_extra,
-                          p_dec->fmt_in.i_extra,
+        /* fix-up channel_configuration for ARIB dual-monoral */
+        if( (((uint8_t *)p_sys->p_extra_work)[1] & 0x78) == 0 ){
+            ((uint8_t *)p_sys->p_extra_work)[1] &= 0x87;
+            ((uint8_t *)p_sys->p_extra_work)[1] |= (p_dec->fmt_in.audio.i_channels << 3);
+            msg_Dbg( p_dec, "Decode: channel_configuration dirty fix for ARIB." );
+        }
+
+        faacDecClose( p_sys->hfaad );
+        if( (p_sys->hfaad = faacDecOpen()) == NULL ){
+            msg_Err( p_dec, "decoder re-openning failed (cannot obtain handle)." );
+            block_Release( p_block );
+            return NULL;
+        }
+
+        if( faacDecInit2( p_sys->hfaad, p_sys->p_extra_work, p_sys->i_extra_store,
                           &i_rate, &i_channels ) >= 0 )
         {
             p_dec->fmt_out.audio.i_rate = i_rate;
@@ -277,22 +351,54 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
                 = pi_channels_guessed[i_channels];
 
             date_Init( &p_sys->date, i_rate, 1 );
+            p_sys->input_channels = p_dec->fmt_in.audio.i_channels;
+            msg_Dbg( p_dec, "init2-2: %d, %d", i_channels, i_rate );
+        } else{
+            msg_Dbg( p_dec, "init2-2: failed." );
+            block_Release( p_block );
+            return NULL;
         }
+        /* Set the faad config */
+        cfg = faacDecGetCurrentConfiguration( p_sys->hfaad );
+        if (HAVE_FPU)
+            cfg->outputFormat = FAAD_FMT_FLOAT;
+        else
+            cfg->outputFormat = FAAD_FMT_16BIT;
+        faacDecSetConfiguration( p_sys->hfaad, cfg );
     }
 
-    if( p_dec->fmt_out.audio.i_rate == 0 && p_sys->i_buffer )
+    if( ((p_dec->fmt_out.audio.i_rate == 0) ||
+                (p_dec->fmt_in.audio.i_rate != p_dec->fmt_out.audio.i_rate) ||
+                (p_dec->fmt_in.audio.i_channels != p_sys->input_channels)) &&
+            p_sys->i_buffer )
     {
         unsigned long i_rate;
         unsigned char i_channels;
+        faacDecConfiguration *cfg;
 
         /* Init faad with the first frame */
+	faacDecClose( p_sys->hfaad );
+        if( (p_sys->hfaad = faacDecOpen()) == NULL ){
+            msg_Err( p_dec, "decoder re-openning failed (cannot obtain handle)." );
+            exit( 1 );
+        }
         if( faacDecInit( p_sys->hfaad,
                          p_sys->p_buffer, p_sys->i_buffer,
                          &i_rate, &i_channels ) < 0 )
         {
+            msg_Dbg( p_dec, "init1-2: failed." );
             block_Release( p_block );
             return NULL;
         }
+        msg_Dbg( p_dec, "init1-2: %d, %d", i_channels, i_rate );
+
+        /* Set the faad config */
+        cfg = faacDecGetCurrentConfiguration( p_sys->hfaad );
+        if (HAVE_FPU)
+            cfg->outputFormat = FAAD_FMT_FLOAT;
+        else
+            cfg->outputFormat = FAAD_FMT_16BIT;
+        faacDecSetConfiguration( p_sys->hfaad, cfg );
 
         p_dec->fmt_out.audio.i_rate = i_rate;
         p_dec->fmt_out.audio.i_channels = i_channels;
@@ -300,6 +406,7 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
             = p_dec->fmt_out.audio.i_original_channels
             = pi_channels_guessed[i_channels];
         date_Init( &p_sys->date, i_rate, 1 );
+        p_sys->input_channels = p_dec->fmt_in.audio.i_channels;
     }
 
     if( p_block->i_pts > VLC_TS_INVALID && p_block->i_pts != date_Get( &p_sys->date ) )
