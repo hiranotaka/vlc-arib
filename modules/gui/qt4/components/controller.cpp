@@ -399,6 +399,7 @@ QWidget *AbstractController::createWidget( buttonType_e button, int options )
         }
         break;
     case ADVANCED_CONTROLLER:
+        if( qobject_cast<AdvControlsWidget *>(this) == NULL )
         {
             advControls = new AdvControlsWidget( p_intf, this );
             widget = advControls;
@@ -1171,6 +1172,7 @@ void FullscreenControllerWidget::setVoutList( vout_thread_t **pp_vout, int i_vou
         vout.append( p_vout );
         var_AddCallback( p_vout, "fullscreen",
                          FullscreenControllerWidgetFullscreenChanged, this );
+	CONNECT( this, fullscreenChanged( bool ), THEMIM, changeFullscreen( bool ) );
         /* I miss a add and fire */
         fullscreenChanged( p_vout, var_GetBool( p_vout, "fullscreen" ),
                            var_GetInteger( p_vout, "mouse-hide-timeout" ) );
@@ -1208,6 +1210,7 @@ void FullscreenControllerWidget::fullscreenChanged( vout_thread_t *p_vout,
         IMEvent *eHide = new IMEvent( IMEvent::FullscreenControlHide, 0 );
         QApplication::postEvent( this, eHide );
     }
+    emit fullscreenChanged( b_fullscreen );
     vlc_mutex_unlock( &lock );
 }
 

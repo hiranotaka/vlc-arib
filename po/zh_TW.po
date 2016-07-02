@@ -1,10 +1,11 @@
 # Traditional Chinese translation
-# Copyright (C) 2015 VideoLAN
-# This file is distributed under the same license as the VLC package.
+# Copyright (C) 2016 VideoLAN
+# This file is distributed under the same license as the vlc package.
 #
 # Translators:
 # BISHAN LI <jurtobe@gmail.com>, 2015
 # BrLi <rainman59118@gmail.com>, 2013
+# cges30901 <cges30901@gmail.com>, 2016
 # Ethan Chan <yunsangc207@gmail.com>, 2015
 # Ethan <ethan42411@gmail.com>, 2014
 # Frank Chao <frank0624@gmail.com>, 2013,2015
@@ -13,18 +14,18 @@
 # ljkTransifex <lingk12345@hotmail.com>, 2015
 # Ruei-Yuan Lu <RueiYuan.Lu@gmail.com>, 2012
 # taijuin lee <taijuin@gmail.com>, 2013
+# Timo Liu <timoliu@gmail.com>, 2016
 # Chen Wang <iwangce@gmail.com>, 2013
 # x4r <xatierlike@gmail.com>, 2014
-# Jeff Huang <s8321414@gmail.com>, 2014
 msgid ""
 msgstr ""
 "Project-Id-Version: VLC - Trans\n"
 "Report-Msgid-Bugs-To: vlc-devel@videolan.org\n"
-"POT-Creation-Date: 2016-01-18 22:17+0100\n"
-"PO-Revision-Date: 2015-03-25 07:06+0000\n"
-"Last-Translator: ljkTransifex <lingk12345@hotmail.com>\n"
-"Language-Team: Chinese (Taiwan) (http://www.transifex.com/projects/p/vlc-"
-"trans/language/zh_TW/)\n"
+"POT-Creation-Date: 2016-03-29 01:36+0200\n"
+"PO-Revision-Date: 2016-05-07 06:56+0000\n"
+"Last-Translator: Timo Liu <timoliu@gmail.com>\n"
+"Language-Team: Chinese (Taiwan) (http://www.transifex.com/yaron/vlc-trans/"
+"language/zh_TW/)\n"
 "Language: zh_TW\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -1037,7 +1038,7 @@ msgstr "媒體時間"
 msgid "Media View"
 msgstr "媒體瀏覽"
 
-#: src/config/keys.c:104 modules/gui/qt4/components/controller.cpp:542
+#: src/config/keys.c:104 modules/gui/qt4/components/controller.cpp:543
 msgid "Menu"
 msgstr "選單"
 
@@ -2466,7 +2467,7 @@ msgstr "網路資源的快取值(毫秒)。"
 
 #: src/libvlc-module.c:515
 msgid "Clock reference average counter"
-msgstr ""
+msgstr "參考時鐘計數器平均"
 
 #: src/libvlc-module.c:517
 msgid ""
@@ -2508,13 +2509,14 @@ msgstr "你可遠端同步伺服器與用戶端的時脈。詳細設定請見進
 #: src/video_output/vout_intf.c:116 modules/access/dshow/dshow.cpp:92
 #: modules/access/dshow/dshow.cpp:99 modules/access/dshow/dshow.cpp:119
 #: modules/access/dshow/dshow.cpp:2017 modules/audio_output/alsa.c:746
-#: modules/audio_output/directsound.c:1021 modules/gui/macosx/AudioEffects.m:86
-#: modules/gui/macosx/MainMenu.m:641 modules/gui/macosx/prefs_widgets.m:1221
+#: modules/audio_output/directsound.c:1021
+#: modules/gui/macosx/AudioEffects.m:86 modules/gui/macosx/MainMenu.m:641
+#: modules/gui/macosx/prefs_widgets.m:1221
 #: modules/gui/macosx/prefs_widgets.m:1284
 #: modules/gui/macosx/simple_prefs.m:690 modules/gui/macosx/VideoEffects.m:55
 #: modules/gui/qt4/components/preferences_widgets.cpp:547
 #: modules/video_filter/marq.c:60 modules/video_filter/rss.c:71
-#: modules/video_filter/rss.c:184 modules/video_output/msw/directx.c:1438
+#: modules/video_filter/rss.c:184 modules/video_output/msw/directx.c:1439
 msgid "Default"
 msgstr "預設"
 
@@ -3643,7 +3645,7 @@ msgstr "播放清單可以像目錄一樣以樹狀結構整理播放項目。"
 msgid "These settings are the global VLC key bindings, known as \"hotkeys\"."
 msgstr "這些設定為 VLC 的全域按鍵綁定，也就是「熱鍵」。"
 
-#: src/libvlc-module.c:1183 modules/gui/macosx/intf.m:1846
+#: src/libvlc-module.c:1183 modules/gui/macosx/intf.m:1848
 msgid "Ignore"
 msgstr "忽略"
 
@@ -3684,7 +3686,7 @@ msgstr "離開全螢幕"
 
 #: src/libvlc-module.c:1192
 msgid "Select the hotkey to use to exit fullscreen state."
-msgstr ""
+msgstr "選擇用於離開全螢幕狀態的熱鍵。"
 
 #: src/libvlc-module.c:1193 modules/gui/macosx/ControlsBar.m:55
 #: modules/gui/macosx/fspanel.m:422
@@ -3762,7 +3764,7 @@ msgstr "下一個"
 
 #: src/libvlc-module.c:1210
 msgid "Select the hotkey to use to skip to the next item in the playlist."
-msgstr ""
+msgstr "選擇用於跳到播放清單中下一個項目的熱鍵。"
 
 #: src/libvlc-module.c:1211 modules/control/hotkeys.c:212
 #: modules/gui/macosx/about.m:269 modules/gui/macosx/ControlsBar.m:760
@@ -3775,7 +3777,7 @@ msgstr "上一個"
 
 #: src/libvlc-module.c:1212
 msgid "Select the hotkey to use to skip to the previous item in the playlist."
-msgstr ""
+msgstr "選擇用於跳到播放清單中上一個項目的熱鍵。"
 
 #: src/libvlc-module.c:1213 modules/gui/macosx/ControlsBar.m:481
 #: modules/gui/macosx/MainMenu.m:398 modules/gui/macosx/MainMenu.m:504
@@ -4002,7 +4004,7 @@ msgstr "音量上升"
 
 #: src/libvlc-module.c:1279
 msgid "Select the key to increase audio volume."
-msgstr ""
+msgstr "選擇增加音量的按鍵。"
 
 #: src/libvlc-module.c:1280
 msgid "Volume down"
@@ -4010,7 +4012,7 @@ msgstr "音量下降"
 
 #: src/libvlc-module.c:1281
 msgid "Select the key to decrease audio volume."
-msgstr ""
+msgstr "選擇降低音量的按鍵。"
 
 #: src/libvlc-module.c:1282 modules/access/v4l2/v4l2.c:181
 #: modules/gui/macosx/ControlsBar.m:500 modules/gui/macosx/MainMenu.m:426
@@ -6516,8 +6518,9 @@ msgstr ""
 msgid "EyeTV input"
 msgstr "EyeTV輸入"
 
-#: modules/access/file.c:177 modules/access/file.c:304 modules/access/mtp.c:195
-#: modules/access/mtp.c:286 modules/access/vdr.c:374 modules/access/vdr.c:541
+#: modules/access/file.c:177 modules/access/file.c:304
+#: modules/access/mtp.c:195 modules/access/mtp.c:286 modules/access/vdr.c:374
+#: modules/access/vdr.c:541
 msgid "File reading failed"
 msgstr "檔案讀取失敗"
 
@@ -6594,8 +6597,8 @@ msgstr "檔案輸入"
 #: modules/audio_output/file.c:113 modules/gui/macosx/open.m:130
 #: modules/gui/macosx/open.m:590 modules/gui/macosx/output.m:133
 #: modules/gui/macosx/output.m:217 modules/gui/macosx/output.m:341
-#: modules/gui/qt4/dialogs/plugins.cpp:1413 modules/gui/qt4/dialogs/sout.cpp:69
-#: modules/gui/qt4/dialogs/sout.cpp:121
+#: modules/gui/qt4/dialogs/plugins.cpp:1413
+#: modules/gui/qt4/dialogs/sout.cpp:69 modules/gui/qt4/dialogs/sout.cpp:121
 #: share/lua/http/dialogs/create_stream.html:204
 #: share/lua/http/dialogs/stream_config_window.html:36
 #: share/lua/http/dialogs/stream_window.html:95
@@ -8366,7 +8369,8 @@ msgstr ""
 
 #: modules/access/v4l2/v4l2.c:242 modules/codec/avcodec/avcodec.c:68
 #: modules/codec/x264.c:437 modules/control/hotkeys.c:193
-#: modules/gui/macosx/AddonManager.m:93 modules/gui/qt4/dialogs/convert.cpp:136
+#: modules/gui/macosx/AddonManager.m:93
+#: modules/gui/qt4/dialogs/convert.cpp:136
 #: modules/gui/qt4/dialogs/plugins.cpp:372
 #: modules/gui/qt4/dialogs/preferences.cpp:77
 msgid "All"
@@ -9170,7 +9174,8 @@ msgstr "等化器"
 msgid "Flat"
 msgstr "平坦"
 
-#: modules/audio_filter/equalizer_presets.h:54 modules/demux/mp4/id3genres.h:64
+#: modules/audio_filter/equalizer_presets.h:54
+#: modules/demux/mp4/id3genres.h:64
 msgid "Classical"
 msgstr "古典"
 
@@ -9179,7 +9184,8 @@ msgstr "古典"
 msgid "Club"
 msgstr "Club"
 
-#: modules/audio_filter/equalizer_presets.h:54 modules/demux/mp4/id3genres.h:35
+#: modules/audio_filter/equalizer_presets.h:54
+#: modules/demux/mp4/id3genres.h:35
 msgid "Dance"
 msgstr "跳舞"
 
@@ -9211,19 +9217,23 @@ msgstr "Live"
 msgid "Party"
 msgstr "宴會"
 
-#: modules/audio_filter/equalizer_presets.h:56 modules/demux/mp4/id3genres.h:45
+#: modules/audio_filter/equalizer_presets.h:56
+#: modules/demux/mp4/id3genres.h:45
 msgid "Pop"
 msgstr "流行"
 
-#: modules/audio_filter/equalizer_presets.h:56 modules/demux/mp4/id3genres.h:48
+#: modules/audio_filter/equalizer_presets.h:56
+#: modules/demux/mp4/id3genres.h:48
 msgid "Reggae"
 msgstr "雷鬼"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:49
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:49
 msgid "Rock"
 msgstr "搖滾"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:53
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:53
 msgid "Ska"
 msgstr "Ska"
 
@@ -9235,7 +9245,8 @@ msgstr "Soft"
 msgid "Soft rock"
 msgstr "Soft rock"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:50
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:50
 msgid "Techno"
 msgstr "電子"
 
@@ -10287,12 +10298,12 @@ msgstr "DirectX 視訊加速 (DXVA) 2.0"
 #: modules/codec/avcodec/encoder.c:329
 #, c-format
 msgid "\"%s\" is no video encoder."
-msgstr ""
+msgstr "\"%s\" 不是視訊編碼器。"
 
 #: modules/codec/avcodec/encoder.c:337
 #, c-format
 msgid "\"%s\" is no audio encoder."
-msgstr ""
+msgstr "\"%s\" 不是音訊編碼器。"
 
 #: modules/codec/avcodec/encoder.c:375
 #, c-format
@@ -10308,15 +10319,15 @@ msgstr ""
 
 #: modules/codec/avcodec/encoder.c:880
 msgid "unknown"
-msgstr ""
+msgstr "未知"
 
 #: modules/codec/avcodec/encoder.c:880
 msgid "video"
-msgstr ""
+msgstr "視訊"
 
 #: modules/codec/avcodec/encoder.c:881
 msgid "audio"
-msgstr ""
+msgstr "音訊"
 
 #: modules/codec/avcodec/encoder.c:881
 msgid "subpicture"
@@ -12979,14 +12990,14 @@ msgstr "D-Bus 控制介面"
 #: modules/control/dbus/dbus_root.c:81 modules/gui/macosx/MainWindow.m:209
 #: modules/gui/macosx/MainWindow.m:742 modules/gui/macosx/MainWindow.m:748
 #: modules/gui/macosx/MainWindow.m:1372 modules/gui/ncurses.c:1042
-#: modules/gui/qt4/dialogs/help.cpp:91 modules/gui/qt4/main_interface.cpp:1102
-#: modules/gui/qt4/main_interface.cpp:1106
-#: modules/gui/qt4/main_interface.cpp:1145
+#: modules/gui/qt4/dialogs/help.cpp:91 modules/gui/qt4/main_interface.cpp:1143
 #: modules/gui/qt4/main_interface.cpp:1147
-#: modules/gui/qt4/main_interface.cpp:1255
-#: modules/gui/qt4/main_interface.cpp:1272
-#: modules/gui/qt4/main_interface.cpp:1280
-#: modules/gui/qt4/main_interface.cpp:1303 modules/lua/libs/httpd.c:80
+#: modules/gui/qt4/main_interface.cpp:1186
+#: modules/gui/qt4/main_interface.cpp:1188
+#: modules/gui/qt4/main_interface.cpp:1296
+#: modules/gui/qt4/main_interface.cpp:1313
+#: modules/gui/qt4/main_interface.cpp:1321
+#: modules/gui/qt4/main_interface.cpp:1344 modules/lua/libs/httpd.c:80
 #: modules/notify/growl.m:281 modules/video_output/xcb/window.c:313
 msgid "VLC media player"
 msgstr "VLC 媒體播放器"
@@ -13709,7 +13720,7 @@ msgstr "AIFF 解多工器"
 msgid "ASF/WMV demuxer"
 msgstr "ASF/WMV 解多工器"
 
-#: modules/demux/asf/asf.c:215 modules/demux/asf/asf.c:1197
+#: modules/demux/asf/asf.c:215 modules/demux/asf/asf.c:1194
 msgid "Could not demux ASF stream"
 msgstr "無法解多工 ASF 串流"
 
@@ -13717,7 +13728,7 @@ msgstr "無法解多工 ASF 串流"
 msgid "VLC failed to load the ASF header."
 msgstr "VLC 載入 ASF 檔頭失敗。"
 
-#: modules/demux/asf/asf.c:1198
+#: modules/demux/asf/asf.c:1195
 msgid "DRM protected streams are not supported."
 msgstr ""
 
@@ -13931,8 +13942,8 @@ msgstr "影像"
 
 #: modules/demux/mjpeg.c:46 modules/demux/mpeg/es.c:50
 #: modules/demux/mpeg/h264.c:43 modules/demux/mpeg/hevc.c:46
-#: modules/demux/rawvid.c:44 modules/demux/subtitle.c:75 modules/demux/vc1.c:43
-#: modules/gui/macosx/open.m:203
+#: modules/demux/rawvid.c:44 modules/demux/subtitle.c:75
+#: modules/demux/vc1.c:43 modules/gui/macosx/open.m:203
 msgid "Frames per Second"
 msgstr "每秒張數"
 
@@ -15459,7 +15470,8 @@ msgstr "啟用動態範圍壓縮"
 
 #: modules/gui/macosx/AudioEffects.m:118 modules/gui/macosx/AudioEffects.m:129
 #: modules/gui/macosx/TrackSynchronization.m:60
-#: modules/gui/macosx/VideoEffects.m:94 modules/gui/qt4/dialogs/gototime.cpp:66
+#: modules/gui/macosx/VideoEffects.m:94
+#: modules/gui/qt4/dialogs/gototime.cpp:66
 msgid "Reset"
 msgstr "重置"
 
@@ -15579,8 +15591,8 @@ msgid "Bookmarks"
 msgstr "書籤"
 
 #: modules/gui/macosx/bookmarks.m:97
-#: modules/gui/qt4/ui/podcast_configuration.h:103 modules/gui/qt4/ui/sout.h:209
-#: modules/gui/qt4/ui/vlm.h:299
+#: modules/gui/qt4/ui/podcast_configuration.h:103
+#: modules/gui/qt4/ui/sout.h:209 modules/gui/qt4/ui/vlm.h:299
 msgid "Add"
 msgstr "加入"
 
@@ -15700,12 +15712,12 @@ msgstr ""
 
 #: modules/gui/macosx/BWQuincyUI.m:178
 msgid "No personal information will be sent with this report."
-msgstr ""
+msgstr "個人信息不會將與本報告中發送。"
 
 #: modules/gui/macosx/controls.m:53 modules/gui/macosx/controls.m:57
 #: modules/gui/macosx/MainMenu.m:1601
 msgid "Jump to Time"
-msgstr ""
+msgstr "跳至時間"
 
 #: modules/gui/macosx/controls.m:56
 msgid "sec."
@@ -15713,11 +15725,11 @@ msgstr "秒"
 
 #: modules/gui/macosx/ControlsBar.m:56 modules/gui/macosx/fspanel.m:422
 msgid "Click to play or pause the current media."
-msgstr ""
+msgstr "點擊播放或暫停當前媒體。"
 
 #: modules/gui/macosx/ControlsBar.m:59 modules/gui/macosx/fspanel.m:421
 msgid "Backward"
-msgstr ""
+msgstr "往后"
 
 #: modules/gui/macosx/ControlsBar.m:60 modules/gui/macosx/ControlsBar.m:184
 msgid ""
@@ -15727,7 +15739,7 @@ msgstr ""
 
 #: modules/gui/macosx/ControlsBar.m:63 modules/gui/macosx/fspanel.m:423
 msgid "Forward"
-msgstr ""
+msgstr "向前"
 
 #: modules/gui/macosx/ControlsBar.m:64 modules/gui/macosx/ControlsBar.m:185
 msgid ""
@@ -15759,7 +15771,7 @@ msgstr ""
 
 #: modules/gui/macosx/ControlsBar.m:482
 msgid "Click to stop playback."
-msgstr ""
+msgstr "點擊停止播放。"
 
 #: modules/gui/macosx/ControlsBar.m:485
 msgid "Show/Hide Playlist"
@@ -16096,19 +16108,19 @@ msgstr ""
 msgid "Click to exit fullscreen playback."
 msgstr ""
 
-#: modules/gui/macosx/intf.m:1548 modules/gui/macosx/intf.m:1565
+#: modules/gui/macosx/intf.m:1550 modules/gui/macosx/intf.m:1567
 msgid "VLC media playback"
 msgstr ""
 
-#: modules/gui/macosx/intf.m:1844
+#: modules/gui/macosx/intf.m:1846
 msgid "Remove old preferences?"
 msgstr "移除舊的偏好設定？"
 
-#: modules/gui/macosx/intf.m:1845
+#: modules/gui/macosx/intf.m:1847
 msgid "We just found an older version of VLC's preferences files."
 msgstr "我們發現了一個舊版的 VLC 偏好設定檔。"
 
-#: modules/gui/macosx/intf.m:1846
+#: modules/gui/macosx/intf.m:1848
 msgid "Move To Trash and Relaunch VLC"
 msgstr ""
 
@@ -16335,7 +16347,7 @@ msgstr ""
 
 #: modules/gui/macosx/macosx.m:138 modules/gui/qt4/qt4.cpp:200
 msgid "Ask"
-msgstr ""
+msgstr "詢問"
 
 #: modules/gui/macosx/macosx.m:138 modules/gui/qt4/qt4.cpp:194
 #: modules/gui/qt4/qt4.cpp:200
@@ -17665,7 +17677,8 @@ msgid ""
 "Set 0 to disable."
 msgstr ""
 
-#: modules/gui/macosx/VideoEffects.m:74 modules/gui/qt4/dialogs/extended.cpp:84
+#: modules/gui/macosx/VideoEffects.m:74
+#: modules/gui/qt4/dialogs/extended.cpp:84
 msgid "Video Effects"
 msgstr "視訊特效"
 
@@ -17673,7 +17686,8 @@ msgstr "視訊特效"
 msgid "Basic"
 msgstr "基本"
 
-#: modules/gui/macosx/VideoEffects.m:81 modules/gui/qt4/ui/video_effects.h:1444
+#: modules/gui/macosx/VideoEffects.m:81
+#: modules/gui/qt4/ui/video_effects.h:1444
 msgid "Geometry"
 msgstr "幾何形狀"
 
@@ -17690,7 +17704,8 @@ msgstr "顏色"
 msgid "Image Adjust"
 msgstr "影像調整"
 
-#: modules/gui/macosx/VideoEffects.m:91 modules/gui/qt4/ui/video_effects.h:1394
+#: modules/gui/macosx/VideoEffects.m:91
+#: modules/gui/qt4/ui/video_effects.h:1394
 msgid "Brightness Threshold"
 msgstr "亮度臨界值"
 
@@ -17699,12 +17714,14 @@ msgstr "亮度臨界值"
 msgid "Sharpen"
 msgstr "銳利化"
 
-#: modules/gui/macosx/VideoEffects.m:96 modules/gui/qt4/ui/video_effects.h:1399
+#: modules/gui/macosx/VideoEffects.m:96
+#: modules/gui/qt4/ui/video_effects.h:1399
 #: modules/gui/qt4/ui/video_effects.h:1483
 msgid "Sigma"
 msgstr "標準差"
 
-#: modules/gui/macosx/VideoEffects.m:97 modules/gui/qt4/ui/video_effects.h:1400
+#: modules/gui/macosx/VideoEffects.m:97
+#: modules/gui/qt4/ui/video_effects.h:1400
 msgid "Banding removal"
 msgstr "頻帶移除"
 
@@ -17713,7 +17730,8 @@ msgstr "頻帶移除"
 msgid "Radius"
 msgstr "半徑"
 
-#: modules/gui/macosx/VideoEffects.m:99 modules/gui/qt4/ui/video_effects.h:1402
+#: modules/gui/macosx/VideoEffects.m:99
+#: modules/gui/qt4/ui/video_effects.h:1402
 msgid "Film Grain"
 msgstr "電影顆粒雜訊"
 
@@ -17857,7 +17875,8 @@ msgstr "動態模糊"
 msgid "Factor"
 msgstr "係數"
 
-#: modules/gui/macosx/VideoEffects.m:155 modules/video_filter/motiondetect.c:49
+#: modules/gui/macosx/VideoEffects.m:155
+#: modules/video_filter/motiondetect.c:49
 msgid "Motion Detect"
 msgstr "動態偵測"
 
@@ -17890,8 +17909,9 @@ msgstr "加入標誌"
 msgid "Logo"
 msgstr "標誌"
 
-#: modules/gui/macosx/VideoEffects.m:205 modules/stream_out/mosaic_bridge.c:128
-#: modules/video_filter/mosaic.c:87 modules/gui/qt4/ui/video_effects.h:1453
+#: modules/gui/macosx/VideoEffects.m:205
+#: modules/stream_out/mosaic_bridge.c:128 modules/video_filter/mosaic.c:87
+#: modules/gui/qt4/ui/video_effects.h:1453
 msgid "Transparency"
 msgstr "透明"
 
@@ -18167,7 +18187,8 @@ msgstr "UDP 單點傳播"
 msgid "UDP Multicast"
 msgstr "UDP 多點傳送"
 
-#: modules/gui/macosx/wizard.m:373 modules/stream_out/transcode/transcode.c:147
+#: modules/gui/macosx/wizard.m:373
+#: modules/stream_out/transcode/transcode.c:147
 msgid "Transcode"
 msgstr "轉碼"
 
@@ -18697,23 +18718,23 @@ msgstr ""
 msgid "Shift+L"
 msgstr "Shift+L"
 
-#: modules/gui/qt4/components/controller.cpp:445
+#: modules/gui/qt4/components/controller.cpp:446
 msgid "Click to toggle between loop all, loop one and no loop"
 msgstr "點擊以在循環播放全部、循環播放單一個與沒有循環之間切換"
 
-#: modules/gui/qt4/components/controller.cpp:536
+#: modules/gui/qt4/components/controller.cpp:537
 msgid "Previous Chapter/Title"
 msgstr "上一個章節/標題"
 
-#: modules/gui/qt4/components/controller.cpp:548
+#: modules/gui/qt4/components/controller.cpp:549
 msgid "Next Chapter/Title"
 msgstr "下一個章節/標題"
 
-#: modules/gui/qt4/components/controller.cpp:581
+#: modules/gui/qt4/components/controller.cpp:582
 msgid "Teletext Activation"
 msgstr "開啟文字廣播"
 
-#: modules/gui/qt4/components/controller.cpp:597
+#: modules/gui/qt4/components/controller.cpp:598
 msgid "Toggle Transparency "
 msgstr "切換透明"
 
@@ -19369,11 +19390,11 @@ msgstr "增加"
 msgid "Decrease"
 msgstr "減少"
 
-#: modules/gui/qt4/components/playlist/standardpanel.cpp:391
+#: modules/gui/qt4/components/playlist/standardpanel.cpp:387
 msgid "Playlist View Mode"
 msgstr "播放清單檢視模式"
 
-#: modules/gui/qt4/components/playlist/standardpanel.cpp:560
+#: modules/gui/qt4/components/playlist/standardpanel.cpp:556
 msgid ""
 "Playlist is currently empty.\n"
 "Drop a file here or select a media source from the left."
@@ -19548,8 +19569,8 @@ msgstr "套用(&A)"
 
 #: modules/gui/qt4/components/simple_preferences.cpp:1381
 #: modules/gui/qt4/dialogs/convert.cpp:109
-#: modules/gui/qt4/dialogs/gototime.cpp:49 modules/gui/qt4/dialogs/open.cpp:108
-#: modules/gui/qt4/dialogs/openurl.cpp:61
+#: modules/gui/qt4/dialogs/gototime.cpp:49
+#: modules/gui/qt4/dialogs/open.cpp:108 modules/gui/qt4/dialogs/openurl.cpp:61
 #: modules/gui/qt4/dialogs/podcast_configuration.cpp:37
 #: modules/gui/qt4/dialogs/preferences.cpp:94
 #: modules/gui/qt4/dialogs/toolbar.cpp:196
@@ -19692,8 +19713,8 @@ msgstr "刪除所有書籤"
 
 #: modules/gui/qt4/dialogs/bookmarks.cpp:62
 #: modules/gui/qt4/dialogs/errors.cpp:49
-#: modules/gui/qt4/dialogs/extended.cpp:110 modules/gui/qt4/dialogs/help.cpp:66
-#: modules/gui/qt4/dialogs/help.cpp:212
+#: modules/gui/qt4/dialogs/extended.cpp:110
+#: modules/gui/qt4/dialogs/help.cpp:66 modules/gui/qt4/dialogs/help.cpp:212
 #: modules/gui/qt4/dialogs/mediainfo.cpp:80
 #: modules/gui/qt4/dialogs/messages.cpp:81
 #: modules/gui/qt4/dialogs/plugins.cpp:88
@@ -19713,7 +19734,8 @@ msgstr "位元組"
 msgid "Convert"
 msgstr "轉換"
 
-#: modules/gui/qt4/dialogs/convert.cpp:58 modules/gui/qt4/ui/sprefs_audio.h:432
+#: modules/gui/qt4/dialogs/convert.cpp:58
+#: modules/gui/qt4/ui/sprefs_audio.h:432
 msgid "Destination file:"
 msgstr "目的檔案："
 
@@ -19808,7 +19830,8 @@ msgstr "前往(&G)"
 msgid "Go to time"
 msgstr "前往時間"
 
-#: modules/gui/qt4/dialogs/help.cpp:86 modules/gui/qt4/dialogs/plugins.cpp:1360
+#: modules/gui/qt4/dialogs/help.cpp:86
+#: modules/gui/qt4/dialogs/plugins.cpp:1360
 #: modules/gui/qt4/dialogs/plugins.cpp:1443
 msgid "About"
 msgstr "關於"
@@ -20394,11 +20417,11 @@ msgstr ""
 msgid "&Continue"
 msgstr ""
 
-#: modules/gui/qt4/main_interface.cpp:1256
+#: modules/gui/qt4/main_interface.cpp:1297
 msgid "Control menu for the player"
 msgstr "播放器的控制選單"
 
-#: modules/gui/qt4/main_interface.cpp:1300
+#: modules/gui/qt4/main_interface.cpp:1341
 msgid "Paused"
 msgstr ""
 
@@ -21161,7 +21184,7 @@ msgstr ""
 
 #: modules/lua/vlc.c:82
 msgid "Lua"
-msgstr ""
+msgstr "Lua"
 
 #: modules/lua/vlc.c:83
 msgid "Lua interpreter"
@@ -21173,7 +21196,7 @@ msgstr "Lua CLI"
 
 #: modules/lua/vlc.c:108
 msgid "Command-line interface"
-msgstr ""
+msgstr "指令行介面"
 
 #: modules/lua/vlc.c:117 modules/lua/vlc.c:128
 msgid "Lua Telnet"
@@ -21213,11 +21236,11 @@ msgstr ""
 
 #: modules/lua/vlc.c:157 modules/lua/vlc.c:158
 msgid "Lua Extension"
-msgstr ""
+msgstr "Lua 擴展"
 
 #: modules/lua/vlc.c:164
 msgid "Lua SD Module"
-msgstr ""
+msgstr "Lua SD 模組"
 
 #: modules/meta_engine/folder.c:64
 msgid "Folder meta data"
@@ -21229,19 +21252,19 @@ msgstr "專輯封面檔案名稱"
 
 #: modules/meta_engine/folder.c:66
 msgid "Filename to look for album art in current directory"
-msgstr ""
+msgstr "在所在目錄以檔名尋找專輯封面"
 
 #: modules/misc/audioscrobbler.c:115
 msgid "The username of your last.fm account"
-msgstr ""
+msgstr "last.fm 帳號使用者名稱"
 
 #: modules/misc/audioscrobbler.c:117
 msgid "The password of your last.fm account"
-msgstr ""
+msgstr "last.fm 帳號密碼"
 
 #: modules/misc/audioscrobbler.c:118
 msgid "Scrobbler URL"
-msgstr ""
+msgstr "Scrobbler URL"
 
 #: modules/misc/audioscrobbler.c:119
 msgid "The URL set for an alternative scrobbler engine"
@@ -21253,21 +21276,21 @@ msgstr ""
 
 #: modules/misc/audioscrobbler.c:132
 msgid "Submission of played songs to last.fm"
-msgstr ""
+msgstr "傳送播過的歌曲至 Last.fm"
 
 #: modules/misc/audioscrobbler.c:581
 msgid "last.fm: Authentication failed"
-msgstr ""
+msgstr "last.fm: 驗證失敗"
 
 #: modules/misc/audioscrobbler.c:582
 msgid ""
 "last.fm username or password is incorrect. Please verify your settings and "
 "relaunch VLC."
-msgstr ""
+msgstr "Last.fm 使用者名稱或密碼不正確，請確認你的設定並重新啟動 VLC。"
 
 #: modules/misc/audioscrobbler.c:723
 msgid "Last.fm username not set"
-msgstr ""
+msgstr "Last.fm 使用者名稱未輸入"
 
 #: modules/misc/audioscrobbler.c:724
 msgid ""
@@ -21293,15 +21316,15 @@ msgstr "效能(加密較快的優先)"
 
 #: modules/misc/gnutls.c:64
 msgid "Secure 128-bits (exclude 256-bits ciphers)"
-msgstr ""
+msgstr "安全 128-bits (排除 256-bits 加密)"
 
 #: modules/misc/gnutls.c:65
 msgid "Secure 256-bits (prioritize 256-bits ciphers)"
-msgstr ""
+msgstr "安全 256-bits (優先 256-bits 加密)"
 
 #: modules/misc/gnutls.c:66
 msgid "Export (include insecure ciphers)"
-msgstr ""
+msgstr "輸出(包含不安全的加密)"
 
 #: modules/misc/gnutls.c:71
 msgid "GNU TLS transport layer security"
@@ -21336,16 +21359,16 @@ msgstr ""
 #: modules/misc/gnutls.c:306 modules/misc/gnutls.c:323
 #: modules/misc/securetransport.c:334
 msgid "Insecure site"
-msgstr ""
+msgstr "不安全的網站"
 
 #: modules/misc/gnutls.c:307 modules/misc/gnutls.c:326
 #: modules/misc/securetransport.c:335
 msgid "Abort"
-msgstr ""
+msgstr "放棄"
 
 #: modules/misc/gnutls.c:307
 msgid "View certificate"
-msgstr ""
+msgstr "查看憑證"
 
 #: modules/misc/gnutls.c:324
 #, c-format
@@ -21358,11 +21381,11 @@ msgstr ""
 
 #: modules/misc/gnutls.c:326
 msgid "Accept 24 hours"
-msgstr ""
+msgstr "接受24小時"
 
 #: modules/misc/gnutls.c:327
 msgid "Accept permanently"
-msgstr ""
+msgstr "永久接受"
 
 #: modules/misc/inhibit/dbus.c:129
 msgid "Playing some media."
@@ -21370,7 +21393,7 @@ msgstr ""
 
 #: modules/misc/inhibit/dbus.c:232
 msgid "Power"
-msgstr ""
+msgstr "電源"
 
 #: modules/misc/inhibit/dbus.c:233
 msgid "Inhibits power suspend and session idle timeout."
@@ -21578,15 +21601,15 @@ msgstr "未知的視訊"
 
 #: modules/mux/avi.c:54
 msgid "Subject"
-msgstr ""
+msgstr "主題"
 
 #: modules/mux/avi.c:55
 msgid "Encoder"
-msgstr ""
+msgstr "解碼器"
 
 #: modules/mux/avi.c:56
 msgid "Keywords"
-msgstr ""
+msgstr "關鍵字"
 
 #: modules/mux/avi.c:59
 msgid "AVI muxer"
@@ -21738,7 +21761,7 @@ msgstr ""
 
 #: modules/mux/mpeg/ts.c:123
 msgid "Shaping delay (ms)"
-msgstr ""
+msgstr "成像延遲(毫秒)"
 
 #: modules/mux/mpeg/ts.c:124
 msgid ""
@@ -21762,7 +21785,7 @@ msgstr ""
 
 #: modules/mux/mpeg/ts.c:137
 msgid "PCR interval (ms)"
-msgstr ""
+msgstr "PCR 間隔(毫秒)"
 
 #: modules/mux/mpeg/ts.c:138
 msgid ""
@@ -21835,7 +21858,7 @@ msgstr ""
 
 #: modules/mux/ogg.c:47
 msgid "Index interval"
-msgstr ""
+msgstr "索引時間間隔"
 
 #: modules/mux/ogg.c:48
 msgid ""
@@ -21868,7 +21891,7 @@ msgstr ""
 
 #: modules/notify/growl.m:305
 msgid "Now playing"
-msgstr ""
+msgstr "正在播放"
 
 #: modules/notify/notify.c:53
 msgid "Timeout (ms)"
@@ -21908,7 +21931,7 @@ msgstr "H.264 視訊封包器"
 
 #: modules/packetizer/hevc.c:50
 msgid "HEVC/H.265 video packetizer"
-msgstr ""
+msgstr "HEVC/H.265 視訊封包器"
 
 #: modules/packetizer/mlp.c:49
 msgid "MLP/TrueHD parser"
@@ -22064,7 +22087,7 @@ msgstr "網路串流(SAP)"
 
 #: modules/services_discovery/sap.c:131
 msgid "SDP Descriptions parser"
-msgstr ""
+msgstr "SDP 描述解析器"
 
 #: modules/services_discovery/sap.c:885 modules/services_discovery/sap.c:889
 msgid "Session"
@@ -22133,20 +22156,20 @@ msgstr "桌面"
 #: modules/stream_filter/dash/dash.cpp:55
 #: modules/stream_filter/dash/dash.cpp:56
 msgid "Preferred Width"
-msgstr ""
+msgstr "喜好的寬度"
 
 #: modules/stream_filter/dash/dash.cpp:58
 #: modules/stream_filter/dash/dash.cpp:59
 msgid "Preferred Height"
-msgstr ""
+msgstr "喜好的長度"
 
 #: modules/stream_filter/dash/dash.cpp:61
 msgid "Buffer Size (Seconds)"
-msgstr ""
+msgstr "緩衝大小(秒)"
 
 #: modules/stream_filter/dash/dash.cpp:62
 msgid "Buffer size in seconds"
-msgstr ""
+msgstr "緩衝秒數"
 
 #: modules/stream_filter/dash/dash.cpp:65
 msgid "DASH"
@@ -22158,7 +22181,7 @@ msgstr ""
 
 #: modules/stream_filter/decomp.c:59
 msgid "LZMA decompression"
-msgstr ""
+msgstr "LZMA 解壓縮"
 
 #: modules/stream_filter/decomp.c:63
 msgid "Burrows-Wheeler decompression"
@@ -22166,7 +22189,7 @@ msgstr ""
 
 #: modules/stream_filter/decomp.c:68
 msgid "gzip decompression"
-msgstr ""
+msgstr "gzip 解壓縮"
 
 #: modules/stream_filter/httplive.c:56
 msgid "Http Live Streaming stream filter"
@@ -22178,7 +22201,7 @@ msgstr "內部串流錄製"
 
 #: modules/stream_filter/smooth/smooth.c:61
 msgid "Smooth Streaming"
-msgstr ""
+msgstr "平穩串流中"
 
 #: modules/stream_out/autodel.c:46
 msgid "Autodel"
@@ -22497,7 +22520,8 @@ msgid "Transparency of the mosaic picture."
 msgstr ""
 
 #: modules/stream_out/mosaic_bridge.c:132 modules/video_filter/marq.c:95
-#: modules/video_filter/rss.c:142 share/lua/http/dialogs/mosaic_window.html:100
+#: modules/video_filter/rss.c:142
+#: share/lua/http/dialogs/mosaic_window.html:100
 msgid "X offset"
 msgstr "X 位移"
 
@@ -22506,7 +22530,8 @@ msgid "X coordinate of the upper left corner in the mosaic if non negative."
 msgstr ""
 
 #: modules/stream_out/mosaic_bridge.c:136 modules/video_filter/marq.c:97
-#: modules/video_filter/rss.c:144 share/lua/http/dialogs/mosaic_window.html:118
+#: modules/video_filter/rss.c:144
+#: share/lua/http/dialogs/mosaic_window.html:118
 msgid "Y offset"
 msgstr "Y 位移"
 
@@ -27746,7 +27771,7 @@ msgstr "P/P"
 
 #: modules/gui/qt4/ui/streampanel.h:182
 msgid "Prev"
-msgstr ""
+msgstr "上一頁"
 
 #: modules/gui/qt4/ui/streampanel.h:183
 msgid "Add Input"
@@ -27840,7 +27865,7 @@ msgstr "過濾器臨界值(%)"
 
 #: modules/gui/qt4/ui/video_effects.h:1476
 msgid "Anaglyph 3D"
-msgstr ""
+msgstr "浮雕 3D"
 
 #: modules/gui/qt4/ui/video_effects.h:1477
 msgid "Mirror"
@@ -27864,11 +27889,11 @@ msgstr "軟化"
 
 #: modules/gui/qt4/ui/video_effects.h:1488
 msgid "Denoiser"
-msgstr ""
+msgstr "降噪"
 
 #: modules/gui/qt4/ui/video_effects.h:1489
 msgid "Spatial luma strength"
-msgstr ""
+msgstr "空間亮度強度"
 
 #: modules/gui/qt4/ui/video_effects.h:1490
 msgid "Temporal luma strength"
@@ -27876,7 +27901,7 @@ msgstr ""
 
 #: modules/gui/qt4/ui/video_effects.h:1491
 msgid "Spatial chroma strength"
-msgstr ""
+msgstr "空間色度強度"
 
 #: modules/gui/qt4/ui/video_effects.h:1492
 msgid "Temporal chroma strength"
@@ -29658,9 +29683,6 @@ msgstr "媒體管理員清單"
 #~ msgid "/dev/dsp"
 #~ msgstr "/dev/dsp"
 
-#~ msgid "/dev/video"
-#~ msgstr "/dev/video"
-
 #~ msgid "http://www.videolan.org"
 #~ msgstr "http://www.videolan.org"
 
@@ -29938,6 +29960,10 @@ msgstr "媒體管理員清單"
 #~ msgstr "視訊管理員"
 
 #, fuzzy
+#~ msgid "/dev/video"
+#~ msgstr "視訊"
+
+#, fuzzy
 #~ msgid "---  DVD Menu"
 #~ msgstr "DVD 選單"
 
@@ -30032,7 +30058,7 @@ msgstr "媒體管理員清單"
 
 #, fuzzy
 #~ msgid "Jump to time"
-#~ msgstr "前往時間"
+#~ msgstr "跳至時間"
 
 #, fuzzy
 #~ msgid "Open CrashLog..."
@@ -31022,7 +31048,7 @@ msgstr "媒體管理員清單"
 
 #, fuzzy
 #~ msgid "Decompression"
-#~ msgstr "壓縮"
+#~ msgstr "LZMA 解壓縮"
 
 #, fuzzy
 #~ msgid "Command UDP port"
@@ -31562,7 +31588,7 @@ msgstr "媒體管理員清單"
 
 #, fuzzy
 #~ msgid "Certificate file"
-#~ msgstr "垂直翻轉"
+#~ msgstr "查看憑證"
 
 #, fuzzy
 #~ msgid "Private key file"
@@ -32768,7 +32794,7 @@ msgstr "媒體管理員清單"
 
 #, fuzzy
 #~ msgid "Shaping delay"
-#~ msgstr "縮放模式"
+#~ msgstr "成像延遲(毫秒)"
 
 #, fuzzy
 #~ msgid "Amount of data used for transrating in ms."
@@ -34090,7 +34116,7 @@ msgstr "媒體管理員清單"
 
 #, fuzzy
 #~ msgid "Select the key to turn off audio volume."
-#~ msgstr "選擇靜音按鍵。"
+#~ msgstr "選擇增加音量的按鍵。"
 
 #, fuzzy
 #~ msgid "Standard filesystem file input"

@@ -2,10 +2,10 @@ dnl Autoconf settings for vlc
 
 AC_COPYRIGHT([Copyright 1999-2016 VLC authors and VideoLAN])
 
-AC_INIT(vlc, 2.2.2)
+AC_INIT(vlc, 2.2.4)
 VERSION_MAJOR=2
 VERSION_MINOR=2
-VERSION_REVISION=2
+VERSION_REVISION=4
 VERSION_EXTRA=0
 VERSION_DEV=
 
@@ -694,9 +694,9 @@ dnl Check for dynamic plugins
 LIBDL=""
 have_dynamic_objects="no"
 VLC_SAVE_FLAGS
-AC_SEARCH_LIBS(dlopen, [dl svld], [
-  AS_IF([test "$ac_cv_search_dlopen" != "none required"], [
-    LIBDL="$ac_cv_search_dlopen"
+AC_SEARCH_LIBS(dlsym, [dl svld], [
+  AS_IF([test "$ac_cv_search_dlsym" != "none required"], [
+    LIBDL="$ac_cv_search_dlsym"
   ])
   have_dynamic_objects="yes"
 ])

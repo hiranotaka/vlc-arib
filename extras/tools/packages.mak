@@ -16,7 +16,7 @@ LIBTOOL_URL=$(GNU)/libtool/libtool-$(LIBTOOL_VERSION).tar.gz
 AUTOCONF_VERSION=2.69
 AUTOCONF_URL=$(GNU)/autoconf/autoconf-$(AUTOCONF_VERSION).tar.gz
 
-AUTOMAKE_VERSION=1.14
+AUTOMAKE_VERSION=1.15
 AUTOMAKE_URL=$(GNU)/automake/automake-$(AUTOMAKE_VERSION).tar.gz
 
 M4_VERSION=1.4.16
@@ -41,5 +41,5 @@ RAGEL_URL=http://www.colm.net/files/ragel/ragel-$(RAGEL_VERSION).tar.gz
 SED_VERSION=4.2.2
 SED_URL=$(GNU)/sed/sed-$(SED_VERSION).tar.bz2
 
-ANT_VERSION=1.9.6
-ANT_URL=$(APACHE)/ant/binaries/apache-ant-$(ANT_VERSION)-bin.tar.bz2
+ANT_VERSION=1.9.7
+ANT_URL=$(VIDEOLAN)/apache-ant-$(ANT_VERSION)-bin.tar.bz2

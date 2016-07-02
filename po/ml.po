@@ -1,19 +1,20 @@
 # Malayalam translation
-# Copyright (C) 2015 VideoLAN
-# This file is distributed under the same license as the VLC package.
+# Copyright (C) 2016 VideoLAN
+# This file is distributed under the same license as the vlc package.
 #
 # Translators:
 # akkuvijay <akkuvijay@aol.com>, 2014
+# Sajeer P <sajeerforyou@gmail.com>, 2016
 # Sreejith <sreejithpro@gmail.com>, 2009
 msgid ""
 msgstr ""
 "Project-Id-Version: VLC - Trans\n"
 "Report-Msgid-Bugs-To: vlc-devel@videolan.org\n"
-"POT-Creation-Date: 2016-01-18 22:17+0100\n"
-"PO-Revision-Date: 2014-01-01 14:48+0000\n"
-"Last-Translator: akkuvijay <akkuvijay@aol.com>\n"
-"Language-Team: Malayalam (http://www.transifex.com/projects/p/vlc-trans/"
-"language/ml/)\n"
+"POT-Creation-Date: 2016-03-29 01:36+0200\n"
+"PO-Revision-Date: 2016-01-14 07:00+0000\n"
+"Last-Translator: Sajeer P <sajeerforyou@gmail.com>\n"
+"Language-Team: Malayalam (http://www.transifex.com/yaron/vlc-trans/language/"
+"ml/)\n"
 "Language: ml\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -1023,7 +1024,7 @@ msgstr "മീഡിയ സമയം"
 msgid "Media View"
 msgstr "മീഡിയ വ്യൂ"
 
-#: src/config/keys.c:104 modules/gui/qt4/components/controller.cpp:542
+#: src/config/keys.c:104 modules/gui/qt4/components/controller.cpp:543
 msgid "Menu"
 msgstr "മെനു"
 
@@ -2572,13 +2573,14 @@ msgstr ""
 #: src/video_output/vout_intf.c:116 modules/access/dshow/dshow.cpp:92
 #: modules/access/dshow/dshow.cpp:99 modules/access/dshow/dshow.cpp:119
 #: modules/access/dshow/dshow.cpp:2017 modules/audio_output/alsa.c:746
-#: modules/audio_output/directsound.c:1021 modules/gui/macosx/AudioEffects.m:86
-#: modules/gui/macosx/MainMenu.m:641 modules/gui/macosx/prefs_widgets.m:1221
+#: modules/audio_output/directsound.c:1021
+#: modules/gui/macosx/AudioEffects.m:86 modules/gui/macosx/MainMenu.m:641
+#: modules/gui/macosx/prefs_widgets.m:1221
 #: modules/gui/macosx/prefs_widgets.m:1284
 #: modules/gui/macosx/simple_prefs.m:690 modules/gui/macosx/VideoEffects.m:55
 #: modules/gui/qt4/components/preferences_widgets.cpp:547
 #: modules/video_filter/marq.c:60 modules/video_filter/rss.c:71
-#: modules/video_filter/rss.c:184 modules/video_output/msw/directx.c:1438
+#: modules/video_filter/rss.c:184 modules/video_output/msw/directx.c:1439
 msgid "Default"
 msgstr "സഹജമായ"
 
@@ -3864,7 +3866,7 @@ msgstr ""
 msgid "These settings are the global VLC key bindings, known as \"hotkeys\"."
 msgstr "സാര്‍വ വി‌എല്‍‌സി കീ ചേര്‍ക്കലുകളുടെ സജ്ജീകരണങ്ങളാണ് ഇവ, \"ഹോട്ട്കീസ്\" എന്നറിയപ്പെടുന്നു."
 
-#: src/libvlc-module.c:1183 modules/gui/macosx/intf.m:1846
+#: src/libvlc-module.c:1183 modules/gui/macosx/intf.m:1848
 msgid "Ignore"
 msgstr "അവഗണിക്കുക"
 
@@ -6791,7 +6793,7 @@ msgstr "ഡിവിഡിനാവ് ഇന്‍പുട്ട്"
 
 #: modules/access/dvdnav.c:104
 msgid "DVDnav demuxer"
-msgstr ""
+msgstr "ഡിവിഡിനാവ് ഡീമക്സര്‍"
 
 #: modules/access/dvdnav.c:299 modules/access/dvdread.c:200
 #: modules/access/dvdread.c:462 modules/access/dvdread.c:530
@@ -6844,8 +6846,9 @@ msgstr ""
 msgid "EyeTV input"
 msgstr "ഐടിവി ഇന്‍പുട്ട്"
 
-#: modules/access/file.c:177 modules/access/file.c:304 modules/access/mtp.c:195
-#: modules/access/mtp.c:286 modules/access/vdr.c:374 modules/access/vdr.c:541
+#: modules/access/file.c:177 modules/access/file.c:304
+#: modules/access/mtp.c:195 modules/access/mtp.c:286 modules/access/vdr.c:374
+#: modules/access/vdr.c:541
 msgid "File reading failed"
 msgstr "ഫയല്‍ വായിക്കുന്നത് പരാജയപ്പെട്ടു"
 
@@ -6933,8 +6936,8 @@ msgstr "ഫയല്‍ ഇന്‍പുട്ട്"
 #: modules/audio_output/file.c:113 modules/gui/macosx/open.m:130
 #: modules/gui/macosx/open.m:590 modules/gui/macosx/output.m:133
 #: modules/gui/macosx/output.m:217 modules/gui/macosx/output.m:341
-#: modules/gui/qt4/dialogs/plugins.cpp:1413 modules/gui/qt4/dialogs/sout.cpp:69
-#: modules/gui/qt4/dialogs/sout.cpp:121
+#: modules/gui/qt4/dialogs/plugins.cpp:1413
+#: modules/gui/qt4/dialogs/sout.cpp:69 modules/gui/qt4/dialogs/sout.cpp:121
 #: share/lua/http/dialogs/create_stream.html:204
 #: share/lua/http/dialogs/stream_config_window.html:36
 #: share/lua/http/dialogs/stream_window.html:95
@@ -8795,7 +8798,8 @@ msgstr ""
 
 #: modules/access/v4l2/v4l2.c:242 modules/codec/avcodec/avcodec.c:68
 #: modules/codec/x264.c:437 modules/control/hotkeys.c:193
-#: modules/gui/macosx/AddonManager.m:93 modules/gui/qt4/dialogs/convert.cpp:136
+#: modules/gui/macosx/AddonManager.m:93
+#: modules/gui/qt4/dialogs/convert.cpp:136
 #: modules/gui/qt4/dialogs/plugins.cpp:372
 #: modules/gui/qt4/dialogs/preferences.cpp:77
 msgid "All"
@@ -9636,7 +9640,8 @@ msgstr "ഇക്വലൈസര്‍"
 msgid "Flat"
 msgstr "ഫ്ലാറ്റ്"
 
-#: modules/audio_filter/equalizer_presets.h:54 modules/demux/mp4/id3genres.h:64
+#: modules/audio_filter/equalizer_presets.h:54
+#: modules/demux/mp4/id3genres.h:64
 msgid "Classical"
 msgstr "ക്ലാസിക്കല്‍"
 
@@ -9645,7 +9650,8 @@ msgstr "ക്ലാസിക്കല്‍"
 msgid "Club"
 msgstr "ക്ലബ്"
 
-#: modules/audio_filter/equalizer_presets.h:54 modules/demux/mp4/id3genres.h:35
+#: modules/audio_filter/equalizer_presets.h:54
+#: modules/demux/mp4/id3genres.h:35
 msgid "Dance"
 msgstr "നൃത്തം"
 
@@ -9677,19 +9683,23 @@ msgstr "ലൈവ്"
 msgid "Party"
 msgstr "പാര്‍ട്ടി"
 
-#: modules/audio_filter/equalizer_presets.h:56 modules/demux/mp4/id3genres.h:45
+#: modules/audio_filter/equalizer_presets.h:56
+#: modules/demux/mp4/id3genres.h:45
 msgid "Pop"
 msgstr "ചാടുക"
 
-#: modules/audio_filter/equalizer_presets.h:56 modules/demux/mp4/id3genres.h:48
+#: modules/audio_filter/equalizer_presets.h:56
+#: modules/demux/mp4/id3genres.h:48
 msgid "Reggae"
 msgstr "റെഗ്ഗേജ്"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:49
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:49
 msgid "Rock"
 msgstr "റോക്ക്"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:53
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:53
 msgid "Ska"
 msgstr "സ്കാ"
 
@@ -9701,7 +9711,8 @@ msgstr "സോഫ്റ്റ്"
 msgid "Soft rock"
 msgstr "സോഫ്റ്റ് റോക്ക്"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:50
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:50
 msgid "Techno"
 msgstr "ടെക്നോ"
 
@@ -13789,14 +13800,14 @@ msgstr "ഡി-ബസ് നിയന്ത്രണ പൊതുപ്രതല
 #: modules/control/dbus/dbus_root.c:81 modules/gui/macosx/MainWindow.m:209
 #: modules/gui/macosx/MainWindow.m:742 modules/gui/macosx/MainWindow.m:748
 #: modules/gui/macosx/MainWindow.m:1372 modules/gui/ncurses.c:1042
-#: modules/gui/qt4/dialogs/help.cpp:91 modules/gui/qt4/main_interface.cpp:1102
-#: modules/gui/qt4/main_interface.cpp:1106
-#: modules/gui/qt4/main_interface.cpp:1145
+#: modules/gui/qt4/dialogs/help.cpp:91 modules/gui/qt4/main_interface.cpp:1143
 #: modules/gui/qt4/main_interface.cpp:1147
-#: modules/gui/qt4/main_interface.cpp:1255
-#: modules/gui/qt4/main_interface.cpp:1272
-#: modules/gui/qt4/main_interface.cpp:1280
-#: modules/gui/qt4/main_interface.cpp:1303 modules/lua/libs/httpd.c:80
+#: modules/gui/qt4/main_interface.cpp:1186
+#: modules/gui/qt4/main_interface.cpp:1188
+#: modules/gui/qt4/main_interface.cpp:1296
+#: modules/gui/qt4/main_interface.cpp:1313
+#: modules/gui/qt4/main_interface.cpp:1321
+#: modules/gui/qt4/main_interface.cpp:1344 modules/lua/libs/httpd.c:80
 #: modules/notify/growl.m:281 modules/video_output/xcb/window.c:313
 msgid "VLC media player"
 msgstr "വിഎല്‍സി മീഡിയ പ്ലേയര്‍"
@@ -14539,7 +14550,7 @@ msgstr "എഐഎഫ്എഫഅ ഡീമക്സര്‍"
 msgid "ASF/WMV demuxer"
 msgstr "എഎസ്എഫ്/ഡബ്ല്യുഎംവി ഡീമക്സര്‍"
 
-#: modules/demux/asf/asf.c:215 modules/demux/asf/asf.c:1197
+#: modules/demux/asf/asf.c:215 modules/demux/asf/asf.c:1194
 msgid "Could not demux ASF stream"
 msgstr "എ‌എസ്‌എഫ് സ്ട്രീം ഡിമക്സ് ചെയ്യാന്‍ കഴിഞ്ഞില്ല"
 
@@ -14547,7 +14558,7 @@ msgstr "എ‌എസ്‌എഫ് സ്ട്രീം ഡിമക്സ് 
 msgid "VLC failed to load the ASF header."
 msgstr "എ‌എസ്‌എഫ് തലകെട്ട് ലോഡ് ചെയ്യാന്‍ വി‌എല്‍‌സി പരാജയപ്പെട്ടു"
 
-#: modules/demux/asf/asf.c:1198
+#: modules/demux/asf/asf.c:1195
 msgid "DRM protected streams are not supported."
 msgstr "ഡി‌ആര്‍‌എം പരിരക്ഷിക്കപ്പെട്ട സ്ട്രീമുകള്‍ പിന്താങ്ങുന്നില്ല."
 
@@ -14769,8 +14780,8 @@ msgstr "ചിത്രം"
 
 #: modules/demux/mjpeg.c:46 modules/demux/mpeg/es.c:50
 #: modules/demux/mpeg/h264.c:43 modules/demux/mpeg/hevc.c:46
-#: modules/demux/rawvid.c:44 modules/demux/subtitle.c:75 modules/demux/vc1.c:43
-#: modules/gui/macosx/open.m:203
+#: modules/demux/rawvid.c:44 modules/demux/subtitle.c:75
+#: modules/demux/vc1.c:43 modules/gui/macosx/open.m:203
 msgid "Frames per Second"
 msgstr "പ്രതി സെക്കന്‍ഡ് ഫ്രെയിമുകള്‍"
 
@@ -16262,12 +16273,12 @@ msgstr "സര്‍വ്വീസ് ഡിസ്കവറി"
 #: modules/gui/macosx/AddonManager.m:102
 #: modules/gui/qt4/dialogs/plugins.cpp:386
 msgid "Interfaces"
-msgstr ""
+msgstr "ഇൻറ്റർഫേസ്"
 
 #: modules/gui/macosx/AddonManager.m:104
 #: modules/gui/qt4/dialogs/plugins.cpp:389
 msgid "Art and meta fetchers"
-msgstr ""
+msgstr "ആർറ്റ് & മെറ്റാ ഫെച്ചര്‍"
 
 #: modules/gui/macosx/AddonManager.m:106 modules/gui/macosx/AddonManager.m:355
 #: modules/gui/macosx/MainMenu.m:352 modules/gui/macosx/MainMenu.m:353
@@ -16334,7 +16345,8 @@ msgstr "ഡൈനാമിക് റേഞ്ച് കംപ്രസര്‍ 
 
 #: modules/gui/macosx/AudioEffects.m:118 modules/gui/macosx/AudioEffects.m:129
 #: modules/gui/macosx/TrackSynchronization.m:60
-#: modules/gui/macosx/VideoEffects.m:94 modules/gui/qt4/dialogs/gototime.cpp:66
+#: modules/gui/macosx/VideoEffects.m:94
+#: modules/gui/qt4/dialogs/gototime.cpp:66
 msgid "Reset"
 msgstr "റീസെറ്റ് ചെയ്യുക"
 
@@ -16454,8 +16466,8 @@ msgid "Bookmarks"
 msgstr "ബുക്ക്മാര്‍ക്കുകള്‍"
 
 #: modules/gui/macosx/bookmarks.m:97
-#: modules/gui/qt4/ui/podcast_configuration.h:103 modules/gui/qt4/ui/sout.h:209
-#: modules/gui/qt4/ui/vlm.h:299
+#: modules/gui/qt4/ui/podcast_configuration.h:103
+#: modules/gui/qt4/ui/sout.h:209 modules/gui/qt4/ui/vlm.h:299
 msgid "Add"
 msgstr "ചേര്‍ക്കുക"
 
@@ -16771,7 +16783,7 @@ msgstr "സ്ട്രീമിങ്ങ് സജ്ജീകരിക്ക�
 
 #: modules/gui/macosx/ConvertAndSave.m:163
 msgid "Select Streaming Method"
-msgstr ""
+msgstr "സ്ട്രീമിംഗ് രീതി തിരഞ്ഞെടുക്കുക"
 
 #: modules/gui/macosx/ConvertAndSave.m:164
 msgid "Save as File"
@@ -16999,19 +17011,19 @@ msgstr "ഒരു ഇനവും പ്രദര്‍ശിപ്പിക്�
 msgid "Click to exit fullscreen playback."
 msgstr "സ്ക്രീന്‍ മുഴുവനുമുള്ള പ്ലേബാക്കില്‍ നിന്ന്‍ പുറത്തു വരാനായി ക്ലിക്ക് ചെയ്യുക"
 
-#: modules/gui/macosx/intf.m:1548 modules/gui/macosx/intf.m:1565
+#: modules/gui/macosx/intf.m:1550 modules/gui/macosx/intf.m:1567
 msgid "VLC media playback"
 msgstr "VLC മീഡിയ പ്ലേബാക്ക്"
 
-#: modules/gui/macosx/intf.m:1844
+#: modules/gui/macosx/intf.m:1846
 msgid "Remove old preferences?"
 msgstr "പഴയ മുന്‍ഗണനകള്‍ നീക്കം ചെയ്യണോ?"
 
-#: modules/gui/macosx/intf.m:1845
+#: modules/gui/macosx/intf.m:1847
 msgid "We just found an older version of VLC's preferences files."
 msgstr "VLCയുടെ മുന്‍ഗണന ഫയലുകളുടെ ഒരു പഴയ പതിപ്പ് ഞങ്ങള്‍ ഇപ്പോള്‍ കണ്ടെത്തി"
 
-#: modules/gui/macosx/intf.m:1846
+#: modules/gui/macosx/intf.m:1848
 msgid "Move To Trash and Relaunch VLC"
 msgstr "ട്രാഷിലേയ്ക്ക് മാറ്റുകയും VLC വീണ്ടും അവതരിപ്പിക്കുകയും ചെയ്യുക"
 
@@ -18477,19 +18489,19 @@ msgstr "ഇതുവരെ യാതൊരു പരിശോധനയും ന
 
 #: modules/gui/macosx/simple_prefs.m:739
 msgid "Lowest Latency"
-msgstr ""
+msgstr "താഴ്‌ന്ന ലാറ്റന്‍സി"
 
 #: modules/gui/macosx/simple_prefs.m:742
 msgid "Low Latency"
-msgstr ""
+msgstr "കുറഞ്ഞ ലാറ്റന്‍സി"
 
 #: modules/gui/macosx/simple_prefs.m:748
 msgid "Higher Latency"
-msgstr ""
+msgstr "ഉയര്‍ന്ന ലാറ്റന്‍സി"
 
 #: modules/gui/macosx/simple_prefs.m:751
 msgid "Highest Latency"
-msgstr ""
+msgstr "ഏറ്റവും ഉയര്‍ന്ന ലാറ്റന്‍സി"
 
 #: modules/gui/macosx/simple_prefs.m:876
 #: modules/gui/qt4/dialogs/preferences.cpp:327
@@ -18638,7 +18650,8 @@ msgstr ""
 "ഉള്ളടക്കവും കൂടാതെ ഈ മൂല്യത്തേടുമൊപ്പം പുനനിര്‍ണ്ണയം നടത്തുക.\n"
 "പ്രവര്‍ത്തനരഹിതമാക്കാന്‍ 0 ക്രമീകരിക്കുക."
 
-#: modules/gui/macosx/VideoEffects.m:74 modules/gui/qt4/dialogs/extended.cpp:84
+#: modules/gui/macosx/VideoEffects.m:74
+#: modules/gui/qt4/dialogs/extended.cpp:84
 msgid "Video Effects"
 msgstr "വീഡിയോ പ്രഭാവങ്ങള്‍"
 
@@ -18646,7 +18659,8 @@ msgstr "വീഡിയോ പ്രഭാവങ്ങള്‍"
 msgid "Basic"
 msgstr "അടിസ്ഥാന"
 
-#: modules/gui/macosx/VideoEffects.m:81 modules/gui/qt4/ui/video_effects.h:1444
+#: modules/gui/macosx/VideoEffects.m:81
+#: modules/gui/qt4/ui/video_effects.h:1444
 msgid "Geometry"
 msgstr "ജ്യാമിതി"
 
@@ -18663,7 +18677,8 @@ msgstr "നിറം"
 msgid "Image Adjust"
 msgstr "ചിത്രം അഡ്ജസ്റ്റ് ചെയ്യുക"
 
-#: modules/gui/macosx/VideoEffects.m:91 modules/gui/qt4/ui/video_effects.h:1394
+#: modules/gui/macosx/VideoEffects.m:91
+#: modules/gui/qt4/ui/video_effects.h:1394
 msgid "Brightness Threshold"
 msgstr "ബ്രൈറ്റ്നെസ്സ് ത്രെഷ്ഹോള്‍ഡ്"
 
@@ -18672,12 +18687,14 @@ msgstr "ബ്രൈറ്റ്നെസ്സ് ത്രെഷ്ഹോള�
 msgid "Sharpen"
 msgstr "ഷാര്‍പ്പെന്‍"
 
-#: modules/gui/macosx/VideoEffects.m:96 modules/gui/qt4/ui/video_effects.h:1399
+#: modules/gui/macosx/VideoEffects.m:96
+#: modules/gui/qt4/ui/video_effects.h:1399
 #: modules/gui/qt4/ui/video_effects.h:1483
 msgid "Sigma"
 msgstr "സിഗ്മ"
 
-#: modules/gui/macosx/VideoEffects.m:97 modules/gui/qt4/ui/video_effects.h:1400
+#: modules/gui/macosx/VideoEffects.m:97
+#: modules/gui/qt4/ui/video_effects.h:1400
 msgid "Banding removal"
 msgstr "ബാന്‍ഡിംഗ് നീക്കംചെയ്യല്‍"
 
@@ -18686,7 +18703,8 @@ msgstr "ബാന്‍ഡിംഗ് നീക്കംചെയ്യല്�
 msgid "Radius"
 msgstr "റേഡിയസ്"
 
-#: modules/gui/macosx/VideoEffects.m:99 modules/gui/qt4/ui/video_effects.h:1402
+#: modules/gui/macosx/VideoEffects.m:99
+#: modules/gui/qt4/ui/video_effects.h:1402
 msgid "Film Grain"
 msgstr "ഫിലിം ഗ്രെയിന്‍"
 
@@ -18830,7 +18848,8 @@ msgstr "മോഷന്‍ ബ്ലര്‍"
 msgid "Factor"
 msgstr "ഫാക്ടര്‍"
 
-#: modules/gui/macosx/VideoEffects.m:155 modules/video_filter/motiondetect.c:49
+#: modules/gui/macosx/VideoEffects.m:155
+#: modules/video_filter/motiondetect.c:49
 msgid "Motion Detect"
 msgstr "മോഷന്‍ ഡിറ്റെക്ട്"
 
@@ -18863,8 +18882,9 @@ msgstr "ലോഗോ ചേര്‍ക്കുക"
 msgid "Logo"
 msgstr "ലോഗോ"
 
-#: modules/gui/macosx/VideoEffects.m:205 modules/stream_out/mosaic_bridge.c:128
-#: modules/video_filter/mosaic.c:87 modules/gui/qt4/ui/video_effects.h:1453
+#: modules/gui/macosx/VideoEffects.m:205
+#: modules/stream_out/mosaic_bridge.c:128 modules/video_filter/mosaic.c:87
+#: modules/gui/qt4/ui/video_effects.h:1453
 msgid "Transparency"
 msgstr "ട്രാന്‍സ്പരന്‍സി"
 
@@ -19207,7 +19227,8 @@ msgstr "യുഡിപി യൂണികാസ്റ്റ്"
 msgid "UDP Multicast"
 msgstr "യുഡിപി മള്‍ട്ടികാസ്റ്റ്"
 
-#: modules/gui/macosx/wizard.m:373 modules/stream_out/transcode/transcode.c:147
+#: modules/gui/macosx/wizard.m:373
+#: modules/stream_out/transcode/transcode.c:147
 msgid "Transcode"
 msgstr "ട്രാന്‍സ്കോഡ്"
 
@@ -19788,25 +19809,25 @@ msgstr "കണ്ടെത്തുക: %s"
 msgid "Shift+L"
 msgstr "Shift+L"
 
-#: modules/gui/qt4/components/controller.cpp:445
+#: modules/gui/qt4/components/controller.cpp:446
 msgid "Click to toggle between loop all, loop one and no loop"
 msgstr ""
 "എല്ലാം ലൂപ്പ് ചെയ്യുക, ഒന്നിനെ ലൂപ്പ് ചെയ്യുക കൂടാതെ ലൂപ്പ് ചെയ്യണ്ട എന്നതിന് ഇടയ്ക്കുള്ള മാറ്റുക എന്നത് "
 "അമര്‍ത്തുക"
 
-#: modules/gui/qt4/components/controller.cpp:536
+#: modules/gui/qt4/components/controller.cpp:537
 msgid "Previous Chapter/Title"
 msgstr "മുന്‍ അധ്യായം/ശീര്‍ഷകം"
 
-#: modules/gui/qt4/components/controller.cpp:548
+#: modules/gui/qt4/components/controller.cpp:549
 msgid "Next Chapter/Title"
 msgstr "അടുത്ത അധ്യായം/ശീര്‍ഷകം"
 
-#: modules/gui/qt4/components/controller.cpp:581
+#: modules/gui/qt4/components/controller.cpp:582
 msgid "Teletext Activation"
 msgstr "ടെലിപാഠ സജീവമാക്കല്‍"
 
-#: modules/gui/qt4/components/controller.cpp:597
+#: modules/gui/qt4/components/controller.cpp:598
 msgid "Toggle Transparency "
 msgstr "സുതാര്യത മാറ്റുക"
 
@@ -20468,11 +20489,11 @@ msgstr "വര്‍ദ്ധന"
 msgid "Decrease"
 msgstr "കുറയല്‍"
 
-#: modules/gui/qt4/components/playlist/standardpanel.cpp:391
+#: modules/gui/qt4/components/playlist/standardpanel.cpp:387
 msgid "Playlist View Mode"
 msgstr "പ്ലേലിസ്റ്റ് വ്യൂ മോഡ്"
 
-#: modules/gui/qt4/components/playlist/standardpanel.cpp:560
+#: modules/gui/qt4/components/playlist/standardpanel.cpp:556
 msgid ""
 "Playlist is currently empty.\n"
 "Drop a file here or select a media source from the left."
@@ -20655,8 +20676,8 @@ msgstr "പ്രയോഗിക്കുക(_A)"
 
 #: modules/gui/qt4/components/simple_preferences.cpp:1381
 #: modules/gui/qt4/dialogs/convert.cpp:109
-#: modules/gui/qt4/dialogs/gototime.cpp:49 modules/gui/qt4/dialogs/open.cpp:108
-#: modules/gui/qt4/dialogs/openurl.cpp:61
+#: modules/gui/qt4/dialogs/gototime.cpp:49
+#: modules/gui/qt4/dialogs/open.cpp:108 modules/gui/qt4/dialogs/openurl.cpp:61
 #: modules/gui/qt4/dialogs/podcast_configuration.cpp:37
 #: modules/gui/qt4/dialogs/preferences.cpp:94
 #: modules/gui/qt4/dialogs/toolbar.cpp:196
@@ -20806,8 +20827,8 @@ msgstr "എല്ലാ ബുക്ക്മാര്‍ക്കുകളു�
 
 #: modules/gui/qt4/dialogs/bookmarks.cpp:62
 #: modules/gui/qt4/dialogs/errors.cpp:49
-#: modules/gui/qt4/dialogs/extended.cpp:110 modules/gui/qt4/dialogs/help.cpp:66
-#: modules/gui/qt4/dialogs/help.cpp:212
+#: modules/gui/qt4/dialogs/extended.cpp:110
+#: modules/gui/qt4/dialogs/help.cpp:66 modules/gui/qt4/dialogs/help.cpp:212
 #: modules/gui/qt4/dialogs/mediainfo.cpp:80
 #: modules/gui/qt4/dialogs/messages.cpp:81
 #: modules/gui/qt4/dialogs/plugins.cpp:88
@@ -20827,7 +20848,8 @@ msgstr "ബൈറ്റുകള്‍"
 msgid "Convert"
 msgstr "പരിവര്‍ത്തനം ചെയ്യുക"
 
-#: modules/gui/qt4/dialogs/convert.cpp:58 modules/gui/qt4/ui/sprefs_audio.h:432
+#: modules/gui/qt4/dialogs/convert.cpp:58
+#: modules/gui/qt4/ui/sprefs_audio.h:432
 msgid "Destination file:"
 msgstr "ഉദ്ദിഷ്ടസ്ഥാന ഫയല്‍:"
 
@@ -20932,7 +20954,8 @@ msgstr "പോവുക(_G)"
 msgid "Go to time"
 msgstr "സമയത്തിലേയ്ക്ക് പോകുക"
 
-#: modules/gui/qt4/dialogs/help.cpp:86 modules/gui/qt4/dialogs/plugins.cpp:1360
+#: modules/gui/qt4/dialogs/help.cpp:86
+#: modules/gui/qt4/dialogs/plugins.cpp:1360
 #: modules/gui/qt4/dialogs/plugins.cpp:1443
 msgid "About"
 msgstr "കുറിച്ച്(_A)"
@@ -21149,7 +21172,7 @@ msgstr ""
 
 #: modules/gui/qt4/dialogs/plugins.cpp:390
 msgid "Retrieves extra info and art for playlist items"
-msgstr ""
+msgstr "അധിക വിവരങ്ങളും ആർറ്റ് ഫോർ പ്ലേലിസ്റ്റ് ഐറ്റമൈസുംവീണ്ടെടുക്കുക"
 
 #: modules/gui/qt4/dialogs/plugins.cpp:393
 msgid ""
@@ -21534,11 +21557,11 @@ msgstr "പ്ലേബാക്ക് നിര്‍ത്തിയ ഇടത�
 msgid "&Continue"
 msgstr "തുടരുക(_C)"
 
-#: modules/gui/qt4/main_interface.cpp:1256
+#: modules/gui/qt4/main_interface.cpp:1297
 msgid "Control menu for the player"
 msgstr "പ്ലെയറിന് വേണ്ടിയുള്ള നിയന്ത്രണ മെനു"
 
-#: modules/gui/qt4/main_interface.cpp:1300
+#: modules/gui/qt4/main_interface.cpp:1341
 msgid "Paused"
 msgstr "(പോസ്ഡ്)"
 
@@ -21860,7 +21883,7 @@ msgstr "പ്ലേലിസ്റ്റിലേയ്ക്ക് &സംര�
 
 #: modules/gui/qt4/menus.cpp:1650
 msgid "&Post processing"
-msgstr ""
+msgstr "പിന്നത്തെ പ്രോസസ്സിംഗ്"
 
 #: modules/gui/qt4/qt4.cpp:78
 msgid "Show advanced preferences over simple ones"
@@ -23783,7 +23806,8 @@ msgid "Transparency of the mosaic picture."
 msgstr "നാനാവര്‍ണ്ണമായ ചിത്രത്തിന്റെ സുതാര്യത."
 
 #: modules/stream_out/mosaic_bridge.c:132 modules/video_filter/marq.c:95
-#: modules/video_filter/rss.c:142 share/lua/http/dialogs/mosaic_window.html:100
+#: modules/video_filter/rss.c:142
+#: share/lua/http/dialogs/mosaic_window.html:100
 msgid "X offset"
 msgstr "ഒഫ്സെറ്റ് "
 
@@ -23792,7 +23816,8 @@ msgid "X coordinate of the upper left corner in the mosaic if non negative."
 msgstr "ഒരുപക്ഷെ നെഗറ്റാവല്ലെങ്കില്‍ മൊസൈക്കിന്റെ മേല്‍ ഇടത് മൂലയിലെ X ഏകോപനം."
 
 #: modules/stream_out/mosaic_bridge.c:136 modules/video_filter/marq.c:97
-#: modules/video_filter/rss.c:144 share/lua/http/dialogs/mosaic_window.html:118
+#: modules/video_filter/rss.c:144
+#: share/lua/http/dialogs/mosaic_window.html:118
 msgid "Y offset"
 msgstr "ഒഫ്സെറ്റ് "
 
@@ -27495,7 +27520,7 @@ msgstr "ഫ്രെയിംബഫര്‍ എച്ച്ഡബ്ല്യ�
 
 #: modules/video_output/fb.c:71
 msgid "Disable for double buffering in software."
-msgstr ""
+msgstr "സൊഫ്റ്റ്വെയെറിലെ ഇരട്ട ബഫെറിംഗ് അസാധുവാക്കുക"
 
 #: modules/video_output/fb.c:73
 msgid "Image format (default RGB)"

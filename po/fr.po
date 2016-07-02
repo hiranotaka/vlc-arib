@@ -1,5 +1,5 @@
 # French translation
-# Copyright (C) 2015 VideoLAN
+# Copyright (C) 2016 VideoLAN
 # This file is distributed under the same license as the vlc package.
 #
 # Translators:
@@ -9,27 +9,28 @@
 # Calixte, 2013
 # Alex <chioubaca@gmail.com>, 2014
 # Christophe Lherieau <skimpax@gmail.com>, 2013
-# Emmanuel Simond, 2013
+# Emmanuel Simond <emmanuel.simond@gmail.com>, 2013
 # Damien Erambert <damien.erambert@me.com>, 2013
 # Eric Lassauge <lassauge@users.sourceforge.net>, 2013-2015
 # Freddydelanuit Dec <fred.dec@free.fr>, 2014
 # Rafaël Carré <funman@videolan.org>, 2014
 # chouquette <hugo@beauzee.fr>, 2015
 # Cristallix <jordi55@hotmail.fr>, 2014
+# Jack Ruertnevel, 2015
 # Louis Boucherie, 2015
 # Loys, 2013
 # sebasthug <sebhug@free.fr>, 2013
 # lemiaou, 2014
 # Thierry Yves Gaston Stein, 2014
 # Tubuntu <tubuntu@testimonium.be>, 2013-2014
-# ryann, 2015
+# ryann, 2015-2016
 msgid ""
 msgstr ""
 "Project-Id-Version: VLC - Trans\n"
 "Report-Msgid-Bugs-To: vlc-devel@videolan.org\n"
-"POT-Creation-Date: 2016-01-18 22:17+0100\n"
-"PO-Revision-Date: 2015-12-07 18:38+0000\n"
-"Last-Translator: Paul Caranton <caranton.paul@gmail.com>\n"
+"POT-Creation-Date: 2016-03-29 01:36+0200\n"
+"PO-Revision-Date: 2016-05-10 22:47+0000\n"
+"Last-Translator: ryann\n"
 "Language-Team: French (http://www.transifex.com/yaron/vlc-trans/language/"
 "fr/)\n"
 "Language: fr\n"
@@ -672,7 +673,7 @@ msgstr "Analyseur de spectre"
 
 #: src/audio_output/output.c:241
 msgid "Vu meter"
-msgstr "Vu mètre"
+msgstr "VU-mètre"
 
 #: src/audio_output/output.c:282 src/libvlc-module.c:190
 msgid "Audio filters"
@@ -1092,7 +1093,7 @@ msgstr "Média temps"
 msgid "Media View"
 msgstr "Média voir"
 
-#: src/config/keys.c:104 modules/gui/qt4/components/controller.cpp:542
+#: src/config/keys.c:104 modules/gui/qt4/components/controller.cpp:543
 msgid "Menu"
 msgstr "Menu"
 
@@ -2660,13 +2661,14 @@ msgstr ""
 #: src/video_output/vout_intf.c:116 modules/access/dshow/dshow.cpp:92
 #: modules/access/dshow/dshow.cpp:99 modules/access/dshow/dshow.cpp:119
 #: modules/access/dshow/dshow.cpp:2017 modules/audio_output/alsa.c:746
-#: modules/audio_output/directsound.c:1021 modules/gui/macosx/AudioEffects.m:86
-#: modules/gui/macosx/MainMenu.m:641 modules/gui/macosx/prefs_widgets.m:1221
+#: modules/audio_output/directsound.c:1021
+#: modules/gui/macosx/AudioEffects.m:86 modules/gui/macosx/MainMenu.m:641
+#: modules/gui/macosx/prefs_widgets.m:1221
 #: modules/gui/macosx/prefs_widgets.m:1284
 #: modules/gui/macosx/simple_prefs.m:690 modules/gui/macosx/VideoEffects.m:55
 #: modules/gui/qt4/components/preferences_widgets.cpp:547
 #: modules/video_filter/marq.c:60 modules/video_filter/rss.c:71
-#: modules/video_filter/rss.c:184 modules/video_output/msw/directx.c:1438
+#: modules/video_filter/rss.c:184 modules/video_output/msw/directx.c:1439
 msgid "Default"
 msgstr "Prédéfini(e)"
 
@@ -3934,14 +3936,14 @@ msgstr ""
 
 #: src/libvlc-module.c:1156
 msgid "Use media library"
-msgstr "Utiliser la bibliothèque"
+msgstr "Utiliser la médiathèque"
 
 #: src/libvlc-module.c:1158
 msgid ""
 "The media library is automatically saved and reloaded each time you start "
 "VLC."
 msgstr ""
-"La bibliothèque est automatiquement enregistrée et rechargée chaque fois que "
+"La médiathèque est automatiquement enregistrée et rechargée chaque fois que "
 "vous relancez VLC."
 
 #: src/libvlc-module.c:1161 modules/gui/qt4/ui/sprefs_interface.h:531
@@ -3960,7 +3962,7 @@ msgstr ""
 msgid "These settings are the global VLC key bindings, known as \"hotkeys\"."
 msgstr "Paramètres des raccourcis clavier (« hotkeys »)."
 
-#: src/libvlc-module.c:1183 modules/gui/macosx/intf.m:1846
+#: src/libvlc-module.c:1183 modules/gui/macosx/intf.m:1848
 msgid "Ignore"
 msgstr "Ignorer"
 
@@ -4137,7 +4139,7 @@ msgstr ""
 
 #: src/libvlc-module.c:1218
 msgid "Very short backwards jump"
-msgstr "Très court saut arrière"
+msgstr "Saut arrière très court"
 
 #: src/libvlc-module.c:1220
 msgid "Select the hotkey to make a very short backwards jump."
@@ -4325,7 +4327,7 @@ msgstr ""
 
 #: src/libvlc-module.c:1270
 msgid "Select previous DVD title"
-msgstr "Titre DVD précédent"
+msgstr "Sélectionner le titre DVD précédent"
 
 #: src/libvlc-module.c:1271
 msgid "Select the key to choose the previous title from the DVD"
@@ -4335,7 +4337,7 @@ msgstr ""
 
 #: src/libvlc-module.c:1272
 msgid "Select next DVD title"
-msgstr "Titre DVD suivant"
+msgstr "Sélectionner le titre DVD suivant"
 
 #: src/libvlc-module.c:1273
 msgid "Select the key to choose the next title from the DVD"
@@ -4345,7 +4347,7 @@ msgstr ""
 
 #: src/libvlc-module.c:1274
 msgid "Select prev DVD chapter"
-msgstr "Chapitre DVD précédent"
+msgstr "Sélectionner le chapitre DVD précédent"
 
 #: src/libvlc-module.c:1275
 msgid "Select the key to choose the previous chapter from the DVD"
@@ -4646,11 +4648,11 @@ msgstr "Boucler entre les différentes pistes audio disponibles (langues)."
 
 #: src/libvlc-module.c:1350
 msgid "Cycle subtitle track"
-msgstr "Défiler les pistes de sous-titres"
+msgstr "Faire défiler les pistes de sous-titres"
 
 #: src/libvlc-module.c:1351
 msgid "Cycle through the available subtitle tracks."
-msgstr "Boucler entre les différentes pistes de sous-titres."
+msgstr "Faire défiler en boucle les différentes pistes de sous-titres."
 
 #: src/libvlc-module.c:1352
 msgid "Toggle subtitles"
@@ -5127,7 +5129,7 @@ msgstr "Installer"
 #: modules/gui/macosx/MainWindow.m:331 modules/gui/macosx/MainWindow.m:960
 #: modules/gui/qt4/components/playlist/selector.cpp:238
 msgid "Media Library"
-msgstr "Bibliothèque"
+msgstr "Médiathèque"
 
 #: src/playlist/tree.c:67 modules/access/dtv/access.c:75
 #: modules/access/v4l2/v4l2.c:242
@@ -7039,8 +7041,9 @@ msgstr ""
 msgid "EyeTV input"
 msgstr "Entrée EyeTV"
 
-#: modules/access/file.c:177 modules/access/file.c:304 modules/access/mtp.c:195
-#: modules/access/mtp.c:286 modules/access/vdr.c:374 modules/access/vdr.c:541
+#: modules/access/file.c:177 modules/access/file.c:304
+#: modules/access/mtp.c:195 modules/access/mtp.c:286 modules/access/vdr.c:374
+#: modules/access/vdr.c:541
 msgid "File reading failed"
 msgstr "La lecture du fichier a échoué "
 
@@ -7128,8 +7131,8 @@ msgstr "Lecture de fichiers"
 #: modules/audio_output/file.c:113 modules/gui/macosx/open.m:130
 #: modules/gui/macosx/open.m:590 modules/gui/macosx/output.m:133
 #: modules/gui/macosx/output.m:217 modules/gui/macosx/output.m:341
-#: modules/gui/qt4/dialogs/plugins.cpp:1413 modules/gui/qt4/dialogs/sout.cpp:69
-#: modules/gui/qt4/dialogs/sout.cpp:121
+#: modules/gui/qt4/dialogs/plugins.cpp:1413
+#: modules/gui/qt4/dialogs/sout.cpp:69 modules/gui/qt4/dialogs/sout.cpp:121
 #: share/lua/http/dialogs/create_stream.html:204
 #: share/lua/http/dialogs/stream_config_window.html:36
 #: share/lua/http/dialogs/stream_window.html:95
@@ -7370,7 +7373,7 @@ msgstr "Largeur"
 
 #: modules/access/imem.c:84
 msgid "Width of video or subtitle elementary streams"
-msgstr "Hauteur d'un flux élémentaire vidéo ou sous-titres"
+msgstr "Hauteur d'un flux élémentaire vidéo ou de sous-titres"
 
 #: modules/access/imem.c:86 modules/access/v4l2/v4l2.c:66
 #: modules/demux/rawvid.c:52 modules/gui/macosx/ConvertAndSave.m:183
@@ -7382,7 +7385,7 @@ msgstr "Hauteur"
 
 #: modules/access/imem.c:87
 msgid "Height of video or subtitle elementary streams"
-msgstr "Largeur d'un flux élémentaire vidéo ou sous-titres"
+msgstr "Largeur d'un flux élémentaire vidéo ou de sous-titres"
 
 #: modules/access/imem.c:89
 msgid "Display aspect ratio"
@@ -9006,7 +9009,8 @@ msgstr ""
 
 #: modules/access/v4l2/v4l2.c:242 modules/codec/avcodec/avcodec.c:68
 #: modules/codec/x264.c:437 modules/control/hotkeys.c:193
-#: modules/gui/macosx/AddonManager.m:93 modules/gui/qt4/dialogs/convert.cpp:136
+#: modules/gui/macosx/AddonManager.m:93
+#: modules/gui/qt4/dialogs/convert.cpp:136
 #: modules/gui/qt4/dialogs/plugins.cpp:372
 #: modules/gui/qt4/dialogs/preferences.cpp:77
 msgid "All"
@@ -9859,7 +9863,8 @@ msgstr "Égaliseur"
 msgid "Flat"
 msgstr "Plat"
 
-#: modules/audio_filter/equalizer_presets.h:54 modules/demux/mp4/id3genres.h:64
+#: modules/audio_filter/equalizer_presets.h:54
+#: modules/demux/mp4/id3genres.h:64
 msgid "Classical"
 msgstr "Classique"
 
@@ -9868,7 +9873,8 @@ msgstr "Classique"
 msgid "Club"
 msgstr "Club"
 
-#: modules/audio_filter/equalizer_presets.h:54 modules/demux/mp4/id3genres.h:35
+#: modules/audio_filter/equalizer_presets.h:54
+#: modules/demux/mp4/id3genres.h:35
 msgid "Dance"
 msgstr "Dance"
 
@@ -9900,19 +9906,23 @@ msgstr "Live"
 msgid "Party"
 msgstr "Fête"
 
-#: modules/audio_filter/equalizer_presets.h:56 modules/demux/mp4/id3genres.h:45
+#: modules/audio_filter/equalizer_presets.h:56
+#: modules/demux/mp4/id3genres.h:45
 msgid "Pop"
 msgstr "Pop"
 
-#: modules/audio_filter/equalizer_presets.h:56 modules/demux/mp4/id3genres.h:48
+#: modules/audio_filter/equalizer_presets.h:56
+#: modules/demux/mp4/id3genres.h:48
 msgid "Reggae"
 msgstr "Reggae"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:49
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:49
 msgid "Rock"
 msgstr "Rock"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:53
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:53
 msgid "Ska"
 msgstr "Ska"
 
@@ -9924,7 +9934,8 @@ msgstr "Doux"
 msgid "Soft rock"
 msgstr "Soft Rock"
 
-#: modules/audio_filter/equalizer_presets.h:57 modules/demux/mp4/id3genres.h:50
+#: modules/audio_filter/equalizer_presets.h:57
+#: modules/demux/mp4/id3genres.h:50
 msgid "Techno"
 msgstr "Techno"
 
@@ -11223,7 +11234,7 @@ msgstr "Position X au décodage"
 
 #: modules/codec/dvbsub.c:84
 msgid "X coordinate of the rendered subtitle"
-msgstr "Position X de l'incrustation encodée"
+msgstr "Position X de rendu des sous-titres"
 
 #: modules/codec/dvbsub.c:86
 msgid "Decoding Y coordinate"
@@ -11231,7 +11242,7 @@ msgstr "Position Y au décodage"
 
 #: modules/codec/dvbsub.c:87
 msgid "Y coordinate of the rendered subtitle"
-msgstr "Position Y de l'incrustation encodée"
+msgstr "Position Y de rendu des sous-titres"
 
 #: modules/codec/dvbsub.c:89
 msgid "Subpicture position"
@@ -11253,7 +11264,7 @@ msgstr "Position X à l'encodage"
 
 #: modules/codec/dvbsub.c:96
 msgid "X coordinate of the encoded subtitle"
-msgstr "Position X de l'incrustation encodée"
+msgstr "Position X d'encodage des sous-titres"
 
 #: modules/codec/dvbsub.c:97
 msgid "Encoding Y coordinate"
@@ -11261,7 +11272,7 @@ msgstr "Position Y à l'encodage"
 
 #: modules/codec/dvbsub.c:98
 msgid "Y coordinate of the encoded subtitle"
-msgstr "Position Y de l'incrustation encodée"
+msgstr "Position Y d'encodage des sous-titres"
 
 #: modules/codec/dvbsub.c:120
 msgid "DVB subtitles decoder"
@@ -11579,7 +11590,7 @@ msgstr "Vert"
 #: modules/text_renderer/quartztext.c:116 modules/text_renderer/win32text.c:90
 #: modules/video_filter/marq.c:63 modules/video_filter/rss.c:74
 msgid "Teal"
-msgstr "Emeraude"
+msgstr "Émeraude"
 
 #: modules/codec/kate.c:212 modules/text_renderer/freetype.c:149
 #: modules/text_renderer/quartztext.c:117 modules/text_renderer/win32text.c:91
@@ -12623,7 +12634,7 @@ msgstr "Encodeur audio Speex"
 
 #: modules/codec/spudec/spudec.c:45
 msgid "Disable DVD subtitle transparency"
-msgstr "Inhiber la transparence des sous-titres DVD"
+msgstr "Désactiver la transparence des sous-titres DVD"
 
 #: modules/codec/spudec/spudec.c:46
 msgid "Removes all transparency effects used in DVD subtitles."
@@ -12827,7 +12838,7 @@ msgstr "Encodage des sous-titres texte"
 
 #: modules/codec/subsdec.c:168
 msgid "Set the encoding used in text subtitles"
-msgstr "Changer le codage utilisé par les sous-titres texte"
+msgstr "Changer l'encodage utilisé pour les textes de sous-titres"
 
 #: modules/codec/subsdec.c:169
 msgid "Subtitle justification"
@@ -12835,7 +12846,7 @@ msgstr "Justification des sous-titres"
 
 #: modules/codec/subsdec.c:170
 msgid "Set the justification of subtitles"
-msgstr "Justification des sous-titres"
+msgstr "Définir la justification des sous-titres"
 
 #: modules/codec/subsdec.c:171
 msgid "UTF-8 subtitle autodetection"
@@ -12941,7 +12952,7 @@ msgid ""
 "historical interpretation mistake. Try using this wrong interpretation if "
 "your subtitles don't appear."
 msgstr ""
-"Quelques chaines françaises n'indiquent pas correctement l'attribut des "
+"Quelques chaînes françaises n'indiquent pas correctement l'attribut des "
 "pages de sous-titres à la suite d'une erreur d'interprétation, à essayer "
 "quand vos sous-titres n'apparaissent pas."
 
@@ -14087,14 +14098,14 @@ msgstr "Interface de contrôle D-Bus"
 #: modules/control/dbus/dbus_root.c:81 modules/gui/macosx/MainWindow.m:209
 #: modules/gui/macosx/MainWindow.m:742 modules/gui/macosx/MainWindow.m:748
 #: modules/gui/macosx/MainWindow.m:1372 modules/gui/ncurses.c:1042
-#: modules/gui/qt4/dialogs/help.cpp:91 modules/gui/qt4/main_interface.cpp:1102
-#: modules/gui/qt4/main_interface.cpp:1106
-#: modules/gui/qt4/main_interface.cpp:1145
+#: modules/gui/qt4/dialogs/help.cpp:91 modules/gui/qt4/main_interface.cpp:1143
 #: modules/gui/qt4/main_interface.cpp:1147
-#: modules/gui/qt4/main_interface.cpp:1255
-#: modules/gui/qt4/main_interface.cpp:1272
-#: modules/gui/qt4/main_interface.cpp:1280
-#: modules/gui/qt4/main_interface.cpp:1303 modules/lua/libs/httpd.c:80
+#: modules/gui/qt4/main_interface.cpp:1186
+#: modules/gui/qt4/main_interface.cpp:1188
+#: modules/gui/qt4/main_interface.cpp:1296
+#: modules/gui/qt4/main_interface.cpp:1313
+#: modules/gui/qt4/main_interface.cpp:1321
+#: modules/gui/qt4/main_interface.cpp:1344 modules/lua/libs/httpd.c:80
 #: modules/notify/growl.m:281 modules/video_output/xcb/window.c:313
 msgid "VLC media player"
 msgstr "Lecteur multimédia VLC"
@@ -14200,7 +14211,7 @@ msgstr "Synchro sous-titres : signet temps audio"
 
 #: modules/control/hotkeys.c:424 modules/control/hotkeys.c:493
 msgid "No active subtitle"
-msgstr "Pas de sous-titres actif"
+msgstr "Pas de sous-titres actifs"
 
 #: modules/control/hotkeys.c:430
 msgid "Sub sync: bookmarked subtitle time"
@@ -14287,7 +14298,7 @@ msgstr "Désentrelacement autorisé"
 
 #: modules/control/hotkeys.c:1077
 msgid "Subtitle position: no active subtitle"
-msgstr "Position sous-titres : pas de sous-titres actifs."
+msgstr "Position des sous-titres : pas de sous-titres actifs"
 
 #: modules/control/hotkeys.c:1089
 #, c-format
@@ -14840,7 +14851,7 @@ msgstr "Démultiplexeur AIFF"
 msgid "ASF/WMV demuxer"
 msgstr "Démultiplexeur ASF/WMV "
 
-#: modules/demux/asf/asf.c:215 modules/demux/asf/asf.c:1197
+#: modules/demux/asf/asf.c:215 modules/demux/asf/asf.c:1194
 msgid "Could not demux ASF stream"
 msgstr "Impossible de démultiplexer le flux ASG"
 
@@ -14848,7 +14859,7 @@ msgstr "Impossible de démultiplexer le flux ASG"
 msgid "VLC failed to load the ASF header."
 msgstr "VLC n'a pas pu ouvrir l'entête ASF"
 
-#: modules/demux/asf/asf.c:1198
+#: modules/demux/asf/asf.c:1195
 msgid "DRM protected streams are not supported."
 msgstr "Les flux protégés par DRM ne sont pas supportés."
 
@@ -15073,8 +15084,8 @@ msgstr "Image"
 
 #: modules/demux/mjpeg.c:46 modules/demux/mpeg/es.c:50
 #: modules/demux/mpeg/h264.c:43 modules/demux/mpeg/hevc.c:46
-#: modules/demux/rawvid.c:44 modules/demux/subtitle.c:75 modules/demux/vc1.c:43
-#: modules/gui/macosx/open.m:203
+#: modules/demux/rawvid.c:44 modules/demux/subtitle.c:75
+#: modules/demux/vc1.c:43 modules/gui/macosx/open.m:203
 msgid "Frames per Second"
 msgstr "Images par seconde"
 
@@ -16075,7 +16086,7 @@ msgstr "mots-clés podcast"
 
 #: modules/demux/playlist/podcast.c:201 modules/demux/playlist/podcast.c:277
 msgid "Podcast Subtitle"
-msgstr "Sous-titres  podcast"
+msgstr "Sous-titres de podcast"
 
 #: modules/demux/playlist/podcast.c:207 modules/demux/playlist/podcast.c:278
 msgid "Podcast Summary"
@@ -16244,7 +16255,9 @@ msgstr "Lecteur de sous-titres EBU STL"
 
 #: modules/demux/subtitle.c:51
 msgid "Apply a delay to all subtitles (in 1/10s, eg 100 means 10s)."
-msgstr "Ajouter un délai à tous les sous-titres (en 1/10s, 100 = 10 secondes)."
+msgstr ""
+"Ajouter un retard à tous les sous-titres (en dixièmes de seconde, 100 = 10 "
+"s)."
 
 #: modules/demux/subtitle.c:53
 msgid ""
@@ -16276,7 +16289,7 @@ msgstr "Retard des sous-titres"
 
 #: modules/demux/subtitle.c:80
 msgid "Subtitle format"
-msgstr "Format de sous-titres"
+msgstr "Format des sous-titres"
 
 #: modules/demux/subtitle.c:83
 msgid "Subtitle description"
@@ -16392,11 +16405,11 @@ msgstr "Télétexte : programmes"
 
 #: modules/demux/ts.c:168
 msgid "Teletext subtitles: hearing impaired"
-msgstr "Sous-titres Télétexte pour Malentendants"
+msgstr "Sous-titres Télétexte pour malentendants"
 
 #: modules/demux/ts.c:3649
 msgid "DVB subtitles: hearing impaired"
-msgstr "Sous-titres DVD pour Malentendants"
+msgstr "Sous-titres DVD pour malentendants"
 
 #: modules/demux/ts.c:3935
 msgid "clean effects"
@@ -16651,7 +16664,8 @@ msgstr "Compression dynamique"
 
 #: modules/gui/macosx/AudioEffects.m:118 modules/gui/macosx/AudioEffects.m:129
 #: modules/gui/macosx/TrackSynchronization.m:60
-#: modules/gui/macosx/VideoEffects.m:94 modules/gui/qt4/dialogs/gototime.cpp:66
+#: modules/gui/macosx/VideoEffects.m:94
+#: modules/gui/qt4/dialogs/gototime.cpp:66
 msgid "Reset"
 msgstr "Réinitialisation"
 
@@ -16771,8 +16785,8 @@ msgid "Bookmarks"
 msgstr "Signets"
 
 #: modules/gui/macosx/bookmarks.m:97
-#: modules/gui/qt4/ui/podcast_configuration.h:103 modules/gui/qt4/ui/sout.h:209
-#: modules/gui/qt4/ui/vlm.h:299
+#: modules/gui/qt4/ui/podcast_configuration.h:103
+#: modules/gui/qt4/ui/sout.h:209 modules/gui/qt4/ui/vlm.h:299
 msgid "Add"
 msgstr "Ajouter"
 
@@ -17016,7 +17030,7 @@ msgstr "Cliquez pour couper/activer le son."
 
 #: modules/gui/macosx/ControlsBar.m:503
 msgid "Full Volume"
-msgstr "Volume max"
+msgstr "Plein volume"
 
 #: modules/gui/macosx/ControlsBar.m:504
 msgid "Click to play the audio at maximum volume."
@@ -17319,19 +17333,19 @@ msgstr "(pas d'élément à jouer)"
 msgid "Click to exit fullscreen playback."
 msgstr "Cliquer pour quitter le plein écran"
 
-#: modules/gui/macosx/intf.m:1548 modules/gui/macosx/intf.m:1565
+#: modules/gui/macosx/intf.m:1550 modules/gui/macosx/intf.m:1567
 msgid "VLC media playback"
 msgstr "Lecteur multimédia VLC"
 
-#: modules/gui/macosx/intf.m:1844
+#: modules/gui/macosx/intf.m:1846
 msgid "Remove old preferences?"
 msgstr "Effacer les anciennes préférences ?"
 
-#: modules/gui/macosx/intf.m:1845
+#: modules/gui/macosx/intf.m:1847
 msgid "We just found an older version of VLC's preferences files."
 msgstr "Un ancien fichier de préférences de VLC a été trouvé."
 
-#: modules/gui/macosx/intf.m:1846
+#: modules/gui/macosx/intf.m:1848
 msgid "Move To Trash and Relaunch VLC"
 msgstr "Déplacer le dans la corbeille et relancez VLC"
 
@@ -17713,7 +17727,7 @@ msgstr "Fermer la fenêtre"
 
 #: modules/gui/macosx/MainMenu.m:371
 msgid "Streaming/Exporting Wizard..."
-msgstr "Assistant de diffusion/transcodage…"
+msgstr "Assistant de diffusion/exportation…"
 
 #: modules/gui/macosx/MainMenu.m:372
 msgid "Convert / Stream..."
@@ -17725,7 +17739,7 @@ msgstr "Enregistrer la liste de lecture…"
 
 #: modules/gui/macosx/MainMenu.m:374 modules/gui/macosx/playlist.m:590
 msgid "Reveal in Finder"
-msgstr "Montrer dans le « Finder »"
+msgstr "Montrer dans le Finder"
 
 #: modules/gui/macosx/MainMenu.m:378
 msgid "Cut"
@@ -18744,7 +18758,7 @@ msgstr "Langue des sous-titres"
 #: modules/gui/macosx/simple_prefs.m:410
 #: modules/gui/qt4/ui/sprefs_subtitles.h:296
 msgid "Preferred subtitle language"
-msgstr "Langue sous-titres préférée"
+msgstr "Langue préférée des sous-titres"
 
 #: modules/gui/macosx/simple_prefs.m:412
 msgid "Enable OSD"
@@ -18757,7 +18771,7 @@ msgstr "Opacité"
 
 #: modules/gui/macosx/simple_prefs.m:414 modules/text_renderer/freetype.c:119
 msgid "Force bold"
-msgstr "En gras"
+msgstr "Forcer en gras"
 
 #: modules/gui/macosx/simple_prefs.m:415 modules/text_renderer/freetype.c:125
 #: modules/gui/qt4/ui/sprefs_subtitles.h:303
@@ -18844,7 +18858,7 @@ msgstr ""
 "Notez que VLC va redémarrer pendant cette procédure, ainsi votre liste de "
 "lecture sera vidée et les lectures ou transcodages en cours seront arrêtés.\n"
 "\n"
-"La bibliothèque de médias ne sera pas affectée.\n"
+"La médiathèque ne sera pas affectée.\n"
 "\n"
 "Voulez-vous vraiment continuer ?"
 
@@ -18970,7 +18984,8 @@ msgstr ""
 "à leur contenu et à cette valeur.\n"
 "Mettre à 0 pour inhiber."
 
-#: modules/gui/macosx/VideoEffects.m:74 modules/gui/qt4/dialogs/extended.cpp:84
+#: modules/gui/macosx/VideoEffects.m:74
+#: modules/gui/qt4/dialogs/extended.cpp:84
 msgid "Video Effects"
 msgstr "Effets vidéo"
 
@@ -18978,7 +18993,8 @@ msgstr "Effets vidéo"
 msgid "Basic"
 msgstr "Basique"
 
-#: modules/gui/macosx/VideoEffects.m:81 modules/gui/qt4/ui/video_effects.h:1444
+#: modules/gui/macosx/VideoEffects.m:81
+#: modules/gui/qt4/ui/video_effects.h:1444
 msgid "Geometry"
 msgstr "Géométrie"
 
@@ -18995,7 +19011,8 @@ msgstr "Couleur"
 msgid "Image Adjust"
 msgstr "Ajustement d'image"
 
-#: modules/gui/macosx/VideoEffects.m:91 modules/gui/qt4/ui/video_effects.h:1394
+#: modules/gui/macosx/VideoEffects.m:91
+#: modules/gui/qt4/ui/video_effects.h:1394
 msgid "Brightness Threshold"
 msgstr "Seuil de luminosité"
 
@@ -19004,12 +19021,14 @@ msgstr "Seuil de luminosité"
 msgid "Sharpen"
 msgstr "Accentuation"
 
-#: modules/gui/macosx/VideoEffects.m:96 modules/gui/qt4/ui/video_effects.h:1399
+#: modules/gui/macosx/VideoEffects.m:96
+#: modules/gui/qt4/ui/video_effects.h:1399
 #: modules/gui/qt4/ui/video_effects.h:1483
 msgid "Sigma"
 msgstr "Sigma"
 
-#: modules/gui/macosx/VideoEffects.m:97 modules/gui/qt4/ui/video_effects.h:1400
+#: modules/gui/macosx/VideoEffects.m:97
+#: modules/gui/qt4/ui/video_effects.h:1400
 msgid "Banding removal"
 msgstr "Suppression effet de traîne"
 
@@ -19018,7 +19037,8 @@ msgstr "Suppression effet de traîne"
 msgid "Radius"
 msgstr "Rayon"
 
-#: modules/gui/macosx/VideoEffects.m:99 modules/gui/qt4/ui/video_effects.h:1402
+#: modules/gui/macosx/VideoEffects.m:99
+#: modules/gui/qt4/ui/video_effects.h:1402
 msgid "Film Grain"
 msgstr "Grain du film"
 
@@ -19162,7 +19182,8 @@ msgstr "Flou de mouvement"
 msgid "Factor"
 msgstr "Facteur"
 
-#: modules/gui/macosx/VideoEffects.m:155 modules/video_filter/motiondetect.c:49
+#: modules/gui/macosx/VideoEffects.m:155
+#: modules/video_filter/motiondetect.c:49
 msgid "Motion Detect"
 msgstr "Détection de mouvement"
 
@@ -19195,8 +19216,9 @@ msgstr "Ajout d'un logo"
 msgid "Logo"
 msgstr "Logo"
 
-#: modules/gui/macosx/VideoEffects.m:205 modules/stream_out/mosaic_bridge.c:128
-#: modules/video_filter/mosaic.c:87 modules/gui/qt4/ui/video_effects.h:1453
+#: modules/gui/macosx/VideoEffects.m:205
+#: modules/stream_out/mosaic_bridge.c:128 modules/video_filter/mosaic.c:87
+#: modules/gui/qt4/ui/video_effects.h:1453
 msgid "Transparency"
 msgstr "Transparence"
 
@@ -19526,7 +19548,8 @@ msgstr "Unicast UDP"
 msgid "UDP Multicast"
 msgstr "Multidiffusion UDP"
 
-#: modules/gui/macosx/wizard.m:373 modules/stream_out/transcode/transcode.c:147
+#: modules/gui/macosx/wizard.m:373
+#: modules/stream_out/transcode/transcode.c:147
 msgid "Transcode"
 msgstr "Transcode"
 
@@ -20116,25 +20139,25 @@ msgstr "Chercher : %s"
 msgid "Shift+L"
 msgstr "Shift+L"
 
-#: modules/gui/qt4/components/controller.cpp:445
+#: modules/gui/qt4/components/controller.cpp:446
 msgid "Click to toggle between loop all, loop one and no loop"
 msgstr ""
 "Cliquer pour commuter entre tout reboucler, reboucler un média et pas de "
 "boucle"
 
-#: modules/gui/qt4/components/controller.cpp:536
+#: modules/gui/qt4/components/controller.cpp:537
 msgid "Previous Chapter/Title"
 msgstr "Chapitre/Titre précédent"
 
-#: modules/gui/qt4/components/controller.cpp:548
+#: modules/gui/qt4/components/controller.cpp:549
 msgid "Next Chapter/Title"
 msgstr "Chapitre/Titre suivant"
 
-#: modules/gui/qt4/components/controller.cpp:581
+#: modules/gui/qt4/components/controller.cpp:582
 msgid "Teletext Activation"
 msgstr "Alignement Télétexte"
 
-#: modules/gui/qt4/components/controller.cpp:597
+#: modules/gui/qt4/components/controller.cpp:598
 msgid "Toggle Transparency "
 msgstr "Commuter la transparence"
 
@@ -20796,11 +20819,11 @@ msgstr "Augmenter"
 msgid "Decrease"
 msgstr "Réduire"
 
-#: modules/gui/qt4/components/playlist/standardpanel.cpp:391
+#: modules/gui/qt4/components/playlist/standardpanel.cpp:387
 msgid "Playlist View Mode"
 msgstr "Affichage liste de lecture"
 
-#: modules/gui/qt4/components/playlist/standardpanel.cpp:560
+#: modules/gui/qt4/components/playlist/standardpanel.cpp:556
 msgid ""
 "Playlist is currently empty.\n"
 "Drop a file here or select a media source from the left."
@@ -20983,8 +21006,8 @@ msgstr "&Appliquer"
 
 #: modules/gui/qt4/components/simple_preferences.cpp:1381
 #: modules/gui/qt4/dialogs/convert.cpp:109
-#: modules/gui/qt4/dialogs/gototime.cpp:49 modules/gui/qt4/dialogs/open.cpp:108
-#: modules/gui/qt4/dialogs/openurl.cpp:61
+#: modules/gui/qt4/dialogs/gototime.cpp:49
+#: modules/gui/qt4/dialogs/open.cpp:108 modules/gui/qt4/dialogs/openurl.cpp:61
 #: modules/gui/qt4/dialogs/podcast_configuration.cpp:37
 #: modules/gui/qt4/dialogs/preferences.cpp:94
 #: modules/gui/qt4/dialogs/toolbar.cpp:196
@@ -21131,8 +21154,8 @@ msgstr "Effacer tous les signets"
 
 #: modules/gui/qt4/dialogs/bookmarks.cpp:62
 #: modules/gui/qt4/dialogs/errors.cpp:49
-#: modules/gui/qt4/dialogs/extended.cpp:110 modules/gui/qt4/dialogs/help.cpp:66
-#: modules/gui/qt4/dialogs/help.cpp:212
+#: modules/gui/qt4/dialogs/extended.cpp:110
+#: modules/gui/qt4/dialogs/help.cpp:66 modules/gui/qt4/dialogs/help.cpp:212
 #: modules/gui/qt4/dialogs/mediainfo.cpp:80
 #: modules/gui/qt4/dialogs/messages.cpp:81
 #: modules/gui/qt4/dialogs/plugins.cpp:88
@@ -21152,7 +21175,8 @@ msgstr "Octets"
 msgid "Convert"
 msgstr "Convertir"
 
-#: modules/gui/qt4/dialogs/convert.cpp:58 modules/gui/qt4/ui/sprefs_audio.h:432
+#: modules/gui/qt4/dialogs/convert.cpp:58
+#: modules/gui/qt4/ui/sprefs_audio.h:432
 msgid "Destination file:"
 msgstr "Fichier de destination :"
 
@@ -21260,7 +21284,8 @@ msgstr "&Écrire les modifications dans la config"
 msgid "Go to time"
 msgstr "Aller au temps"
 
-#: modules/gui/qt4/dialogs/help.cpp:86 modules/gui/qt4/dialogs/plugins.cpp:1360
+#: modules/gui/qt4/dialogs/help.cpp:86
+#: modules/gui/qt4/dialogs/plugins.cpp:1360
 #: modules/gui/qt4/dialogs/plugins.cpp:1443
 msgid "About"
 msgstr "À propos"
@@ -21631,7 +21656,7 @@ msgstr "Enregistrer la liste de lecture sous…"
 
 #: modules/gui/qt4/dialogs_provider.cpp:725
 msgid "Open subtitles..."
-msgstr "Ouvrir sous-titres…"
+msgstr "Ouvrir des sous-titres…"
 
 #: modules/gui/qt4/dialogs_provider.hpp:40
 msgid "Media Files"
@@ -21869,11 +21894,11 @@ msgstr "Voulez-vous redémarrer la lecture là où elle s'était arrêtée ?"
 msgid "&Continue"
 msgstr "&Continuer"
 
-#: modules/gui/qt4/main_interface.cpp:1256
+#: modules/gui/qt4/main_interface.cpp:1297
 msgid "Control menu for the player"
 msgstr "Menu de contrôle pour le lecteur"
 
-#: modules/gui/qt4/main_interface.cpp:1300
+#: modules/gui/qt4/main_interface.cpp:1341
 msgid "Paused"
 msgstr "En Pause"
 
@@ -22832,7 +22857,7 @@ msgstr "Sécurisé 256 bits (priorité aux chiffrements 256-bits)"
 
 #: modules/misc/gnutls.c:66
 msgid "Export (include insecure ciphers)"
-msgstr "Export (inclus les chiffrements non sécurisés)"
+msgstr "Exporter (inclus les chiffrements non sécurisés)"
 
 #: modules/misc/gnutls.c:71
 msgid "GNU TLS transport layer security"
@@ -24129,7 +24154,8 @@ msgid "Transparency of the mosaic picture."
 msgstr "Transparence de la mosaïque"
 
 #: modules/stream_out/mosaic_bridge.c:132 modules/video_filter/marq.c:95
-#: modules/video_filter/rss.c:142 share/lua/http/dialogs/mosaic_window.html:100
+#: modules/video_filter/rss.c:142
+#: share/lua/http/dialogs/mosaic_window.html:100
 msgid "X offset"
 msgstr "Décalage horizontal"
 
@@ -24138,7 +24164,8 @@ msgid "X coordinate of the upper left corner in the mosaic if non negative."
 msgstr "Abscisse du coin  haut gauche de la mosaïque."
 
 #: modules/stream_out/mosaic_bridge.c:136 modules/video_filter/marq.c:97
-#: modules/video_filter/rss.c:144 share/lua/http/dialogs/mosaic_window.html:118
+#: modules/video_filter/rss.c:144
+#: share/lua/http/dialogs/mosaic_window.html:118
 msgid "Y offset"
 msgstr "Décalage vertical"
 
@@ -24726,7 +24753,7 @@ msgstr "Codec de sous-titres de destination"
 
 #: modules/stream_out/transcode/transcode.c:114
 msgid "This is the subtitle codec that will be used."
-msgstr "Codec de sous-titres à utiliser"
+msgstr "Codec de sous-titres qui sera utilisé."
 
 #: modules/stream_out/transcode/transcode.c:118
 msgid ""
@@ -24776,7 +24803,7 @@ msgstr "Transcode le flux"
 
 #: modules/stream_out/transcode/transcode.c:202
 msgid "Overlays/Subtitles"
-msgstr "Overlay/Sous-titres"
+msgstr "Incrustation/Sous-titres"
 
 #: modules/text_renderer/freetype.c:96
 msgid "Monospace Font"
@@ -29534,11 +29561,11 @@ msgstr "Niveau de post-traitement vidéo"
 
 #: modules/gui/qt4/ui/sprefs_input.h:352
 msgid "Optical drive"
-msgstr "Périphérique disque optique"
+msgstr "Lecteur optique"
 
 #: modules/gui/qt4/ui/sprefs_input.h:353
 msgid "Default optical device"
-msgstr "Périphérique de sortie par défaut"
+msgstr "Lecteur optique par défaut"
 
 #: modules/gui/qt4/ui/sprefs_input.h:357
 msgid "Damaged or incomplete AVI file"
@@ -32235,7 +32262,7 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "Load Media Library"
-#~ msgstr "Bibliothèque"
+#~ msgstr "Médiathèque"
 
 #, fuzzy
 #~ msgid "FFmpeg access"
@@ -32405,7 +32432,7 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "Configure Media Library"
-#~ msgstr "Bibliothèque"
+#~ msgstr "Médiathèque"
 
 #, fuzzy
 #~ msgid "Subtitles/OSD"
@@ -32461,7 +32488,7 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "Add to Media Library"
-#~ msgstr "Bibliothèque"
+#~ msgstr "Médiathèque"
 
 #, fuzzy
 #~ msgid "Advanced Open..."
@@ -32493,7 +32520,7 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "Force mono audio"
-#~ msgstr "En gras"
+#~ msgstr "Forcer en gras"
 
 #, fuzzy
 #~ msgid "This will force a mono audio output."
@@ -32851,11 +32878,11 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "X coordinate of the rendered image"
-#~ msgstr "Position X de l'incrustation encodée"
+#~ msgstr "Position X de rendu des sous-titres"
 
 #, fuzzy
 #~ msgid "Y coordinate of the rendered image"
-#~ msgstr "Position Y de l'incrustation encodée"
+#~ msgstr "Position Y de rendu des sous-titres"
 
 #, fuzzy
 #~ msgid ""
@@ -32961,11 +32988,11 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "Preferred Subtitle Language"
-#~ msgstr "Langue sous-titres préférée"
+#~ msgstr "Langue préférée des sous-titres"
 
 #, fuzzy
 #~ msgid "Force Bold"
-#~ msgstr "En gras"
+#~ msgstr "Forcer en gras"
 
 #, fuzzy
 #~ msgid "Outline Color"
@@ -33185,7 +33212,7 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "Title format string"
-#~ msgstr "Format de sous-titres"
+#~ msgstr "Format des sous-titres"
 
 #, fuzzy
 #~ msgid "MSN Now-Playing"
@@ -33583,7 +33610,7 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "Default Volume"
-#~ msgstr "Volume max"
+#~ msgstr "Plein volume"
 
 #, fuzzy
 #~ msgid "Advance of subtitles over video:"
@@ -33649,7 +33676,7 @@ msgstr "Liste du gestionnaire de médias"
 
 #, fuzzy
 #~ msgid "Library"
-#~ msgstr "Bibliothèque"
+#~ msgstr "Médiathèque"
 
 #, fuzzy
 #~ msgid "Graphical Equalizer"
