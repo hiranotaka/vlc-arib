@@ -1,6 +1,6 @@
 # FLAC
 
-FLAC_VERSION := 1.3.0
+FLAC_VERSION := 1.3.1
 FLAC_URL := http://downloads.xiph.org/releases/flac/flac-$(FLAC_VERSION).tar.xz
 
 PKGS += flac
@@ -9,13 +9,16 @@ PKGS_FOUND += flac
 endif
 
 $(TARBALLS)/flac-$(FLAC_VERSION).tar.xz:
-	$(call download,$(FLAC_URL))
+	$(call download_pkg,$(FLAC_URL),flac)
 
 .sum-flac: flac-$(FLAC_VERSION).tar.xz
 
 flac: flac-$(FLAC_VERSION).tar.xz .sum-flac
 	$(UNPACK)
-	$(APPLY) $(SRC)/flac/libFLAC-pc.patch
+ifdef HAVE_WINSTORE
+	$(APPLY) $(SRC)/flac/console_write.patch
+	$(APPLY) $(SRC)/flac/remove_blocking_code_useless_flaclib.patch
+endif
 ifdef HAVE_DARWIN_OS
 	cd $(UNPACK_DIR) && sed -e 's,-dynamiclib,-dynamiclib -arch $(ARCH),' -i.orig configure
 endif
@@ -26,6 +29,7 @@ ifeq ($(ANDROID_ABI), x86)
 	cd $(UNPACK_DIR) && sed -i.orig -e s/"#  undef USE_OBSOLETE_SIGCONTEXT_FLAVOR"/"#define USE_OBSOLETE_SIGCONTEXT_FLAVOR"/g src/libFLAC/cpu.c
 endif
 endif
+	$(call pkg_static,"src/libFLAC/flac.pc.in")
 	$(UPDATE_AUTOCONFIG)
 	$(MOVE)
 
@@ -42,10 +46,19 @@ FLACCONF += --disable-asm-optimizations
 endif
 endif
 
+FLAC_CFLAGS := $(CFLAGS)
+ifdef HAVE_WIN32
+FLAC_CFLAGS += -mstackrealign
+endif
+
+ifdef HAVE_WIN32
+	FLAC_CFLAGS="-DFLAC__NO_DLL"
+endif
+
 DEPS_flac = ogg $(DEPS_ogg)
 
 .flac: flac
-	cd $< && $(HOSTVARS) ./configure $(FLACCONF)
+	cd $< && $(HOSTVARS) CFLAGS="$(FLAC_CFLAGS)" ./configure $(FLACCONF)
 	cd $</include && $(MAKE) install
 	cd $</src && $(MAKE) -C share install && $(MAKE) -C libFLAC install
 	touch $@

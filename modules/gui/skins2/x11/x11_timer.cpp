@@ -49,7 +49,7 @@ X11Timer::~X11Timer()
 
 void X11Timer::start( int delay, bool oneShot )
 {
-    m_interval = 1000 * delay;
+    m_interval = 1000LL * (mtime_t)delay;
     m_oneShot = oneShot;
     m_nextDate = mdate() + m_interval;
     m_pTimerLoop->addTimer( *this );
@@ -109,7 +109,7 @@ void X11TimerLoop::waitNextTimer()
     X11Timer *nextTimer = NULL;
 
     // Find the next timer to execute
-    list<X11Timer*>::const_iterator timer;
+    std::list<X11Timer*>::const_iterator timer;
     for( timer = m_timers.begin(); timer != m_timers.end(); ++timer )
     {
         mtime_t timerDate = (*timer)->getNextDate();

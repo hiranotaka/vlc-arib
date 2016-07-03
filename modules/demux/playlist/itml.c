@@ -34,6 +34,7 @@
 #include <vlc_xml.h>
 #include <vlc_strings.h>
 #include <vlc_url.h>
+#include <vlc_fixups.h>
 
 #include "itml.h"
 #include "playlist.h"
@@ -52,6 +53,14 @@ int Import_iTML( vlc_object_t *p_this )
 {
     DEMUX_BY_EXTENSION_OR_FORCED_MSG( ".xml", "itml",
                                       "using iTunes Media Library reader" );
+    const uint8_t *p_peek;
+    const ssize_t i_peek = stream_Peek( p_demux->s, &p_peek, 128 );
+    if ( i_peek < 32 ||
+         !strnstr( (const char *) p_peek, "<!DOCTYPE plist ", i_peek ) )
+    {
+        Close_iTML( p_this );
+        return VLC_EGENERIC;
+    }
     return VLC_SUCCESS;
 }
 
@@ -379,7 +388,7 @@ static bool save_data( track_elem_t *p_track, const char *psz_name,
         return false;
 
     /* re-convert xml special characters inside psz_value */
-    resolve_xml_special_chars( psz_value );
+    vlc_xml_decode( psz_value );
 
 #define SAVE_INFO( name, value ) \
     if( !strcmp( psz_name, name ) ) { p_track->value = strdup( psz_value ); }

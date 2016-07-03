@@ -119,8 +119,8 @@ static const char *const ppsz_sout_options[] = {
     NULL
 };
 
-static sout_stream_id_sys_t *Add ( sout_stream_t *, es_format_t * );
-static int               Del ( sout_stream_t *, sout_stream_id_sys_t * );
+static sout_stream_id_sys_t *Add( sout_stream_t *, const es_format_t * );
+static void              Del ( sout_stream_t *, sout_stream_id_sys_t * );
 static int               Send( sout_stream_t *, sout_stream_id_sys_t *, block_t* );
 
 struct sout_stream_sys_t
@@ -269,7 +269,7 @@ static char * es_print_url( const char *psz_fmt, vlc_fourcc_t i_fourcc, int i_co
     return( psz_dst );
 }
 
-static sout_stream_id_sys_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
+static sout_stream_id_sys_t *Add( sout_stream_t *p_stream, const es_format_t *p_fmt )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
     sout_stream_id_sys_t  *id;
@@ -358,11 +358,9 @@ static sout_stream_id_sys_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
     {
         msg_Err( p_stream, "no suitable sout access module for `%s/%s://%s'",
                  psz_access, psz_mux, psz_dst );
-        dialog_Fatal( p_stream,
-                    _("Streaming / Transcoding failed"),
-                    _("There is no suitable stream-output access module for \"%s/%s://%s\"."),
-                          psz_access,
-                          psz_mux, psz_dst );
+        vlc_dialog_display_error( p_stream, _("Streaming / Transcoding failed"),
+            _("There is no suitable stream-output access module for \"%s/%s://%s\"."),
+            psz_access, psz_mux, psz_dst );
         free( psz_dst );
         return( NULL );
     }
@@ -373,11 +371,9 @@ static sout_stream_id_sys_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
     {
         msg_Err( p_stream, "no suitable sout mux module for `%s/%s://%s'",
                  psz_access, psz_mux, psz_dst );
-        dialog_Fatal( p_stream,
-                        _("Streaming / Transcoding failed"),
-                        _("There is no suitable stream-output access module "\
-                          "for \"%s/%s://%s\"."),
-                          psz_access, psz_mux, psz_dst );
+        vlc_dialog_display_error( p_stream, _("Streaming / Transcoding failed"),
+            _("There is no suitable stream-output access module "\
+            "for \"%s/%s://%s\"."), psz_access, psz_mux, psz_dst );
         sout_AccessOutDelete( p_access );
         free( psz_dst );
         return( NULL );
@@ -408,7 +404,7 @@ static sout_stream_id_sys_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
     return id;
 }
 
-static int Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
+static void Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
 {
     VLC_UNUSED(p_stream);
     sout_access_out_t *p_access = id->p_mux->p_access;
@@ -420,7 +416,6 @@ static int Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
     sout_AccessOutDelete( p_access );
 
     free( id );
-    return VLC_SUCCESS;
 }
 
 static int Send( sout_stream_t *p_stream, sout_stream_id_sys_t *id,

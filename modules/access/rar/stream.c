@@ -39,14 +39,14 @@ struct stream_sys_t {
     stream_t *payload;
 };
 
-static int Read(stream_t *s, void *data, unsigned size)
+static ssize_t Read(stream_t *s, void *data, size_t size)
 {
     return stream_Read(s->p_sys->payload, data, size);
 }
 
-static int Peek( stream_t *s, const uint8_t **data, unsigned size)
+static int Seek(stream_t *s, uint64_t offset)
 {
-    return stream_Peek(s->p_sys->payload, data, size);
+    return stream_Seek(s->p_sys->payload, offset);
 }
 
 static int Control(stream_t *s, int query, va_list args)
@@ -66,18 +66,45 @@ int RarStreamOpen(vlc_object_t *object)
 {
     stream_t *s = (stream_t*)object;
 
+    if( s->psz_url == NULL )
+        return VLC_EGENERIC;
+
     if (RarProbe(s->p_source))
         return VLC_EGENERIC;
 
-    int count;
-    rar_file_t **files;
+    struct
+    {
+        int filescount;
+        rar_file_t **files;
+        unsigned int i_nbvols;
+    } newscheme = { 0, NULL, 0 }, oldscheme = { 0, NULL, 0 }, *p_scheme;
+
     const int64_t position = stream_Tell(s->p_source);
-    if (RarParse(s->p_source, &count, &files, false) &&
-        RarParse(s->p_source, &count, &files, true ) )
+
+    if (RarParse(s->p_source, &newscheme.filescount, &newscheme.files, &newscheme.i_nbvols, false)
+            || (newscheme.filescount < 2 && newscheme.i_nbvols < 2) )
+    {
+        /* We might want to lookup old naming scheme, could be a part1.rar,part1.r00 */
+        stream_Seek(s->p_source, 0);
+        RarParse(s->p_source, &oldscheme.filescount, &oldscheme.files, &oldscheme.i_nbvols, true );
+    }
+
+    if (oldscheme.filescount >= newscheme.filescount && oldscheme.i_nbvols > newscheme.i_nbvols)
+    {
+        free(newscheme.files);
+        p_scheme = &oldscheme;
+    }
+    else if (newscheme.filescount)
+    {
+        free(oldscheme.files);
+        p_scheme = &newscheme;
+    }
+    else
     {
         stream_Seek(s->p_source, position);
-        msg_Err(s, "Invalid or unsupported RAR archive");
-        free(files);
+        msg_Info(s, "Invalid or unsupported RAR archive");
+        free(oldscheme.files);
+        free(newscheme.files);
         return VLC_EGENERIC;
     }
 
@@ -85,20 +112,15 @@ int RarStreamOpen(vlc_object_t *object)
      * Reusing WriteXSPF from the zip access is probably a good idea
      * (becareful about '\' and '/'.
      */
-    char *mrl;
-    if (asprintf(&mrl, "%s://%s", s->psz_access, s->psz_path)< 0)
-        mrl = NULL;
     char *base;
-    char *encoded = mrl ? encode_URI_component(mrl) : NULL;
-    free(mrl);
-
+    char *encoded = vlc_uri_encode(s->psz_url);
     if (!encoded || asprintf(&base, "rar://%s", encoded) < 0)
         base = NULL;
     free(encoded);
 
     char *data = strdup("#EXTM3U\n");
-    for (int i = 0; i < count; i++) {
-        rar_file_t *f = files[i];
+    for (int i = 0; i < p_scheme->filescount; i++) {
+        rar_file_t *f = p_scheme->files[i];
         char *next;
         if (base && data &&
             asprintf(&next, "%s"
@@ -111,7 +133,7 @@ int RarStreamOpen(vlc_object_t *object)
         RarFileDelete(f);
     }
     free(base);
-    free(files);
+    free(p_scheme->files);
     if (!data)
         return VLC_EGENERIC;
     stream_t *payload = stream_MemoryNew(s, (uint8_t*)data, strlen(data), false);
@@ -121,7 +143,7 @@ int RarStreamOpen(vlc_object_t *object)
     }
 
     s->pf_read = Read;
-    s->pf_peek = Peek;
+    s->pf_seek = Seek;
     s->pf_control = Control;
 
     stream_sys_t *sys = s->p_sys = malloc(sizeof(*sys));
@@ -132,12 +154,12 @@ int RarStreamOpen(vlc_object_t *object)
     sys->payload = payload;
 
     char *tmp;
-    if (asprintf(&tmp, "%s.m3u", s->psz_path) < 0) {
+    if (asprintf(&tmp, "%s.m3u", s->psz_url) < 0) {
         RarStreamClose(object);
         return VLC_ENOMEM;
     }
-    free(s->psz_path);
-    s->psz_path = tmp;
+    free(s->psz_url);
+    s->psz_url = tmp;
 
     return VLC_SUCCESS;
 }

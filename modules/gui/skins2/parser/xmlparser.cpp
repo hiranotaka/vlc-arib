@@ -26,10 +26,12 @@
 #include <vlc_url.h>
 
 #include <sys/stat.h>
+#include <vlc_fs.h>
 
-XMLParser::XMLParser( intf_thread_t *pIntf, const string &rFileName )
+XMLParser::XMLParser( intf_thread_t *pIntf, const std::string &rFileName )
     : SkinObject( pIntf ), m_pXML( NULL ), m_pReader( NULL ), m_pStream( NULL )
 {
+    m_errors = false;
     m_pXML = xml_Create( pIntf );
     if( !m_pXML )
     {
@@ -73,9 +75,9 @@ void XMLParser::LoadCatalog()
 {
     // Get the resource path and look for the DTD
     OSFactory *pOSFactory = OSFactory::instance( getIntf() );
-    const list<string> &resPath = pOSFactory->getResourcePath();
-    const string &sep = pOSFactory->getDirSeparator();
-    list<string>::const_iterator it;
+    const std::list<std::string> &resPath = pOSFactory->getResourcePath();
+    const std::string &sep = pOSFactory->getDirSeparator();
+    std::list<std::string>::const_iterator it;
 
     struct stat statBuf;
 
@@ -83,8 +85,8 @@ void XMLParser::LoadCatalog()
     // we don't have a default catalog)
     for( it = resPath.begin(); it != resPath.end(); ++it )
     {
-        string catalog_path = (*it) + sep + "skin.catalog";
-        if( !stat( catalog_path.c_str(), &statBuf ) )
+        std::string catalog_path = (*it) + sep + "skin.catalog";
+        if( !vlc_stat( catalog_path.c_str(), &statBuf ) )
         {
             msg_Dbg( getIntf(), "Using catalog %s", catalog_path.c_str() );
             xml_CatalogLoad( m_pXML, catalog_path.c_str() );
@@ -99,8 +101,8 @@ void XMLParser::LoadCatalog()
 
     for( it = resPath.begin(); it != resPath.end(); ++it )
     {
-        string path = (*it) + sep + "skin.dtd";
-        if( !stat( path.c_str(), &statBuf ) )
+        std::string path = (*it) + sep + "skin.dtd";
+        if( !vlc_stat( path.c_str(), &statBuf ) )
         {
             // DTD found
             msg_Dbg( getIntf(), "using DTD %s", path.c_str() );
@@ -143,7 +145,7 @@ bool XMLParser::parse()
 
                 handleBeginElement( node, attributes );
 
-                map<const char*, const char*, ltstr> ::iterator it =
+                std::map<const char*, const char*, ltstr> ::iterator it =
                     attributes.begin();
                 while( it != attributes.end() )
                 {

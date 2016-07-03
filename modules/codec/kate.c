@@ -157,6 +157,7 @@ static int OpenPacketizer( vlc_object_t *p_this );
 #endif
 
 static subpicture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block );
+static void Flush( decoder_t * );
 static int ProcessHeaders( decoder_t *p_dec );
 static subpicture_t *ProcessPacket( decoder_t *p_dec, kate_packet *p_kp,
                             block_t **pp_block );
@@ -354,6 +355,7 @@ static int OpenDecoder( vlc_object_t *p_this )
         DecodeBlock;
     p_dec->pf_packetize    = (block_t *(*)(decoder_t *, block_t **))
         DecodeBlock;
+    p_dec->pf_flush        = Flush;
 
     /* Allocate the memory needed to store the decoder's structure */
     if( ( p_dec->p_sys = p_sys = malloc(sizeof(*p_sys)) ) == NULL )
@@ -453,6 +455,22 @@ static int OpenPacketizer( vlc_object_t *p_this )
 }
 #endif
 
+/*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+#ifdef HAVE_TIGER
+    /* Hmm, should we wait before flushing the renderer ? I think not, but not certain... */
+    vlc_mutex_lock( &p_sys->lock );
+    tiger_renderer_seek( p_sys->p_tr, 0 );
+    vlc_mutex_unlock( &p_sys->lock );
+#endif
+    p_sys->i_max_stop = VLC_TS_INVALID;
+}
+
 /****************************************************************************
  * DecodeBlock: the whole thing
  ****************************************************************************
@@ -468,6 +486,7 @@ static subpicture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         return NULL;
 
     p_block = *pp_block;
+    *pp_block = NULL;
 
     if( p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED) )
     {
@@ -480,9 +499,12 @@ static subpicture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
             vlc_mutex_unlock( &p_sys->lock );
         }
 #endif
-        p_sys->i_max_stop = VLC_TS_INVALID;
-        block_Release( p_block );
-        return NULL;
+        if( p_block->i_flags & BLOCK_FLAG_CORRUPTED )
+        {
+            p_sys->i_max_stop = VLC_TS_INVALID;
+            block_Release( p_block );
+            return NULL;
+        }
     }
 
     /* Block to Kate packet */
@@ -570,9 +592,14 @@ static int ProcessHeaders( decoder_t *p_dec )
 #ifdef ENABLE_PACKETIZER
     else
     {
+        void* p_extra = realloc( p_dec->fmt_out.p_extra,
+                                 p_dec->fmt_in.i_extra );
+        if( unlikely( p_extra == NULL ) )
+        {
+            return VLC_ENOMEM;
+        }
+        p_dec->fmt_out.p_extra = p_extra;
         p_dec->fmt_out.i_extra = p_dec->fmt_in.i_extra;
-        p_dec->fmt_out.p_extra = xrealloc( p_dec->fmt_out.p_extra,
-                                                  p_dec->fmt_out.i_extra );
         memcpy( p_dec->fmt_out.p_extra,
                 p_dec->fmt_in.p_extra, p_dec->fmt_out.i_extra );
     }
@@ -653,7 +680,7 @@ static void GetVideoSize( decoder_t *p_dec, int *w, int *h )
         *w = p_sys->ki.original_canvas_width;
         *h = p_sys->ki.original_canvas_height;
         msg_Dbg( p_dec, "original canvas %zu %zu",
-	         p_sys->ki.original_canvas_width, p_sys->ki.original_canvas_height );
+                 p_sys->ki.original_canvas_width, p_sys->ki.original_canvas_height );
     }
     else
     {
@@ -702,27 +729,21 @@ static void SetupText( decoder_t *p_dec, subpicture_t *p_spu, const kate_event *
     switch( ev->text_markup_type )
     {
         case kate_markup_none:
-            p_spu->p_region->psz_text = strdup( ev->text ); /* no leak, this actually gets killed by the core */
-            break;
         case kate_markup_simple:
             if( p_sys->b_formatted )
-            {
-                /* the HTML renderer expects a top level text tag pair */
-                char *buffer = NULL;
-                if( asprintf( &buffer, "<text>%s</text>", ev->text ) >= 0 )
-                {
-                    p_spu->p_region->psz_html = buffer;
-                }
-                break;
-            }
-            /* if not formatted, we fall through */
+//                p_spu->p_region->p_text = ParseSubtitles(&p_spu->p_region->i_align, ev->text );
+                ;//FIXME
+            else
+                p_spu->p_region->p_text = text_segment_New( ev->text ); /* no leak, this actually gets killed by the core */
+            break;
         default:
             /* we don't know about this one, so remove markup and display as text */
             {
                 char *copy = strdup( ev->text );
                 size_t len0 = strlen( copy ) + 1;
                 kate_text_remove_markup( ev->text_encoding, copy, &len0 );
-                p_spu->p_region->psz_text = copy;
+                p_spu->p_region->p_text = text_segment_New( copy );
+                free( copy );
             }
             break;
     }
@@ -1039,7 +1060,7 @@ static int OnConfigurationChanged( decoder_t *p_dec, const char *psz_var,
 
     TEST_TIGER_VAR( "kate-tiger-default-font-color" )
     {
-        p_sys->i_tiger_default_font_color = (p_sys->i_tiger_default_font_color & 0xff00000000) | newval.i_int;
+        p_sys->i_tiger_default_font_color = (p_sys->i_tiger_default_font_color & 0xff000000U) | newval.i_int;
         UpdateTigerFontColor( p_dec );
     }
 
@@ -1051,7 +1072,7 @@ static int OnConfigurationChanged( decoder_t *p_dec, const char *psz_var,
 
     TEST_TIGER_VAR( "kate-tiger-default-background-color" )
     {
-        p_sys->i_tiger_default_background_color = (p_sys->i_tiger_default_background_color & 0xff00000000) | newval.i_int;
+        p_sys->i_tiger_default_background_color = (p_sys->i_tiger_default_background_color & 0xff000000U) | newval.i_int;
         UpdateTigerBackgroundColor( p_dec );
     }
 
@@ -1170,7 +1191,8 @@ static subpicture_t *DecodePacket( decoder_t *p_dec, kate_packet *p_kp, block_t 
     }
 
     p_spu->i_start = p_block->i_pts;
-    p_spu->i_stop = p_block->i_pts + INT64_C(1000000)*ev->duration*p_sys->ki.gps_denominator/p_sys->ki.gps_numerator;
+    p_spu->i_stop = p_block->i_pts + CLOCK_FREQ *
+        ev->duration * p_sys->ki.gps_denominator / p_sys->ki.gps_numerator;
     p_spu->b_ephemer = false;
     p_spu->b_absolute = false;
 
@@ -1260,7 +1282,7 @@ static subpicture_t *SetupSimpleKateSPU( decoder_t *p_dec, subpicture_t *p_spu,
         if( !p_bitmap_region )
         {
             msg_Err( p_dec, "cannot allocate SPU region" );
-            decoder_DeleteSubpicture( p_dec, p_spu );
+            subpicture_Delete( p_spu );
             return NULL;
         }
 
@@ -1282,7 +1304,7 @@ static subpicture_t *SetupSimpleKateSPU( decoder_t *p_dec, subpicture_t *p_spu,
         msg_Err( p_dec, "cannot allocate SPU region" );
         if( p_bitmap_region )
             subpicture_region_Delete( p_bitmap_region );
-        decoder_DeleteSubpicture( p_dec, p_spu );
+        subpicture_Delete( p_spu );
         return NULL;
     }
 

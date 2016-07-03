@@ -186,7 +186,6 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
 {
     picture_t *p_outpic;
     bool b_vertical_split, b_left_to_right;
-    int i_index;
 
     if( !p_pic ) return NULL;
 
@@ -202,7 +201,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
         return NULL;
     }
 
-    for( i_index = 0 ; i_index < p_pic->i_planes ; i_index++ )
+    for( int i_index = 0 ; i_index < p_pic->i_planes ; i_index++ )
     {
         if ( b_vertical_split )
             VerticalMirror( p_pic, p_outpic, i_index, b_left_to_right );
@@ -233,9 +232,6 @@ static void VerticalMirror( picture_t *p_pic, picture_t *p_outpic, int i_plane,
                                  true );
             break;
         case VLC_CODEC_UYVY:
-        case VLC_CODEC_CYUV:
-            YUV422VerticalMirror( p_pic, p_outpic, i_plane, b_left_to_right,
-                                 false );
             break;
         case VLC_CODEC_RGB24:
             RV24VerticalMirror( p_pic, p_outpic, i_plane, b_left_to_right );
@@ -244,7 +240,7 @@ static void VerticalMirror( picture_t *p_pic, picture_t *p_outpic, int i_plane,
             RV32VerticalMirror( p_pic, p_outpic, i_plane, b_left_to_right );
             break;
         default:
-            assert( false );
+            vlc_assert_unreachable();
     }
 }
 

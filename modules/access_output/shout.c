@@ -184,7 +184,7 @@ static int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
-    vlc_UrlParse( &url , p_access->psz_path, 0 );
+    vlc_UrlParse( &url , p_access->psz_path );
     if( url.i_port <= 0 )
         url.i_port = 8000;
 
@@ -316,11 +316,7 @@ static int Open( vlc_object_t *p_this )
     while ( i_ret != SHOUTERR_CONNECTED )
     {
         /* Shout parameters cannot be changed on an open connection */
-        i_ret = shout_close( p_shout );
-        if( i_ret == SHOUTERR_SUCCESS )
-        {
-            i_ret = SHOUTERR_UNCONNECTED;
-        }
+        shout_close( p_shout );
 
         /* Re-initialize for Shoutcast using ICY protocol. Not needed for initial connection
            but it is when we are reconnecting after other protocol was tried. */
@@ -341,11 +337,7 @@ static int Open( vlc_object_t *p_this )
             msg_Warn( p_access, "failed to connect using 'icy' (shoutcast) protocol" );
 
             /* Shout parameters cannot be changed on an open connection */
-            i_ret = shout_close( p_shout );
-            if( i_ret == SHOUTERR_SUCCESS )
-            {
-                i_ret = SHOUTERR_UNCONNECTED;
-            }
+            shout_close( p_shout );
 
             /* IceCAST using HTTP protocol */
             i_ret = shout_set_protocol( p_shout, SHOUT_PROTOCOL_HTTP );

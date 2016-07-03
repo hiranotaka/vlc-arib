@@ -1,9 +1,9 @@
 # GSM
 GSM_VERSION := 1.0.13
-GSM_URL := $(CONTRIB_VIDEOLAN)/libgsm_$(GSM_VERSION).tar.gz
+GSM_URL := http://libgsm.sourcearchive.com/downloads/$(GSM_VERSION)/libgsm_$(GSM_VERSION).orig.tar.gz
 
 $(TARBALLS)/libgsm_$(GSM_VERSION).tar.gz:
-	$(call download,$(GSM_URL))
+	$(call download_pkg,$(GSM_URL),gsm)
 
 .sum-gsm: libgsm_$(GSM_VERSION).tar.gz
 
@@ -11,6 +11,7 @@ gsm: libgsm_$(GSM_VERSION).tar.gz .sum-gsm
 	$(UNPACK)
 	mv gsm-1.0-* libgsm_$(GSM_VERSION)
 	$(APPLY) $(SRC)/gsm/gsm-cross.patch
+	$(APPLY) $(SRC)/gsm/gsm-missing-include.patch
 	sed -e 's/^CFLAGS.*=/CFLAGS+=/' -i.orig libgsm_$(GSM_VERSION)/Makefile
 	$(MOVE)
 

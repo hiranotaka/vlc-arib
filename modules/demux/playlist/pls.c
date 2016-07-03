@@ -51,6 +51,7 @@ int Import_PLS( vlc_object_t *p_this )
 {
     demux_t *p_demux = (demux_t *)p_this;
     const uint8_t *p_peek;
+    CHECK_FILE();
     CHECK_PEEK( p_peek, 10 );
 
     if( POKE( p_peek, "[playlist]", 10 ) || POKE( p_peek, "[Reference]", 10 ) ||
@@ -78,7 +79,6 @@ void Close_PLS( vlc_object_t *p_this )
 
 static int Demux( demux_t *p_demux )
 {
-    mtime_t        i_duration = -1;
     char          *psz_name = NULL;
     char          *psz_line;
     char          *psz_mrl = NULL;
@@ -142,7 +142,7 @@ static int Demux( demux_t *p_demux )
             if( psz_mrl )
             {
                 p_input = input_item_New( psz_mrl, psz_name );
-                input_item_CopyOptions( p_current_input, p_input );
+                input_item_CopyOptions( p_input, p_current_input );
                 input_item_node_AppendItem( p_subitems, p_input );
                 vlc_gc_decref( p_input );
                 free( psz_mrl_orig );
@@ -154,7 +154,6 @@ static int Demux( demux_t *p_demux )
             }
             free( psz_name );
             psz_name = NULL;
-            i_duration = -1;
             i_item = i_new_item;
         }
 
@@ -177,13 +176,7 @@ static int Demux( demux_t *p_demux )
             psz_name = strdup( psz_value );
         }
         else if( !strncasecmp( psz_key, "length", sizeof("length") -1 ) )
-        {
-            i_duration = atoll( psz_value );
-            if( i_duration != -1 )
-            {
-                i_duration *= 1000000;
-            }
-        }
+            /* duration in seconds */;
         else
         {
             msg_Warn( p_demux, "unknown key found in pls file: %s", psz_key );
@@ -194,7 +187,7 @@ static int Demux( demux_t *p_demux )
     if( psz_mrl )
     {
         p_input = input_item_New( psz_mrl, psz_name );
-        input_item_CopyOptions( p_current_input, p_input );
+        input_item_CopyOptions( p_input, p_current_input );
         input_item_node_AppendItem( p_subitems, p_input );
         vlc_gc_decref( p_input );
         free( psz_mrl_orig );

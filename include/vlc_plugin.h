@@ -148,12 +148,14 @@ enum vlc_module_properties
 #define SUBCAT_AUDIO_AFILTER 203
 #define SUBCAT_AUDIO_VISUAL 204
 #define SUBCAT_AUDIO_MISC 205
+#define SUBCAT_AUDIO_RESAMPLER 206
 
 #define CAT_VIDEO 3
 #define SUBCAT_VIDEO_GENERAL 301
 #define SUBCAT_VIDEO_VOUT 302
 #define SUBCAT_VIDEO_VFILTER 303
 #define SUBCAT_VIDEO_SUBPIC 305
+#define SUBCAT_VIDEO_SPLITTER 306
 
 #define CAT_INPUT 4
 #define SUBCAT_INPUT_GENERAL 401
@@ -171,6 +173,7 @@ enum vlc_module_properties
 #define SUBCAT_SOUT_ACO 504
 #define SUBCAT_SOUT_PACKETIZER 505
 #define SUBCAT_SOUT_VOD 507
+#define SUBCAT_SOUT_RENDERER 508
 
 #define CAT_ADVANCED 6
 #define SUBCAT_ADVANCED_MISC 602
@@ -185,8 +188,8 @@ enum vlc_module_properties
 /**
  * Current plugin ABI version
  */
-# define MODULE_SYMBOL 2_2_0b
-# define MODULE_SUFFIX "__2_2_0b"
+# define MODULE_SYMBOL 3_0_0b
+# define MODULE_SUFFIX "__3_0_0b"
 
 /*****************************************************************************
  * Add a few defines. You do not want to read this section. Really.
@@ -233,7 +236,7 @@ enum vlc_module_properties
 #   define EXTERN_SYMBOL
 #endif
 
-typedef int (*vlc_set_cb) (void *, void *, int, ...);
+EXTERN_SYMBOL typedef int (*vlc_set_cb) (void *, void *, int, ...);
 
 #define vlc_plugin_set(...) vlc_set (opaque,   NULL, __VA_ARGS__)
 #define vlc_module_set(...) vlc_set (opaque, module, __VA_ARGS__)
@@ -484,9 +487,6 @@ VLC_METADATA_EXPORTS
 #define change_float_range( minv, maxv ) \
     vlc_config_set (VLC_CONFIG_RANGE, (double)(minv), (double)(maxv));
 
-#define change_action_add( pf_action, text ) \
-    (void)(pf_action, text);
-
 /* For options that are saved but hidden from the preferences panel */
 #define change_private() \
     vlc_config_set (VLC_CONFIG_PRIVATE);
@@ -509,26 +509,40 @@ VLC_METADATA_EXPORTS
          return value; \
     }
 
-#if defined (__LIBVLC__)
-# define VLC_COPYRIGHT_EXPORT VLC_META_EXPORT (copyright, \
+#define VLC_COPYRIGHT_VIDEOLAN \
     "\x43\x6f\x70\x79\x72\x69\x67\x68\x74\x20\x28\x43\x29\x20\x74\x68" \
     "\x65\x20\x56\x69\x64\x65\x6f\x4c\x41\x4e\x20\x56\x4c\x43\x20\x6d" \
     "\x65\x64\x69\x61\x20\x70\x6c\x61\x79\x65\x72\x20\x64\x65\x76\x65" \
-    "\x6c\x6f\x70\x65\x72\x73" )
-# define VLC_LICENSE_EXPORT VLC_META_EXPORT (license, \
+    "\x6c\x6f\x70\x65\x72\x73"
+#define VLC_LICENSE_LGPL_2_1_PLUS \
     "\x4c\x69\x63\x65\x6e\x73\x65\x64\x20\x75\x6e\x64\x65\x72\x20\x74" \
     "\x68\x65\x20\x74\x65\x72\x6d\x73\x20\x6f\x66\x20\x74\x68\x65\x20" \
     "\x47\x4e\x55\x20\x4c\x65\x73\x73\x65\x72\x20\x47\x65\x6e\x65\x72" \
     "\x61\x6c\x20\x50\x75\x62\x6c\x69\x63\x20\x4c\x69\x63\x65\x6e\x73" \
     "\x65\x2c\x20\x76\x65\x72\x73\x69\x6f\x6e\x20\x32\x2e\x31\x20\x6f" \
-    "\x72\x20\x6c\x61\x74\x65\x72\x2e" )
+    "\x72\x20\x6c\x61\x74\x65\x72\x2e"
+#define VLC_LICENSE_GPL_2_PLUS \
+    "\x4c\x69\x63\x65\x6e\x73\x65\x64\x20\x75\x6e\x64\x65\x72\x20\x74" \
+    "\x68\x65\x20\x74\x65\x72\x6d\x73\x20\x6f\x66\x20\x74\x68\x65\x20" \
+    "\x47\x4e\x55\x20\x47\x65\x6e\x65\x72\x61\x6c\x20\x50\x75\x62\x6c" \
+    "\x69\x63\x20\x4c\x69\x63\x65\x6e\x73\x65\x2c\x20\x76\x65\x72\x73" \
+    "\x69\x6f\x6e\x20\x32\x20\x6f\x72\x20\x6c\x61\x74\x65\x72\x2e"
+#if defined (__LIBVLC__)
+# define VLC_MODULE_COPYRIGHT VLC_COPYRIGHT_VIDEOLAN
+# ifndef VLC_MODULE_LICENSE
+#  define VLC_MODULE_LICENSE VLC_LICENSE_LGPL_2_1_PLUS
+# endif
+#endif
+
+#ifdef VLC_MODULE_COPYRIGHT
+# define VLC_COPYRIGHT_EXPORT VLC_META_EXPORT(copyright, VLC_MODULE_COPYRIGHT)
 #else
-# if !defined (VLC_COPYRIGHT_EXPORT)
-#  define VLC_COPYRIGHT_EXPORT
-# endif
-# if !defined (VLC_LICENSE_EXPORT)
-#  define VLC_LICENSE_EXPORT
-# endif
+# define VLC_COPYRIGHT_EXPORT
+#endif
+#ifdef VLC_MODULE_LICENSE
+# define VLC_LICENSE_EXPORT VLC_META_EXPORT(license, VLC_MODULE_LICENSE)
+#else
+# define VLC_LICENSE_EXPORT
 #endif
 
 #define VLC_METADATA_EXPORTS \

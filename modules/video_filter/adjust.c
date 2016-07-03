@@ -41,12 +41,6 @@
 
 #include "adjust_sat_hue.h"
 
-#ifndef M_PI
-#   define M_PI 3.14159265358979323846
-#endif
-
-#define eight_times( x )    x x x x x x x x
-
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
@@ -91,7 +85,7 @@ vlc_module_begin ()
     add_float_with_range( "brightness", 1.0, 0.0, 2.0,
                            LUM_TEXT, LUM_LONGTEXT, false )
         change_safe()
-    add_integer_with_range( "hue", 0, 0, 360,
+    add_float_with_range( "hue", 0, -180., +180.,
                             HUE_TEXT, HUE_LONGTEXT, false )
         change_safe()
     add_float_with_range( "saturation", 1.0, 0.0, 3.0,
@@ -119,16 +113,16 @@ static const char *const ppsz_filter_options[] = {
 struct filter_sys_t
 {
     vlc_mutex_t lock;
-    double     f_contrast;
-    double     f_brightness;
-    int        i_hue;
-    double     f_saturation;
-    double     f_gamma;
-    bool       b_brightness_threshold;
-    int        (* pf_process_sat_hue)( picture_t *, picture_t *, int, int, int,
-                                       int, int );
-    int        (* pf_process_sat_hue_clip)( picture_t *, picture_t *, int, int,
-                                            int, int, int );
+    float f_contrast;
+    float f_brightness;
+    float f_hue;
+    float f_saturation;
+    float f_gamma;
+    bool  b_brightness_threshold;
+    int (*pf_process_sat_hue)( picture_t *, picture_t *, int, int, int,
+                               int, int );
+    int (*pf_process_sat_hue_clip)( picture_t *, picture_t *, int, int,
+                                    int, int, int );
 };
 
 /*****************************************************************************
@@ -158,7 +152,7 @@ static int Create( vlc_object_t *p_this )
 
     p_sys->f_contrast = var_CreateGetFloatCommand( p_filter, "contrast" );
     p_sys->f_brightness = var_CreateGetFloatCommand( p_filter, "brightness" );
-    p_sys->i_hue = var_CreateGetIntegerCommand( p_filter, "hue" );
+    p_sys->f_hue = var_CreateGetFloatCommand( p_filter, "hue" );
     p_sys->f_saturation = var_CreateGetFloatCommand( p_filter, "saturation" );
     p_sys->f_gamma = var_CreateGetFloatCommand( p_filter, "gamma" );
     p_sys->b_brightness_threshold =
@@ -173,6 +167,14 @@ static int Create( vlc_object_t *p_this )
             p_filter->pf_video_filter = FilterPlanar;
             p_sys->pf_process_sat_hue_clip = planar_sat_hue_clip_C;
             p_sys->pf_process_sat_hue = planar_sat_hue_C;
+            break;
+
+        CASE_PLANAR_YUV10
+        CASE_PLANAR_YUV9
+            /* Planar YUV 9-bit or 10-bit */
+            p_filter->pf_video_filter = FilterPlanar;
+            p_sys->pf_process_sat_hue_clip = planar_sat_hue_clip_C_16;
+            p_sys->pf_process_sat_hue = planar_sat_hue_C_16;
             break;
 
         CASE_PACKED_YUV_422
@@ -225,19 +227,11 @@ static void Destroy( vlc_object_t *p_this )
  *****************************************************************************/
 static picture_t *FilterPlanar( filter_t *p_filter, picture_t *p_pic )
 {
-    int pi_luma[256];
-    int pi_gamma[256];
+    /* The full range will only be used for 10-bit */
+    int pi_luma[1024];
+    int pi_gamma[1024];
 
     picture_t *p_outpic;
-    uint8_t *p_in, *p_in_end, *p_line_end;
-    uint8_t *p_out;
-
-    bool b_thres;
-    double  f_hue;
-    double  f_gamma;
-    int32_t i_cont, i_lum;
-    int i_sat, i_sin, i_cos, i_x, i_y;
-    int i;
 
     filter_sys_t *p_sys = p_filter->p_sys;
 
@@ -250,14 +244,37 @@ static picture_t *FilterPlanar( filter_t *p_filter, picture_t *p_pic )
         return NULL;
     }
 
+    bool b_16bit;
+    float f_range;
+    switch( p_filter->fmt_in.video.i_chroma )
+    {
+        CASE_PLANAR_YUV10
+            b_16bit = true;
+            f_range = 1024.f;
+            break;
+        CASE_PLANAR_YUV9
+            b_16bit = true;
+            f_range = 512.f;
+            break;
+        default:
+            b_16bit = false;
+            f_range = 256.f;
+    }
+
+    const float f_max = f_range - 1.f;
+    const unsigned i_max = f_max;
+    const int i_range = f_range;
+    const unsigned i_size = i_range;
+    const unsigned i_mid = i_range >> 1;
+
     /* Get variables */
     vlc_mutex_lock( &p_sys->lock );
-    i_cont = (int)( p_sys->f_contrast * 255 );
-    i_lum = (int)( (p_sys->f_brightness - 1.0)*255 );
-    f_hue = (float)( p_sys->i_hue * M_PI / 180 );
-    i_sat = (int)( p_sys->f_saturation * 256 );
-    f_gamma = 1.0 / p_sys->f_gamma;
-    b_thres = p_sys->b_brightness_threshold;
+    int32_t i_cont = lroundf( p_sys->f_contrast * f_max );
+    int32_t i_lum = lroundf( (p_sys->f_brightness - 1.f) * f_max );
+    float f_hue = p_sys->f_hue * (float)(M_PI / 180.);
+    int i_sat = (int)( p_sys->f_saturation * f_range );
+    float f_gamma = 1.f / p_sys->f_gamma;
+    bool b_thres = p_sys->b_brightness_threshold;
     vlc_mutex_unlock( &p_sys->lock );
 
     /*
@@ -268,18 +285,18 @@ static picture_t *FilterPlanar( filter_t *p_filter, picture_t *p_pic )
 
         /* Contrast is a fast but kludged function, so I put this gap to be
          * cleaner :) */
-        i_lum += 128 - i_cont / 2;
+        i_lum += i_mid - i_cont / 2;
 
         /* Fill the gamma lookup table */
-        for( i = 0 ; i < 256 ; i++ )
+        for( unsigned i = 0 ; i < i_size; i++ )
         {
-            pi_gamma[ i ] = clip_uint8_vlc( pow(i / 255.0, f_gamma) * 255.0);
+            pi_gamma[ i ] = VLC_CLIP( powf(i / f_max, f_gamma) * f_max, 0, i_max );
         }
 
         /* Fill the luma lookup table */
-        for( i = 0 ; i < 256 ; i++ )
+        for( unsigned i = 0 ; i < i_size; i++ )
         {
-            pi_luma[ i ] = pi_gamma[clip_uint8_vlc( i_lum + i_cont * i / 256)];
+            pi_luma[ i ] = pi_gamma[VLC_CLIP( (int)(i_lum + i_cont * i / i_range), 0, i_max )];
         }
     }
     else
@@ -288,9 +305,9 @@ static picture_t *FilterPlanar( filter_t *p_filter, picture_t *p_pic )
          * We get luma as threshold value: the higher it is, the darker is
          * the image. Should I reverse this?
          */
-        for( i = 0 ; i < 256 ; i++ )
+        for( int i = 0 ; i < i_range; i++ )
         {
-            pi_luma[ i ] = (i < i_lum) ? 0 : 255;
+            pi_luma[ i ] = (i < i_lum) ? 0 : i_max;
         }
 
         /*
@@ -302,50 +319,91 @@ static picture_t *FilterPlanar( filter_t *p_filter, picture_t *p_pic )
     /*
      * Do the Y plane
      */
-
-    p_in = p_pic->p[Y_PLANE].p_pixels;
-    p_in_end = p_in + p_pic->p[Y_PLANE].i_visible_lines
-                      * p_pic->p[Y_PLANE].i_pitch - 8;
-
-    p_out = p_outpic->p[Y_PLANE].p_pixels;
-
-    for( ; p_in < p_in_end ; )
+    if ( b_16bit )
     {
-        p_line_end = p_in + p_pic->p[Y_PLANE].i_visible_pitch - 8;
+        uint16_t *p_in, *p_in_end, *p_line_end;
+        uint16_t *p_out;
+        p_in = (uint16_t *) p_pic->p[Y_PLANE].p_pixels;
+        p_in_end = p_in + p_pic->p[Y_PLANE].i_visible_lines
+            * (p_pic->p[Y_PLANE].i_pitch >> 1) - 8;
 
-        for( ; p_in < p_line_end ; )
+        p_out = (uint16_t *) p_outpic->p[Y_PLANE].p_pixels;
+
+        for( ; p_in < p_in_end ; )
         {
-            /* Do 8 pixels at a time */
-            *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
-            *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
-            *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
-            *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+            p_line_end = p_in + (p_pic->p[Y_PLANE].i_visible_pitch >> 1) - 8;
+
+            for( ; p_in < p_line_end ; )
+            {
+                /* Do 8 pixels at a time */
+                *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+                *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+                *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+                *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+            }
+
+            p_line_end += 8;
+
+            for( ; p_in < p_line_end ; )
+            {
+                *p_out++ = pi_luma[ *p_in++ ];
+            }
+
+            p_in += (p_pic->p[Y_PLANE].i_pitch >> 1)
+                - (p_pic->p[Y_PLANE].i_visible_pitch >> 1);
+            p_out += (p_outpic->p[Y_PLANE].i_pitch >> 1)
+                - (p_outpic->p[Y_PLANE].i_visible_pitch >> 1);
         }
+    }
+    else
+    {
+        uint8_t *p_in, *p_in_end, *p_line_end;
+        uint8_t *p_out;
+        p_in = p_pic->p[Y_PLANE].p_pixels;
+        p_in_end = p_in + p_pic->p[Y_PLANE].i_visible_lines
+                 * p_pic->p[Y_PLANE].i_pitch - 8;
 
-        p_line_end += 8;
+        p_out = p_outpic->p[Y_PLANE].p_pixels;
 
-        for( ; p_in < p_line_end ; )
+        for( ; p_in < p_in_end ; )
         {
-            *p_out++ = pi_luma[ *p_in++ ];
-        }
+            p_line_end = p_in + p_pic->p[Y_PLANE].i_visible_pitch - 8;
 
-        p_in += p_pic->p[Y_PLANE].i_pitch
-              - p_pic->p[Y_PLANE].i_visible_pitch;
-        p_out += p_outpic->p[Y_PLANE].i_pitch
-               - p_outpic->p[Y_PLANE].i_visible_pitch;
+            for( ; p_in < p_line_end ; )
+            {
+                /* Do 8 pixels at a time */
+                *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+                *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+                *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+                *p_out++ = pi_luma[ *p_in++ ]; *p_out++ = pi_luma[ *p_in++ ];
+            }
+
+            p_line_end += 8;
+
+            for( ; p_in < p_line_end ; )
+            {
+                *p_out++ = pi_luma[ *p_in++ ];
+            }
+
+            p_in += p_pic->p[Y_PLANE].i_pitch
+                  - p_pic->p[Y_PLANE].i_visible_pitch;
+            p_out += p_outpic->p[Y_PLANE].i_pitch
+                   - p_outpic->p[Y_PLANE].i_visible_pitch;
+        }
     }
 
     /*
      * Do the U and V planes
      */
 
-    i_sin = sin(f_hue) * 256;
-    i_cos = cos(f_hue) * 256;
+    int i_sin = sinf(f_hue) * f_max;
+    int i_cos = cosf(f_hue) * f_max;
 
-    i_x = ( cos(f_hue) + sin(f_hue) ) * 32768;
-    i_y = ( cos(f_hue) - sin(f_hue) ) * 32768;
+    /* pow(2, (bpp * 2) - 1) */
+    int i_x = ( cosf(f_hue) + sinf(f_hue) ) * f_range * i_mid;
+    int i_y = ( cosf(f_hue) - sinf(f_hue) ) * f_range * i_mid;
 
-    if ( i_sat > 256 )
+    if ( i_sat > i_range )
     {
         /* Currently no errors are implemented in the function, if any are added
          * check them here */
@@ -383,7 +441,6 @@ static picture_t *FilterPacked( filter_t *p_filter, picture_t *p_pic )
     double  f_gamma;
     int32_t i_cont, i_lum;
     int i_sat, i_sin, i_cos, i_x, i_y;
-    int i;
 
     filter_sys_t *p_sys = p_filter->p_sys;
 
@@ -415,7 +472,7 @@ static picture_t *FilterPacked( filter_t *p_filter, picture_t *p_pic )
     vlc_mutex_lock( &p_sys->lock );
     i_cont = (int)( p_sys->f_contrast * 255 );
     i_lum = (int)( (p_sys->f_brightness - 1.0)*255 );
-    f_hue = (float)( p_sys->i_hue * M_PI / 180 );
+    f_hue = p_sys->f_hue * (float)(M_PI / 180.);
     i_sat = (int)( p_sys->f_saturation * 256 );
     f_gamma = 1.0 / p_sys->f_gamma;
     b_thres = p_sys->b_brightness_threshold;
@@ -432,13 +489,13 @@ static picture_t *FilterPacked( filter_t *p_filter, picture_t *p_pic )
         i_lum += 128 - i_cont / 2;
 
         /* Fill the gamma lookup table */
-        for( i = 0 ; i < 256 ; i++ )
+        for( int i = 0 ; i < 256 ; i++ )
         {
           pi_gamma[ i ] = clip_uint8_vlc( pow(i / 255.0, f_gamma) * 255.0);
         }
 
         /* Fill the luma lookup table */
-        for( i = 0 ; i < 256 ; i++ )
+        for( int i = 0 ; i < 256 ; i++ )
         {
             pi_luma[ i ] = pi_gamma[clip_uint8_vlc( i_lum + i_cont * i / 256)];
         }
@@ -449,7 +506,7 @@ static picture_t *FilterPacked( filter_t *p_filter, picture_t *p_pic )
          * We get luma as threshold value: the higher it is, the darker is
          * the image. Should I reverse this?
          */
-        for( i = 0 ; i < 256 ; i++ )
+        for( int i = 0 ; i < 256 ; i++ )
         {
             pi_luma[ i ] = (i < i_lum) ? 0 : 255;
         }
@@ -550,7 +607,7 @@ static int AdjustCallback( vlc_object_t *p_this, char const *psz_var,
     else if( !strcmp( psz_var, "brightness" ) )
         p_sys->f_brightness = newval.f_float;
     else if( !strcmp( psz_var, "hue" ) )
-        p_sys->i_hue = newval.i_int;
+        p_sys->f_hue = newval.f_float;
     else if( !strcmp( psz_var, "saturation" ) )
         p_sys->f_saturation = newval.f_float;
     else if( !strcmp( psz_var, "gamma" ) )

@@ -10,7 +10,7 @@ PKGS_FOUND += projectM
 endif
 
 $(TARBALLS)/projectM-$(PROJECTM_VERSION)-Source.tar.gz:
-	$(call download,$(PROJECTM_URL))
+	$(call download_pkg,$(PROJECTM_URL),projectM)
 
 .sum-projectM: projectM-$(PROJECTM_VERSION)-Source.tar.gz
 
@@ -26,7 +26,7 @@ endif
 
 DEPS_projectM = glew $(DEPS_glew)
 
-.projectM: projectM
+.projectM: projectM toolchain.cmake
 	-cd $< && rm CMakeCache.txt
 	cd $< && $(HOSTVARS) $(CMAKE) \
 		-DINCLUDE-PROJECTM-LIBVISUAL:BOOL=OFF \

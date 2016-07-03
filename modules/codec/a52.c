@@ -90,6 +90,7 @@ struct decoder_sys_t
  * Local prototypes
  ****************************************************************************/
 static block_t *DecodeBlock  ( decoder_t *, block_t ** );
+static void Flush( decoder_t * );
 
 static uint8_t *GetOutBuffer ( decoder_t *, block_t ** );
 static block_t *GetAoutBuffer( decoder_t * );
@@ -144,6 +145,7 @@ static int OpenCommon( vlc_object_t *p_this, bool b_packetizer )
         p_dec->pf_packetize    = DecodeBlock;
     else
         p_dec->pf_decode_audio = DecodeBlock;
+    p_dec->pf_flush            = Flush;
     return VLC_SUCCESS;
 }
 
@@ -160,6 +162,18 @@ static int OpenPacketizer( vlc_object_t *p_this )
     return OpenCommon( p_this, true );
 }
 
+/*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    date_Set( &p_sys->end_date, 0 );
+    p_sys->i_state = STATE_NOSYNC;
+    block_BytestreamEmpty( &p_sys->bytestream );
+}
+
 /****************************************************************************
  * DecodeBlock: the whole thing
  ****************************************************************************
@@ -174,22 +188,25 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
     if( !pp_block || !*pp_block ) return NULL;
 
-    if( (*pp_block)->i_flags&(BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED) )
+    if( (*pp_block)->i_flags & (BLOCK_FLAG_DISCONTINUITY | BLOCK_FLAG_CORRUPTED) )
     {
-        if( (*pp_block)->i_flags&BLOCK_FLAG_CORRUPTED )
+        if( (*pp_block)->i_flags & BLOCK_FLAG_CORRUPTED )
         {
-            p_sys->i_state = STATE_NOSYNC;
-            block_BytestreamEmpty( &p_sys->bytestream );
+            Flush( p_dec );
+            block_Release( *pp_block );
+            *pp_block = NULL;
+            return NULL;
         }
-        date_Set( &p_sys->end_date, 0 );
-        block_Release( *pp_block );
-        return NULL;
+        else /* BLOCK_FLAG_DISCONTINUITY */
+            date_Set( &p_sys->end_date, 0 );
+
     }
 
     if( !date_Get( &p_sys->end_date ) && (*pp_block)->i_pts <= VLC_TS_INVALID)
     {
         /* We've just started the stream, wait for the first PTS. */
         block_Release( *pp_block );
+        *pp_block = NULL;
         return NULL;
     }
 

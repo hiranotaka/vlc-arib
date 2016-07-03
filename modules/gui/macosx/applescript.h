@@ -42,9 +42,11 @@
 
 @property (readwrite) BOOL scriptFullscreenMode;
 @property (readwrite) int audioVolume;
+@property (readwrite) int audioDesync;
 @property (readwrite) int currentTime;
 @property (readonly) int durationOfCurrentItem;
 @property (readonly) NSString *pathOfCurrentItem;
 @property (readonly) NSString *nameOfCurrentItem;
+@property (readonly) BOOL playbackShowsMenu;
 
 @end

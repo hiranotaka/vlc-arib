@@ -129,7 +129,7 @@ struct filter_sys_t
 #define COLS_TEXT N_("Number of columns")
 #define COLS_LONGTEXT N_( \
         "Number of image columns in the mosaic (only used if " \
-        "positioning method is set to \"fixed\"." )
+        "positioning method is set to \"fixed\".)" )
 
 #define AR_TEXT N_("Keep aspect ratio")
 #define AR_LONGTEXT N_( \
@@ -433,7 +433,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     filter_sys_t *p_sys = p_filter->p_sys;
     bridge_t *p_bridge;
 
-    int i_index, i_real_index, i_row, i_col;
+    int i_real_index, i_row, i_col;
     int i_greatest_real_index_used = p_sys->i_order_length - 1;
 
     unsigned int col_inner_width, row_inner_height;
@@ -486,7 +486,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     if ( p_sys->i_position == position_auto )
     {
         int i_numpics = p_sys->i_order_length; /* keep slots and all */
-        for ( i_index = 0; i_index < p_bridge->i_es_num; i_index++ )
+        for( int i_index = 0; i_index < p_bridge->i_es_num; i_index++ )
         {
             bridged_es_t *p_es = p_bridge->pp_es[i_index];
             if ( !p_es->b_empty )
@@ -496,8 +496,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
                 {
                     /* We also want to leave slots for images given in
                      * mosaic-order that are not available in p_vout_picture */
-                    int i;
-                    for( i = 0; i < p_sys->i_order_length ; i++ )
+                    for( int i = 0; i < p_sys->i_order_length ; i++ )
                     {
                         if( !strcmp( p_sys->ppsz_order[i], p_es->psz_id ) )
                         {
@@ -522,7 +521,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
 
     i_real_index = 0;
 
-    for ( i_index = 0; i_index < p_bridge->i_es_num; i_index++ )
+    for( int i_index = 0; i_index < p_bridge->i_es_num; i_index++ )
     {
         bridged_es_t *p_es = p_bridge->pp_es[i_index];
         video_format_t fmt_in, fmt_out;
@@ -648,10 +647,10 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
         if( !p_region )
         {
             msg_Err( p_filter, "cannot allocate SPU region" );
-            p_filter->pf_sub_buffer_del( p_filter, p_spu );
+            subpicture_Delete( p_spu );
             vlc_global_unlock( VLC_MOSAIC_MUTEX );
             vlc_mutex_unlock( &p_sys->lock );
-            return p_spu;
+            return NULL;
         }
 
         if( p_es->i_x >= 0 && p_es->i_y >= 0 )

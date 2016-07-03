@@ -141,7 +141,7 @@ VlcProc::VlcProc( intf_thread_t *pIntf ): SkinObject( pIntf ),
     // Register the equalizer bands
     for( int i = 0; i < EqualizerBands::kNbBands; i++)
     {
-        stringstream ss;
+        std::stringstream ss;
         ss << "equalizer.band(" << i << ")";
         pVarManager->registerVar( m_varEqBands.getBand( i ), ss.str() );
     }
@@ -156,7 +156,7 @@ VlcProc::VlcProc( intf_thread_t *pIntf ): SkinObject( pIntf ),
 
     ADD_CALLBACK( pIntf->p_sys->p_playlist, "volume" )
     ADD_CALLBACK( pIntf->p_sys->p_playlist, "mute" )
-    ADD_CALLBACK( pIntf->p_libvlc, "intf-toggle-fscontrol" )
+    ADD_CALLBACK( pIntf->obj.libvlc, "intf-toggle-fscontrol" )
 
     ADD_CALLBACK( pIntf->p_sys->p_playlist, "random" )
     ADD_CALLBACK( pIntf->p_sys->p_playlist, "loop" )
@@ -199,7 +199,7 @@ VlcProc::~VlcProc()
                      onGenericCallback, this );
     var_DelCallback( getIntf()->p_sys->p_playlist, "mute",
                      onGenericCallback, this );
-    var_DelCallback( getIntf()->p_libvlc, "intf-toggle-fscontrol",
+    var_DelCallback( getIntf()->obj.libvlc, "intf-toggle-fscontrol",
                      onGenericCallback, this );
 
     var_DelCallback( getIntf()->p_sys->p_playlist, "random",
@@ -227,11 +227,13 @@ int VlcProc::onInputNew( vlc_object_t *pObj, const char *pVariable,
     VlcProc *pThis = (VlcProc*)pParam;
     input_thread_t *pInput = static_cast<input_thread_t*>(newval.p_address);
 
-    var_AddCallback( pInput, "intf-event", onGenericCallback2, pThis );
-    var_AddCallback( pInput, "bit-rate", onGenericCallback, pThis );
-    var_AddCallback( pInput, "sample-rate", onGenericCallback, pThis );
-    var_AddCallback( pInput, "can-record", onGenericCallback, pThis );
-
+    if( pInput != NULL )
+    {
+        var_AddCallback( pInput, "intf-event", onGenericCallback2, pThis );
+        var_AddCallback( pInput, "bit-rate", onGenericCallback, pThis );
+        var_AddCallback( pInput, "sample-rate", onGenericCallback, pThis );
+        var_AddCallback( pInput, "can-record", onGenericCallback, pThis );
+    }
     return VLC_SUCCESS;
 }
 
@@ -353,7 +355,7 @@ int VlcProc::onGenericCallback( vlc_object_t *pObj, const char *pVariable,
     { \
     if( strcmp( pVariable, var ) == 0 ) \
     { \
-        string label = var; \
+        std::string label = var; \
         CmdGeneric *pCmd = new CmdCallback( pThis->getIntf(), pObj, newVal, \
                                             &VlcProc::func, label ); \
         if( pCmd ) \
@@ -404,7 +406,7 @@ int VlcProc::onGenericCallback2( vlc_object_t *pObj, const char *pVariable,
      **/
     if( strcmp( pVariable, "intf-event" ) == 0 )
     {
-        stringstream label;
+        std::stringstream label;
         bool b_remove;
         switch( newVal.i_int )
         {
@@ -447,7 +449,7 @@ void VlcProc::on_intf_event_changed( vlc_object_t* p_obj, vlc_value_t newVal )
 
     if( !getIntf()->p_sys->p_input )
     {
-        msg_Dbg( getIntf(), "new input %p detected", pInput );
+        msg_Dbg( getIntf(), "new input %p detected", (void *)pInput );
 
         getIntf()->p_sys->p_input = pInput;
         vlc_object_hold( pInput );
@@ -542,7 +544,8 @@ void VlcProc::on_intf_event_changed( vlc_object_t* p_obj, vlc_value_t newVal )
             break;
 
         case INPUT_EVENT_DEAD:
-            msg_Dbg( getIntf(), "end of input detected for %p", pInput );
+            msg_Dbg( getIntf(), "end of input detected for %p",
+                     (void *)pInput );
 
             var_DelCallback( pInput, "intf-event", onGenericCallback2, this );
             var_DelCallback( pInput, "bit-rate", onGenericCallback, this );
@@ -738,14 +741,20 @@ void VlcProc::update_current_input()
     {
         // Update short name (as defined by --input-title-format)
         char *psz_fmt = var_InheritString( getIntf(), "input-title-format" );
-        char *psz_name = str_format_meta( pInput, psz_fmt );
-        SET_TEXT( m_cVarStreamName, UString( getIntf(), psz_name ) );
-        free( psz_fmt );
+        char *psz_name = NULL;
+        if( psz_fmt != NULL )
+        {
+            psz_name = vlc_strfinput( pInput, psz_fmt );
+            free( psz_fmt );
+        }
+
+        SET_TEXT( m_cVarStreamName, UString( getIntf(),
+                                             psz_name ? psz_name : "" ) );
         free( psz_name );
 
         // Update local path (if possible) or full uri
         char *psz_uri = input_item_GetURI( pItem );
-        char *psz_path = make_path( psz_uri );
+        char *psz_path = vlc_uri2path( psz_uri );
         char *psz_save = psz_path ? psz_path : psz_uri;
         SET_TEXT( m_cVarStreamURI, UString( getIntf(), psz_save ) );
         free( psz_path );
@@ -753,7 +762,7 @@ void VlcProc::update_current_input()
 
         // Update art uri
         char *psz_art = input_item_GetArtURL( pItem );
-        SET_STRING( m_cVarStreamArt, string( psz_art ? psz_art : "" ) );
+        SET_STRING( m_cVarStreamArt, std::string( psz_art ? psz_art : "" ) );
         free( psz_art );
     }
 }

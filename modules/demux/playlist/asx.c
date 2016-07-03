@@ -41,10 +41,6 @@
 
 #include "playlist.h"
 
-struct demux_sys_t
-{
-};
-
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
@@ -123,7 +119,7 @@ static void ReadElement( xml_reader_t *p_xml_reader, char **ppsz_txt )
     xml_ReaderNextNode( p_xml_reader, &psz_node );
     free( *ppsz_txt );
     *ppsz_txt = strdup( psz_node );
-    resolve_xml_special_chars( *ppsz_txt );
+    vlc_xml_decode( *ppsz_txt );
 
     /* Read the end element */
     xml_ReaderNextNode( p_xml_reader, &psz_node );
@@ -149,6 +145,7 @@ int Import_ASX( vlc_object_t *p_this )
 {
     demux_t *p_demux = (demux_t *)p_this;
 
+    CHECK_FILE();
     if( demux_IsPathExtension( p_demux, ".asx" ) ||
         demux_IsPathExtension( p_demux, ".wax" ) ||
         demux_IsPathExtension( p_demux, ".wvx" ) ||
@@ -158,23 +155,14 @@ int Import_ASX( vlc_object_t *p_this )
         ) ||
         demux_IsForced( p_demux, "asx-open" ) )
     {
-        STANDARD_DEMUX_INIT_MSG( "found valid ASX playlist" );
-        return VLC_SUCCESS;
+        msg_Dbg( p_demux, "found valid ASX playlist" );
     }
     else
         return VLC_EGENERIC;
-}
 
-/*****************************************************************************
- * Deactivate: frees unused data
- *****************************************************************************/
-
-void Close_ASX( vlc_object_t *p_this )
-{
-    demux_t *p_demux = (demux_t *)p_this;
-    demux_sys_t *p_sys = p_demux->p_sys;
-
-    free( p_sys );
+    p_demux->pf_control = Control;
+    p_demux->pf_demux = Demux;
+    return VLC_SUCCESS;
 }
 
 static void ProcessEntry( int *pi_n_entry, xml_reader_t *p_xml_reader,
@@ -210,11 +198,11 @@ static void ProcessEntry( int *pi_n_entry, xml_reader_t *p_xml_reader,
             /* Metadata Node */
             if( !strncasecmp( psz_node, "TITLE", 5 ) )
                 ReadElement( p_xml_reader, &psz_title );
-            if( !strncasecmp( psz_node, "AUTHOR", 6 ) )
+            else if( !strncasecmp( psz_node, "AUTHOR", 6 ) )
                 ReadElement( p_xml_reader, &psz_artist );
-            if( !strncasecmp( psz_node, "COPYRIGHT", 9 ) )
+            else if( !strncasecmp( psz_node, "COPYRIGHT", 9 ) )
                 ReadElement( p_xml_reader, &psz_copyright );
-            if( !strncasecmp( psz_node,"MOREINFO", 8 ) )
+            else if( !strncasecmp( psz_node,"MOREINFO", 8 ) )
             {
                 do
                 {
@@ -226,15 +214,15 @@ static void ProcessEntry( int *pi_n_entry, xml_reader_t *p_xml_reader,
                     ReadElement( p_xml_reader, &psz_moreinfo );
                 else
                     psz_moreinfo = strdup( psz_node );
-                resolve_xml_special_chars( psz_moreinfo );
+                vlc_xml_decode( psz_moreinfo );
             }
-            if( !strncasecmp( psz_node, "ABSTRACT", 8 ) )
+            else if( !strncasecmp( psz_node, "ABSTRACT", 8 ) )
                 ReadElement( p_xml_reader, &psz_description );
-            if( !strncasecmp( psz_node, "DURATION", 8 ) )
+            else if( !strncasecmp( psz_node, "DURATION", 8 ) )
                 i_duration = ParseTime( p_xml_reader );
-            if( !strncasecmp( psz_node, "STARTTIME", 9 ) )
+            else if( !strncasecmp( psz_node, "STARTTIME", 9 ) )
                 i_start = ParseTime( p_xml_reader );
-
+            else
             /* Reference Node */
             /* All ref node will be converted into an entry */
             if( !strncasecmp( psz_node, "REF", 3 ) )
@@ -259,7 +247,7 @@ static void ProcessEntry( int *pi_n_entry, xml_reader_t *p_xml_reader,
 
                 if( asprintf( &psz_name, "%d. %s", *pi_n_entry, psz_title ) == -1)
                     psz_name = strdup( psz_title );
-                resolve_xml_special_chars( psz_href );
+                vlc_xml_decode( psz_href );
                 psz_mrl = ProcessMRL( psz_href, psz_prefix );
 
                 /* Add Time information */
@@ -277,9 +265,15 @@ static void ProcessEntry( int *pi_n_entry, xml_reader_t *p_xml_reader,
                 }
 
                 /* Create the input item */
-                p_entry = input_item_NewExt( psz_mrl, psz_name, i_options,
-                        (const char* const*) ppsz_options, VLC_INPUT_OPTION_TRUSTED, i_duration );
-                input_item_CopyOptions( p_current_input, p_entry );
+                p_entry = input_item_NewExt( psz_mrl, psz_name, i_duration,
+                                             ITEM_TYPE_UNKNOWN, ITEM_NET_UNKNOWN );
+                if( p_entry == NULL )
+                    goto end;
+
+                input_item_AddOptions( p_entry, i_options,
+                                       (const char **)ppsz_options,
+                                       VLC_INPUT_OPTION_TRUSTED );
+                input_item_CopyOptions( p_entry, p_current_input );
 
                 /* Add the metadata */
                 if( psz_name )
@@ -297,6 +291,9 @@ static void ProcessEntry( int *pi_n_entry, xml_reader_t *p_xml_reader,
 
                 input_item_node_AppendItem( p_subitems, p_entry );
 
+                input_item_Release( p_entry );
+
+end:
                 while( i_options )
                     free( ppsz_options[--i_options] );
                 free( psz_name );
@@ -361,17 +358,17 @@ static int Demux( demux_t *p_demux )
                 ReadElement( p_xml_reader, &psz_title_asx );
                 input_item_SetTitle( p_current_input, psz_title_asx );
             }
-            if( !strncasecmp( psz_node, "AUTHOR", 6 ) )
+            else if( !strncasecmp( psz_node, "AUTHOR", 6 ) )
             {
                 ReadElement( p_xml_reader, &psz_txt );
                 input_item_SetArtist( p_current_input, psz_txt );
             }
-            if( !strncasecmp( psz_node, "COPYRIGHT", 9 ) )
+            else if( !strncasecmp( psz_node, "COPYRIGHT", 9 ) )
             {
                 ReadElement( p_xml_reader, &psz_txt );
                 input_item_SetCopyright( p_current_input, psz_txt );
             }
-            if( !strncasecmp( psz_node, "MOREINFO", 8 ) )
+            else if( !strncasecmp( psz_node, "MOREINFO", 8 ) )
             {
                 const char *psz_tmp;
                 do
@@ -385,19 +382,19 @@ static int Demux( demux_t *p_demux )
                 else
                     psz_txt = strdup( psz_node );
 
-                resolve_xml_special_chars( psz_txt );
+                vlc_xml_decode( psz_txt );
                 input_item_SetURL( p_current_input, psz_txt );
             }
-            if( !strncasecmp( psz_node, "ABSTRACT", 8 ) )
+            else if( !strncasecmp( psz_node, "ABSTRACT", 8 ) )
             {
                 ReadElement( p_xml_reader, &psz_txt );
                 input_item_SetDescription( p_current_input, psz_txt );
             }
-
+            else
             /* Base Node handler */
             if( !strncasecmp( psz_node, "BASE", 4 ) )
                 ReadElement( p_xml_reader, &psz_base );
-
+            else
             /* Entry Ref Handler */
             if( !strncasecmp( psz_node, "ENTRYREF", 7 ) )
             {
@@ -411,14 +408,14 @@ static int Demux( demux_t *p_demux )
                 /* Create new input item */
                 input_item_t *p_input;
                 psz_txt = strdup( psz_node );
-                resolve_xml_special_chars( psz_txt );
+                vlc_xml_decode( psz_txt );
                 p_input = input_item_New( psz_txt, psz_title_asx );
-                input_item_CopyOptions( p_current_input, p_input );
+                input_item_CopyOptions( p_input, p_current_input );
                 input_item_node_AppendItem( p_subitems, p_input );
 
                 vlc_gc_decref( p_input );
             }
-
+            else
             /* Entry Handler */
             if( !strncasecmp( psz_node, "ENTRY", 5 ) )
             {

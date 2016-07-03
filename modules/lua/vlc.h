@@ -42,11 +42,30 @@
 #include <lua.h>        /* Low level lua C API */
 #include <lauxlib.h>    /* Higher level C API */
 #include <lualib.h>     /* Lua libs */
+
 #if LUA_VERSION_NUM >= 502
-#define lua_equal(L,idx1,idx2)		lua_compare(L,(idx1),(idx2),LUA_OPEQ)
-#define lua_objlen(L,idx)			lua_rawlen(L,idx)
-#define lua_strlen(L,idx)			lua_rawlen(L,idx)
+# define lua_equal(L,idx1,idx2)    lua_compare(L,(idx1),(idx2),LUA_OPEQ)
+# define lua_objlen(L,idx)         lua_rawlen(L,idx)
+# define lua_strlen(L,idx)         lua_rawlen(L,idx)
 #endif
+
+#if LUA_VERSION_NUM >= 503
+# undef luaL_register
+# define luaL_register(L, n, l) luaL_setfuncs(L, (l), 0)
+# define luaL_register_namespace(L, n, l) \
+    lua_getglobal( L, n );      \
+    if( lua_isnil( L, -1 ) )    \
+    {                           \
+        lua_pop( L, 1 );        \
+        lua_newtable( L );      \
+    }                           \
+    luaL_setfuncs( L, (l), 0 ); \
+    lua_pushvalue( L, -1 );     \
+    lua_setglobal( L, n );
+#else
+# define luaL_register_namespace(L, n, l) luaL_register( L, n, (l) );
+#endif
+
 
 /*****************************************************************************
  * Module entry points
@@ -79,7 +98,7 @@ static inline void lua_Dbg( vlc_object_t * p_this, const char * ppz_fmt, ... )
 {
     va_list ap;
     va_start( ap, ppz_fmt );
-    msg_GenericVa( p_this, VLC_MSG_DBG, MODULE_STRING, ppz_fmt, ap );
+    msg_GenericVa( p_this, VLC_MSG_DBG, ppz_fmt, ap );
     va_end( ap );
 }
 
@@ -164,21 +183,22 @@ int vlclua_playlist_add_internal( vlc_object_t *, lua_State *, playlist_t *,
 
 int vlclua_add_modules_path( lua_State *, const char *psz_filename );
 
+struct vlc_interrupt;
+
 /**
  * File descriptors table
  */
 typedef struct
 {
+    struct vlc_interrupt *interrupt;
     int *fdv;
     unsigned fdc;
-#ifndef _WIN32
-    int fd[2];
-#endif
 } vlclua_dtable_t;
 
 int vlclua_fd_init( lua_State *, vlclua_dtable_t * );
 void vlclua_fd_interrupt( vlclua_dtable_t * );
 void vlclua_fd_cleanup( vlclua_dtable_t * );
+struct vlc_interrupt *vlclua_set_interrupt( lua_State *L );
 
 /**
  * Per-interface private state

@@ -77,7 +77,13 @@ char **vlc_sd_GetNames (vlc_object_t *obj, char ***pppsz_longnames, int **pp_cat
     int *categories = malloc(sizeof(int) * (count + 1));
 
     if (unlikely (names == NULL || longnames == NULL || categories == NULL))
-        abort();
+    {
+        free(names);
+        free(longnames);
+        free(categories);
+        free(tab);
+        return NULL;
+    }
     for( size_t i = 0; i < count; i++ )
     {
         names[i] = tab[i].name;
@@ -193,6 +199,8 @@ static void services_discovery_Destructor ( vlc_object_t *p_obj )
 char *
 services_discovery_GetLocalizedName ( services_discovery_t * p_sd )
 {
+    if (p_sd->p_module == NULL)
+        return NULL;
     return strdup( module_get_name( p_sd->p_module, true ) );
 }
 
@@ -283,7 +291,7 @@ static void playlist_sd_item_added( const vlc_event_t * p_event, void * user_dat
         {
             p_cat = playlist_NodeCreate( p_playlist, psz_cat,
                                          p_parent, PLAYLIST_END, 0, NULL );
-            p_cat->i_flags &= ~PLAYLIST_SKIP_FLAG;
+            p_cat->i_flags |= PLAYLIST_RO_FLAG | PLAYLIST_SKIP_FLAG;
         }
         p_parent = p_cat;
     }
@@ -370,7 +378,9 @@ int playlist_ServicesDiscoveryAdd( playlist_t *p_playlist,
 
     PL_LOCK;
     p_node = playlist_NodeCreate( p_playlist, psz_longname,
-                                  p_playlist->p_root, PLAYLIST_END, 0, NULL );
+                                  p_playlist->p_root, PLAYLIST_END,
+                                  PLAYLIST_RO_FLAG | PLAYLIST_SKIP_FLAG,
+                                  NULL );
     PL_UNLOCK;
 
     vlc_event_manager_t *em = services_discovery_EventManager( p_sd );

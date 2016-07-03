@@ -88,6 +88,10 @@
 # define UPDATE_VLC_STATUS_URL "http://update.videolan.org/vlc/status" UPDATE_OS_SUFFIX
 #endif
 
+#define dialog_FatalWait( p_obj, psz_title, psz_fmt, ... ) \
+    vlc_dialog_wait_question( p_obj, VLC_DIALOG_QUESTION_CRITICAL, "OK", NULL, \
+                              NULL, psz_title, psz_fmt, ##__VA_ARGS__ );
+
 /*****************************************************************************
  * Update_t functions
  *****************************************************************************/
@@ -109,7 +113,7 @@ update_t *update_New( vlc_object_t *p_this )
 
     vlc_mutex_init( &p_update->lock );
 
-    p_update->p_libvlc = p_this->p_libvlc;
+    p_update->p_libvlc = p_this->obj.libvlc;
 
     p_update->release.psz_url = NULL;
     p_update->release.psz_desc = NULL;
@@ -192,12 +196,18 @@ static bool GetUpdateFile( update_t *p_update )
         goto error;
     }
 
-    const int64_t i_read = stream_Size( p_stream );
+    uint64_t i_read;
+    if( stream_GetSize( p_stream, &i_read ) || i_read >= UINT16_MAX )
+    {
+        msg_Err(p_update->p_libvlc, "Status file too large");
+        goto error;
+    }
+
     psz_update_data = malloc( i_read + 1 ); /* terminating '\0' */
     if( !psz_update_data )
         goto error;
 
-    if( stream_Read( p_stream, psz_update_data, i_read ) != i_read )
+    if( stream_Read( p_stream, psz_update_data, i_read ) != (ssize_t)i_read )
     {
         msg_Err( p_update->p_libvlc, "Couldn't download update file %s",
                 UPDATE_VLC_STATUS_URL );
@@ -226,7 +236,7 @@ static bool GetUpdateFile( update_t *p_update )
                     &p_update->release.i_revision, &p_update->release.i_extra);
     if( ret != 3 && ret != 4 )
     {
-            msg_Err( p_update->p_libvlc, "Update version false formated" );
+            msg_Err( p_update->p_libvlc, "Update version false formatted" );
             goto error;
     }
 
@@ -465,7 +475,7 @@ bool update_NeedUpgrade( update_t *p_update )
  * \param l_size the size in bytes
  * \return the size as a string
  */
-static char *size_str( long int l_size )
+static char *size_str( uint64_t l_size )
 {
     char *psz_tmp = NULL;
     int i_retval = 0;
@@ -476,7 +486,7 @@ static char *size_str( long int l_size )
     else if( l_size >> 10 )
         i_retval = asprintf( &psz_tmp, _("%.1f KiB"), (float)l_size/(1<<10) );
     else
-        i_retval = asprintf( &psz_tmp, _("%ld B"), l_size );
+        i_retval = asprintf( &psz_tmp, _("%"PRIu64" B"), l_size );
 
     return i_retval == -1 ? NULL : psz_tmp;
 }
@@ -519,11 +529,9 @@ void update_Download( update_t *p_update, const char *psz_destdir )
 static void* update_DownloadReal( void *obj )
 {
     update_download_thread_t *p_udt = (update_download_thread_t *)obj;
-    dialog_progress_bar_t *p_progress = NULL;
-    long int l_size;
-    long int l_downloaded = 0;
+    uint64_t l_size;
+    uint64_t l_downloaded = 0;
     float f_progress;
-    char *psz_status;
     char *psz_downloaded = NULL;
     char *psz_size = NULL;
     char *psz_destfile = NULL;
@@ -535,6 +543,7 @@ static void* update_DownloadReal( void *obj )
     int i_read;
     int canc;
 
+    vlc_dialog_id *p_dialog_id = NULL;
     update_t *p_update = p_udt->p_update;
     char *psz_destdir = p_udt->psz_destdir;
 
@@ -550,13 +559,14 @@ static void* update_DownloadReal( void *obj )
     }
 
     /* Get the stream size */
-    l_size = stream_Size( p_stream );
+    if( stream_GetSize( p_stream, &l_size ) || l_size == 0 )
+        goto end;
 
     /* Get the file name and open it*/
     psz_tmpdestfile = strrchr( p_update->release.psz_url, '/' );
     if( !psz_tmpdestfile )
     {
-        msg_Err( p_udt, "The URL %s is badly formated",
+        msg_Err( p_udt, "The URL %s is badly formatted",
                  p_update->release.psz_url );
         goto end;
     }
@@ -582,20 +592,20 @@ static void* update_DownloadReal( void *obj )
     msg_Dbg( p_udt, "Downloading Stream '%s'", p_update->release.psz_url );
 
     psz_size = size_str( l_size );
-    if( asprintf( &psz_status, _("%s\nDownloading... %s/%s %.1f%% done"),
-        p_update->release.psz_url, "0.0", psz_size, 0.0 ) == -1 )
-        goto end;
 
-    p_progress = dialog_ProgressCreate( p_udt, _( "Downloading ..."),
-                                        psz_status, _("Cancel") );
+    p_dialog_id =
+        vlc_dialog_display_progress( p_udt, false, 0.0, _("Cancel"),
+                                     ( "Downloading..."),
+                                     _("%s\nDownloading... %s/%s %.1f%% done"),
+                                     p_update->release.psz_url, "0.0", psz_size,
+                                     0.0 );
 
-    free( psz_status );
-    if( p_progress == NULL )
+    if( p_dialog_id == NULL )
         goto end;
 
     while( !atomic_load( &p_udt->aborted ) &&
            ( i_read = stream_Read( p_stream, p_buffer, 1 << 10 ) ) &&
-           !dialog_ProgressCancelled( p_progress ) )
+           !vlc_dialog_is_cancelled( p_udt, p_dialog_id ) )
     {
         if( fwrite( p_buffer, i_read, 1, p_file ) < 1 )
         {
@@ -607,13 +617,11 @@ static void* update_DownloadReal( void *obj )
         psz_downloaded = size_str( l_downloaded );
         f_progress = (float)l_downloaded/(float)l_size;
 
-        if( asprintf( &psz_status, _( "%s\nDownloading... %s/%s - %.1f%% done" ),
-                      p_update->release.psz_url, psz_downloaded, psz_size,
-                      f_progress*100 ) != -1 )
-        {
-            dialog_ProgressSet( p_progress, psz_status, f_progress );
-            free( psz_status );
-        }
+        vlc_dialog_update_progress_text( p_udt, p_dialog_id, f_progress,
+                                         "%s\nDownloading... %s/%s - %.1f%% done",
+                                         p_update->release.psz_url,
+                                         psz_downloaded, psz_size,
+                                         f_progress*100 );
         free( psz_downloaded );
     }
 
@@ -622,10 +630,10 @@ static void* update_DownloadReal( void *obj )
     p_file = NULL;
 
     if( !atomic_load( &p_udt->aborted ) &&
-        !dialog_ProgressCancelled( p_progress ) )
+        !vlc_dialog_is_cancelled( p_udt, p_dialog_id ) )
     {
-        dialog_ProgressDestroy( p_progress );
-        p_progress = NULL;
+        vlc_dialog_release( p_udt, p_dialog_id );
+        p_dialog_id = NULL;
     }
     else
     {
@@ -712,22 +720,25 @@ static void* update_DownloadReal( void *obj )
     free( p_hash );
 
 #ifdef _WIN32
-    int answer = dialog_Question( p_udt, _("Update VLC media player"),
-    _("The new version was successfully downloaded. Do you want to close VLC and install it now?"),
-    _("Install"), _("Cancel"), NULL);
-
+    const char *psz_msg =
+        _("The new version was successfully downloaded."
+        "Do you want to close VLC and install it now?");
+    int answer = vlc_dialog_wait_question( p_udt, VLC_DIALOG_QUESTION_NORMAL,
+                                           _("Cancel"), _("Install"), NULL,
+                                           _("Update VLC media player"), "%s",
+                                           psz_msg );
     if(answer == 1)
     {
         wchar_t psz_wdestfile[MAX_PATH];
         MultiByteToWideChar( CP_UTF8, 0, psz_destfile, -1, psz_wdestfile, MAX_PATH );
         answer = (int)ShellExecuteW( NULL, L"open", psz_wdestfile, NULL, NULL, SW_SHOW);
         if(answer > 32)
-            libvlc_Quit(p_udt->p_libvlc);
+            libvlc_Quit(p_udt->obj.libvlc);
     }
 #endif
 end:
-    if( p_progress )
-        dialog_ProgressDestroy( p_progress );
+    if( p_dialog_id != NULL )
+        vlc_dialog_release( p_udt, p_dialog_id );
     if( p_stream )
         stream_Delete( p_stream );
     if( p_file )

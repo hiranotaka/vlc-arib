@@ -1,10 +1,8 @@
 /*****************************************************************************
  * tls.c
  *****************************************************************************
- * Copyright © 2004-2007 Rémi Denis-Courmont
+ * Copyright © 2004-2016 Rémi Denis-Courmont
  * $Id$
- *
- * Authors: Rémi Denis-Courmont <rem # videolan.org>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -34,12 +32,19 @@
 # include <poll.h>
 #endif
 #include <assert.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#ifdef HAVE_SYS_UIO_H
+# include <sys/uio.h>
+#endif
 
 #include <vlc_common.h>
 #include "libvlc.h"
 
 #include <vlc_tls.h>
 #include <vlc_modules.h>
+#include <vlc_interrupt.h>
 
 /*** TLS credentials ***/
 
@@ -69,16 +74,6 @@ static void tls_unload(void *func, va_list ap)
     deactivate (crd);
 }
 
-/**
- * Allocates a whole server's TLS credentials.
- *
- * @param cert_path required (Unicode) path to an x509 certificate,
- *                  if NULL, anonymous key exchange will be used.
- * @param key_path (UTF-8) path to the PKCS private key for the certificate,
- *                 if NULL; cert_path will be used.
- *
- * @return NULL on error.
- */
 vlc_tls_creds_t *
 vlc_tls_ServerCreate (vlc_object_t *obj, const char *cert_path,
                       const char *key_path)
@@ -103,12 +98,6 @@ vlc_tls_ServerCreate (vlc_object_t *obj, const char *cert_path,
     return srv;
 }
 
-/**
- * Allocates TLS credentials for a client.
- * Credentials can be cached and reused across multiple TLS sessions.
- *
- * @return TLS credentials object, or NULL on error.
- **/
 vlc_tls_creds_t *vlc_tls_ClientCreate (vlc_object_t *obj)
 {
     vlc_tls_creds_t *crd = vlc_custom_create (obj, sizeof (*crd),
@@ -128,11 +117,6 @@ vlc_tls_creds_t *vlc_tls_ClientCreate (vlc_object_t *obj)
     return crd;
 }
 
-/**
- * Releases data allocated with vlc_tls_ClientCreate() or
- * vlc_tls_ServerCreate().
- * @param srv TLS server object to be destroyed, or NULL
- */
 void vlc_tls_Delete (vlc_tls_creds_t *crd)
 {
     if (crd == NULL)
@@ -143,80 +127,84 @@ void vlc_tls_Delete (vlc_tls_creds_t *crd)
 }
 
 
-/**
- * Adds one or more certificate authorities from a file.
- * @return -1 on error, 0 on success.
- */
-int vlc_tls_ServerAddCA (vlc_tls_creds_t *srv, const char *path)
-{
-    return srv->add_CA (srv, path);
-}
-
-
-/**
- * Adds one or more certificate revocation list from a file.
- * @return -1 on error, 0 on success.
- */
-int vlc_tls_ServerAddCRL (vlc_tls_creds_t *srv, const char *path)
-{
-    return srv->add_CRL (srv, path);
-}
-
-
 /*** TLS  session ***/
 
-vlc_tls_t *vlc_tls_SessionCreate (vlc_tls_creds_t *crd, int fd,
-                                  const char *host)
+static vlc_tls_t *vlc_tls_SessionCreate(vlc_tls_creds_t *crd,
+                                        vlc_tls_t *sock,
+                                        const char *host,
+                                        const char *const *alpn)
 {
-    vlc_tls_t *session = vlc_custom_create (crd, sizeof (*session),
-                                            "tls session");
-    int val = crd->open (crd, session, fd, host);
-    if (val == VLC_SUCCESS)
-        return session;
-    vlc_object_release (session);
-    return NULL;
+    vlc_tls_t *session = malloc(sizeof (*session));
+    if (unlikely(session == NULL))
+        return NULL;
+
+    session->obj = crd->obj.parent;
+    session->p = NULL;
+
+    int canc = vlc_savecancel();
+
+    if (crd->open(crd, session, sock, host, alpn) != VLC_SUCCESS)
+    {
+        free(session);
+        session = NULL;
+    }
+
+    vlc_restorecancel(canc);
+    return session;
 }
 
 void vlc_tls_SessionDelete (vlc_tls_t *session)
 {
-    vlc_tls_creds_t *crd = (vlc_tls_creds_t *)(session->p_parent);
+    do
+    {
+        int canc = vlc_savecancel();
+        session->close(session);
+        vlc_restorecancel(canc);
 
-    crd->close (crd, session);
-    vlc_object_release (session);
+        vlc_tls_t *sock = session->p;
+        free(session);
+        session = sock;
+    }
+    while (session != NULL);
 }
 
-int vlc_tls_SessionHandshake (vlc_tls_t *session, const char *host,
-                              const char *service)
+static void cleanup_tls(void *data)
 {
-    return session->handshake (session, host, service);
+    vlc_tls_t *session = data;
+
+    vlc_tls_SessionDelete (session);
 }
 
-/**
- * Performs client side of TLS handshake through a connected socket, and
- * establishes a secure channel. This is a blocking network operation.
- *
- * @param fd socket through which to establish the secure channel
- * @param hostname expected server name, used both as Server Name Indication
- *                 and as expected Common Name of the peer certificate
- *
- * @return NULL on error.
- **/
-vlc_tls_t *vlc_tls_ClientSessionCreate (vlc_tls_creds_t *crd, int fd,
-                                        const char *host, const char *service)
+#undef vlc_tls_ClientSessionCreate
+vlc_tls_t *vlc_tls_ClientSessionCreate(vlc_tls_creds_t *crd, vlc_tls_t *sock,
+                                       const char *host, const char *service,
+                                       const char *const *alpn, char **alp)
 {
-    vlc_tls_t *session = vlc_tls_SessionCreate (crd, fd, host);
+    int val;
+
+    vlc_tls_t *session = vlc_tls_SessionCreate(crd, sock, host, alpn);
     if (session == NULL)
         return NULL;
 
+    int canc = vlc_savecancel();
     mtime_t deadline = mdate ();
     deadline += var_InheritInteger (crd, "ipv4-timeout") * 1000;
 
     struct pollfd ufd[1];
-    ufd[0].fd = fd;
+    ufd[0].fd = vlc_tls_GetFD(sock);
 
-    int val;
-    while ((val = vlc_tls_SessionHandshake (session, host, service)) > 0)
+    vlc_cleanup_push (cleanup_tls, session);
+    while ((val = crd->handshake(crd, session, host, service, alp)) != 0)
     {
+        if (val < 0)
+        {
+            msg_Err(crd, "TLS session handshake error");
+error:
+            vlc_tls_SessionDelete (session);
+            session = NULL;
+            break;
+        }
+
         mtime_t now = mdate ();
         if (now > deadline)
            now = deadline;
@@ -224,19 +212,195 @@ vlc_tls_t *vlc_tls_ClientSessionCreate (vlc_tls_creds_t *crd, int fd,
         assert (val <= 2);
         ufd[0] .events = (val == 1) ? POLLIN : POLLOUT;
 
-        if (poll (ufd, 1, (deadline - now) / 1000) == 0)
+        vlc_restorecancel(canc);
+        val = poll (ufd, 1, (deadline - now) / 1000);
+        canc = vlc_savecancel();
+        if (val == 0)
         {
-            msg_Err (session, "TLS client session handshake timeout");
-            val = -1;
-            break;
+            msg_Err(crd, "TLS session handshake timeout");
+            goto error;
         }
     }
+    vlc_cleanup_pop();
+    vlc_restorecancel(canc);
+    return session;
+}
 
-    if (val != 0)
+vlc_tls_t *vlc_tls_ServerSessionCreate(vlc_tls_creds_t *crd, int fd,
+                                       const char *const *alpn)
+{
+    vlc_tls_t *sock = vlc_tls_SocketOpen(VLC_OBJECT(crd), fd);
+    if (unlikely(sock == NULL))
+        return NULL;
+
+    vlc_tls_t *tls = vlc_tls_SessionCreate(crd, sock, NULL, alpn);
+    if (unlikely(tls == NULL))
+        vlc_tls_SessionDelete(sock);
+    else
+        tls->p = sock;
+    return tls;
+}
+
+ssize_t vlc_tls_Read(vlc_tls_t *session, void *buf, size_t len, bool waitall)
+{
+    struct pollfd ufd;
+    struct iovec iov;
+
+    ufd.fd = vlc_tls_GetFD(session);
+    ufd.events = POLLIN;
+    iov.iov_base = buf;
+    iov.iov_len = len;
+
+    for (size_t rcvd = 0;;)
     {
-        msg_Err (session, "TLS client session handshake error");
-        vlc_tls_SessionDelete (session);
-        session = NULL;
+        if (vlc_killed())
+        {
+            errno = EINTR;
+            return -1;
+        }
+
+        ssize_t val = session->readv(session, &iov, 1);
+        if (val > 0)
+        {
+            if (!waitall)
+                return val;
+            iov.iov_base = (char *)iov.iov_base + val;
+            iov.iov_len -= val;
+            rcvd += val;
+        }
+        if (iov.iov_len == 0 || val == 0)
+            return rcvd;
+        if (val == -1 && errno != EINTR && errno != EAGAIN)
+            return rcvd ? (ssize_t)rcvd : -1;
+
+        vlc_poll_i11e(&ufd, 1, -1);
     }
+}
+
+ssize_t vlc_tls_Write(vlc_tls_t *session, const void *buf, size_t len)
+{
+    struct pollfd ufd;
+    struct iovec iov;
+
+    ufd.fd = vlc_tls_GetFD(session);
+    ufd.events = POLLOUT;
+    iov.iov_base = (void *)buf;
+    iov.iov_len = len;
+
+    for (size_t sent = 0;;)
+    {
+        if (vlc_killed())
+        {
+            errno = EINTR;
+            return -1;
+        }
+
+        ssize_t val = session->writev(session, &iov, 1);
+        if (val > 0)
+        {
+            iov.iov_base = ((char *)iov.iov_base) + val;
+            iov.iov_len -= val;
+            sent += val;
+        }
+        if (iov.iov_len == 0 || val == 0)
+            return sent;
+        if (val == -1 && errno != EINTR && errno != EAGAIN)
+            return sent ? (ssize_t)sent : -1;
+
+        vlc_poll_i11e(&ufd, 1, -1);
+    }
+}
+
+char *vlc_tls_GetLine(vlc_tls_t *session)
+{
+    char *line = NULL;
+    size_t linelen = 0, linesize = 0;
+
+    do
+    {
+        if (linelen == linesize)
+        {
+            linesize += 1024;
+
+            char *newline = realloc(line, linesize);
+            if (unlikely(newline == NULL))
+                goto error;
+            line = newline;
+        }
+
+        if (vlc_tls_Read(session, line + linelen, 1, false) <= 0)
+            goto error;
+    }
+    while (line[linelen++] != '\n');
+
+    if (linelen >= 2 && line[linelen - 2] == '\r')
+        line[linelen - 2] = '\0';
+    return line;
+
+error:
+    free(line);
+    return NULL;
+}
+
+static int vlc_tls_SocketGetFD(vlc_tls_t *tls)
+{
+    return (intptr_t)tls->sys;
+}
+
+static ssize_t vlc_tls_SocketRead(vlc_tls_t *tls, struct iovec *iov,
+                                  unsigned count)
+{
+    int fd = (intptr_t)tls->sys;
+    struct msghdr msg =
+    {
+        .msg_iov = iov,
+        .msg_iovlen = count,
+    };
+    return recvmsg(fd, &msg, 0);
+}
+
+static ssize_t vlc_tls_SocketWrite(vlc_tls_t *tls, const struct iovec *iov,
+                                   unsigned count)
+{
+    int fd = (intptr_t)tls->sys;
+    const struct msghdr msg =
+    {
+        .msg_iov = (struct iovec *)iov,
+        .msg_iovlen = count,
+    };
+    return sendmsg(fd, &msg, MSG_NOSIGNAL);
+}
+
+static int vlc_tls_SocketShutdown(vlc_tls_t *tls, bool duplex)
+{
+    int fd = (intptr_t)tls->sys;
+    return shutdown(fd, duplex ? SHUT_RDWR : SHUT_WR);
+}
+
+static void vlc_tls_SocketClose(vlc_tls_t *tls)
+{
+#if 0
+    int fd = (intptr_t)tls->sys;
+
+    net_Close(fd);
+#else
+    (void) tls;
+#endif
+}
+
+vlc_tls_t *vlc_tls_SocketOpen(vlc_object_t *obj, int fd)
+{
+    vlc_tls_t *session = malloc(sizeof (*session));
+    if (unlikely(session == NULL))
+        return NULL;
+
+    session->obj = obj;
+    session->sys = (void *)(intptr_t)fd;
+    session->get_fd = vlc_tls_SocketGetFD;
+    session->readv = vlc_tls_SocketRead;
+    session->writev = vlc_tls_SocketWrite;
+    session->shutdown = vlc_tls_SocketShutdown;
+    session->close = vlc_tls_SocketClose;
+    session->p = NULL;
     return session;
 }

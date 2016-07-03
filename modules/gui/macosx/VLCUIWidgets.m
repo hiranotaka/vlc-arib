@@ -1,7 +1,7 @@
 /*****************************************************************************
  * VLCUIWidgets.m: Widgets for VLC's extensions dialogs for Mac OS X
  *****************************************************************************
- * Copyright (C) 2009-2014 the VideoLAN team and authors
+ * Copyright (C) 2009-2015 the VideoLAN team and authors
  * $Id$
  *
  * Authors: Pierre d'Herbemont <pdherbemont # videolan dot>,
@@ -28,41 +28,44 @@
 #import <stdlib.h>
 
 @implementation VLCDialogButton
-@synthesize widget;
+
 @end
 
 
 @implementation VLCDialogPopUpButton
-@synthesize widget;
+
 @end
 
 
 @implementation VLCDialogTextField
-@synthesize widget;
+
 @end
 
 
 @implementation VLCDialogWindow
-@synthesize dialog;
-@synthesize has_lock;
+
 @end
 
 
 @implementation VLCDialogList
-@synthesize widget;
-@synthesize contentArray;
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)aTableView
 {
-    return [contentArray count];
+    return [self.contentArray count];
 }
 
 - (id)tableView:(NSTableView *)aTableView objectValueForTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex
 {
-    return [[contentArray objectAtIndex:rowIndex] objectForKey:@"text"];
+    return [[self.contentArray objectAtIndex:rowIndex] objectForKey:@"text"];
 }
 @end
 
+@interface VLCDialogGridView()
+{
+    NSUInteger _rowCount, _colCount;
+    NSMutableArray *_griddedViews;
+}
+@end
 
 @implementation VLCDialogGridView
 
@@ -80,11 +83,6 @@
     }
 
     return self;
-}
-- (void)dealloc
-{
-    [_griddedViews release];
-    [super dealloc];
 }
 
 - (void)recomputeCount
@@ -329,6 +327,24 @@
     // Recompute the size of the window after making sure we won't see anymore update
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(recomputeWindowSize) object:nil];
     [self performSelector:@selector(recomputeWindowSize) withObject:nil afterDelay:0.1];
+}
+
+- (void)updateSubview:(NSView *)view
+                atRow:(NSUInteger)row
+               column:(NSUInteger)column
+              rowSpan:(NSUInteger)rowSpan
+              colSpan:(NSUInteger)colSpan
+{
+    NSDictionary *oldDict = [self objectForView:view];
+    if (!oldDict) {
+        [self addSubview:view
+                   atRow:row
+                  column:column
+                 rowSpan:rowSpan
+                 colSpan:colSpan];
+        return;
+    }
+    [self relayout];
 }
 
 - (void)removeSubview:(NSView *)view

@@ -1,5 +1,5 @@
 # PNG
-PNG_VERSION := 1.6.10
+PNG_VERSION := 1.6.19
 PNG_URL := $(SF)/libpng/libpng16/$(PNG_VERSION)/libpng-$(PNG_VERSION).tar.xz
 
 PKGS += png
@@ -8,7 +8,7 @@ PKGS_FOUND += png
 endif
 
 $(TARBALLS)/libpng-$(PNG_VERSION).tar.xz:
-	$(call download,$(PNG_URL))
+	$(call download_pkg,$(PNG_URL),png)
 
 .sum-png: libpng-$(PNG_VERSION).tar.xz
 

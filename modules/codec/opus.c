@@ -21,10 +21,6 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-/*
- * TODO: preskip, trimming, file duration
- */
-
 /*****************************************************************************
  * Preamble
  *****************************************************************************/
@@ -159,6 +155,7 @@ static const uint32_t pi_3channels_in[] =
  ****************************************************************************/
 
 static block_t *DecodeBlock  ( decoder_t *, block_t ** );
+static void Flush( decoder_t * );
 static int  ProcessHeaders( decoder_t * );
 static int  ProcessInitialHeader ( decoder_t *, ogg_packet * );
 static void *ProcessPacket( decoder_t *, ogg_packet *, block_t ** );
@@ -189,6 +186,7 @@ static int OpenDecoder( vlc_object_t *p_this )
 
     p_dec->pf_decode_audio = DecodeBlock;
     p_dec->pf_packetize    = DecodeBlock;
+    p_dec->pf_flush        = Flush;
 
     p_sys->p_st = NULL;
 
@@ -242,11 +240,36 @@ static int ProcessHeaders( decoder_t *p_dec )
     void     *pp_data[XIPH_MAX_HEADER_COUNT];
     unsigned i_count;
 
+    int i_extra = p_dec->fmt_in.i_extra;
+    uint8_t *p_extra = p_dec->fmt_in.p_extra;
+
+    /* If we have no header (e.g. from RTP), make one. */
+    bool b_dummy_header = false;
+    if( !i_extra )
+    {
+        OpusHeader header;
+        opus_prepare_header( p_dec->fmt_in.audio.i_channels,
+                             p_dec->fmt_in.audio.i_rate, &header );
+        if( opus_write_header( &p_extra, &i_extra, &header,
+                               opus_get_version_string() ) )
+            return VLC_ENOMEM;
+        b_dummy_header = true;
+    }
+
     if( xiph_SplitHeaders( pi_size, pp_data, &i_count,
-                           p_dec->fmt_in.i_extra, p_dec->fmt_in.p_extra) )
+                           i_extra, p_extra ) )
+    {
+        if( b_dummy_header )
+            free( p_extra );
         return VLC_EGENERIC;
+    }
+
     if( i_count < 2 )
-        return VLC_EGENERIC;;
+    {
+        if( b_dummy_header )
+            free( p_extra );
+        return VLC_EGENERIC;
+    }
 
     oggpacket.granulepos = -1;
     oggpacket.e_o_s = 0;
@@ -260,6 +283,9 @@ static int ProcessHeaders( decoder_t *p_dec )
 
     if (ret != VLC_SUCCESS)
         msg_Err( p_dec, "initial Opus header is corrupted" );
+
+    if( b_dummy_header )
+        free( p_extra );
 
     return ret;
 }
@@ -336,6 +362,16 @@ static int ProcessInitialHeader( decoder_t *p_dec, ogg_packet *p_oggpacket )
 }
 
 /*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    date_Set( &p_sys->end_date, 0 );
+}
+
+/*****************************************************************************
  * ProcessPacket: processes a Opus packet.
  *****************************************************************************/
 static void *ProcessPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
@@ -343,9 +379,22 @@ static void *ProcessPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     block_t *p_block = *pp_block;
+    *pp_block = NULL; /* To avoid being fed the same packet again */
+
+    if( !p_block )
+        return NULL;
+
+    if( p_block->i_flags & BLOCK_FLAG_CORRUPTED )
+    {
+        block_Release( p_block );
+        return NULL;
+    }
+
+    if( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY )
+        Flush( p_dec );
 
     /* Date management */
-    if( p_block && p_block->i_pts > VLC_TS_INVALID &&
+    if( p_block->i_pts > VLC_TS_INVALID &&
         p_block->i_pts != date_Get( &p_sys->end_date ) )
     {
         date_Set( &p_sys->end_date, p_block->i_pts );
@@ -354,14 +403,9 @@ static void *ProcessPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
     if( !date_Get( &p_sys->end_date ) )
     {
         /* We've just started the stream, wait for the first PTS. */
-        if( p_block ) block_Release( p_block );
+        block_Release( p_block );
         return NULL;
     }
-
-    *pp_block = NULL; /* To avoid being fed the same packet again */
-
-    if( !p_block )
-        return NULL;
 
     block_t *p_aout_buffer = DecodePacket( p_dec, p_oggpacket,
                                            p_block->i_nb_samples,
@@ -587,14 +631,8 @@ static int OpenEncoder(vlc_object_t *p_this)
 
     OpusHeader header;
 
-    if (opus_prepare_header(enc->fmt_out.audio.i_channels,
-            enc->fmt_out.audio.i_rate,
-            &header))
-    {
-        msg_Err(enc, "Failed to prepare header.");
-        status = VLC_ENOMEM;
-        goto error;
-    }
+    opus_prepare_header(enc->fmt_out.audio.i_channels,
+            enc->fmt_out.audio.i_rate, &header);
 
     /* needed for max encoded size calculation */
     sys->nb_streams = header.nb_streams;

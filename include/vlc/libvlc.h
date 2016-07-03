@@ -24,15 +24,12 @@
  *****************************************************************************/
 
 /**
- * \file
- * This file defines libvlc external API
- */
-
-/**
  * \defgroup libvlc LibVLC
  * LibVLC is the external programming interface of the VLC media player.
  * It is used to embed VLC into other applications or frameworks.
  * @{
+ * \file
+ * LibVLC core external API
  */
 
 #ifndef VLC_LIBVLC_H
@@ -58,12 +55,11 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 # ifdef __cplusplus
 extern "C" {
 # endif
-
-#include <vlc/libvlc_structures.h>
 
 /** \defgroup libvlc_core LibVLC core
  * \ingroup libvlc
@@ -76,6 +72,11 @@ extern "C" {
  * Earlier versions (0.9.x and 1.0.x) are <b>not</b> compatible.
  * @{
  */
+
+/** This structure is opaque. It represents a libvlc instance */
+typedef struct libvlc_instance_t libvlc_instance_t;
+
+typedef int64_t libvlc_time_t;
 
 /** \defgroup libvlc_error LibVLC error handling
  * @{
@@ -122,6 +123,31 @@ LIBVLC_API const char *libvlc_printerr (const char *fmt, ...);
  * Create and initialize a libvlc instance.
  * This functions accept a list of "command line" arguments similar to the
  * main(). These arguments affect the LibVLC instance default configuration.
+ *
+ * \note
+ * LibVLC may create threads. Therefore, any thread-unsafe process
+ * initialization must be performed before calling libvlc_new(). In particular
+ * and where applicable:
+ * - setlocale() and textdomain(),
+ * - setenv(), unsetenv() and putenv(),
+ * - with the X11 display system, XInitThreads()
+ *   (see also libvlc_media_player_set_xwindow()) and
+ * - on Microsoft Windows, SetErrorMode().
+ * - sigprocmask() shall never be invoked; pthread_sigmask() can be used.
+ *
+ * On POSIX systems, the SIGCHLD signal must <b>not</b> be ignored, i.e. the
+ * signal handler must set to SIG_DFL or a function pointer, not SIG_IGN.
+ * Also while LibVLC is active, the wait() function shall not be called, and
+ * any call to waitpid() shall use a strictly positive value for the first
+ * parameter (i.e. the PID). Failure to follow those rules may lead to a
+ * deadlock or a busy loop.
+ *
+ * Also on POSIX systems, it is recommended that the SIGPIPE signal be blocked,
+ * even if it is not, in principles, necessary.
+ *
+ * On Microsoft Windows Vista/2008, the process error mode
+ * SEM_FAILCRITICALERRORS flag <b>must</b> with the SetErrorMode() function
+ * before using LibVLC. On later versions, it is optional and unnecessary.
  *
  * \version
  * Arguments are meant to be passed from the command line to LibVLC, just like
@@ -189,17 +215,6 @@ int libvlc_add_intf( libvlc_instance_t *p_instance, const char *name );
 LIBVLC_API
 void libvlc_set_exit_handler( libvlc_instance_t *p_instance,
                               void (*cb) (void *), void *opaque );
-
-/**
- * Waits until an interface causes the instance to exit.
- * You should start at least one interface first, using libvlc_add_intf().
- *
- * \param p_instance the instance
- * \warning This function wastes one thread doing basically nothing.
- * libvlc_set_exit_handler() should be used instead.
- */
-LIBVLC_DEPRECATED LIBVLC_API
-void libvlc_wait( libvlc_instance_t *p_instance );
 
 /**
  * Sets the application name. LibVLC passes this as the user agent string
@@ -398,7 +413,7 @@ LIBVLC_API void libvlc_log_get_object(const libvlc_log_t *ctx,
 /**
  * Callback prototype for LibVLC log message handler.
  * \param data data pointer as given to libvlc_log_set()
- * \param level message level (@ref enum libvlc_log_level)
+ * \param level message level (@ref libvlc_log_level)
  * \param ctx message context (meta-information about the message)
  * \param fmt printf() format string (as defined by ISO C11)
  * \param args variable argument list for the format
@@ -448,103 +463,6 @@ LIBVLC_API void libvlc_log_set( libvlc_instance_t *,
  * \version LibVLC 2.1.0 or later
  */
 LIBVLC_API void libvlc_log_set_file( libvlc_instance_t *, FILE *stream );
-
-/**
- * Always returns minus one.
- * This function is only provided for backward compatibility.
- *
- * \param p_instance ignored
- * \return always -1
- */
-LIBVLC_DEPRECATED LIBVLC_API
-unsigned libvlc_get_log_verbosity( const libvlc_instance_t *p_instance );
-
-/**
- * This function does nothing.
- * It is only provided for backward compatibility.
- *
- * \param p_instance ignored
- * \param level ignored
- */
-LIBVLC_DEPRECATED LIBVLC_API
-void libvlc_set_log_verbosity( libvlc_instance_t *p_instance, unsigned level );
-
-/**
- * This function does nothing useful.
- * It is only provided for backward compatibility.
- *
- * \param p_instance libvlc instance
- * \return an unique pointer or NULL on error
- */
-LIBVLC_DEPRECATED LIBVLC_API
-libvlc_log_t *libvlc_log_open( libvlc_instance_t *p_instance );
-
-/**
- * Frees memory allocated by libvlc_log_open().
- *
- * \param p_log libvlc log instance or NULL
- */
-LIBVLC_DEPRECATED LIBVLC_API
-void libvlc_log_close( libvlc_log_t *p_log );
-
-/**
- * Always returns zero.
- * This function is only provided for backward compatibility.
- *
- * \param p_log ignored
- * \return always zero
- */
-LIBVLC_DEPRECATED LIBVLC_API
-unsigned libvlc_log_count( const libvlc_log_t *p_log );
-
-/**
- * This function does nothing.
- * It is only provided for backward compatibility.
- *
- * \param p_log ignored
- */
-LIBVLC_DEPRECATED LIBVLC_API
-void libvlc_log_clear( libvlc_log_t *p_log );
-
-/**
- * This function does nothing useful.
- * It is only provided for backward compatibility.
- *
- * \param p_log ignored
- * \return an unique pointer or NULL on error or if the parameter was NULL
- */
-LIBVLC_DEPRECATED LIBVLC_API
-libvlc_log_iterator_t *libvlc_log_get_iterator( const libvlc_log_t *p_log );
-
-/**
- * Frees memory allocated by libvlc_log_get_iterator().
- *
- * \param p_iter libvlc log iterator or NULL
- */
-LIBVLC_DEPRECATED LIBVLC_API
-void libvlc_log_iterator_free( libvlc_log_iterator_t *p_iter );
-
-/**
- * Always returns zero.
- * This function is only provided for backward compatibility.
- *
- * \param p_iter ignored
- * \return always zero
- */
-LIBVLC_DEPRECATED LIBVLC_API
-int libvlc_log_iterator_has_next( const libvlc_log_iterator_t *p_iter );
-
-/**
- * Always returns NULL.
- * This function is only provided for backward compatibility.
- *
- * \param p_iter libvlc log iterator or NULL
- * \param p_buf ignored
- * \return always NULL
- */
-LIBVLC_DEPRECATED LIBVLC_API
-libvlc_log_message_t *libvlc_log_iterator_next( libvlc_log_iterator_t *p_iter,
-                                                libvlc_log_message_t *p_buf );
 
 /** @} */
 
@@ -631,4 +549,4 @@ static inline int64_t libvlc_delay(int64_t pts)
 }
 # endif
 
-#endif /* <vlc/libvlc.h> */
+#endif /** @} */

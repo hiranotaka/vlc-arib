@@ -92,13 +92,7 @@ static char *AsfObjectHelperReadString( const uint8_t *p_peek, int i_peek, uint8
     char *psz_string;
     if( ASF_HAVE(i_size) )
     {
-        psz_string = calloc( i_size/2 + 1, sizeof( char ) );
-        if( psz_string )
-        {
-            for( int i = 0; i < i_size/2; i++ )
-                psz_string[i] = GetWLE( &p_data[2*i] );
-            psz_string[i_size/2] = '\0';
-        }
+        psz_string = FromCharset( "UTF-16LE", p_data, i_size );
     }
     else
     {
@@ -123,7 +117,7 @@ static int ASF_ReadObjectCommon( stream_t *s, asf_object_t *p_obj )
     asf_object_common_t *p_common = &p_obj->common;
     const uint8_t *p_peek;
 
-    if( stream_Peek( s, &p_peek, 24 ) < 24 )
+    if( stream_Peek( s, &p_peek, ASF_OBJECT_COMMON_SIZE ) < ASF_OBJECT_COMMON_SIZE )
         return VLC_EGENERIC;
 
     ASF_GetGUID( &p_common->i_object_id, p_peek );
@@ -167,8 +161,8 @@ static int ASF_NextObject( stream_t *s, asf_object_t *p_obj, uint64_t i_boundary
     {
         if( p_obj->common.p_father->common.i_object_pos +
             p_obj->common.p_father->common.i_object_size <
-                p_obj->common.i_object_pos + p_obj->common.i_object_size + 24 )
-                                /* 24 is min size of an object */
+                p_obj->common.i_object_pos + p_obj->common.i_object_size + ASF_OBJECT_COMMON_SIZE )
+                                /* ASF_OBJECT_COMMON_SIZE is min size of an object */
         {
             return VLC_EGENERIC;
         }
@@ -193,7 +187,7 @@ static int  ASF_ReadObject_Header( stream_t *s, asf_object_t *p_obj )
     if( stream_Peek( s, &p_peek, 30 ) < 30 )
        return VLC_EGENERIC;
 
-    p_hdr->i_sub_object_count = GetDWLE( p_peek + 24 );
+    p_hdr->i_sub_object_count = GetDWLE( p_peek + ASF_OBJECT_COMMON_SIZE );
     p_hdr->i_reserved1 = p_peek[28];
     p_hdr->i_reserved2 = p_peek[29];
     p_hdr->p_first = NULL;
@@ -234,7 +228,7 @@ static int ASF_ReadObject_Data( stream_t *s, asf_object_t *p_obj )
     if( stream_Peek( s, &p_peek, 50 ) < 50 )
        return VLC_EGENERIC;
 
-    ASF_GetGUID( &p_data->i_file_id, p_peek + 24 );
+    ASF_GetGUID( &p_data->i_file_id, p_peek + ASF_OBJECT_COMMON_SIZE );
     p_data->i_total_data_packets = GetQWLE( p_peek + 40 );
     p_data->i_reserved = GetWLE( p_peek + 48 );
 
@@ -261,7 +255,7 @@ static int ASF_ReadObject_Index( stream_t *s, asf_object_t *p_obj )
         __MAX( (int64_t)p_index->i_object_size, 56 ) )
         return VLC_SUCCESS;
 
-    ASF_GetGUID( &p_index->i_file_id, p_peek + 24 );
+    ASF_GetGUID( &p_index->i_file_id, p_peek + ASF_OBJECT_COMMON_SIZE );
     p_index->i_index_entry_time_interval = GetQWLE( p_peek + 40 );
     p_index->i_max_packet_count = GetDWLE( p_peek + 48 );
     p_index->i_index_entry_count = GetDWLE( p_peek + 52 );
@@ -311,7 +305,7 @@ static int ASF_ReadObject_file_properties( stream_t *s, asf_object_t *p_obj )
     if( stream_Peek( s, &p_peek,  104 ) < 104 )
        return VLC_EGENERIC;
 
-    ASF_GetGUID( &p_fp->i_file_id, p_peek + 24 );
+    ASF_GetGUID( &p_fp->i_file_id, p_peek + ASF_OBJECT_COMMON_SIZE );
     p_fp->i_file_size = GetQWLE( p_peek + 40 );
     p_fp->i_creation_date = GetQWLE( p_peek + 48 );
     p_fp->i_data_packets_count = GetQWLE( p_peek + 56 );
@@ -365,7 +359,7 @@ static int ASF_ReadObject_metadata( stream_t *s, asf_object_t *p_obj )
         __MAX( (int64_t)p_meta->i_object_size, 26 ) )
        return VLC_EGENERIC;
 
-    p_meta->i_record_entries_count = GetWLE( p_peek + 24 );
+    p_meta->i_record_entries_count = GetWLE( p_peek + ASF_OBJECT_COMMON_SIZE );
 
     p_data = p_peek + 26;
 
@@ -469,7 +463,7 @@ static int ASF_ReadObject_header_extension( stream_t *s, asf_object_t *p_obj )
     {
        return VLC_EGENERIC;
     }
-    ASF_GetGUID( &p_he->i_reserved1, p_peek + 24 );
+    ASF_GetGUID( &p_he->i_reserved1, p_peek + ASF_OBJECT_COMMON_SIZE );
     p_he->i_reserved2 = GetWLE( p_peek + 40 );
     p_he->i_header_extension_size = GetDWLE( p_peek + 42 );
     if( p_he->i_header_extension_size )
@@ -537,13 +531,15 @@ static int ASF_ReadObject_stream_properties( stream_t *s, asf_object_t *p_obj )
     if( ( i_peek = stream_Peek( s, &p_peek,  p_sp->i_object_size ) ) < 78 )
        return VLC_EGENERIC;
 
-    ASF_GetGUID( &p_sp->i_stream_type, p_peek + 24 );
+    ASF_GetGUID( &p_sp->i_stream_type, p_peek + ASF_OBJECT_COMMON_SIZE );
     ASF_GetGUID( &p_sp->i_error_correction_type, p_peek + 40 );
     p_sp->i_time_offset = GetQWLE( p_peek + 56 );
     p_sp->i_type_specific_data_length = GetDWLE( p_peek + 64 );
     p_sp->i_error_correction_data_length = GetDWLE( p_peek + 68 );
     p_sp->i_flags = GetWLE( p_peek + 72 );
-        p_sp->i_stream_number = p_sp->i_flags&0x07f;
+    p_sp->i_stream_number = p_sp->i_flags&0x07f;
+    if ( p_sp->i_stream_number > ASF_MAX_STREAMNUMBER )
+        return VLC_EGENERIC;
     p_sp->i_reserved = GetDWLE( p_peek + 74 );
     i_peek -= 78;
 
@@ -620,7 +616,7 @@ static int ASF_ReadObject_codec_list( stream_t *s, asf_object_t *p_obj )
     if( ( i_peek = stream_Peek( s, &p_peek, p_cl->i_object_size ) ) < 44 )
        return VLC_EGENERIC;
 
-    ASF_GetGUID( &p_cl->i_reserved, p_peek + 24 );
+    ASF_GetGUID( &p_cl->i_reserved, p_peek + ASF_OBJECT_COMMON_SIZE );
     p_cl->i_codec_entries_count = GetDWLE( p_peek + 40 );
 
     p_data = p_peek + 44;
@@ -723,7 +719,7 @@ static int ASF_ReadObject_content_description(stream_t *s, asf_object_t *p_obj)
     if( ( i_peek = stream_Peek( s, &p_peek, p_cd->i_object_size ) ) < 34 )
        return VLC_EGENERIC;
 
-    p_data = p_peek + 24;
+    p_data = p_peek + ASF_OBJECT_COMMON_SIZE;
 
     i_title         = ASF_READ2();
     i_artist        = ASF_READ2();
@@ -775,7 +771,7 @@ static int ASF_ReadObject_language_list(stream_t *s, asf_object_t *p_obj)
     if( ( i_peek = stream_Peek( s, &p_peek, p_ll->i_object_size ) ) < 26 )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
     p_ll->i_language = ASF_READ2();
     if( p_ll->i_language > 0 )
@@ -825,16 +821,18 @@ static int ASF_ReadObject_stream_bitrate_properties( stream_t *s,
     if( ( i_peek = stream_Peek( s, &p_peek, p_sb->i_object_size ) ) < 26 )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
     p_sb->i_bitrate = ASF_READ2();
-    if( p_sb->i_bitrate > 127 )
-        p_sb->i_bitrate = 127;  /* Buggy ? */
+    if( p_sb->i_bitrate > ASF_MAX_STREAMNUMBER )
+        p_sb->i_bitrate = ASF_MAX_STREAMNUMBER;  /* Buggy ? */
     for( i = 0; i < p_sb->i_bitrate; i++ )
     {
         if( !ASF_HAVE(2 + 4) )
             break;
         p_sb->bitrate[i].i_stream_number = (uint8_t) ASF_READ2()& 0x7f;
+        if ( p_sb->bitrate[i].i_stream_number > ASF_MAX_STREAMNUMBER )
+            return VLC_EGENERIC;
         p_sb->bitrate[i].i_avg_bitrate = ASF_READ4();
     }
     p_sb->i_bitrate = i;
@@ -866,19 +864,21 @@ static int ASF_ReadObject_extended_stream_properties( stream_t *s,
     if( ( i_peek = stream_Peek( s, &p_peek, p_esp->i_object_size ) ) < 88 )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
     p_esp->i_start_time = GetQWLE( &p_data[0] );
     p_esp->i_end_time = GetQWLE( &p_data[8] );
     p_esp->i_data_bitrate = GetDWLE( &p_data[16] );
     p_esp->i_buffer_size = GetDWLE( &p_data[20] );
-    p_esp->i_initial_buffer_fullness = GetDWLE( &p_data[24] );
+    p_esp->i_initial_buffer_fullness = GetDWLE( &p_data[ASF_OBJECT_COMMON_SIZE] );
     p_esp->i_alternate_data_bitrate = GetDWLE( &p_data[28] );
     p_esp->i_alternate_buffer_size = GetDWLE( &p_data[32] );
     p_esp->i_alternate_initial_buffer_fullness = GetDWLE( &p_data[36] );
     p_esp->i_maximum_object_size = GetDWLE( &p_data[40] );
     p_esp->i_flags = GetDWLE( &p_data[44] );
     p_esp->i_stream_number = GetWLE( &p_data[48] );
+    if ( p_esp->i_stream_number > ASF_MAX_STREAMNUMBER )
+        return VLC_EGENERIC;
     p_esp->i_language_index = GetWLE( &p_data[50] );
     p_esp->i_average_time_per_frame= GetQWLE( &p_data[52] );
     p_esp->i_stream_name_count = GetWLE( &p_data[60] );
@@ -1008,7 +1008,7 @@ static int ASF_ReadObject_advanced_mutual_exclusion( stream_t *s,
     if( ( i_peek = stream_Peek( s, &p_peek, p_ae->i_object_size ) ) < 42 )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
     if( !ASF_HAVE( 16 + 2 * sizeof(uint16_t) ) ) /* at least one entry */
         return VLC_EGENERIC;
@@ -1021,12 +1021,19 @@ static int ASF_ReadObject_advanced_mutual_exclusion( stream_t *s,
 
     p_ae->i_stream_number_count = ASF_READ2();
     p_ae->pi_stream_number = calloc( p_ae->i_stream_number_count, sizeof(uint16_t) );
+    if ( !p_ae->pi_stream_number )
+        return VLC_ENOMEM;
 
     for( i = 0; i < p_ae->i_stream_number_count; i++ )
     {
         if( !ASF_HAVE(2) )
             break;
         p_ae->pi_stream_number[i] = ASF_READ2();
+        if ( p_ae->pi_stream_number[i] > ASF_MAX_STREAMNUMBER )
+        {
+            free( p_ae->pi_stream_number );
+            return VLC_EGENERIC;
+        }
     }
     p_ae->i_stream_number_count = i;
 
@@ -1059,7 +1066,7 @@ static int ASF_ReadObject_stream_prioritization( stream_t *s,
     if( ( i_peek = stream_Peek( s, &p_peek, p_sp->i_object_size ) ) < 26 )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
     p_sp->i_priority_count = ASF_READ2();
 
@@ -1109,7 +1116,7 @@ static int ASF_ReadObject_bitrate_mutual_exclusion( stream_t *s, asf_object_t *p
     if( ( i_peek = stream_Peek( s, &p_peek, p_ex->i_object_size ) ) < 42 )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
     if( !ASF_HAVE( 16 + 2 * sizeof(uint16_t) ) ) /* at least one entry */
         return VLC_EGENERIC;
@@ -1133,6 +1140,11 @@ static int ASF_ReadObject_bitrate_mutual_exclusion( stream_t *s, asf_object_t *p
         if( !ASF_HAVE(2) )
             break;
         p_ex->pi_stream_numbers[i] = ASF_READ2();
+        if ( p_ex->pi_stream_numbers[i] > ASF_MAX_STREAMNUMBER )
+        {
+            free( p_ex->pi_stream_numbers );
+            return VLC_EGENERIC;
+        }
     }
 
 #ifdef ASF_DEBUG
@@ -1166,7 +1178,7 @@ static int ASF_ReadObject_extended_content_description( stream_t *s,
     if( ( i_peek = stream_Peek( s, &p_peek, p_ec->i_object_size ) ) < 26 )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
     p_ec->i_count = ASF_READ2();
     p_ec->ppsz_name  = calloc( p_ec->i_count, sizeof(char*) );
@@ -1191,12 +1203,12 @@ static int ASF_ReadObject_extended_content_description( stream_t *s,
         i_type = ASF_READ2();
         i_size = ASF_READ2();
 
-        if( i_type == 0 )
+        if( i_type == ASF_METADATA_TYPE_STRING )
         {
             /* Unicode string */
             p_ec->ppsz_value[i] = ASF_READS( i_size );
         }
-        else if( i_type == 1 )
+        else if( i_type == ASF_METADATA_TYPE_BYTE )
         {
             /* Byte array */
             static const char hex[16] = "0123456789ABCDEF";
@@ -1214,25 +1226,25 @@ static int ASF_ReadObject_extended_content_description( stream_t *s,
                 psz_value[2*i_size] = '\0';
             }
         }
-        else if( i_type == 2 )
+        else if( i_type == ASF_METADATA_TYPE_BOOL )
         {
             /* Bool */
             p_ec->ppsz_value[i] = strdup( ASF_READ1() ? "true" : "false" );
             ASF_SKIP(i_size-1);
         }
-        else if( i_type == 3 )
+        else if( i_type == ASF_METADATA_TYPE_DWORD )
         {
             /* DWord */
             if( asprintf( &p_ec->ppsz_value[i], "%d", ASF_READ4() ) == -1 )
                 p_ec->ppsz_value[i] = NULL;
         }
-        else if( i_type == 4 )
+        else if( i_type == ASF_METADATA_TYPE_QWORD )
         {
             /* QWord */
             if( asprintf( &p_ec->ppsz_value[i], "%"PRId64, ASF_READ8() ) == -1 )
                 p_ec->ppsz_value[i] = NULL;
         }
-        else if( i_type == 5 )
+        else if( i_type == ASF_METADATA_TYPE_WORD )
         {
             /* Word */
             if( asprintf( &p_ec->ppsz_value[i], "%d", ASF_READ2() ) == -1 )
@@ -1275,10 +1287,10 @@ static int ASF_ReadObject_marker(stream_t *s, asf_object_t *p_obj)
     const uint8_t *p_peek, *p_data;
     int i_peek;
 
-    if( ( i_peek = stream_Peek( s, &p_peek, p_mk->i_object_size ) ) < 24 )
+    if( ( i_peek = stream_Peek( s, &p_peek, p_mk->i_object_size ) ) < ASF_OBJECT_COMMON_SIZE )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
     ASF_GetGUID( &p_mk->i_reserved1, p_data );
     ASF_SKIP( 16 );
@@ -1348,7 +1360,7 @@ static int ASF_ReadObject_XXX(stream_t *s, asf_object_t *p_obj)
     if( ( i_peek = stream_Peek( s, &p_peek, p_XX->i_object_size ) ) < XXX )
        return VLC_EGENERIC;
 
-    p_data = &p_peek[24];
+    p_data = &p_peek[ASF_OBJECT_COMMON_SIZE];
 
 #ifdef ASF_DEBUG
     msg_Dbg( s,
@@ -1447,7 +1459,7 @@ static int ASF_ReadObject( stream_t *s, asf_object_t *p_obj,
     p_obj->common.p_next = NULL;
     p_obj->common.p_last = NULL;
 
-    if( p_obj->common.i_object_size < 24 )
+    if( p_obj->common.i_object_size < ASF_OBJECT_COMMON_SIZE )
     {
         msg_Warn( s, "found a corrupted asf object (size<24)" );
         return VLC_EGENERIC;

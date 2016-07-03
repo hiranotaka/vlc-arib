@@ -79,6 +79,7 @@ static int ChunkFind( demux_t *, const char *, unsigned int * );
 
 static int FrameInfo_IMA_ADPCM( unsigned int *, int *, const es_format_t * );
 static int FrameInfo_MS_ADPCM ( unsigned int *, int *, const es_format_t * );
+static int FrameInfo_Creative_ADPCM( unsigned int *, int *, const es_format_t * );
 static int FrameInfo_PCM      ( unsigned int *, int *, const es_format_t * );
 static int FrameInfo_MSGSM    ( unsigned int *, int *, const es_format_t * );
 
@@ -214,6 +215,8 @@ static int Open( vlc_object_t * p_this )
 
         sf_tag_to_fourcc( &guid_subformat, &p_sys->fmt.i_codec, &psz_name );
 
+        msg_Dbg( p_demux, "extensible format guid " GUID_FMT, GUID_PRINT(guid_subformat) );
+
         i_extended = sizeof( WAVEFORMATEXTENSIBLE ) - sizeof( WAVEFORMATEX );
         p_sys->fmt.i_extra -= i_extended;
 
@@ -269,7 +272,7 @@ static int Open( vlc_object_t * p_this )
         }
     }
     else if( GetWLE( &p_wf->wFormatTag ) == WAVE_FORMAT_PCM &&
-             p_sys->fmt.audio.i_channels > 2 && p_sys->fmt.audio.i_channels <= 9 )
+             p_sys->fmt.audio.i_channels > 2 && p_sys->fmt.audio.i_channels <= AOUT_CHAN_MAX )
     {
         for( int i = 0; i < p_sys->fmt.audio.i_channels; i++ )
             p_sys->i_channel_mask |= pi_channels_aout[i];
@@ -345,6 +348,11 @@ static int Open( vlc_object_t * p_this )
                                  &p_sys->fmt ) )
             goto error;
         break;
+    case VLC_CODEC_ADPCM_CREATIVE:
+        if( FrameInfo_Creative_ADPCM( &p_sys->i_frame_size, &p_sys->i_frame_samples,
+                                      &p_sys->fmt ) )
+            goto error;
+        break;
     case VLC_CODEC_MPGA:
     case VLC_CODEC_A52:
         /* FIXME set end of area FIXME */
@@ -352,6 +360,7 @@ static int Open( vlc_object_t * p_this )
     case VLC_CODEC_GSM_MS:
     case VLC_CODEC_ADPCM_G726:
     case VLC_CODEC_TRUESPEECH:
+    case VLC_CODEC_ATRAC3P:
     case VLC_CODEC_ATRAC3:
     case VLC_CODEC_G723_1:
     case VLC_CODEC_WMA2:
@@ -567,6 +576,19 @@ static int FrameInfo_IMA_ADPCM( unsigned int *pi_size, int *pi_samples,
 
     *pi_samples = 2 * ( p_fmt->audio.i_blockalign -
         4 * p_fmt->audio.i_channels ) / p_fmt->audio.i_channels;
+    *pi_size = p_fmt->audio.i_blockalign;
+
+    return VLC_SUCCESS;
+}
+
+static int FrameInfo_Creative_ADPCM( unsigned int *pi_size, int *pi_samples,
+                                     const es_format_t *p_fmt )
+{
+    if( p_fmt->audio.i_channels <= 0 )
+        return VLC_EGENERIC;
+
+    /* 4 bits / sample */
+    *pi_samples = p_fmt->audio.i_blockalign * 2 / p_fmt->audio.i_channels;
     *pi_size = p_fmt->audio.i_blockalign;
 
     return VLC_SUCCESS;

@@ -54,12 +54,6 @@
 
 @implementation BWQuincyManager
 
-@synthesize delegate = _delegate;
-@synthesize submissionURL = _submissionURL;
-@synthesize companyName = _companyName;
-@synthesize appIdentifier = _appIdentifier;
-@synthesize autoSubmitCrashReport = _autoSubmitCrashReport;
-
 + (BWQuincyManager *)sharedQuincyManager {
   static BWQuincyManager *quincyManager = nil;
 
@@ -91,13 +85,6 @@
   _delegate = nil;
   _submissionURL = nil;
   _appIdentifier = nil;
-
-  [_crashFile release];
-  [_quincyUI release];
-  if (_customAppVersion)
-       [_customAppVersion release];
-
-  [super dealloc];
 }
 
 - (void) searchCrashLogFile:(NSString *)path {
@@ -114,7 +101,7 @@
     [filesWithModificationDate addObject:[NSDictionary dictionaryWithObjectsAndKeys:crashFile,@"name",crashLogPath,@"path",modDate,@"modDate",nil]];
   }
 
-  NSSortDescriptor* dateSortDescriptor = [[[NSSortDescriptor alloc] initWithKey:@"modDate" ascending:YES] autorelease];
+  NSSortDescriptor* dateSortDescriptor = [[NSSortDescriptor alloc] initWithKey:@"modDate" ascending:YES];
   NSArray* sortedFiles = [filesWithModificationDate sortedArrayUsingDescriptors:[NSArray arrayWithObject:dateSortDescriptor]];
 
   NSPredicate* filterPredicate = [NSPredicate predicateWithFormat:@"name BEGINSWITH %@", [self applicationName]];
@@ -127,7 +114,6 @@
 #pragma mark setter
 - (void)setSubmissionURL:(NSString *)anSubmissionURL {
   if (_submissionURL != anSubmissionURL) {
-    [_submissionURL release];
     _submissionURL = [anSubmissionURL copy];
   }
 
@@ -136,7 +122,6 @@
 
 - (void)setAppIdentifier:(NSString *)anAppIdentifier {
   if (_appIdentifier != anAppIdentifier) {
-    [_appIdentifier release];
     _appIdentifier = [anAppIdentifier copy];
   }
 
@@ -368,8 +353,6 @@
       [parser setShouldResolveExternalEntities:NO];
 
       [parser parse];
-
-      [parser release];
     }
   }
 }
@@ -435,7 +418,6 @@
 - (void)setApplicationVersion:(NSString *)appVersion
 {
     _customAppVersion = appVersion;
-    [_customAppVersion retain];
 }
 
 - (NSString *) applicationVersion {

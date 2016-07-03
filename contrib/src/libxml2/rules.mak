@@ -1,6 +1,6 @@
 # libxml2
 
-LIBXML2_VERSION := 2.9.1
+LIBXML2_VERSION := 2.9.3
 LIBXML2_URL := http://xmlsoft.org/sources/libxml2-$(LIBXML2_VERSION).tar.gz
 
 PKGS += libxml2
@@ -9,11 +9,28 @@ PKGS_FOUND += libxml2
 endif
 
 $(TARBALLS)/libxml2-$(LIBXML2_VERSION).tar.gz:
-	$(call download,$(LIBXML2_URL))
+	$(call download_pkg,$(LIBXML2_URL),libxml2)
 
 .sum-libxml2: libxml2-$(LIBXML2_VERSION).tar.gz
 
-XMLCONF = --with-minimal --with-catalog --with-reader --with-tree --with-push --with-xptr --with-valid --with-xpath --with-xinclude --with-sax1 --without-zlib --without-iconv --without-http --without-ftp  --without-debug --without-docbook --without-regexps --without-python
+XMLCONF = --with-minimal     \
+          --with-catalog     \
+          --with-reader      \
+          --with-tree        \
+          --with-push        \
+          --with-xptr        \
+          --with-valid       \
+          --with-xpath       \
+          --with-xinclude    \
+          --with-sax1        \
+          --without-zlib     \
+          --without-iconv    \
+          --without-http     \
+          --without-ftp      \
+          --without-debug    \
+          --without-docbook  \
+          --without-regexps  \
+          --without-python
 
 libxml2: libxml2-$(LIBXML2_VERSION).tar.gz .sum-libxml2
 	$(UNPACK)
@@ -21,6 +38,9 @@ libxml2: libxml2-$(LIBXML2_VERSION).tar.gz .sum-libxml2
 	$(APPLY) $(SRC)/libxml2/win32.patch
 	$(APPLY) $(SRC)/libxml2/bins.patch
 	$(APPLY) $(SRC)/libxml2/pthread.patch
+ifdef HAVE_WINSTORE
+	$(APPLY) $(SRC)/libxml2/nogetcwd.patch
+endif
 	$(MOVE)
 
 .libxml2: libxml2

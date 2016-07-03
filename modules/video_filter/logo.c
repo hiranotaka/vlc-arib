@@ -276,6 +276,7 @@ static int OpenCommon( vlc_object_t *p_this, bool b_sub )
     p_sys->i_pos = var_CreateGetIntegerCommand( p_filter, "logo-position" );
     p_sys->i_pos_x = var_CreateGetIntegerCommand( p_filter, "logo-x" );
     p_sys->i_pos_y = var_CreateGetIntegerCommand( p_filter, "logo-y" );
+    p_sys->b_absolute = (p_sys->i_pos < 0);
 
     /* Ignore aligment if a position is given for video filter */
     if( !b_sub && p_sys->i_pos_x >= 0 && p_sys->i_pos_y >= 0 )
@@ -389,7 +390,7 @@ static subpicture_t *FilterSub( filter_t *p_filter, mtime_t date )
     if( !p_region )
     {
         msg_Err( p_filter, "cannot allocate SPU region" );
-        p_filter->pf_sub_buffer_del( p_filter, p_spu );
+        subpicture_Delete( p_spu );
         p_spu = NULL;
         goto exit;
     }
@@ -543,14 +544,6 @@ static int Mouse( filter_t *p_filter, vlc_mouse_t *p_mouse,
                                     p_filter->fmt_in.video.i_width  - i_logo_w );
             p_sys->i_pos_y = VLC_CLIP( p_sys->i_pos_y + i_dy, 0,
                                     p_filter->fmt_in.video.i_height - i_logo_h );
-
-            /* object under mouse has moved */
-            var_SetBool( p_filter->p_parent, "mouse-object", true );
-        }
-        else if( b_over )
-        {
-            /* object under mouse stoped moving */
-            var_SetBool( p_filter->p_parent, "mouse-object", false );
         }
 
         if( p_sys->b_mouse_grab || b_over )
@@ -646,19 +639,19 @@ static void LogoListLoad( vlc_object_t *p_this, logo_list_t *p_logo_list,
 {
     char *psz_list; /* the list: <logo>[,[<delay>[,[<alpha>]]]][;...] */
     char *psz_original;
-    unsigned int i;
     logo_t *p_logo;         /* the parsing's result */
 
     p_logo_list->i_counter = 0;
     p_logo_list->i_next_pic = 0;
 
     psz_original = psz_list = strdup( psz_filename );
+
     if( !psz_list )
-        abort();
+        return;
 
     /* Count the number logos == number of ';' + 1 */
     p_logo_list->i_count = 1;
-    for( i = 0; i < strlen( psz_list ); i++ )
+    for( unsigned i = 0; i < strlen( psz_list ); i++ )
     {
         if( psz_list[i] == ';' )
             p_logo_list->i_count++;
@@ -666,11 +659,15 @@ static void LogoListLoad( vlc_object_t *p_this, logo_list_t *p_logo_list,
 
     p_logo_list->p_logo =
     p_logo              = calloc( p_logo_list->i_count, sizeof(*p_logo) );
+
     if( !p_logo )
-        abort();
+    {
+        free( psz_list );
+        return;
+    }
 
     /* Fill the data */
-    for( i = 0; i < p_logo_list->i_count; i++ )
+    for( unsigned i = 0; i < p_logo_list->i_count; i++ )
     {
         char *p_c  = strchr( psz_list, ';' );
         char *p_c2 = strchr( psz_list, ',' );

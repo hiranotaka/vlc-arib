@@ -36,14 +36,10 @@
 #include <vlc_fs.h>
 #include <ctype.h>
 
-/**
- * Decodes an encoded URI component. See also decode_URI().
- * \return decoded string allocated on the heap, or NULL on error.
- */
-char *decode_URI_duplicate (const char *str)
+char *vlc_uri_decode_duplicate (const char *str)
 {
     char *buf = strdup (str);
-    if (decode_URI (buf) == NULL)
+    if (vlc_uri_decode (buf) == NULL)
     {
         free (buf);
         buf = NULL;
@@ -51,20 +47,7 @@ char *decode_URI_duplicate (const char *str)
     return buf;
 }
 
-/**
- * Decodes an encoded URI component in place.
- * <b>This function does NOT decode entire URIs.</b> Instead, it decodes one
- * component at a time (e.g. host name, directory, file name).
- * Decoded URIs do not exist in the real world (see RFC3986 §2.4).
- * Complete URIs are always "encoded" (or they are syntaxically invalid).
- *
- * Note that URI encoding is different from Javascript escaping. Especially,
- * white spaces and Unicode non-ASCII code points are encoded differently.
- *
- * \param str nul-terminated URI component to decode
- * \return str on success, NULL if it was not properly encoded
- */
-char *decode_URI (char *str)
+char *vlc_uri_decode (char *str)
 {
     char *in = str, *out = str;
     if (in == NULL)
@@ -89,13 +72,25 @@ char *decode_URI (char *str)
     return str;
 }
 
-static inline bool isurisafe (int c)
+static bool isurisafe (int c)
 {
     /* These are the _unreserved_ URI characters (RFC3986 §2.3) */
     return ((unsigned char)(c - 'a') < 26)
         || ((unsigned char)(c - 'A') < 26)
         || ((unsigned char)(c - '0') < 10)
         || (strchr ("-._~", c) != NULL);
+}
+
+static bool isurisubdelim(int c)
+{
+    return strchr("!$&'()*+,;=", c) != NULL;
+}
+
+static bool isurihex(int c)
+{   /* Same as isxdigit() but does not depend on locale and unsignedness */
+    return ((unsigned char)(c - '0') < 10)
+        || ((unsigned char)(c - 'A') < 6)
+        || ((unsigned char)(c - 'a') < 6);
 }
 
 static char *encode_URI_bytes (const char *str, size_t *restrict lenp)
@@ -107,7 +102,7 @@ static char *encode_URI_bytes (const char *str, size_t *restrict lenp)
     char *out = buf;
     for (size_t i = 0; i < *lenp; i++)
     {
-        static const char hex[16] = "0123456789ABCDEF";
+        static const char hex[] = "0123456789ABCDEF";
         unsigned char c = str[i];
 
         if (isurisafe (c))
@@ -127,14 +122,7 @@ static char *encode_URI_bytes (const char *str, size_t *restrict lenp)
     return likely(out != NULL) ? out : buf;
 }
 
-/**
- * Encodes a URI component (RFC3986 §2).
- *
- * @param str nul-terminated UTF-8 representation of the component.
- * @note Obviously, a URI containing nul bytes cannot be passed.
- * @return encoded string (must be free()'d), or NULL for ENOMEM.
- */
-char *encode_URI_component (const char *str)
+char *vlc_uri_encode (const char *str)
 {
     size_t len = strlen (str);
     char *ret = encode_URI_bytes (str, &len);
@@ -143,13 +131,6 @@ char *encode_URI_component (const char *str)
     return ret;
 }
 
-/**
- * Builds a URL representation from a local file path.
- * @param path path to convert (or URI to copy)
- * @param scheme URI scheme to use (default is auto: "file", "fd" or "smb")
- * @return a nul-terminated URI string (use free() to release it),
- * or NULL in case of error (errno will be set accordingly)
- */
 char *vlc_path2uri (const char *path, const char *scheme)
 {
     if (path == NULL)
@@ -174,7 +155,7 @@ char *vlc_path2uri (const char *path, const char *scheme)
     path = p;
 #endif
 
-#if defined( _WIN32 ) || defined( __OS2__ )
+#if defined (_WIN32) || defined (__OS2__)
     /* Drive letter */
     if (isalpha ((unsigned char)path[0]) && (path[1] == ':'))
     {
@@ -190,47 +171,20 @@ char *vlc_path2uri (const char *path, const char *scheme)
         }
     }
     else
-#endif
     if (!strncmp (path, "\\\\", 2))
     {   /* Windows UNC paths */
-#if !defined( _WIN32 ) && !defined( __OS2__ )
-        if (scheme != NULL)
-        {
-            errno = ENOTSUP;
-            return NULL; /* remote files not supported */
-        }
-
-        /* \\host\share\path -> smb://host/share/path */
-        if (strchr (path + 2, '\\') != NULL)
-        {   /* Convert backslashes to slashes */
-            char *dup = strdup (path);
-            if (dup == NULL)
-                return NULL;
-            for (size_t i = 2; dup[i]; i++)
-                if (dup[i] == '\\')
-                    dup[i] = DIR_SEP_CHAR;
-
-            char *ret = vlc_path2uri (dup, scheme);
-            free (dup);
-            return ret;
-        }
-# define SMB_SCHEME "smb"
-#else
         /* \\host\share\path -> file://host/share/path */
-# define SMB_SCHEME "file"
-#endif
-        size_t hostlen = strcspn (path + 2, DIR_SEP);
+        int hostlen = strcspn (path + 2, DIR_SEP);
 
-        buf = malloc (sizeof (SMB_SCHEME) + 3 + hostlen);
-        if (buf != NULL)
-            snprintf (buf, sizeof (SMB_SCHEME) + 3 + hostlen,
-                      SMB_SCHEME"://%s", path + 2);
+        if (asprintf (&buf, "file://%.*s", hostlen, path + 2) == -1)
+            buf = NULL;
         path += 2 + hostlen;
 
         if (path[0] == '\0')
             return buf; /* Hostname without path */
     }
     else
+#endif
     if (path[0] != DIR_SEP_CHAR)
     {   /* Relative path: prepend the current working directory */
         char *cwd, *ret;
@@ -279,13 +233,7 @@ char *vlc_path2uri (const char *path, const char *scheme)
     return buf;
 }
 
-/**
- * Tries to convert a URI to a local (UTF-8-encoded) file path.
- * @param url URI to convert
- * @return NULL on error, a nul-terminated string otherwise
- * (use free() to release it)
- */
-char *make_path (const char *url)
+char *vlc_uri2path (const char *url)
 {
     char *ret = NULL;
     char *end;
@@ -298,17 +246,14 @@ char *make_path (const char *url)
     size_t schemelen = ((end != NULL) ? end : path) - url;
     path += 3; /* skip "://" */
 
-    /* Remove HTML anchor if present */
-    end = strchr (path, '#');
-    if (end)
-        path = strndup (path, end - path);
-    else
-        path = strdup (path);
+    /* Remove request parameters and/or HTML anchor if present */
+    end = path + strcspn (path, "?#");
+    path = strndup (path, end - path);
     if (unlikely(path == NULL))
         return NULL; /* boom! */
 
     /* Decode path */
-    decode_URI (path);
+    vlc_uri_decode (path);
 
     if (schemelen == 4 && !strncasecmp (url, "file", 4))
     {
@@ -366,8 +311,6 @@ char *make_path (const char *url)
         /* XXX: Does this work on WinCE? */
         if (fd < 2)
             ret = strdup ("CON");
-        else
-            ret = NULL;
 #endif
     }
 
@@ -378,17 +321,48 @@ out:
 
 static char *vlc_idna_to_ascii (const char *);
 
+static bool vlc_uri_component_validate(const char *str, const char *extras)
+{
+    if (str == NULL)
+        return false;
+
+    for (size_t i = 0; str[i] != '\0'; i++)
+    {
+        int c = str[i];
+
+        if (isurisafe(c) || isurisubdelim(c))
+            continue;
+        if (strchr(extras, c) != NULL)
+            continue;
+        if (c == '%' && isurihex(str[i + 1]) && isurihex(str[i + 2]))
+        {
+            i += 2;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+static bool vlc_uri_host_validate(const char *str)
+{
+    return vlc_uri_component_validate(str, ":");
+}
+
+static bool vlc_uri_path_validate(const char *str)
+{
+    return vlc_uri_component_validate(str, "/@:");
+}
+
 /**
  * Splits an URL into parts.
  * \param url structure of URL parts [OUT]
  * \param str nul-terminated URL string to split
- * \param opt if non-zero, character separating paths from options,
- *            normally the question mark
  * \note Use vlc_UrlClean() to free associated resources
  * \bug Errors cannot be detected.
  * \return nothing
  */
-void vlc_UrlParse (vlc_url_t *restrict url, const char *str, unsigned char opt)
+void vlc_UrlParse (vlc_url_t *restrict url, const char *str)
 {
     url->psz_protocol = NULL;
     url->psz_username = NULL;
@@ -412,7 +386,7 @@ void vlc_UrlParse (vlc_url_t *restrict url, const char *str, unsigned char opt)
     /* URL scheme */
     next = buf;
     while ((*next >= 'A' && *next <= 'Z') || (*next >= 'a' && *next <= 'z')
-        || (*next >= '0' && *next <= '9') || (strchr ("+-.", *next) != NULL))
+        || (*next >= '0' && *next <= '9') || memchr ("+-.", *next, 3) != NULL)
         next++;
     /* This is not strictly correct. In principles, the scheme is always
      * present in an absolute URL and followed by a colon. Depending on the
@@ -427,17 +401,20 @@ void vlc_UrlParse (vlc_url_t *restrict url, const char *str, unsigned char opt)
         cur = next;
     }
 
+    /* Query parameters */
+    char *query = strchr (cur, '?');
+    if (query != NULL)
+    {
+        *(query++) = '\0';
+        url->psz_option = query;
+    }
+
     /* Path */
     next = strchr (cur, '/');
     if (next != NULL)
     {
         *next = '\0'; /* temporary nul, reset to slash later */
         url->psz_path = next;
-        if (opt && (next = strchr (next, opt)) != NULL)
-        {
-            *(next++) = '\0';
-            url->psz_option = next;
-        }
     }
     /*else
         url->psz_path = "/";*/
@@ -456,9 +433,9 @@ void vlc_UrlParse (vlc_url_t *restrict url, const char *str, unsigned char opt)
         {
             *(next++) = '\0';
             url->psz_password = next;
-            decode_URI (url->psz_password);
+            vlc_uri_decode (url->psz_password);
         }
-        decode_URI (url->psz_username);
+        vlc_uri_decode (url->psz_username);
     }
 
     /* Host name */
@@ -480,6 +457,11 @@ void vlc_UrlParse (vlc_url_t *restrict url, const char *str, unsigned char opt)
 
         url->psz_host = vlc_idna_to_ascii (cur);
     }
+    if (!vlc_uri_host_validate(url->psz_host))
+    {
+        free(url->psz_host);
+        url->psz_host = NULL;
+    }
 
     /* Port number */
     if (next != NULL)
@@ -487,6 +469,8 @@ void vlc_UrlParse (vlc_url_t *restrict url, const char *str, unsigned char opt)
 
     if (url->psz_path != NULL)
         *url->psz_path = '/'; /* restore leading slash */
+    if (!vlc_uri_path_validate(url->psz_path))
+        url->psz_path = NULL;
 }
 
 /**

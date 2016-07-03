@@ -29,6 +29,8 @@
 # include <config.h>
 #endif
 
+#include <assert.h>
+
 #include <vlc_common.h>
 #include <vlc_block.h>
 #include "dtv/bdagraph.hpp"
@@ -151,9 +153,9 @@ void dvb_close (dvb_device_t *d)
     delete d;
 }
 
-ssize_t dvb_read (dvb_device_t *d, void *buf, size_t len)
+ssize_t dvb_read (dvb_device_t *d, void *buf, size_t len, int ms)
 {
-    return d->module->Pop(buf, len);
+    return d->module->Pop(buf, len, ms);
 }
 
 int dvb_add_pid (dvb_device_t *, uint16_t)
@@ -163,6 +165,11 @@ int dvb_add_pid (dvb_device_t *, uint16_t)
 
 void dvb_remove_pid (dvb_device_t *, uint16_t)
 {
+}
+
+bool dvb_get_pid_state (const dvb_device_t *, uint16_t)
+{
+    return true;
 }
 
 unsigned dvb_enum_systems (dvb_device_t *d)
@@ -191,6 +198,17 @@ int dvb_tune (dvb_device_t *d)
     return d->module->SubmitTuneRequest ();
 }
 
+int dvb_fill_device_caps( dvb_device_t *, dvb_device_caps_t * )
+{
+
+    return -1;
+}
+
+bool dvb_set_ca_pmt (dvb_device_t *, en50221_capmt_info_t *)
+{
+    return false;
+}
+
 /* DVB-C */
 int dvb_set_dvbc (dvb_device_t *d, uint32_t freq, const char *mod,
                   uint32_t srate, uint32_t /*fec*/)
@@ -209,7 +227,8 @@ int dvb_set_dvbs (dvb_device_t *d, uint64_t freq, uint32_t srate, uint32_t fec)
 }
 
 int dvb_set_dvbs2 (dvb_device_t *, uint64_t /*freq*/, const char * /*mod*/,
-                   uint32_t /*srate*/, uint32_t /*fec*/, int /*pilot*/, int /*rolloff*/)
+                   uint32_t /*srate*/, uint32_t /*fec*/, int /*pilot*/, int /*rolloff*/,
+                   uint8_t /*sid*/)
 {
     return VLC_EGENERIC;
 }
@@ -235,11 +254,13 @@ int dvb_set_dvbt (dvb_device_t *d, uint32_t freq, const char * /*mod*/,
                               bandwidth, transmission, guard, hierarchy);
 }
 
-int dvb_set_dvbt2 (dvb_device_t *, uint32_t /*freq*/, const char * /*mod*/,
-                   uint32_t /*fec*/, uint32_t /*bandwidth*/, int /*tx_mode*/,
-                   uint32_t /*guard*/, uint32_t /*plp*/)
+/* DVB-T2 */
+int dvb_set_dvbt2 (dvb_device_t *d, uint32_t freq, const char * /*mod*/,
+                   uint32_t fec, uint32_t bandwidth, int transmission,
+                   uint32_t guard, uint8_t plp)
 {
-    return VLC_EGENERIC;
+    return d->module->SetDVBT2(freq / 1000, fec,
+                      bandwidth, transmission, guard, plp);
 }
 
 /* ISDB-C */
@@ -299,11 +320,14 @@ void BDAOutput::Push( block_t *p_block )
     vlc_cond_signal( &wait );
 }
 
-ssize_t BDAOutput::Pop(void *buf, size_t len)
+ssize_t BDAOutput::Pop(void *buf, size_t len, int ms)
 {
+    if( ms < 0 )
+        ms = 250;
+
     vlc_mutex_locker l( &lock );
 
-    mtime_t i_deadline = mdate() + 250 * 1000;
+    mtime_t i_deadline = mdate() + ms * 1000;
     while( !p_first )
     {
         if( vlc_cond_timedwait( &wait, &lock, i_deadline ) )
@@ -369,7 +393,8 @@ BDAGraph::BDAGraph( vlc_object_t *p_this ):
     p_scanning_tuner = NULL;
     p_grabber = NULL;
 
-    CoInitializeEx( NULL, COINIT_APARTMENTTHREADED );
+    if( FAILED(CoInitializeEx( NULL, COINIT_APARTMENTTHREADED )) )
+        vlc_assert_unreachable();
 }
 
 /*****************************************************************************
@@ -396,15 +421,15 @@ unsigned BDAGraph::GetSystem( REFCLSID clsid )
     unsigned sys = 0;
 
     if( clsid == CLSID_DVBTNetworkProvider )
-        sys = DVB_T;
+        sys = DTV_DELIVERY_DVB_T;
     if( clsid == CLSID_DVBCNetworkProvider )
-        sys = DVB_C;
+        sys = DTV_DELIVERY_DVB_C;
     if( clsid == CLSID_DVBSNetworkProvider )
-        sys = DVB_S;
+        sys = DTV_DELIVERY_DVB_S;
     if( clsid == CLSID_ATSCNetworkProvider )
-        sys = ATSC;
+        sys = DTV_DELIVERY_ATSC;
     if( clsid == CLSID_DigitalCableNetworkType )
-        sys = CQAM;
+        sys = DTV_DELIVERY_CQAM;
 
     return sys;
 }
@@ -911,6 +936,211 @@ int BDAGraph::SetDVBT(long l_frequency, uint32_t fec_hp, uint32_t fec_lp,
 }
 
 /*****************************************************************************
+* Set DVB-T2
+*
+* This provides the tune request that everything else is built upon.
+*
+* Stores the tune request to the scanning tuner, where it is pulled out by
+* dvb_tune a/k/a SubmitTuneRequest.
+******************************************************************************/
+int BDAGraph::SetDVBT2(long l_frequency, uint32_t fec,
+    long l_bandwidth, int transmission, uint32_t guard, int plp)
+{
+    HRESULT hr = S_OK;
+
+    class localComPtr
+    {
+        public:
+        ITuneRequest*       p_tune_request;
+        IDVBTuneRequest*    p_dvb_tune_request;
+        IDVBTLocator2*       p_dvbt_locator;
+        IDVBTuningSpace2*   p_dvb_tuning_space;
+        localComPtr():
+            p_tune_request(NULL),
+            p_dvb_tune_request(NULL),
+            p_dvbt_locator(NULL),
+            p_dvb_tuning_space(NULL)
+            {};
+        ~localComPtr()
+        {
+            if( p_tune_request )
+                p_tune_request->Release();
+            if( p_dvb_tune_request )
+                p_dvb_tune_request->Release();
+            if( p_dvbt_locator )
+                p_dvbt_locator->Release();
+            if( p_dvb_tuning_space )
+                p_dvb_tuning_space->Release();
+        }
+    } l;
+
+    /* create local dvbt-specific tune request and locator
+     * then put it to existing scanning tuner */
+    BinaryConvolutionCodeRate i_fec = dvb_parse_fec(fec);
+    GuardInterval i_guard = dvb_parse_guard(guard);
+    TransmissionMode i_transmission = dvb_parse_transmission(transmission);
+    long l_plp = plp;
+
+    /* try to set p_scanning_tuner */
+    msg_Dbg( p_access, "SetDVBT: set up scanning tuner" );
+    hr = Check( CLSID_DVBTNetworkProvider );
+    if( FAILED( hr ) )
+    {
+        msg_Warn( p_access, "SetDVBT: "\
+            "Cannot create Tuning Space: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    if( !p_scanning_tuner )
+    {
+        msg_Warn( p_access, "SetDVBT: Cannot get scanning tuner" );
+        return VLC_EGENERIC;
+    }
+
+    hr = p_scanning_tuner->get_TuneRequest( &l.p_tune_request );
+    if( FAILED( hr ) )
+    {
+        msg_Warn( p_access, "SetDVBT: "\
+            "Cannot get Tune Request: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    msg_Dbg( p_access, "SetDVBT: Creating DVB tune request" );
+    hr = l.p_tune_request->QueryInterface( IID_IDVBTuneRequest,
+        reinterpret_cast<void**>( &l.p_dvb_tune_request ) );
+    if( FAILED( hr ) )
+    {
+        msg_Warn( p_access, "SetDVBT: "\
+            "Cannot QI for IDVBTuneRequest: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    l.p_dvb_tune_request->put_ONID( -1 );
+    l.p_dvb_tune_request->put_SID( -1 );
+    l.p_dvb_tune_request->put_TSID( -1 );
+
+    msg_Dbg( p_access, "SetDVBT: get TS" );
+    hr = p_scanning_tuner->get_TuningSpace( &p_tuning_space );
+    if( FAILED( hr ) )
+    {
+        msg_Dbg( p_access, "SetDVBT: "\
+            "cannot get tuning space: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    msg_Dbg( p_access, "SetDVBT: QI to DVBT TS" );
+    hr = p_tuning_space->QueryInterface( IID_IDVBTuningSpace2,
+        reinterpret_cast<void**>( &l.p_dvb_tuning_space ) );
+    if( FAILED( hr ) )
+    {
+        msg_Warn( p_access, "SetDVBT: "\
+            "Cannot QI for IDVBTuningSpace2: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    msg_Dbg( p_access, "SetDVBT: Creating local locator2" );
+
+    hr = ::CoCreateInstance( CLSID_DVBTLocator2, 0, CLSCTX_INPROC,
+        IID_IDVBTLocator2, reinterpret_cast<void**>( &l.p_dvbt_locator ) );
+
+
+    if( FAILED( hr ) )
+    {
+        msg_Warn( p_access, "SetDVBT: "\
+            "Cannot create the DVBT Locator2: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    hr = l.p_dvb_tuning_space->put_SystemType( DVB_Terrestrial );
+    if( SUCCEEDED( hr ) && l_frequency > 0 )
+        hr = l.p_dvbt_locator->put_CarrierFrequency( l_frequency );
+    if( SUCCEEDED( hr ) && l_bandwidth > 0 )
+        hr = l.p_dvbt_locator->put_Bandwidth( l_bandwidth );
+    if( SUCCEEDED( hr ) && i_fec != BDA_BCC_RATE_NOT_SET )
+        hr = l.p_dvbt_locator->put_InnerFECRate( i_fec );
+    if( SUCCEEDED( hr ) && i_fec != BDA_BCC_RATE_NOT_SET )
+        hr = l.p_dvbt_locator->put_LPInnerFECRate( i_fec );
+    if( SUCCEEDED( hr ) && i_guard != BDA_GUARD_NOT_SET )
+        hr = l.p_dvbt_locator->put_Guard( i_guard );
+    if( SUCCEEDED( hr ) && i_transmission != BDA_XMIT_MODE_NOT_SET )
+        hr = l.p_dvbt_locator->put_Mode( i_transmission );
+    if( SUCCEEDED( hr ) && l_plp > 0 ){
+        hr = l.p_dvbt_locator->put_PhysicalLayerPipeId( l_plp);
+    }
+
+    if( FAILED( hr ) )
+    {
+        msg_Warn( p_access, "SetDVBT: "\
+            "Cannot set tuning parameters on Locator: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    msg_Dbg( p_access, "SetDVBT: putting DVBT locator into local tune request" );
+
+    hr = l.p_dvb_tune_request->put_Locator( l.p_dvbt_locator );
+    if( FAILED( hr ) )
+    {
+        msg_Warn( p_access, "SetDVBT: "\
+            "Cannot put the locator: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    msg_Dbg( p_access, "SetDVBT: putting local Tune Request to scanning tuner" );
+    hr = p_scanning_tuner->Validate( l.p_dvb_tune_request );
+    if( FAILED( hr ) )
+    {
+        msg_Dbg( p_access, "SetDVBT: "\
+            "Tune Request cannot be validated: hr=0x%8lx", hr );
+    }
+    /* increments ref count for scanning tuner */
+    hr = p_scanning_tuner->put_TuneRequest( l.p_dvb_tune_request );
+    if( FAILED( hr ) )
+    {
+        msg_Warn( p_access, "SetDVBT: "\
+            "Cannot put the tune request: hr=0x%8lx", hr );
+        return VLC_EGENERIC;
+    }
+
+    /* TBS tuner PLP set workaround */
+    /* TODO: Check TBS tuner is present */
+    IPin* pinInput0 = FindPinOnFilter( p_tuner_device, "Input0");
+    if( pinInput0)
+    {
+        msg_Dbg( p_access, "SetDVBT: pin Input0 found on tuner filter, trying to get IKsPropertySet interface for TBS tuner..." );
+        IKsPropertySet* p_ksPropertySet;
+        hr = pinInput0->QueryInterface(IID_IKsPropertySet, reinterpret_cast<void**>(&p_ksPropertySet));
+        if( FAILED( hr ))
+        {
+                msg_Dbg( p_access, "SetDVBT: Cannot query for IKsPropertySet (this can be normal if not TBS tuner)  : hr=0x%8lx", hr );
+        }
+        else
+        {
+            msg_Dbg( p_access, "SetDVBT: found IKsPropertySet interface (using TBS tuner PLP-set workaround)");
+            TBS_PLP_INFO plp_info;
+            ZeroMemory( &plp_info, sizeof( TBS_PLP_INFO));
+                plp_info.plpId = plp;
+                p_ksPropertySet->Set( KSPROPSETID_BdaTunerExtensionProperties,
+                                      KSPROPERTY_BDA_PLPINFO,
+                                      NULL,
+                                      0,
+                                      &plp_info,
+                                      sizeof( TBS_PLP_INFO ));
+                msg_Dbg( p_access, "SetDVBT: TBS tuner set PLP: %d", plp);
+                p_ksPropertySet->Release();
+        }
+        pinInput0->Release();
+    }
+    else
+    {
+        msg_Dbg( p_access, "SetDVBT: no pin Input0 found on tuner filter (this can be normal if not TBS tuner)" );
+    }
+
+    msg_Dbg( p_access, "SetDVBT: return success" );
+    return VLC_SUCCESS;
+}
+
+
+/*****************************************************************************
 * Set DVB-C
 ******************************************************************************/
 int BDAGraph::SetDVBC(long l_frequency, const char *mod, long l_symbolrate)
@@ -1099,7 +1329,7 @@ int BDAGraph::SetInversion(int inversion)
      * in access.c. Since DVBT and DVBC don't support spectral
      * inversion, we need to return VLC_SUCCESS in those cases
      * so that dvb_tune() will be called */
-    if( ( GetSystem( guid_network_type ) & ( DVB_S | DVB_S2 | ISDB_S ) ) == 0 )
+    if( ( GetSystem( guid_network_type ) & ( DTV_DELIVERY_DVB_S | DTV_DELIVERY_DVB_S2 | DTV_DELIVERY_ISDB_S ) ) == 0 )
     {
         msg_Dbg( p_access, "SetInversion: Not Satellite type" );
         return VLC_SUCCESS;
@@ -1351,7 +1581,7 @@ int BDAGraph::SetDVBS(long l_frequency, long l_symbolrate, uint32_t fec,
 * to the Network Type requested.
 *
 * Logic: if tuner is set up and is the right network type, use it.
-* Otherwise, poll the tuner for the right tuning space. 
+* Otherwise, poll the tuner for the right tuning space.
 *
 * Then set up a tune request and try to validate it. Finally, put
 * tune request and tuning space to tuner
@@ -2799,9 +3029,9 @@ HRESULT BDAGraph::Start()
 /*****************************************************************************
 * Pop the stream of data
 *****************************************************************************/
-ssize_t BDAGraph::Pop(void *buf, size_t len)
+ssize_t BDAGraph::Pop(void *buf, size_t len, int ms)
 {
-    return output.Pop(buf, len);
+    return output.Pop(buf, len, ms);
 }
 
 /******************************************************************************
@@ -3114,4 +3344,68 @@ HRESULT BDAGraph::GetPinName( IPin* p_pin, char** psz_bstr_name )
     if( pin_info.pFilter )
         pin_info.pFilter->Release();
     return S_OK;
+}
+
+IPin* BDAGraph::FindPinOnFilter( IBaseFilter* pBaseFilter, const char* pPinName)
+{
+    HRESULT hr;
+    IEnumPins *pEnumPin = NULL;
+    ULONG CountReceived = 0;
+    IPin *pPin = NULL, *pThePin = NULL;
+    char String[80];
+    char* pString;
+    PIN_INFO PinInfo;
+    int length;
+
+    if (!pBaseFilter || !pPinName)
+        return NULL;
+
+    // enumerate of pins on the filter
+    hr = pBaseFilter->EnumPins(&pEnumPin);
+    if (hr == S_OK && pEnumPin)
+    {
+        pEnumPin->Reset();
+        while (pEnumPin->Next( 1, &pPin, &CountReceived) == S_OK && pPin)
+        {
+            memset(String, 0, sizeof(String));
+
+            hr = pPin->QueryPinInfo(&PinInfo);
+            if (hr == S_OK)
+            {
+                length = wcslen (PinInfo.achName) + 1;
+                pString = new char [length];
+
+                // get the pin name
+                WideCharToMultiByte(CP_ACP, 0, PinInfo.achName, -1, pString, length,
+                        NULL, NULL);
+
+                //strcat (String, pString);
+                //StringCbCat(String,strlen(String) + strlen(pString)+1,pString);
+                snprintf( String, strlen(String) + strlen(pString) + 1, "%s%s", String, pString);
+
+                // is there a match
+                if (strstr(String, pPinName))
+                    pThePin = pPin;   // yes
+                else
+                    pPin = NULL;      // no
+
+                delete[] pString;
+
+            }
+            else
+            {
+                // need to release this pin
+                pPin->Release();
+            }
+
+
+        }        // end if have pin
+
+        // need to release the enumerator
+        pEnumPin->Release();
+    }
+
+    // return address of pin if found on the filter
+    return pThePin;
+
 }

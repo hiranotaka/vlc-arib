@@ -241,6 +241,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     p_sys->p_info = mpeg2_info( p_sys->p_mpeg2dec );
 
     p_dec->pf_decode_video = DecodeBlock;
+    p_dec->pf_flush        = Reset;
     p_dec->fmt_out.i_cat = VIDEO_ES;
     p_dec->fmt_out.i_codec = 0;
 
@@ -254,7 +255,6 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 {
     decoder_sys_t   *p_sys = p_dec->p_sys;
     mpeg2_state_t   state;
-    picture_t       *p_pic;
 
     block_t *p_block;
 
@@ -262,7 +262,7 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         return NULL;
 
     p_block = *pp_block;
-    if( p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY | BLOCK_FLAG_CORRUPTED) )
+    if( p_block->i_flags & (BLOCK_FLAG_CORRUPTED) )
         Reset( p_dec );
 
     while( 1 )
@@ -387,8 +387,9 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
                                        p_info->sequence->flags & SEQ_FLAG_LOW_DELAY );
 
 
-            bool b_skip = false;
-            if( !p_dec->b_pace_control && !p_sys->b_preroll &&
+            picture_t *p_pic;
+
+            if( p_dec->b_frame_drop_allowed && !p_sys->b_preroll &&
                 !(p_sys->b_slice_i
                    && ((p_current->flags
                          & PIC_MASK_CODING_TYPE) == PIC_FLAG_CODING_TYPE_P))
@@ -397,12 +398,8 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
                                 & PIC_MASK_CODING_TYPE,
                               /*p_sys->p_vout->render_time*/ 0 /*FIXME*/,
                               p_info->sequence->flags & SEQ_FLAG_LOW_DELAY ) )
-            {
-                b_skip = true;
-            }
-
-            p_pic = NULL;
-            if( !b_skip )
+                p_pic = NULL;
+            else
             {
                 p_pic = DpbNewPicture( p_dec );
                 if( !p_pic )
@@ -419,28 +416,15 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
                 }
             }
 
-            if( b_skip || !p_pic )
-            {
-                mpeg2_skip( p_sys->p_mpeg2dec, 1 );
-                p_sys->b_skip = true;
+            mpeg2_skip( p_sys->p_mpeg2dec, p_pic == NULL );
+            p_sys->b_skip = p_pic == NULL;
+            if( p_pic != NULL )
+                decoder_SynchroDecode( p_sys->p_synchro );
+            else
                 decoder_SynchroTrash( p_sys->p_synchro );
 
-                PutPicture( p_dec, NULL );
+            PutPicture( p_dec, p_pic );
 
-                if( !b_skip )
-                {
-                    block_Release( p_block );
-                    return NULL;
-                }
-            }
-            else
-            {
-                mpeg2_skip( p_sys->p_mpeg2dec, 0 );
-                p_sys->b_skip = false;
-                decoder_SynchroDecode( p_sys->p_synchro );
-
-                PutPicture( p_dec, p_pic );
-            }
             if( p_info->user_data_len > 2 || p_sys->i_gop_user_data > 2 )
             {
                 p_sys->i_cc_pts = i_pts;
@@ -551,7 +535,9 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         case STATE_INVALID_END:
         case STATE_END:
         case STATE_SLICE:
-            p_pic = NULL;
+        {
+            picture_t *p_pic = NULL;
+
             if( p_sys->p_info->display_fbuf &&
                 p_sys->p_info->display_fbuf->id )
             {
@@ -578,12 +564,11 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
                 DpbUnlinkPicture( p_dec, p_sys->p_info->discard_fbuf->id );
             }
 
-            /* For still frames */
-            if( state == STATE_END && p_pic )
-                p_pic->b_force = true;
-
             if( p_pic )
             {
+                if( state == STATE_END )
+                    p_pic->b_force = true; /* For still frames */
+
                 /* Avoid frames with identical timestamps.
                  * Especially needed for still frames in DVD menus. */
                 if( p_sys->i_last_frame_pts == p_pic->date )
@@ -592,6 +577,7 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
                 return p_pic;
             }
             break;
+        }
 
         case STATE_INVALID:
         {
@@ -814,9 +800,9 @@ static void DpbClean( decoder_t *p_dec )
         if( !p->p_picture )
             continue;
         if( p->b_linked )
-            decoder_UnlinkPicture( p_dec, p->p_picture );
+            picture_Release( p->p_picture );
         if( !p->b_displayed )
-            decoder_DeletePicture( p_dec, p->p_picture );
+            picture_Release( p->p_picture );
 
         p->p_picture = NULL;
     }
@@ -846,7 +832,7 @@ static picture_t *DpbNewPicture( decoder_t *p_dec )
     p->p_picture = GetNewPicture( p_dec );
     if( p->p_picture )
     {
-        decoder_LinkPicture( p_dec, p->p_picture );
+        picture_Hold( p->p_picture );
         p->b_linked = true;
         p->b_displayed = false;
 
@@ -883,11 +869,11 @@ static void DpbUnlinkPicture( decoder_t *p_dec, picture_t *p_picture )
 
     assert( p && p->b_linked );
 
-    decoder_UnlinkPicture( p_dec, p->p_picture );
+    picture_Release( p->p_picture );
     p->b_linked = false;
 
     if( !p->b_displayed )
-        decoder_DeletePicture( p_dec, p->p_picture );
+        picture_Release( p->p_picture );
     p->p_picture = NULL;
 }
 /**

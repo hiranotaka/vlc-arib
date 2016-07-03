@@ -48,7 +48,8 @@
 
 #include <vlc_iso_lang.h>
 
-#include "../demux/ps.h"
+#include "../demux/mpeg/pes.h"
+#include "../demux/mpeg/ps.h"
 
 #include <sys/types.h>
 #include <unistd.h>
@@ -197,7 +198,7 @@ static int Open( vlc_object_t *p_this )
     if( p_dvdread == NULL )
     {
         msg_Err( p_demux, "DVDRead cannot open source: %s", psz_file );
-        dialog_Fatal( p_demux, _("Playback failure"),
+        vlc_dialog_display_error( p_demux, _("Playback failure"),
                       _("DVDRead could not open the disc \"%s\"."), psz_file );
         free( psz_file );
         return VLC_EGENERIC;
@@ -459,7 +460,7 @@ static int Demux( demux_t *p_demux )
                            1, p_buffer ) != 1 )
         {
             msg_Err( p_demux, "read failed for block %d", p_sys->i_next_vobu );
-            dialog_Fatal( p_demux, _("Playback failure"),
+            vlc_dialog_display_error( p_demux, _("Playback failure"),
                           _("DVDRead could not read block %d."),
                           p_sys->i_next_vobu );
             return -1;
@@ -527,7 +528,7 @@ static int Demux( demux_t *p_demux )
     {
         msg_Err( p_demux, "read failed for %d/%d blocks at 0x%02x",
                  i_read, i_blocks_once, p_sys->i_cur_block );
-        dialog_Fatal( p_demux, _("Playback failure"),
+        vlc_dialog_display_error( p_demux, _("Playback failure"),
                         _("DVDRead could not read %d/%d blocks at 0x%02x."),
                         i_read, i_blocks_once, p_sys->i_cur_block );
         return -1;
@@ -615,7 +616,7 @@ static int DemuxBlock( demux_t *p_demux, const uint8_t *p, int len )
                     ESNew( p_demux, i_id, 0 );
                 }
                 if( tk->b_seen && tk->es &&
-                    !ps_pkt_parse_pes( p_pkt, tk->i_skip ) )
+                    !ps_pkt_parse_pes( VLC_OBJECT(p_demux), p_pkt, tk->i_skip ) )
                 {
                     es_out_Send( p_demux->out, tk->es, p_pkt );
                 }
@@ -650,7 +651,7 @@ static void ESNew( demux_t *p_demux, int i_id, int i_lang )
 
     if( tk->b_seen ) return;
 
-    if( ps_track_fill( tk, 0, i_id ) )
+    if( ps_track_fill( tk, 0, i_id, NULL ) )
     {
         msg_Warn( p_demux, "unknown codec for id=0x%x", i_id );
         return;
@@ -1162,7 +1163,7 @@ static void DvdReadHandleDSI( demux_t *p_demux, uint8_t *p_data )
     /*
      * Store the timecodes so we can get the current time
      */
-    p_sys->i_title_cur_time = (mtime_t) (p_sys->dsi_pack.dsi_gi.nv_pck_scr / 90 * 1000);
+    p_sys->i_title_cur_time = (mtime_t) p_sys->dsi_pack.dsi_gi.nv_pck_scr / 90 * 1000;
     p_sys->i_cell_cur_time = (mtime_t) dvdtime_to_time( &p_sys->dsi_pack.dsi_gi.c_eltm, 0 );
 
     /*

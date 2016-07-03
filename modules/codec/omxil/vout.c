@@ -108,7 +108,8 @@ static OMX_ERRORTYPE OmxEmptyBufferDone(OMX_HANDLETYPE omx_handle,
     (void)omx_handle;
 
 #ifndef NDEBUG
-    msg_Dbg(vd, "OmxEmptyBufferDone %p, %p", omx_header, omx_header->pBuffer);
+    msg_Dbg(vd, "OmxEmptyBufferDone %p, %p", (void *)omx_header,
+            (void *)omx_header->pBuffer);
 #endif
 
     OMX_FIFO_PUT(&p_sys->port.fifo, omx_header);
@@ -179,10 +180,7 @@ static int Open(vlc_object_t *p_this)
                 p_sys->psz_component, omx_error, ErrorToString(omx_error));
 
     InitOmxEventQueue(&p_sys->event_queue);
-    vlc_mutex_init (&p_sys->port.fifo.lock);
-    vlc_cond_init (&p_sys->port.fifo.wait);
-    p_sys->port.fifo.offset = offsetof(OMX_BUFFERHEADERTYPE, pOutputPortPrivate) / sizeof(void *);
-    p_sys->port.fifo.pp_last = &p_sys->port.fifo.p_first;
+    OMX_FIFO_INIT(&p_sys->port.fifo, pOutputPortPrivate);
     p_sys->port.b_direct = false;
     p_sys->port.b_flushed = true;
 
@@ -373,12 +371,11 @@ static void Close(vlc_object_t *p_this)
         free(p_sys->port.pp_buffers);
         pf_free_handle(p_sys->omx_handle);
         DeinitOmxEventQueue(&p_sys->event_queue);
-        vlc_mutex_destroy(&p_sys->port.fifo.lock);
-        vlc_cond_destroy(&p_sys->port.fifo.wait);
+        OMX_FIFO_DESTROY(&p_sys->port.fifo);
     }
 
     if (p_sys->pool)
-        picture_pool_Delete(p_sys->pool);
+        picture_pool_Release(p_sys->pool);
     free(p_sys);
     DeinitOmxCore();
 }
@@ -468,7 +465,6 @@ static int Control(vout_display_t *vd, int query, va_list args)
     case VOUT_DISPLAY_CHANGE_DISPLAY_FILLED:
     case VOUT_DISPLAY_CHANGE_ZOOM:
     case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
-    case VOUT_DISPLAY_GET_OPENGL:
         return VLC_EGENERIC;
     }
 }

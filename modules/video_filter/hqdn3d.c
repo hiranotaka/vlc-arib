@@ -201,7 +201,7 @@ static picture_t *Filter(filter_t *filter, picture_t *src)
     if (!src) return NULL;
 
     dst = filter_NewPicture(filter);
-    if (!dst) {
+    if ( unlikely(!dst) ) {
         picture_Release(src);
         return NULL;
     }
@@ -238,6 +238,13 @@ static picture_t *Filter(filter_t *filter, picture_t *src)
             cfg->Coefs[2],
             cfg->Coefs[2],
             cfg->Coefs[3]);
+
+    if(unlikely(!cfg->Frame[0] || !cfg->Frame[1] || !cfg->Frame[2]))
+    {
+        picture_Release( src );
+        picture_Release( dst );
+        return NULL;
+    }
 
     return CopyInfoAndRelease(dst, src);
 }

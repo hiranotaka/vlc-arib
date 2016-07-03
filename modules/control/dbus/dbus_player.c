@@ -32,6 +32,7 @@
 
 #include <vlc_common.h>
 #include <vlc_playlist.h>
+#include <vlc_input.h>
 #include <vlc_interface.h>
 
 #include <math.h>
@@ -48,10 +49,9 @@ MarshalPosition( intf_thread_t *p_intf, DBusMessageIter *container )
 
     if( !p_input )
         i_pos = 0;
-
     else
     {
-        i_pos = var_GetTime( p_input, "time" );
+        i_pos = var_GetInteger( p_input, "time" );
         vlc_object_release( p_input );
     }
 
@@ -66,7 +66,6 @@ DBUS_METHOD( SetPosition )
 
     REPLY_INIT;
     dbus_int64_t i_pos;
-    vlc_value_t position;
     char *psz_trackid, *psz_dbus_trackid;
     input_item_t *p_item;
 
@@ -101,10 +100,7 @@ DBUS_METHOD( SetPosition )
             }
 
             if( !strcmp( psz_trackid, psz_dbus_trackid ) )
-            {
-                position.i_time = (mtime_t) i_pos;
-                var_Set( p_input, "time", position );
-            }
+                var_SetInteger( p_input, "time", i_pos );
             free( psz_trackid );
         }
 
@@ -119,8 +115,6 @@ DBUS_METHOD( Seek )
 {
     REPLY_INIT;
     dbus_int64_t i_step;
-    vlc_value_t  newpos;
-    mtime_t      i_pos;
 
     DBusError error;
     dbus_error_init( &error );
@@ -140,13 +134,8 @@ DBUS_METHOD( Seek )
     input_thread_t *p_input = pl_CurrentInput( p_this );
     if( p_input && var_GetBool( p_input, "can-seek" ) )
     {
-        i_pos = var_GetTime( p_input, "time" );
-        newpos.i_time = (mtime_t) i_step + i_pos;
-
-        if( newpos.i_time < 0 )
-            newpos.i_time = 0;
-
-        var_Set( p_input, "time", newpos );
+        mtime_t i_pos = var_GetInteger( p_input, "time" ) + i_step;
+        var_SetInteger( p_input, "time", (i_pos >= 0) ? i_pos : 0 );
     }
 
     if( p_input )
@@ -207,44 +196,21 @@ DBUS_METHOD( Stop )
 DBUS_METHOD( Play )
 {
     REPLY_INIT;
-    input_thread_t *p_input =  pl_CurrentInput( p_this );
-
-    if( !p_input || var_GetInteger( p_input, "state" ) != PLAYING_S )
-        playlist_Play( PL );
-
-    if( p_input )
-        vlc_object_release( p_input );
-
+    playlist_Play( PL );
     REPLY_SEND;
 }
 
 DBUS_METHOD( Pause )
 {
     REPLY_INIT;
-    input_thread_t *p_input = pl_CurrentInput( p_this );
-
-    if( p_input && var_GetInteger(p_input, "state") == PLAYING_S )
-        playlist_Pause( PL );
-
-    if( p_input )
-        vlc_object_release( p_input );
-
+    playlist_Pause( PL );
     REPLY_SEND;
 }
 
 DBUS_METHOD( PlayPause )
 {
     REPLY_INIT;
-    input_thread_t *p_input = pl_CurrentInput( p_this );
-
-    if( p_input && var_GetInteger(p_input, "state") == PLAYING_S )
-        playlist_Pause( PL );
-    else
-        playlist_Play( PL );
-
-    if( p_input )
-        vlc_object_release( p_input );
-
+    playlist_TogglePause( PL );
     REPLY_SEND;
 }
 
@@ -598,7 +564,7 @@ DBUS_SIGNAL( SeekedSignal )
 
     if( p_input )
     {
-        i_pos = var_GetTime( p_input, "time" );
+        i_pos = var_GetInteger( p_input, "time" );
         vlc_object_release( p_input );
     }
 

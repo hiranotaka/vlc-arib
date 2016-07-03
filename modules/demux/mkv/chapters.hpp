@@ -24,8 +24,8 @@
 
 /* chapter_item, chapter_edition, and chapter_translation classes */
 
-#ifndef _CHAPTER_H_
-#define _CHAPTER_H_
+#ifndef VLC_MKV_CHAPTERS_HPP_
+#define VLC_MKV_CHAPTERS_HPP_
 
 #include "mkv.hpp"
 
@@ -87,7 +87,10 @@ public:
 
     bool Enter( bool b_do_subchapters );
     bool Leave( bool b_do_subchapters );
-    bool EnterAndLeave( chapter_item_c *p_item, bool b_enter = true );
+    bool EnterAndLeave( chapter_item_c *p_leaving_chapter, bool b_enter = true );
+
+  protected:
+      bool EnterLeaveHelper_ (bool, bool(chapter_codec_cmds_c::*)(), bool(chapter_item_c::*)(bool));
 };
 
 class chapter_edition_c : public chapter_item_c

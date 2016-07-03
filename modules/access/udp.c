@@ -42,8 +42,11 @@
 #include <vlc_access.h>
 #include <vlc_network.h>
 #include <vlc_block.h>
-
-#define MTU 65535
+#include <vlc_interrupt.h>
+#ifdef HAVE_POLL
+# include <poll.h>
+#endif
+#include <fcntl.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -53,6 +56,7 @@ static void Close( vlc_object_t * );
 
 #define BUFFER_TEXT N_("Receive buffer")
 #define BUFFER_LONGTEXT N_("UDP receive buffer size (bytes)" )
+#define TIMEOUT_TEXT N_("UDP Source timeout (sec)")
 
 vlc_module_begin ()
     set_shortname( N_("UDP" ) )
@@ -62,6 +66,7 @@ vlc_module_begin ()
 
     add_obsolete_integer( "server-port" ) /* since 2.0.0 */
     add_integer( "udp-buffer", 0x400000, BUFFER_TEXT, BUFFER_LONGTEXT, true )
+    add_integer( "udp-timeout", -1, TIMEOUT_TEXT, NULL, true )
 
     set_capability( "access", 0 )
     add_shortcut( "udp", "udpstream", "udp4", "udp6" )
@@ -72,9 +77,13 @@ vlc_module_end ()
 struct access_sys_t
 {
     int fd;
+    int timeout;
+    size_t mtu;
     size_t fifo_size;
     block_fifo_t *fifo;
+    vlc_sem_t semaphore;
     vlc_thread_t thread;
+    bool timeout_reached;
 };
 
 /*****************************************************************************
@@ -90,13 +99,12 @@ static void* ThreadRead( void *data );
 static int Open( vlc_object_t *p_this )
 {
     access_t     *p_access = (access_t*)p_this;
+    access_sys_t *sys;
 
-    char *psz_name = strdup( p_access->psz_location );
-    char *psz_parser;
-    const char *psz_server_addr, *psz_bind_addr = "";
-    int  i_bind_port = 1234, i_server_port = 0;
+    if( p_access->b_preparsing )
+        return VLC_EGENERIC;
 
-    access_sys_t *sys = malloc( sizeof( *sys ) );
+    sys = malloc( sizeof( *sys ) );
     if( unlikely( sys == NULL ) )
         return VLC_ENOMEM;
 
@@ -105,6 +113,14 @@ static int Open( vlc_object_t *p_this )
     /* Set up p_access */
     access_InitFields( p_access );
     ACCESS_SET_CALLBACKS( NULL, BlockUDP, Control, NULL );
+
+    char *psz_name = strdup( p_access->psz_location );
+    char *psz_parser;
+    const char *psz_server_addr, *psz_bind_addr = "";
+    int  i_bind_port = 1234, i_server_port = 0;
+
+    if( unlikely(psz_name == NULL) )
+        goto error;
 
     /* Parse psz_name syntax :
      * [serveraddr[:serverport]][@[bindaddr]:[bindport]] */
@@ -157,6 +173,15 @@ static int Open( vlc_object_t *p_this )
         goto error;
     }
 
+    /* Revert to blocking I/O */
+#ifndef _WIN32
+    fcntl(sys->fd, F_SETFL, fcntl(sys->fd, F_GETFL) & ~O_NONBLOCK);
+#else
+    ioctlsocket(sys->fd, FIONBIO, &(unsigned long){ 0 });
+#endif
+
+    /* FIXME: There are no particular reasons to create a FIFO and thread here.
+     * Those are just working around bugs in the stream cache. */
     sys->fifo = block_FifoNew();
     if( unlikely( sys->fifo == NULL ) )
     {
@@ -164,11 +189,19 @@ static int Open( vlc_object_t *p_this )
         goto error;
     }
 
+    sys->mtu = 7 * 188;
     sys->fifo_size = var_InheritInteger( p_access, "udp-buffer");
+    vlc_sem_init( &sys->semaphore, 0 );
+
+    sys->timeout = var_InheritInteger( p_access, "udp-timeout");
+    sys->timeout_reached = false;
+    if( sys->timeout > 0)
+        sys->timeout *= 1000;
 
     if( vlc_clone( &sys->thread, ThreadRead, p_access,
                    VLC_THREAD_PRIORITY_INPUT ) )
     {
+        vlc_sem_destroy( &sys->semaphore );
         block_FifoRelease( sys->fifo );
         net_Close( sys->fd );
 error:
@@ -189,6 +222,7 @@ static void Close( vlc_object_t *p_this )
 
     vlc_cancel( sys->thread );
     vlc_join( sys->thread, NULL );
+    vlc_sem_destroy( &sys->semaphore );
     block_FifoRelease( sys->fifo );
     net_Close( sys->fd );
     free( sys );
@@ -230,8 +264,22 @@ static int Control( access_t *p_access, int i_query, va_list args )
 static block_t *BlockUDP( access_t *p_access )
 {
     access_sys_t *sys = p_access->p_sys;
+    block_t *block;
 
-    return block_FifoGet( sys->fifo );
+    if (p_access->info.b_eof)
+        return NULL;
+
+    vlc_sem_wait_i11e(&sys->semaphore);
+    vlc_fifo_Lock(sys->fifo);
+
+    block = vlc_fifo_DequeueAllUnlocked(sys->fifo);
+
+    if (unlikely(sys->timeout_reached == true))
+        p_access->info.b_eof=true;
+
+    vlc_fifo_Unlock(sys->fifo);
+
+    return block;
 }
 
 /*****************************************************************************
@@ -242,34 +290,78 @@ static void* ThreadRead( void *data )
     access_t *access = data;
     access_sys_t *sys = access->p_sys;
 
-    for( ;; )
+    for(;;)
     {
-        block_t *pkt;
-        ssize_t len;
-
-        block_FifoPace( sys->fifo, SIZE_MAX, sys->fifo_size );
-
-        pkt = block_Alloc( MTU );
-        if( unlikely( pkt == NULL ) )
-            break;
-
-        block_cleanup_push( pkt );
-        len = net_Read( access, sys->fd, NULL, pkt->p_buffer, MTU, false );
-        vlc_cleanup_pop();
-
-        if( len == -1 )
-        {
-            block_Release( pkt );
-
-            if( errno == EINTR )
-                break;
+        block_t *pkt = block_Alloc(sys->mtu);
+        if (unlikely(pkt == NULL))
+        {   /* OOM - dequeue and discard one packet */
+            char dummy;
+            recv(sys->fd, &dummy, 1, 0);
             continue;
         }
 
-        pkt = block_Realloc( pkt, 0, len );
-        block_FifoPut( sys->fifo, pkt );
+        struct iovec iov = {
+            .iov_base = pkt->p_buffer,
+            .iov_len = sys->mtu,
+        };
+        struct msghdr msg = {
+            .msg_iov = &iov,
+            .msg_iovlen = 1,
+#ifdef __linux__
+            .msg_flags = MSG_TRUNC,
+#endif
+        };
+        ssize_t len;
+
+        block_cleanup_push(pkt);
+        do
+        {
+            int poll_return=0;
+            struct pollfd ufd[1];
+            ufd[0].fd = sys->fd;
+            ufd[0].events = POLLIN;
+
+            while ((poll_return = poll(ufd, 1, sys->timeout)) < 0); /* cancellation point */
+            if (unlikely( poll_return == 0))
+            {
+                msg_Err( access, "Timeout on receiving, timeout %d seconds", sys->timeout/1000 );
+                vlc_fifo_Lock(sys->fifo);
+                sys->timeout_reached=true;
+                vlc_fifo_Unlock(sys->fifo);
+                vlc_sem_post(&sys->semaphore);
+                len=0;
+                break;
+            }
+            len = recvmsg(sys->fd, &msg, 0);
+        }
+        while (len == -1);
+        vlc_cleanup_pop();
+
+#ifdef MSG_TRUNC
+        if (msg.msg_flags & MSG_TRUNC)
+        {
+            msg_Err(access, "%zd bytes packet truncated (MTU was %zu)",
+                    len, sys->mtu);
+            pkt->i_flags |= BLOCK_FLAG_CORRUPTED;
+            sys->mtu = len;
+        }
+        else
+#endif
+            pkt->i_buffer = len;
+
+        vlc_fifo_Lock(sys->fifo);
+        /* Discard old buffers on overflow */
+        while (vlc_fifo_GetBytes(sys->fifo) + len > sys->fifo_size)
+        {
+            int canc = vlc_savecancel();
+            block_Release(vlc_fifo_DequeueUnlocked(sys->fifo));
+            vlc_restorecancel(canc);
+        }
+
+        vlc_fifo_QueueUnlocked(sys->fifo, pkt);
+        vlc_fifo_Unlock(sys->fifo);
+        vlc_sem_post(&sys->semaphore);
     }
 
-    block_FifoWake( sys->fifo );
     return NULL;
 }

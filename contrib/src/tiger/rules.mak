@@ -1,6 +1,6 @@
 # Tiger
 
-TIGER_VERSION := 0.3.1
+TIGER_VERSION := 0.3.4
 TIGER_URL := http://libtiger.googlecode.com/files/libtiger-$(TIGER_VERSION).tar.gz
 
 ifeq ($(call need_pkg,"pangocairo >= 0.16"),)
@@ -12,7 +12,7 @@ PKGS_FOUND += tiger
 endif
 
 $(TARBALLS)/libtiger-$(TIGER_VERSION).tar.gz:
-	$(call download,$(TIGER_URL))
+	$(call download_pkg,$(TIGER_URL),tiger)
 
 .sum-tiger: libtiger-$(TIGER_VERSION).tar.gz
 

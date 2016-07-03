@@ -35,6 +35,11 @@ POSTPROCCONF += --enable-neon
 endif
 endif
 
+# ARM64 stuff
+ifeq ($(ARCH),aarch64)
+POSTPROCCONF += --arch=aarch64
+endif
+
 # MIPS stuff
 ifeq ($(ARCH),mipsel)
 POSTPROCCONF += --arch=mips
@@ -43,6 +48,11 @@ endif
 # x86 stuff
 ifeq ($(ARCH),i386)
 POSTPROCCONF += --arch=x86
+endif
+
+# x86_64 stuff
+ifeq ($(ARCH),x86_64)
+POSTPROCCONF += --arch=x64_64
 endif
 
 # Darwin
@@ -63,6 +73,12 @@ ifdef HAVE_LINUX
 POSTPROCCONF += --target-os=linux --enable-pic
 endif
 
+ifdef HAVE_ANDROID
+ifeq ($(ANDROID_ABI), x86)
+POSTPROCCONF +=  --disable-mmx --disable-mmxext
+endif
+endif
+
 # Windows
 ifdef HAVE_WIN32
 POSTPROCCONF += --target-os=mingw32
@@ -73,6 +89,10 @@ POSTPROCCONF+= --cpu=i686 --arch=x86
 endif
 else
 POSTPROCCONF += --enable-pthreads
+endif
+
+ifdef HAVE_SOLARIS
+POSTPROCCONF += --enable-pic
 endif
 
 # Build

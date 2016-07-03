@@ -35,7 +35,7 @@ static void decode (const char *in, const char *out)
 
     printf ("\"%s\" -> \"%s\" ?\n", in, out);
     strcpy (buf, in);
-    resolve_xml_special_chars (buf);
+    vlc_xml_decode (buf);
 
     if (strcmp (buf, out))
     {
@@ -49,7 +49,7 @@ static void encode (const char *in, const char *out)
     char *buf;
 
     printf ("\"%s\" -> \"%s\" ?\n", in, out);
-    buf = convert_xml_special_chars (in);
+    buf = vlc_xml_encode (in);
 
     if (strcmp (buf, out))
     {
@@ -67,6 +67,12 @@ int main (void)
 
     decode ("R&eacute;mi&nbsp;Fran&ccedil;ois&nbsp;&amp;&nbsp;&Eacute;mile",
             "Rémi François & Émile");
+    decode ("R&#233;mi&nbsp;Fran&#231;ois&nbsp;&amp;&nbsp;&#201;mile",
+            "Rémi François & Émile");
+    decode ("R&#xe9;mi&nbsp;Fran&#xe7;ois&nbsp;&amp;&nbsp;&#xc9;mile",
+            "Rémi François & Émile");
+    decode ("R&#xE9;mi&nbsp;Fran&#xE7;ois&nbsp;&amp;&nbsp;&#xC9;mile",
+            "Rémi François & Émile");
 
     decode ("", "");
 
@@ -76,8 +82,8 @@ int main (void)
 
     encode ("", "");
     encode ("a'àc\"çe&én<ño>ö1:", "a&#39;àc&quot;çe&amp;én&lt;ño&gt;ö1:");
-    encode ("\x01\xC2\x81\xC2\x85", "&#1;&#129;\xC2\x85");
-    encode ("\r\n", "\r\n");
+    encode ("\xC2\x81\xC2\x85", "&#129;\xC2\x85");
+    encode (" \t\r\n", " \t\r\n");
 
     return 0;
 }

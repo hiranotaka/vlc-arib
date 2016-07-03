@@ -90,7 +90,7 @@ struct demux_sys_t
     int             i_frame_size;
     mtime_t         i_frame_length;
 
-    int             i_header_size;
+    uint32_t        i_header_size;
 };
 
 static int Demux( demux_t * );
@@ -240,7 +240,7 @@ static int Open( vlc_object_t *p_this )
             break;
 
         default:
-            msg_Warn( p_demux, "unknow encoding=0x%x", GetDWBE( &hdr[8] ) );
+            msg_Warn( p_demux, "unknown encoding=0x%x", GetDWBE( &hdr[8] ) );
             p_sys->fmt.audio.i_bitspersample = 0;
             p_sys->fmt.audio.i_blockalign    = 0;
             i_cat                    = AU_CAT_UNKNOWN;

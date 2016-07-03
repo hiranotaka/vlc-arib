@@ -26,6 +26,7 @@
 # include "config.h"
 #endif
 
+#define VLC_MODULE_LICENSE VLC_LICENSE_GPL_2_PLUS
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_input.h>
@@ -244,7 +245,7 @@ static void *Run( void * p_obj )
     }
     if( Dialogs::instance( p_intf ) == NULL )
     {
-        msg_Err( p_intf, "cannot instantiate qt4 dialogs provider" );
+        msg_Err( p_intf, "cannot instantiate qt dialogs provider" );
         b_error = true;
         goto end;
     }
@@ -344,6 +345,16 @@ static void WindowCloseLocal( intf_thread_t* pIntf, vlc_object_t *pObj )
 
 static int WindowOpen( vout_window_t *pWnd, const vout_window_cfg_t *cfg )
 {
+    if( cfg->type != VOUT_WINDOW_TYPE_INVALID )
+    {
+#ifdef X11_SKINS
+        if( cfg->type != VOUT_WINDOW_TYPE_XID )
+#else
+        if( cfg->type != VOUT_WINDOW_TYPE_HWND )
+#endif
+            return VLC_EGENERIC;
+    }
+
     vout_window_sys_t* sys;
 
     vlc_mutex_lock( &skin_load.mutex );
@@ -372,6 +383,11 @@ static int WindowOpen( vout_window_t *pWnd, const vout_window_cfg_t *cfg )
     pWnd->sys = sys;
     pWnd->sys->cfg = *cfg;
     pWnd->sys->pIntf = pIntf;
+#ifdef X11_SKINS
+    pWnd->type = VOUT_WINDOW_TYPE_XID;
+#else
+    pWnd->type = VOUT_WINDOW_TYPE_HWND;
+#endif
     pWnd->control = WindowControl;
 
     // force execution in the skins2 thread context
@@ -380,6 +396,8 @@ static int WindowOpen( vout_window_t *pWnd, const vout_window_cfg_t *cfg )
     CmdExecuteBlock::executeWait( CmdGenericPtr( cmd ) );
 
 #ifdef X11_SKINS
+    pWnd->display.x11 = NULL;
+
     if( !pWnd->handle.xid )
 #else
     if( !pWnd->handle.hwnd )
@@ -390,6 +408,7 @@ static int WindowOpen( vout_window_t *pWnd, const vout_window_cfg_t *cfg )
         return VLC_EGENERIC;
     }
 
+    vout_window_SetFullScreen( pWnd, cfg->is_fullscreen );
     return VLC_SUCCESS;
 }
 
@@ -511,11 +530,7 @@ vlc_module_begin ()
     add_shortcut( "skins" )
 
     add_submodule ()
-#if defined( _WIN32 ) || defined( __OS2__ )
-        set_capability( "vout window hwnd", 51 )
-#else
-        set_capability( "vout window xid", 51 )
-#endif
+        set_capability( "vout window", 51 )
         set_callbacks( WindowOpen, WindowClose )
 
 vlc_module_end ()

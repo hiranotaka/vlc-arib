@@ -46,15 +46,13 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#ifdef HAVE_ARPA_INET_H
-#   include <arpa/inet.h>
-#endif
+#include <limits.h>
 
 #include <vlc_common.h>
 #include <vlc_access.h>
 #include <vlc_charset.h>
 #include <vlc_fs.h>
-#include <limits.h>
+#include <vlc_meta.h>
 
 #if defined( SYS_BSDI )
 #   include <dvd.h>
@@ -141,7 +139,6 @@ exit_free:
 
 #include "cdrom_internals.h"
 #include "cdrom.h"
-#include <vlc_meta.h>
 
 /*****************************************************************************
  * ioctl_Open: Opens a VCD device or file and returns an opaque handle
@@ -251,7 +248,7 @@ void ioctl_Close( vlc_object_t * p_this, vcddev_t *p_vcddev )
         DosClose( p_vcddev->hcd );
 #else
     if( p_vcddev->i_device_handle != -1 )
-        close( p_vcddev->i_device_handle );
+        vlc_close( p_vcddev->i_device_handle );
 #endif
     free( p_vcddev );
 }
@@ -782,29 +779,32 @@ static int OpenVCDImage( vlc_object_t * p_this, const char *psz_dev,
     {
         /* psz_dev must be the cue file. Let's assume there's a .bin
          * file with the same filename */
-        psz_vcdfile = malloc( p_pos - psz_dev + 5 /* ".bin" */ );
-        strncpy( psz_vcdfile, psz_dev, p_pos - psz_dev );
-        strcpy( psz_vcdfile + (p_pos - psz_dev), ".bin");
+        if( asprintf( &psz_vcdfile, "%.*s.bin", (int)(p_pos - psz_dev),
+                      psz_dev ) < 0 )
+            psz_vcdfile = NULL;
         psz_cuefile = strdup( psz_dev );
     }
     else
+    if( p_pos )
     {
         /* psz_dev must be the actual vcd file. Let's assume there's a .cue
          * file with the same filename */
-        if( p_pos )
-        {
-            psz_cuefile = malloc( p_pos - psz_dev + 5 /* ".cue" */ );
-            strncpy( psz_cuefile, psz_dev, p_pos - psz_dev );
-            strcpy( psz_cuefile + (p_pos - psz_dev), ".cue");
-        }
-        else
-        {
-            if( asprintf( &psz_cuefile, "%s.cue", psz_dev ) == -1 )
-                psz_cuefile = NULL;
-        }
-        /* If we need to look up the .cue file, then we don't have to look for the vcd */
+        if( asprintf( &psz_cuefile, "%.*s.cue", (int)(p_pos - psz_dev),
+                      psz_dev ) < 0 )
+            psz_cuefile = NULL;
         psz_vcdfile = strdup( psz_dev );
     }
+    else
+    {
+        if( asprintf( &psz_cuefile, "%s.cue", psz_dev ) == -1 )
+            psz_cuefile = NULL;
+         /* If we need to look up the .cue file, then we don't have to look
+          * for the vcd */
+        psz_vcdfile = strdup( psz_dev );
+    }
+
+    if( psz_cuefile == NULL || psz_vcdfile == NULL )
+        goto error;
 
     /* Open the cue file and try to parse it */
     msg_Dbg( p_this,"trying .cue file: %s", psz_cuefile );
@@ -818,7 +818,7 @@ static int OpenVCDImage( vlc_object_t * p_this, const char *psz_dev,
     msg_Dbg( p_this,"guessing vcd image file: %s", psz_vcdfile );
     p_vcddev->i_vcdimage_handle = vlc_open( psz_vcdfile,
                                     O_RDONLY | O_NONBLOCK | O_BINARY );
- 
+
     while( fgets( line, 1024, cuefile ) && !b_found )
     {
         /* We have a cue file, but no valid vcd file yet */
@@ -900,6 +900,7 @@ static int OpenVCDImage( vlc_object_t * p_this, const char *psz_dev,
              (int)i_tracks, (int)p_sectors[i_tracks] );
     p_vcddev->i_tracks = ++i_tracks;
     p_vcddev->p_sectors = p_sectors;
+    p_sectors = NULL;
     i_ret = 0;
 
 error:
@@ -918,7 +919,7 @@ static void CloseVCDImage( vlc_object_t * p_this, vcddev_t *p_vcddev )
 {
     VLC_UNUSED( p_this );
     if( p_vcddev->i_vcdimage_handle != -1 )
-        close( p_vcddev->i_vcdimage_handle );
+        vlc_close( p_vcddev->i_vcdimage_handle );
     else
         return;
 
@@ -1172,7 +1173,7 @@ static int CdTextParse( vlc_meta_t ***ppp_tracks, int *pi_tracks,
         char *psz_track = &psz_text[0];
         while( i_track <= 127 && psz_track < &psz_text[12] )
         {
-            //fprintf( stderr, "t=%d psz_track=%p end=%p", i_track, psz_track, &psz_text[12] );
+            //fprintf( stderr, "t=%d psz_track=%p end=%p", i_track, (void *)psz_track, (void *)&psz_text[12] );
             if( *psz_track )
             {
                 astrcat( &pppsz_info[i_track][i_pack_type-0x80], psz_track );

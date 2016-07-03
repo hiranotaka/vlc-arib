@@ -51,6 +51,38 @@
 #define SKIP_ADS_LONGTEXT N_( "Use playlist options usually used to prevent " \
     "ads skipping to detect ads and prevent adding them to the playlist." )
 
+static const char *const psz_recursive_list[] = { "none", "collapse", "expand" };
+static const char *const psz_recursive_list_text[] = {
+    N_("None"), N_("Collapse"), N_("Expand"), N_("Expand distant files") };
+
+#define RECURSIVE_TEXT N_("Subdirectory behavior")
+#define RECURSIVE_LONGTEXT N_( \
+        "Select whether subdirectories must be expanded.\n" \
+        "none: subdirectories do not appear in the playlist.\n" \
+        "collapse: subdirectories appear but are expanded on first play.\n" \
+        "expand: all subdirectories are expanded.\n" )
+
+static const char *const psz_sort_list[] = { "collate", "version", "none" };
+static const char *const psz_sort_list_text[] = {
+    N_("Sort alphabetically according to the current language's collation rules."),
+    N_("Sort items in a natural order (for example: 1.ogg 2.ogg 10.ogg). This method does not take the current language's collation rules into account."),
+    N_("Do not sort the items.") };
+
+#define SORT_TEXT N_("Directory sort order")
+#define SORT_LONGTEXT N_( \
+    "Define the sort algorithm used when adding items from a directory." )
+
+#define IGNORE_TEXT N_("Ignored extensions")
+#define IGNORE_LONGTEXT N_( \
+        "Files with these extensions will not be added to playlist when " \
+        "opening a directory.\n" \
+        "This is useful if you add directories that contain playlist files " \
+        "for instance. Use a comma-separated list of extensions." )
+
+#define SHOW_HIDDENFILES_TEXT N_("Show hidden files")
+#define SHOW_HIDDENFILES_LONGTEXT N_( \
+        "Ignore files starting with '.'" )
+
 vlc_module_begin ()
     add_shortcut( "playlist" )
     set_category( CAT_INPUT )
@@ -109,7 +141,7 @@ vlc_module_begin ()
         set_description( N_("ASX playlist import") )
         add_shortcut( "playlist", "asx-open" )
         set_capability( "demux", 10 )
-        set_callbacks( Import_ASX, Close_ASX )
+        set_callbacks( Import_ASX, NULL )
     add_submodule ()
         set_description( N_("Kasenna MediaBase parser") )
         add_shortcut( "playlist", "sgimb" )
@@ -124,7 +156,7 @@ vlc_module_begin ()
         set_description( N_("Google Video Playlist importer") )
         add_shortcut( "playlist", "gvp" )
         set_capability( "demux", 10 )
-        set_callbacks( Import_GVP, Close_GVP )
+        set_callbacks( Import_GVP, NULL )
     add_submodule ()
         set_description( N_("Dummy IFO demux") )
         add_shortcut( "playlist" )
@@ -141,24 +173,49 @@ vlc_module_begin ()
         set_capability( "demux", 10 )
         set_callbacks( Import_WPL, Close_WPL )
     add_submodule ()
-        set_description( N_("ZPL playlist import") )
-        add_shortcut( "playlist", "zpl" )
+        set_description( N_("Directory import") )
+        add_shortcut( "playlist", "directory" )
         set_capability( "demux", 10 )
-        set_callbacks( Import_ZPL, Close_ZPL )
+        set_callbacks( Import_Dir, Close_Dir )
+        add_string( "recursive", "collapse" , RECURSIVE_TEXT,
+                    RECURSIVE_LONGTEXT, false )
+          change_string_list( psz_recursive_list, psz_recursive_list_text )
+        add_string( "ignore-filetypes", "m3u,db,nfo,ini,jpg,jpeg,ljpg,gif,png,pgm,pgmyuv,pbm,pam,tga,bmp,pnm,xpm,xcf,pcx,tif,tiff,lbm,sfv,txt,sub,idx,srt,cue,ssa",
+                    IGNORE_TEXT, IGNORE_LONGTEXT, false )
+        add_string( "directory-sort", "collate", SORT_TEXT, SORT_LONGTEXT, false )
+          change_string_list( psz_sort_list, psz_sort_list_text )
+        add_bool( "show-hiddenfiles", false,
+                   SHOW_HIDDENFILES_TEXT, SHOW_HIDDENFILES_LONGTEXT, false )
 vlc_module_end ()
 
 int Control(demux_t *demux, int query, va_list args)
 {
-    (void) demux; (void) query; (void) args;
+    (void) demux;
+    switch( query )
+    {
+        case DEMUX_IS_PLAYLIST:
+        {
+            bool *pb_bool = (bool*)va_arg( args, bool * );
+            *pb_bool = true;
+            return VLC_SUCCESS;
+        }
+        case DEMUX_GET_META:
+        {
+            return VLC_SUCCESS;
+        }
+        case DEMUX_HAS_UNSUPPORTED_META:
+        {
+            *(va_arg( args, bool * )) = false;
+            return VLC_SUCCESS;
+        }
+    }
     return VLC_EGENERIC;
 }
 
 input_item_t * GetCurrentItem(demux_t *p_demux)
 {
-    input_thread_t *p_input_thread = demux_GetParentInput( p_demux );
-    input_item_t *p_current_input = input_GetItem( p_input_thread );
+    input_item_t *p_current_input = input_GetItem( p_demux->p_input );
     vlc_gc_incref(p_current_input);
-    vlc_object_release(p_input_thread);
     return p_current_input;
 }
 
@@ -213,7 +270,7 @@ char *ProcessMRL( const char *psz_mrl, const char *psz_prefix )
 
     /* This a relative path, prepend the prefix */
     char *ret;
-    char *postfix = encode_URI_component( psz_mrl );
+    char *postfix = vlc_uri_encode( psz_mrl );
     /* FIXME: postfix may not be encoded correctly (esp. slashes) */
     if( postfix == NULL
      || asprintf( &ret, "%s%s", psz_prefix, postfix ) == -1 )

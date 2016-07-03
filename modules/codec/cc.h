@@ -21,10 +21,12 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#ifndef _CC_H
-#define _CC_H 1
+#ifndef VLC_CC_H_
+#define VLC_CC_H_
 
 #include <vlc_bits.h>
+
+#define BLOCK_FLAG_ORDERED_CAPTIONS (0x01 << BLOCK_FLAG_PRIVATE_SHIFT)
 
 /* CC have a maximum rate of 9600 bit/s (per field?) */
 #define CC_MAX_DATA_SIZE (2 * 3*600)
@@ -110,6 +112,8 @@ static inline void cc_Extract( cc_data_t *c, bool b_top_field_first, const uint8
     {
         /* CC from DVB/ATSC TS */
         i_payload_type = CC_PAYLOAD_GA94;
+        i_src -= 5;
+        p_src += 5;
     }
     else if( !memcmp( p_cc_dvd, p_src, 4 ) && i_src > 4+1 )
     {
@@ -125,6 +129,12 @@ static inline void cc_Extract( cc_data_t *c, bool b_top_field_first, const uint8
                !memcmp( p_cc_scte20_old, p_src, 2 ) ) && i_src > 2 )
     {
         i_payload_type = CC_PAYLOAD_SCTE20;
+    }
+    else if (p_src[0] == 0x03 && p_src[1] == i_src - 2) /* DIRECTV */
+    {
+        i_payload_type = CC_PAYLOAD_GA94;
+        i_src -= 2;
+        p_src += 2;
     }
     else
     {
@@ -172,13 +182,13 @@ static inline void cc_Extract( cc_data_t *c, bool b_top_field_first, const uint8
          *  0x00: field 1
          *  0x01: field 2
          */
-        const uint8_t *cc = &p_src[5];
+        const uint8_t *cc = &p_src[0];
         const int i_count_cc = cc[0]&0x1f;
         int i;
 
         if( !(cc[0]&0x40) ) // process flag
             return;
-        if( i_src < 5 + 1+1 + i_count_cc*3 + 1)  // broken packet
+        if( i_src < 1+1 + i_count_cc*3 + 1)  // broken packet
             return;
         if( i_count_cc <= 0 )   // no cc present
             return;

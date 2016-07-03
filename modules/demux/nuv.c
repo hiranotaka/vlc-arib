@@ -32,6 +32,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_demux.h>
+#include <limits.h>
 
 /* TODO:
  *  - test
@@ -301,6 +302,8 @@ static int Open( vlc_object_t * p_this )
         es_format_Init( &fmt, VIDEO_ES, p_sys->exh.i_video_fcc );
         fmt.video.i_width = p_sys->hdr.i_width;
         fmt.video.i_height = p_sys->hdr.i_height;
+        fmt.video.i_visible_width = fmt.video.i_width;
+        fmt.video.i_visible_height = fmt.video.i_height;
         fmt.i_extra = p_sys->i_extra_f;
         fmt.p_extra = p_sys->p_extra_f;
         fmt.video.i_sar_num = p_sys->hdr.d_aspect * fmt.video.i_height;
@@ -333,8 +336,8 @@ static int Open( vlc_object_t * p_this )
 
 error:
     msg_Warn( p_demux, "cannot load Nuv file" );
+    Close( p_this );
     p_demux->p_sys = NULL;
-    free( p_sys );
     return VLC_EGENERIC;
 }
 
@@ -364,9 +367,6 @@ static int Demux( demux_t *p_demux )
 
     for( ;; )
     {
-        if( !vlc_object_alive (p_demux) )
-            return -1;
-
         if( FrameHeaderLoad( p_demux, &fh ) )
             return 0;
 
@@ -451,6 +451,9 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
     switch( i_query )
     {
+        case DEMUX_CAN_SEEK:
+            *va_arg( args, bool * ) = p_sys->b_seekable;
+            return VLC_SUCCESS;
 
         case DEMUX_GET_POSITION:
             pf = (double*)va_arg( args, double * );
@@ -573,7 +576,7 @@ static int ControlSetPosition( demux_t *p_demux, int64_t i_pos, bool b_guess )
         }
     }
 
-    while( vlc_object_alive (p_demux) )
+    for( ;; )
     {
         frame_header_t fh;
         int64_t i_tell;
@@ -645,7 +648,8 @@ static int HeaderLoad( demux_t *p_demux, header_t *h )
              h->d_fps, h->i_video_blocks, h->i_audio_blocks, h->i_text_blocks,
              h->i_keyframe_distance );
 #endif
-    return VLC_SUCCESS;
+
+    return (h->d_fps) ? VLC_SUCCESS : VLC_EGENERIC;
 }
 
 /* FrameHeaderLoad:
@@ -919,9 +923,15 @@ static void demux_IndexAppend( demux_index_t *p_idx,
         }
         else
         {
+            if(INT_MAX - 1000 < p_idx->i_idx_max ||
+               (SIZE_MAX / sizeof(demux_index_entry_t)) - p_idx->i_idx_max < 1000)
+                return;
+            size_t i_realloc = (1000 + p_idx->i_idx_max) * sizeof(demux_index_entry_t);
+            demux_index_entry_t *p_realloc = realloc( p_idx->idx, i_realloc );
+            if( !p_realloc )
+                return;
             p_idx->i_idx_max += 1000;
-            p_idx->idx = xrealloc( p_idx->idx,
-                                p_idx->i_idx_max*sizeof(demux_index_entry_t));
+            p_idx->idx = p_realloc;
         }
     }
 

@@ -275,7 +275,8 @@ static int OpenCommon(vlc_object_t *object, imem_sys_t **sys_ptr, const char *ps
     sys->source.cookie = var_InheritString(object, "imem-cookie");
 
     msg_Dbg(object, "Using get(%p), release(%p), data(%p), cookie(%s)",
-            sys->source.get, sys->source.release, sys->source.data,
+            (void *)sys->source.get, (void *)sys->source.release,
+            sys->source.data,
             sys->source.cookie ? sys->source.cookie : "(null)");
 
     /* */
@@ -346,7 +347,7 @@ static int ControlAccess(access_t *access, int i_query, va_list args)
     case ACCESS_GET_SIZE: {
         uint64_t *s = va_arg(args, uint64_t *);
         *s = var_InheritInteger(access, "imem-size");
-        return VLC_SUCCESS;
+        return *s ? VLC_SUCCESS : VLC_EGENERIC;
     }
     case ACCESS_GET_PTS_DELAY: {
         int64_t *delay = va_arg(args, int64_t *);

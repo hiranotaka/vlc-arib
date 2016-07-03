@@ -31,6 +31,10 @@
 
 #define PREFIX(x) I ## x
 
+#if ANDROID_API >= 11
+#define HAS_USE_BUFFER
+#endif
+
 using namespace android;
 
 class IOMXContext {
@@ -76,6 +80,9 @@ public:
 class OMXBuffer {
 public:
     sp<MemoryDealer> dealer;
+#ifdef HAS_USE_BUFFER
+    sp<GraphicBuffer> graphicBuffer;
+#endif
     IOMX::buffer_id id;
 };
 
@@ -91,7 +98,7 @@ void OMXCodecObserver::onMessage(const omx_message &msg)
         node->callbacks.EventHandler(node->handle, node->app_data, msg.u.event_data.event, msg.u.event_data.data1, msg.u.event_data.data2, NULL);
         break;
     case omx_message::EMPTY_BUFFER_DONE:
-        for( List<OMX_BUFFERHEADERTYPE*>::iterator it = node->buffers.begin(); it != node->buffers.end(); it++ ) {
+        for( List<OMX_BUFFERHEADERTYPE*>::iterator it = node->buffers.begin(); it != node->buffers.end(); ++it ) {
             OMXBuffer* info = (OMXBuffer*) (*it)->pPlatformPrivate;
             if (msg.u.buffer_data.buffer == info->id) {
                 node->callbacks.EmptyBufferDone(node->handle, node->app_data, *it);
@@ -100,7 +107,7 @@ void OMXCodecObserver::onMessage(const omx_message &msg)
         }
         break;
     case omx_message::FILL_BUFFER_DONE:
-        for( List<OMX_BUFFERHEADERTYPE*>::iterator it = node->buffers.begin(); it != node->buffers.end(); it++ ) {
+        for( List<OMX_BUFFERHEADERTYPE*>::iterator it = node->buffers.begin(); it != node->buffers.end(); ++it ) {
             OMXBuffer* info = (OMXBuffer*) (*it)->pPlatformPrivate;
             if (msg.u.extended_buffer_data.buffer == info->id) {
                 OMX_BUFFERHEADERTYPE *buffer = *it;
@@ -125,73 +132,6 @@ static OMX_ERRORTYPE get_error(status_t err)
     return OMX_ErrorUndefined;
 }
 
-static int get_param_size(OMX_INDEXTYPE param_index)
-{
-    switch (param_index) {
-    case OMX_IndexParamPortDefinition:
-        return sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
-    case OMX_IndexParamStandardComponentRole:
-        return sizeof(OMX_PARAM_COMPONENTROLETYPE);
-    case OMX_IndexParamVideoInit:
-    case OMX_IndexParamAudioInit:
-    case OMX_IndexParamImageInit:
-    case OMX_IndexParamOtherInit:
-        return sizeof(OMX_PORT_PARAM_TYPE);
-    case OMX_IndexParamNumAvailableStreams:
-        return sizeof(OMX_PARAM_U32TYPE);
-    case OMX_IndexParamAudioPcm:
-        return sizeof(OMX_AUDIO_PARAM_PCMMODETYPE);
-    case OMX_IndexParamAudioAdpcm:
-        return sizeof(OMX_AUDIO_PARAM_AMRTYPE);
-    case OMX_IndexParamAudioAmr:
-        return sizeof(OMX_AUDIO_PARAM_AMRTYPE);
-    case OMX_IndexParamAudioG723:
-        return sizeof(OMX_AUDIO_PARAM_G723TYPE);
-    case OMX_IndexParamAudioG726:
-        return sizeof(OMX_AUDIO_PARAM_G726TYPE);
-    case OMX_IndexParamAudioG729:
-        return sizeof(OMX_AUDIO_PARAM_G729TYPE);
-    case OMX_IndexParamAudioAac:
-        return sizeof(OMX_AUDIO_PARAM_AACPROFILETYPE);
-    case OMX_IndexParamAudioMp3:
-        return sizeof(OMX_AUDIO_PARAM_MP3TYPE);
-    case OMX_IndexParamAudioSbc:
-        return sizeof(OMX_AUDIO_PARAM_SBCTYPE);
-    case OMX_IndexParamAudioVorbis:
-        return sizeof(OMX_AUDIO_PARAM_VORBISTYPE);
-    case OMX_IndexParamAudioWma:
-        return sizeof(OMX_AUDIO_PARAM_WMATYPE);
-    case OMX_IndexParamAudioRa:
-        return sizeof(OMX_AUDIO_PARAM_RATYPE);
-    case OMX_IndexParamVideoPortFormat:
-        return sizeof(OMX_VIDEO_PARAM_PORTFORMATTYPE);
-    case OMX_IndexParamVideoBitrate:
-        return sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
-    case OMX_IndexParamVideoH263:
-        return sizeof(OMX_VIDEO_PARAM_H263TYPE);
-    case OMX_IndexParamVideoMpeg4:
-        return sizeof(OMX_VIDEO_PARAM_MPEG4TYPE);
-    case OMX_IndexParamVideoAvc:
-        return sizeof(OMX_VIDEO_PARAM_AVCTYPE);
-    case OMX_IndexParamVideoWmv:
-        return sizeof(OMX_VIDEO_PARAM_WMVTYPE);
-    default:
-        return 0;
-    }
-}
-
-static int get_config_size(OMX_INDEXTYPE param_index)
-{
-    switch (param_index) {
-    case OMX_IndexConfigCommonOutputCrop:
-        return sizeof(OMX_CONFIG_RECTTYPE);
-    default:
-        /* Dynamically queried config indices could have any size, but
-         * are currently only used with OMX_BOOL. */
-        return sizeof(OMX_BOOL);
-    }
-}
-
 static OMX_ERRORTYPE iomx_send_command(OMX_HANDLETYPE component, OMX_COMMANDTYPE command, OMX_U32 param1, OMX_PTR)
 {
     OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
@@ -200,14 +140,23 @@ static OMX_ERRORTYPE iomx_send_command(OMX_HANDLETYPE component, OMX_COMMANDTYPE
 
 static OMX_ERRORTYPE iomx_get_parameter(OMX_HANDLETYPE component, OMX_INDEXTYPE param_index, OMX_PTR param)
 {
+    /*
+     * Some QCOM OMX_getParameter implementations override the nSize element to
+     * a bad value. So, save the initial nSize in order to restore it after.
+     */
+    OMX_U32 nSize = *(OMX_U32*)param;
+    OMX_ERRORTYPE error;
     OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
-    return get_error(ctx->iomx->getParameter(node->node, param_index, param, get_param_size(param_index)));
+
+    error = get_error(ctx->iomx->getParameter(node->node, param_index, param, nSize));
+    *(OMX_U32*)param = nSize;
+    return error;
 }
 
 static OMX_ERRORTYPE iomx_set_parameter(OMX_HANDLETYPE component, OMX_INDEXTYPE param_index, OMX_PTR param)
 {
     OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
-    return get_error(ctx->iomx->setParameter(node->node, param_index, param, get_param_size(param_index)));
+    return get_error(ctx->iomx->setParameter(node->node, param_index, param, *(OMX_U32*)param));
 }
 
 static OMX_ERRORTYPE iomx_get_state(OMX_HANDLETYPE component, OMX_STATETYPE *ptr) {
@@ -220,6 +169,9 @@ static OMX_ERRORTYPE iomx_allocate_buffer(OMX_HANDLETYPE component, OMX_BUFFERHE
 {
     OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
     OMXBuffer* info = new OMXBuffer;
+#ifdef HAS_USE_BUFFER
+    info->graphicBuffer = NULL;
+#endif
     info->dealer = new MemoryDealer(size + 4096); // Do we need to keep this around, or is it kept alive via the IMemory that references it?
     sp<IMemory> mem = info->dealer->allocate(size);
     int ret = ctx->iomx->allocateBufferWithBackup(node->node, port_index, mem, &info->id);
@@ -235,12 +187,37 @@ static OMX_ERRORTYPE iomx_allocate_buffer(OMX_HANDLETYPE component, OMX_BUFFERHE
     return OMX_ErrorNone;
 }
 
+#ifdef HAS_USE_BUFFER
+static OMX_ERRORTYPE iomx_use_buffer(OMX_HANDLETYPE component, OMX_BUFFERHEADERTYPE **bufferptr, OMX_U32 port_index, OMX_PTR app_private, OMX_U32 size, OMX_U8* data)
+{
+    OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
+    OMXBuffer* info = new OMXBuffer;
+    info->dealer = NULL;
+#if ANDROID_API <= 13
+    info->graphicBuffer = new GraphicBuffer((android_native_buffer_t*) data, false);
+#else
+    info->graphicBuffer = new GraphicBuffer((ANativeWindowBuffer*) data, false);
+#endif
+    int ret = ctx->iomx->useGraphicBuffer(node->node, port_index, info->graphicBuffer, &info->id);
+    if (ret != OK)
+        return OMX_ErrorUndefined;
+    OMX_BUFFERHEADERTYPE *buffer = (OMX_BUFFERHEADERTYPE*) calloc(1, sizeof(OMX_BUFFERHEADERTYPE));
+    *bufferptr = buffer;
+    buffer->pPlatformPrivate = info;
+    buffer->pAppPrivate = app_private;
+    buffer->nAllocLen = size;
+    buffer->pBuffer = data;
+    node->buffers.push_back(buffer);
+    return OMX_ErrorNone;
+}
+#endif
+
 static OMX_ERRORTYPE iomx_free_buffer(OMX_HANDLETYPE component, OMX_U32 port, OMX_BUFFERHEADERTYPE *buffer)
 {
     OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
     OMXBuffer* info = (OMXBuffer*) buffer->pPlatformPrivate;
     status_t ret = ctx->iomx->freeBuffer(node->node, port, info->id);
-    for( List<OMX_BUFFERHEADERTYPE*>::iterator it = node->buffers.begin(); it != node->buffers.end(); it++ ) {
+    for( List<OMX_BUFFERHEADERTYPE*>::iterator it = node->buffers.begin(); it != node->buffers.end(); ++it ) {
         if (buffer == *it) {
             node->buffers.erase(it);
             break;
@@ -268,12 +245,12 @@ static OMX_ERRORTYPE iomx_fill_this_buffer(OMX_HANDLETYPE component, OMX_BUFFERH
 static OMX_ERRORTYPE iomx_component_role_enum(OMX_HANDLETYPE component, OMX_U8 *role, OMX_U32 index)
 {
     OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
-    for( List<IOMX::ComponentInfo>::iterator it = ctx->components.begin(); it != ctx->components.end(); it++ ) {
+    for( List<IOMX::ComponentInfo>::iterator it = ctx->components.begin(); it != ctx->components.end(); ++it ) {
         if (node->component_name == it->mName) {
             if (index >= it->mRoles.size())
                 return OMX_ErrorNoMore;
             List<String8>::iterator it2 = it->mRoles.begin();
-            for( OMX_U32 i = 0; it2 != it->mRoles.end() && i < index; i++, it2++ ) ;
+            for( OMX_U32 i = 0; it2 != it->mRoles.end() && i < index; i++, ++it2 ) ;
             strncpy((char*)role, it2->string(), OMX_MAX_STRINGNAME_SIZE);
             if (it2->length() >= OMX_MAX_STRINGNAME_SIZE)
                 role[OMX_MAX_STRINGNAME_SIZE - 1] = '\0';
@@ -292,13 +269,13 @@ static OMX_ERRORTYPE iomx_get_extension_index(OMX_HANDLETYPE component, OMX_STRI
 static OMX_ERRORTYPE iomx_set_config(OMX_HANDLETYPE component, OMX_INDEXTYPE index, OMX_PTR param)
 {
     OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
-    return get_error(ctx->iomx->setConfig(node->node, index, param, get_config_size(index)));
+    return get_error(ctx->iomx->setConfig(node->node, index, param, *(OMX_U32*)param));
 }
 
 static OMX_ERRORTYPE iomx_get_config(OMX_HANDLETYPE component, OMX_INDEXTYPE index, OMX_PTR param)
 {
     OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
-    return get_error(ctx->iomx->getConfig(node->node, index, param, get_config_size(index)));
+    return get_error(ctx->iomx->getConfig(node->node, index, param, *(OMX_U32*)param));
 }
 
 extern "C" {
@@ -328,6 +305,11 @@ OMX_ERRORTYPE PREFIX(OMX_GetHandle)(OMX_HANDLETYPE *handle_ptr, OMX_STRING compo
     component->FillThisBuffer = iomx_fill_this_buffer;
     component->GetState = iomx_get_state;
     component->AllocateBuffer = iomx_allocate_buffer;
+#ifdef HAS_USE_BUFFER
+    component->UseBuffer = iomx_use_buffer;
+#else
+    component->UseBuffer = NULL;
+#endif
     component->ComponentRoleEnum = iomx_component_role_enum;
     component->GetExtensionIndex = iomx_get_extension_index;
     component->SetConfig = iomx_set_config;
@@ -378,7 +360,7 @@ OMX_ERRORTYPE PREFIX(OMX_ComponentNameEnum)(OMX_STRING component_name, OMX_U32 n
         return OMX_ErrorNoMore;
     List<IOMX::ComponentInfo>::iterator it = ctx->components.begin();
     for( OMX_U32 i = 0; i < index; i++ )
-        it++;
+        ++it;
     strncpy(component_name, it->mName.string(), name_length);
     component_name[name_length - 1] = '\0';
     return OMX_ErrorNone;
@@ -386,7 +368,7 @@ OMX_ERRORTYPE PREFIX(OMX_ComponentNameEnum)(OMX_STRING component_name, OMX_U32 n
 
 OMX_ERRORTYPE PREFIX(OMX_GetRolesOfComponent)(OMX_STRING component_name, OMX_U32 *num_roles, OMX_U8 **roles)
 {
-    for( List<IOMX::ComponentInfo>::iterator it = ctx->components.begin(); it != ctx->components.end(); it++ ) {
+    for( List<IOMX::ComponentInfo>::iterator it = ctx->components.begin(); it != ctx->components.end(); ++it ) {
         if (!strcmp(component_name, it->mName.string())) {
             if (!roles) {
                 *num_roles = it->mRoles.size();
@@ -396,7 +378,7 @@ OMX_ERRORTYPE PREFIX(OMX_GetRolesOfComponent)(OMX_STRING component_name, OMX_U32
                 return OMX_ErrorInsufficientResources;
             *num_roles = it->mRoles.size();
             OMX_U32 i = 0;
-            for( List<String8>::iterator it2 = it->mRoles.begin(); it2 != it->mRoles.end(); i++, it2++ ) {
+            for( List<String8>::iterator it2 = it->mRoles.begin(); it2 != it->mRoles.end(); i++, ++it2 ) {
                 strncpy((char*)roles[i], it2->string(), OMX_MAX_STRINGNAME_SIZE);
                 roles[i][OMX_MAX_STRINGNAME_SIZE - 1] = '\0';
             }
@@ -409,8 +391,8 @@ OMX_ERRORTYPE PREFIX(OMX_GetRolesOfComponent)(OMX_STRING component_name, OMX_U32
 OMX_ERRORTYPE PREFIX(OMX_GetComponentsOfRole)(OMX_STRING role, OMX_U32 *num_comps, OMX_U8 **comp_names)
 {
     OMX_U32 i = 0;
-    for( List<IOMX::ComponentInfo>::iterator it = ctx->components.begin(); it != ctx->components.end(); it++ ) {
-        for( List<String8>::iterator it2 = it->mRoles.begin(); it2 != it->mRoles.end(); it2++ ) {
+    for( List<IOMX::ComponentInfo>::iterator it = ctx->components.begin(); it != ctx->components.end(); ++it ) {
+        for( List<String8>::iterator it2 = it->mRoles.begin(); it2 != it->mRoles.end(); ++it2 ) {
             if (!strcmp(it2->string(), role)) {
                 if (comp_names) {
                     if (*num_comps < i)
@@ -426,5 +408,49 @@ OMX_ERRORTYPE PREFIX(OMX_GetComponentsOfRole)(OMX_STRING role, OMX_U32 *num_comp
     *num_comps = i;
     return OMX_ErrorNone;
 }
+
+#ifdef HAS_USE_BUFFER
+OMX_ERRORTYPE PREFIX(OMXAndroid_EnableGraphicBuffers)(OMX_HANDLETYPE component, OMX_U32 port_index, OMX_BOOL enable)
+{
+    OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
+    int ret = ctx->iomx->enableGraphicBuffers(node->node, port_index, enable);
+    if (ret != OK)
+        return OMX_ErrorUndefined;
+    return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE PREFIX(OMXAndroid_GetGraphicBufferUsage)(OMX_HANDLETYPE component, OMX_U32 port_index, OMX_U32* usage)
+{
+    OMXNode* node = (OMXNode*) ((OMX_COMPONENTTYPE*)component)->pComponentPrivate;
+    int ret = ctx->iomx->getGraphicBufferUsage(node->node, port_index, usage);
+    if (ret != OK)
+        return OMX_ErrorUndefined;
+    return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE PREFIX(OMXAndroid_GetHalFormat)( const char *comp_name, int* hal_format )
+{
+    if( !strncmp( comp_name, "OMX.SEC.", 8 ) ) {
+        switch( *hal_format ) {
+        case OMX_COLOR_FormatYUV420SemiPlanar:
+            *hal_format = 0x105; // HAL_PIXEL_FORMAT_YCbCr_420_SP
+            break;
+        case OMX_COLOR_FormatYUV420Planar:
+            *hal_format = 0x101; // HAL_PIXEL_FORMAT_YCbCr_420_P
+            break;
+        }
+    }
+    else if( !strcmp( comp_name, "OMX.TI.720P.Decoder" ) ||
+        !strcmp( comp_name, "OMX.TI.Video.Decoder" ) )
+        *hal_format = 0x14; // HAL_PIXEL_FORMAT_YCbCr_422_I
+#if ANDROID_API <= 13 // Required on msm8660 on 3.2, not required on 4.1
+    else if( !strcmp( comp_name, "OMX.qcom.video.decoder.avc" ))
+        *hal_format = 0x108;
+#endif
+
+    return OMX_ErrorNone;
+}
+
+#endif
 }
 

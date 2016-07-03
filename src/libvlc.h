@@ -34,8 +34,6 @@ struct vlc_actions;
 struct vlc_actions *vlc_InitActions (libvlc_int_t *);
 extern void vlc_DeinitActions (libvlc_int_t *, struct vlc_actions *);
 
-size_t vlc_towc (const char *str, uint32_t *restrict pwc);
-
 /*
  * OS-specific initialization
  */
@@ -57,9 +55,6 @@ void vlc_CPU_dump(vlc_object_t *);
 /* This cannot be used as is from plugins yet: */
 int vlc_clone_detach (vlc_thread_t *, void *(*)(void *), void *, int);
 
-int vlc_object_waitpipe (vlc_object_t *obj);
-void ObjectKillChildrens (vlc_object_t *);
-
 int vlc_set_priority( vlc_thread_t, int );
 
 void vlc_threads_setup (libvlc_int_t *);
@@ -76,7 +71,10 @@ void vlc_assert_locked (vlc_mutex_t *);
 /*
  * Logging
  */
-void vlc_LogInit(libvlc_int_t *);
+typedef struct vlc_logger_t vlc_logger_t;
+
+int vlc_LogPreinit(libvlc_int_t *);
+int vlc_LogInit(libvlc_int_t *);
 void vlc_LogDeinit(libvlc_int_t *);
 
 /*
@@ -126,48 +124,33 @@ void vlc_object_set_destructor (vlc_object_t *, vlc_destructor_t);
 #define vlc_object_set_destructor(a,b) \
         vlc_object_set_destructor (VLC_OBJECT(a), b)
 
-/*
- * To be cleaned-up module stuff:
- */
-module_t *module_find_by_shortcut (const char *psz_shortcut);
-
 #define ZOOM_SECTION N_("Zoom")
 #define ZOOM_QUARTER_KEY_TEXT N_("1:4 Quarter")
 #define ZOOM_HALF_KEY_TEXT N_("1:2 Half")
 #define ZOOM_ORIGINAL_KEY_TEXT N_("1:1 Original")
 #define ZOOM_DOUBLE_KEY_TEXT N_("2:1 Double")
 
-typedef struct sap_handler_t sap_handler_t;
-
 /**
  * Private LibVLC instance data.
  */
+typedef struct vlc_dialog_provider vlc_dialog_provider;
+typedef struct vlc_keystore vlc_keystore;
+
 typedef struct libvlc_priv_t
 {
     libvlc_int_t       public_data;
 
     /* Logging */
-    struct
-    {
-        void (*cb) (void *, int, const vlc_log_t *, const char *, va_list);
-        void *opaque;
-        signed char verbose;
-        vlc_rwlock_t lock;
-    } log;
     bool               b_stats;     ///< Whether to collect stats
 
     /* Singleton objects */
+    vlc_logger_t      *logger;
     vlm_t             *p_vlm;  ///< the VLM singleton (or NULL)
-    vlc_object_t      *p_dialog_provider; ///< dialog provider
-#ifdef ENABLE_SOUT
-    sap_handler_t     *p_sap; ///< SAP SDP advertiser
-#endif
+    vlc_dialog_provider *p_dialog_provider; ///< dialog provider
+    vlc_keystore      *p_memory_keystore; ///< memory keystore
     struct playlist_t *playlist; ///< Playlist for interfaces
     struct playlist_preparser_t *parser; ///< Input item meta data handler
     struct vlc_actions *actions; ///< Hotkeys handler
-
-    /* Objects tree */
-    vlc_mutex_t        structure_lock;
 
     /* Exit callback */
     vlc_exit_t       exit;
@@ -182,7 +165,7 @@ void intf_InsertItem(libvlc_int_t *, const char *mrl, unsigned optc,
                      const char * const *optv, unsigned flags);
 void intf_DestroyAll( libvlc_int_t * );
 
-#define libvlc_stats( o ) (libvlc_priv((VLC_OBJECT(o))->p_libvlc)->b_stats)
+#define libvlc_stats( o ) (libvlc_priv((VLC_OBJECT(o))->obj.libvlc)->b_stats)
 
 /*
  * Variables stuff

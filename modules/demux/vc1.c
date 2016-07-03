@@ -86,7 +86,7 @@ static int Open( vlc_object_t * p_this )
     if( p_peek[0] != 0x00 || p_peek[1] != 0x00 ||
         p_peek[2] != 0x01 || p_peek[3] != 0x0f ) /* Sequence header */
     {
-        if( !p_demux->b_force )
+        if( !p_demux->obj.force )
         {
             msg_Warn( p_demux, "vc-1 module discarded (no startcode)" );
             return VLC_EGENERIC;
@@ -106,8 +106,8 @@ static int Open( vlc_object_t * p_this )
     p_sys->p_es        = NULL;
     p_sys->i_dts       = 0;
     p_sys->f_fps = var_CreateGetFloat( p_demux, "vc1-fps" );
-    if( p_sys->f_fps < 0.001 )
-        p_sys->f_fps = 0.0;
+    if( p_sys->f_fps < 0.001f )
+        p_sys->f_fps = 0.0f;
 
     /* Load the packetizer */
     es_format_Init( &fmt, VIDEO_ES, VLC_CODEC_VC1 );
@@ -173,13 +173,13 @@ static int Demux( demux_t *p_demux)
 
             if( p_sys->p_packetizer->fmt_out.video.i_frame_rate > 0 &&
                 p_sys->p_packetizer->fmt_out.video.i_frame_rate_base > 0 )
-                p_sys->i_dts += INT64_C(1000000) *
+                p_sys->i_dts += CLOCK_FREQ *
                     p_sys->p_packetizer->fmt_out.video.i_frame_rate_base /
                     p_sys->p_packetizer->fmt_out.video.i_frame_rate;
-            else if( p_sys->f_fps > 0.001 )
-                p_sys->i_dts += (int64_t)((double)1000000.0 / p_sys->f_fps);
+            else if( p_sys->f_fps > 0.001f )
+                p_sys->i_dts += (int64_t)((float) CLOCK_FREQ / p_sys->f_fps);
             else
-                p_sys->i_dts += INT64_C(1000000) / 25;
+                p_sys->i_dts += CLOCK_FREQ / 25;
         }
     }
     return 1;

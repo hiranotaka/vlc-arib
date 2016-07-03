@@ -26,12 +26,12 @@
 # define __LIBVLC_PLAYLIST_INTERNAL_H 1
 
 /**
- *  \file
- *  This file contain internal structures and function prototypes related
- *  to the playlist in vlc
+ * \defgroup playlist_internals VLC playlist internals
+ * \ingroup playlist
  *
- * \defgroup vlc_playlist Playlist
  * @{
+ * \file
+ * VLC playlist internal interface
  */
 
 #include "input/input_interface.h"
@@ -47,7 +47,6 @@ void playlist_ServicesDiscoveryKillAll( playlist_t *p_playlist );
 typedef struct playlist_private_t
 {
     playlist_t           public_data;
-    playlist_preparser_t *p_preparser;  /**< Preparser data */
     struct intf_thread_t *interface; /**< Linked-list of interfaces */
 
     playlist_item_array_t items_to_delete; /**< Array of items and nodes to
@@ -61,14 +60,12 @@ typedef struct playlist_private_t
     struct {
         /* Current status. These fields are readonly, only the playlist
          * main loop can touch it*/
-        playlist_status_t   i_status;  /**< Current status of playlist */
         playlist_item_t *   p_item; /**< Currently playing/active item */
         playlist_item_t *   p_node; /**< Current node to play from */
     } status;
 
     struct {
         /* Request. Use this to give orders to the playlist main loop  */
-        playlist_status_t   i_status; /**< requested playlist status */
         playlist_item_t *   p_node;   /**< requested node to play from */
         playlist_item_t *   p_item;   /**< requested item to play in the node */
 
@@ -89,7 +86,7 @@ typedef struct playlist_private_t
     bool     b_reset_currently_playing; /** Reset current item array */
 
     bool     b_tree; /**< Display as a tree */
-    bool     b_doing_ml; /**< Doing media library stuff  get quicker */
+    bool     b_preparse; /**< Preparse items */
 } playlist_private_t;
 
 #define pl_priv( pl ) ((playlist_private_t *)(pl))
@@ -146,10 +143,6 @@ int playlist_DeleteItem( playlist_t * p_playlist, playlist_item_t *, bool);
 void ResetCurrentlyPlaying( playlist_t *p_playlist, playlist_item_t *p_cur );
 void ResyncCurrentIndex( playlist_t *p_playlist, playlist_item_t *p_cur );
 
-/**
- * @}
- */
-
 #define PLAYLIST_DEBUG 1
 //#undef PLAYLIST_DEBUG2
 
@@ -179,4 +172,5 @@ static inline void pl_unlock_if( playlist_t * p_playlist, bool cond )
     if( cond ) PL_UNLOCK;
 }
 
+/** @} */
 #endif /* !__LIBVLC_PLAYLIST_INTERNAL_H */

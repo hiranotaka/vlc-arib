@@ -216,7 +216,7 @@ static int SubsdelayCalculateAlpha( filter_t *p_filter, int i_overlapping, int i
 
 static int SubsdelayGetTextRank( char *psz_text );
 
-static bool SubsdelayIsTextEmpty( char *psz_text );
+static bool SubsdelayIsTextEmpty( const text_segment_t* p_segment );
 
 /*****************************************************************************
  * Subpicture functions
@@ -516,11 +516,10 @@ static void SubsdelayHeapInit( subsdelay_heap_t *p_heap )
  *****************************************************************************/
 static void SubsdelayHeapDestroy( subsdelay_heap_t *p_heap )
 {
-    subsdelay_heap_entry_t *p_entry;
-
     SubsdelayHeapLock( p_heap );
 
-    for( p_entry = p_heap->p_head; p_entry != NULL; p_entry = p_entry->p_next )
+    for( subsdelay_heap_entry_t *p_entry = p_heap->p_head;
+         p_entry != NULL; p_entry = p_entry->p_next )
     {
         p_entry->p_subpic->i_stop = p_entry->p_source->i_stop;
 
@@ -537,7 +536,7 @@ static void SubsdelayHeapDestroy( subsdelay_heap_t *p_heap )
  *****************************************************************************/
 static subsdelay_heap_entry_t *SubsdelayHeapPush( subsdelay_heap_t *p_heap, subpicture_t *p_subpic, filter_t *p_filter )
 {
-    subsdelay_heap_entry_t *p_entry, *p_last, *p_new_entry;
+    subsdelay_heap_entry_t *p_last, *p_new_entry;
 
     if( p_heap->i_count >= SUBSDELAY_MAX_ENTRIES )
     {
@@ -554,7 +553,8 @@ static subsdelay_heap_entry_t *SubsdelayHeapPush( subsdelay_heap_t *p_heap, subp
 
     p_last = NULL;
 
-    for( p_entry = p_heap->p_head; p_entry != NULL; p_entry = p_entry->p_next )
+    for( subsdelay_heap_entry_t *p_entry = p_heap->p_head; p_entry != NULL;
+         p_entry = p_entry->p_next )
     {
         if( p_entry->p_source->i_start > p_subpic->i_start )
         {
@@ -598,11 +598,12 @@ static subsdelay_heap_entry_t *SubsdelayHeapPush( subsdelay_heap_t *p_heap, subp
  *****************************************************************************/
 static void SubsdelayHeapRemove( subsdelay_heap_t *p_heap, subsdelay_heap_entry_t *p_entry )
 {
-    subsdelay_heap_entry_t *p_curr, *p_prev;
+    subsdelay_heap_entry_t *p_prev;
 
     p_prev = NULL;
 
-    for( p_curr = p_heap->p_head; p_curr != NULL; p_curr = p_curr->p_next )
+    for( subsdelay_heap_entry_t *p_curr = p_heap->p_head; p_curr != NULL;
+         p_curr = p_curr->p_next )
     {
         if( p_curr == p_entry )
         {
@@ -629,11 +630,11 @@ static void SubsdelayHeapRemove( subsdelay_heap_t *p_heap, subsdelay_heap_entry_
 
 static void SubsdelayRebuildList( subsdelay_heap_t *p_heap )
 {
-    subsdelay_heap_entry_t *p_curr;
     int i_index;
 
     i_index = 0;
-    for( p_curr = p_heap->p_head; p_curr != NULL; p_curr = p_curr->p_next )
+    for( subsdelay_heap_entry_t *p_curr = p_heap->p_head; p_curr != NULL;
+         p_curr = p_curr->p_next )
     {
         p_heap->p_list[i_index] = p_curr;
         i_index++;
@@ -729,14 +730,14 @@ static void SubsdelayEntryDestroy( subsdelay_heap_entry_t *p_entry )
  *****************************************************************************/
 static int SubsdelayHeapCountOverlap( subsdelay_heap_t *p_heap, subsdelay_heap_entry_t *p_entry, mtime_t i_date )
 {
-    subsdelay_heap_entry_t *p_curr;
     int i_overlaps;
 
     VLC_UNUSED( p_heap );
 
     i_overlaps = 0;
 
-    for( p_curr = p_entry->p_next; p_curr != NULL; p_curr = p_curr->p_next )
+    for( subsdelay_heap_entry_t *p_curr = p_entry->p_next; p_curr != NULL;
+         p_curr = p_curr->p_next )
     {
         if( p_curr->p_source->i_start > i_date )
         {
@@ -771,7 +772,7 @@ static void SubsdelayEntryNewStopValueUpdated( subsdelay_heap_entry_t *p_entry )
 static void SubsdelayEnforceDelayRules( filter_t *p_filter )
 {
     subsdelay_heap_entry_t ** p_list;
-    int i, j, i_count, i_overlap;
+    int i_count, i_overlap;
     int64_t i_offset;
     int64_t i_min_stops_interval;
     int64_t i_min_stop_start_interval;
@@ -798,7 +799,7 @@ static void SubsdelayEnforceDelayRules( filter_t *p_filter )
                               |<-MinStopsInterval->|
     */
 
-    for( i = 0; i < i_count - 1; i++ )
+    for( int i = 0; i < i_count - 1; i++ )
     {
         p_list[i + 1]->i_new_stop = __MAX( p_list[i + 1]->i_new_stop,
                 p_list[i]->i_new_stop + i_min_stops_interval );
@@ -817,9 +818,9 @@ static void SubsdelayEnforceDelayRules( filter_t *p_filter )
           |<-MinStopStartInterval->|
     */
 
-    for( i = 0; i < i_count; i++ )
+    for( int i = 0; i < i_count; i++ )
     {
-        for( j = i + 1; j < __MIN( i_count, i + 1 + i_overlap ); j++ )
+        for( int j = i + 1; j < __MIN( i_count, i + 1 + i_overlap ); j++ )
         {
             i_offset = p_list[j]->p_source->i_start - p_list[i]->i_new_stop;
 
@@ -851,9 +852,9 @@ static void SubsdelayEnforceDelayRules( filter_t *p_filter )
     */
 
 
-    for( i = 0; i < i_count; i++ )
+    for( int i = 0; i < i_count; i++ )
     {
-        for( j = i + 1; j < __MIN( i_count, i + 1 + i_overlap ); j++ )
+        for( int j = i + 1; j < __MIN( i_count, i + 1 + i_overlap ); j++ )
         {
             i_offset = p_list[i]->i_new_stop - p_list[j]->p_source->i_start;
 
@@ -884,7 +885,7 @@ static void SubsdelayEnforceDelayRules( filter_t *p_filter )
                       [subtitle 3 ..............]
     */
 
-    for( i = 0; i < i_count - i_overlap; i++ )
+    for( int i = 0; i < i_count - i_overlap; i++ )
     {
         if( p_list[i]->i_new_stop > p_list[i + i_overlap]->p_source->i_start )
         {
@@ -894,7 +895,7 @@ static void SubsdelayEnforceDelayRules( filter_t *p_filter )
 
     /* finally - update all */
 
-    for( i = 0; i < i_count; i++ )
+    for( int i = 0; i < i_count; i++ )
     {
         SubsdelayEntryNewStopValueUpdated( p_list[i] );
     }
@@ -906,9 +907,8 @@ static void SubsdelayEnforceDelayRules( filter_t *p_filter )
  *****************************************************************************/
 static void SubsdelayRecalculateDelays( filter_t *p_filter )
 {
-    subsdelay_heap_entry_t *p_curr;
-
-    for( p_curr = p_filter->p_sys->heap.p_head; p_curr != NULL; p_curr = p_curr->p_next )
+    for( subsdelay_heap_entry_t *p_curr = p_filter->p_sys->heap.p_head;
+         p_curr != NULL; p_curr = p_curr->p_next )
     {
         if( !p_curr->b_update_ephemer )
         {
@@ -1052,8 +1052,8 @@ static void SubpicLocalUpdate( subpicture_t* p_subpic, mtime_t i_ts )
 
     if( p_entry->b_check_empty && p_subpic->p_region )
     {
-        if( SubsdelayIsTextEmpty( p_subpic->p_region->psz_html ) ||
-            SubsdelayIsTextEmpty( p_subpic->p_region->psz_text ) )
+        //FIXME: What if there is more than one segment?
+        if( SubsdelayIsTextEmpty( p_subpic->p_region->p_text ) )
         {
             /* remove empty subtitle */
 
@@ -1116,8 +1116,7 @@ static void SubpicLocalUpdate( subpicture_t* p_subpic, mtime_t i_ts )
  *****************************************************************************/
 static bool SubpicIsEmpty( subpicture_t* p_subpic )
 {
-    return ( p_subpic->p_region && ( SubsdelayIsTextEmpty( p_subpic->p_region->psz_html ) ||
-                                     SubsdelayIsTextEmpty( p_subpic->p_region->psz_text ) ) );
+    return ( p_subpic->p_region && ( SubsdelayIsTextEmpty( p_subpic->p_region->p_text ) ) );
 }
 
 /*****************************************************************************
@@ -1180,17 +1179,10 @@ static int64_t SubsdelayEstimateDelay( filter_t *p_filter, subsdelay_heap_entry_
 
     if( i_mode == SUBSDELAY_MODE_RELATIVE_SOURCE_CONTENT )
     {
-        if( p_entry->p_subpic && p_entry->p_subpic->p_region && ( p_entry->p_subpic->p_region->psz_text
-                || p_entry->p_subpic->p_region->psz_html ) )
+        if( p_entry->p_subpic && p_entry->p_subpic->p_region && ( p_entry->p_subpic->p_region->p_text ) )
         {
-            if( p_entry->p_subpic->p_region->psz_text )
-            {
-                i_rank = SubsdelayGetTextRank( p_entry->p_subpic->p_region->psz_text );
-            }
-            else
-            {
-                i_rank = SubsdelayGetTextRank( p_entry->p_subpic->p_region->psz_html );
-            }
+            //FIXME: We only use a single segment here
+            i_rank = SubsdelayGetTextRank( p_entry->p_subpic->p_region->p_text->psz_text );
 
             return ( i_rank * INT_FACTOR_TO_RANK_FACTOR( i_factor ) );
         }
@@ -1341,13 +1333,18 @@ static int SubsdelayGetTextRank( char *psz_text )
 /*****************************************************************************
  * SubsdelayIsTextEmpty: Check if the text contains spaces only
  *****************************************************************************/
-static bool SubsdelayIsTextEmpty( char *psz_text )
+static bool SubsdelayIsTextEmpty( const text_segment_t *p_segment )
 {
-    if( !psz_text )
+    while ( p_segment )
     {
-        return false;
+        if ( strlen( p_segment->psz_text ) > 0 )
+        {
+            size_t offset = strspn( p_segment->psz_text, " " );
+            if ( p_segment->psz_text[offset] )
+                return false;
+        }
+        p_segment = p_segment->p_next;
     }
 
-    psz_text += strspn( psz_text, " " );
-    return !( *psz_text );
+    return true;
 }

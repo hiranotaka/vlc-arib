@@ -77,8 +77,7 @@ public:
     {
         // Only do the action when the key is down
         if( rEvtKey.getKeyState() == EvtKey::kDown )
-            var_SetInteger( getIntf()->p_libvlc, "key-pressed",
-                             rEvtKey.getModKey() );
+            getIntf()->p_sys->p_dialogs->sendKey( rEvtKey.getModKey() );
     }
 
     virtual void processEvent( EvtScroll &rEvtScroll )
@@ -89,7 +88,7 @@ public:
         i_vlck |= ( rEvtScroll.getDirection() == EvtScroll::kUp ) ?
                   KEY_MOUSEWHEELUP : KEY_MOUSEWHEELDOWN;
 
-        var_SetInteger( getIntf()->p_libvlc, "key-pressed", i_vlck );
+        getIntf()->p_sys->p_dialogs->sendKey( i_vlck );
     }
 
 #endif
@@ -158,9 +157,9 @@ protected:
 
 private:
 
-    vector<CtrlVideo *> m_pCtrlVideoVec;
-    vector<CtrlVideo *> m_pCtrlVideoVecBackup;
-    vector<SavedWnd> m_SavedWndVec;
+    std::vector<CtrlVideo *> m_pCtrlVideoVec;
+    std::vector<CtrlVideo *> m_pCtrlVideoVecBackup;
+    std::vector<SavedWnd> m_SavedWndVec;
 
     VoutMainWindow* m_pVoutMainWindow;
 

@@ -122,7 +122,7 @@ typedef struct avi_chunk_strf_auds_s
     WAVEFORMATEX    *p_wf;
 } avi_chunk_strf_auds_t;
 
-typedef struct ATTR_PACKED avi_chunk_strf_vids_s
+typedef struct avi_chunk_strf_vids_s
 {
     AVI_CHUNK_COMMON
     int                     i_cat;
@@ -254,17 +254,17 @@ int     AVI_ChunkRead( stream_t *,
                        avi_chunk_t *p_father );
 void    AVI_ChunkFree( stream_t *, avi_chunk_t * );
 
-int     _AVI_ChunkCount( avi_chunk_t *, vlc_fourcc_t );
-void   *_AVI_ChunkFind ( avi_chunk_t *, vlc_fourcc_t, int );
+int     AVI_ChunkCount_( avi_chunk_t *, vlc_fourcc_t );
+void   *AVI_ChunkFind_ ( avi_chunk_t *, vlc_fourcc_t, int );
 
 int     AVI_ChunkReadRoot( stream_t *, avi_chunk_t *p_root );
 void    AVI_ChunkFreeRoot( stream_t *, avi_chunk_t *p_chk  );
 int     AVI_ChunkFetchIndexes( stream_t *, avi_chunk_t *p_riff );
 
 #define AVI_ChunkCount( p_chk, i_fourcc ) \
-    _AVI_ChunkCount( AVI_CHUNK(p_chk), i_fourcc )
+    AVI_ChunkCount_( AVI_CHUNK(p_chk), i_fourcc )
 #define AVI_ChunkFind( p_chk, i_fourcc, i_number ) \
-    _AVI_ChunkFind( AVI_CHUNK(p_chk), i_fourcc, i_number )
+    AVI_ChunkFind_( AVI_CHUNK(p_chk), i_fourcc, i_number )
 
 /* *** avi stuff *** */
 
@@ -344,6 +344,15 @@ int     AVI_ChunkFetchIndexes( stream_t *, avi_chunk_t *p_riff );
 #define AVIFOURCC_ISTR         VLC_FOURCC('I','S','T','R')
 #define AVIFOURCC_IFRM         VLC_FOURCC('I','F','R','M')
 
+#define AVIFOURCC_IAS1         VLC_FOURCC('I','A','S','1')
+#define AVIFOURCC_IAS2         VLC_FOURCC('I','A','S','2')
+#define AVIFOURCC_IAS3         VLC_FOURCC('I','A','S','3')
+#define AVIFOURCC_IAS4         VLC_FOURCC('I','A','S','4')
+#define AVIFOURCC_IAS5         VLC_FOURCC('I','A','S','5')
+#define AVIFOURCC_IAS6         VLC_FOURCC('I','A','S','6')
+#define AVIFOURCC_IAS7         VLC_FOURCC('I','A','S','7')
+#define AVIFOURCC_IAS8         VLC_FOURCC('I','A','S','8')
+#define AVIFOURCC_IAS9         VLC_FOURCC('I','A','S','9')
 
 #define AVITWOCC_wb            VLC_TWOCC('w','b')
 #define AVITWOCC_db            VLC_TWOCC('d','b')

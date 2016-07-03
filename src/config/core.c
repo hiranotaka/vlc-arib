@@ -360,8 +360,13 @@ ssize_t config_GetIntChoices (vlc_object_t *obj, const char *name,
         return cfg->list.i_cb(obj, name, values, texts);
     }
 
-    int64_t *vals = xmalloc (sizeof (*vals) * count);
-    char **txts = xmalloc (sizeof (*txts) * count);
+    int64_t *vals = malloc (sizeof (*vals) * count);
+    char **txts = malloc (sizeof (*txts) * count);
+    if (vals == NULL || txts == NULL)
+    {
+        errno = ENOMEM;
+        goto error;
+    }
 
     for (size_t i = 0; i < count; i++)
     {
@@ -370,12 +375,22 @@ ssize_t config_GetIntChoices (vlc_object_t *obj, const char *name,
         txts[i] = strdup ((cfg->list_text[i] != NULL)
                                        ? vlc_gettext (cfg->list_text[i]) : "");
         if (unlikely(txts[i] == NULL))
-            abort ();
+        {
+            for (int j = i - 1; j >= 0; --j)
+                free(txts[j]);
+            errno = ENOMEM;
+            goto error;
+        }
     }
 
     *values = vals;
     *texts = txts;
     return count;
+error:
+
+    free(vals);
+    free(txts);
+    return -1;
 }
 
 
@@ -387,6 +402,7 @@ static ssize_t config_ListModules (const char *cap, char ***restrict values,
     if (n <= 0)
     {
         *values = *texts = NULL;
+        module_list_free (list);
         return n;
     }
 
@@ -408,6 +424,7 @@ static ssize_t config_ListModules (const char *cap, char ***restrict values,
 
     *values = vals;
     *texts = txts;
+    module_list_free (list);
     return n + 2;
 }
 
@@ -564,11 +581,11 @@ module_config_t *config_FindConfig (vlc_object_t *p_this, const char *name)
  * \param config start of array of items
  * \param confsize number of items in the array
  */
-void config_Free (module_config_t *config, size_t confsize)
+void config_Free (module_config_t *tab, size_t confsize)
 {
     for (size_t j = 0; j < confsize; j++)
     {
-        module_config_t *p_item = config + j;
+        module_config_t *p_item = &tab[j];
 
         free( p_item->psz_type );
         free( p_item->psz_name );
@@ -598,7 +615,7 @@ void config_Free (module_config_t *config, size_t confsize)
         free (p_item->list_text);
     }
 
-    free (config);
+    free (tab);
 }
 
 #undef config_ResetAll

@@ -207,6 +207,10 @@ const char * aout_FormatPrintChannels( const audio_sample_format_t * p_format )
           | AOUT_CHAN_REARCENTER | AOUT_CHAN_MIDDLELEFT
           | AOUT_CHAN_MIDDLERIGHT | AOUT_CHAN_LFE:
         return "3F2M1R/LFE";
+    case AOUT_CHAN_LEFT | AOUT_CHAN_RIGHT | AOUT_CHAN_CENTER
+          | AOUT_CHAN_REARLEFT | AOUT_CHAN_REARRIGHT | AOUT_CHAN_REARCENTER
+          | AOUT_CHAN_MIDDLELEFT | AOUT_CHAN_MIDDLERIGHT | AOUT_CHAN_LFE:
+        return "3F2M3R/LFE";
     }
 
     return "ERROR";
@@ -248,6 +252,8 @@ unsigned aout_CheckChannelReorder( const uint32_t *chans_in,
                                    const uint32_t *chans_out,
                                    uint32_t mask, uint8_t *restrict table )
 {
+    static_assert(AOUT_CHAN_MAX <= (sizeof (mask) * CHAR_BIT), "Missing bits");
+
     unsigned channels = 0;
 
     if( chans_in == NULL )
@@ -286,11 +292,13 @@ unsigned aout_CheckChannelReorder( const uint32_t *chans_in,
  * \param fourcc sample format (must be a linear sample format)
  * \note The samples must be naturally aligned in memory.
  */
-void aout_ChannelReorder( void *ptr, size_t bytes, unsigned channels,
+void aout_ChannelReorder( void *ptr, size_t bytes, uint8_t channels,
                           const uint8_t *restrict chans_table, vlc_fourcc_t fourcc )
 {
+    if( unlikely(bytes == 0) )
+        return;
+
     assert( channels != 0 );
-    assert( channels <= AOUT_CHAN_MAX );
 
     /* The audio formats supported in audio output are inlined. For other
      * formats (used in demuxers and muxers), memcpy() is used to avoid
@@ -311,34 +319,32 @@ do { \
     } \
 } while(0)
 
-    switch( fourcc )
+    if( likely(channels <= AOUT_CHAN_MAX) )
     {
-        case VLC_CODEC_U8:   REORDER_TYPE(uint8_t); break;
-        case VLC_CODEC_S16N: REORDER_TYPE(int16_t); break;
-        case VLC_CODEC_FL32: REORDER_TYPE(float);   break;
-        case VLC_CODEC_S32N: REORDER_TYPE(int32_t); break;
-        case VLC_CODEC_FL64: REORDER_TYPE(double);  break;
-
-        default:
+        switch( fourcc )
         {
-            unsigned size = aout_BitsPerSample( fourcc ) / 8;
-            assert( size != 0 );
-
-            const size_t frames = bytes / (size * channels);
-            unsigned char *buf = ptr;
-
-            assert( bytes != 0 );
-            for( size_t i = 0; i < frames; i++ )
-            {
-                unsigned char tmp[AOUT_CHAN_MAX * size];
-
-                for( size_t j = 0; j < channels; j++ )
-                    memcpy( tmp + size * chans_table[j], buf + size * j, size );
-                memcpy( buf, tmp, size * channels );
-                buf += size * channels;
-            }
-            break;
+            case VLC_CODEC_U8:   REORDER_TYPE(uint8_t); return;
+            case VLC_CODEC_S16N: REORDER_TYPE(int16_t); return;
+            case VLC_CODEC_FL32: REORDER_TYPE(float);   return;
+            case VLC_CODEC_S32N: REORDER_TYPE(int32_t); return;
+            case VLC_CODEC_FL64: REORDER_TYPE(double);  return;
         }
+    }
+
+    unsigned size = aout_BitsPerSample( fourcc ) / 8;
+    assert( size != 0 && size <= 8 );
+
+    const size_t frames = bytes / (size * channels);
+    unsigned char *buf = ptr;
+
+    for( size_t i = 0; i < frames; i++ )
+    {
+        unsigned char tmp[256 * 8];
+
+        for( size_t j = 0; j < channels; j++ )
+             memcpy( tmp + size * chans_table[j], buf + size * j, size );
+         memcpy( buf, tmp, size * channels );
+         buf += size * channels;
     }
 }
 
@@ -373,7 +379,7 @@ do { \
         case VLC_CODEC_FL32: INTERLEAVE_TYPE(float);    break;
         case VLC_CODEC_S32N: INTERLEAVE_TYPE(int32_t);  break;
         case VLC_CODEC_FL64: INTERLEAVE_TYPE(double);   break;
-        default:             assert(0);
+        default:             vlc_assert_unreachable();
     }
 #undef INTERLEAVE_TYPE
 }
@@ -409,7 +415,7 @@ do { \
         case VLC_CODEC_FL32: DEINTERLEAVE_TYPE(float);    break;
         case VLC_CODEC_S32N: DEINTERLEAVE_TYPE(int32_t);  break;
         case VLC_CODEC_FL64: DEINTERLEAVE_TYPE(double);   break;
-        default:             assert(0);
+        default:             vlc_assert_unreachable();
     }
 #undef DEINTERLEAVE_TYPE
 }
@@ -454,6 +460,9 @@ bool aout_CheckChannelExtraction( int *pi_selection,
                                   const uint32_t pi_order_dst[AOUT_CHAN_MAX],
                                   const uint32_t *pi_order_src, int i_channels )
 {
+    static_assert(AOUT_CHAN_MAX <= (sizeof (*pi_order_dst) * CHAR_BIT),
+                  "Missing bits");
+
     const uint32_t pi_order_dual_mono[] = { AOUT_CHAN_LEFT, AOUT_CHAN_RIGHT };
     uint32_t i_layout = 0;
     int i_out = 0;
@@ -511,7 +520,7 @@ bool aout_CheckChannelExtraction( int *pi_selection,
         if( pi_selection[i] != i )
             return true;
     }
-    return i_out == i_channels;
+    return i_out != i_channels;
 }
 
 /* Return the order in which filters should be inserted */
@@ -548,8 +557,8 @@ bool aout_ChangeFilterString( vlc_object_t *p_obj, vlc_object_t *p_aout,
     }
     else
     {
-        psz_list = var_CreateGetString( p_obj->p_libvlc, psz_variable );
-        var_Destroy( p_obj->p_libvlc, psz_variable );
+        psz_list = var_CreateGetString( p_obj->obj.libvlc, psz_variable );
+        var_Destroy( p_obj->obj.libvlc, psz_variable );
     }
 
     /* Split the string into an array of filters */

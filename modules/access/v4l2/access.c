@@ -33,6 +33,7 @@
 
 #include <vlc_common.h>
 #include <vlc_access.h>
+#include <vlc_interrupt.h>
 
 #include "v4l2.h"
 
@@ -57,6 +58,9 @@ static int InitVideo(access_t *, int, uint32_t);
 int AccessOpen( vlc_object_t *obj )
 {
     access_t *access = (access_t *)obj;
+
+    if( access->b_preparsing )
+        return VLC_EGENERIC;
 
     access_InitFields( access );
 
@@ -204,18 +208,7 @@ static int AccessPoll (access_t *access)
     ufd.fd = sys->fd;
     ufd.events = POLLIN;
 
-    switch (poll (&ufd, 1, 500))
-    {
-        case -1:
-            if (errno == EINTR)
-        case 0:
-            /* FIXME: kill this case (arbitrary timeout) */
-                return -1;
-            msg_Err (access, "poll error: %s", vlc_strerror_c(errno));
-            access->info.b_eof = true;
-            return -1;
-    }
-    return 0;
+    return vlc_poll_i11e (&ufd, 1, -1);
 }
 
 
@@ -256,7 +249,6 @@ static block_t *ReadBlock (access_t *access)
     }
 
     block->i_buffer = val;
-    access->info.i_pos += val;
     return block;
 }
 

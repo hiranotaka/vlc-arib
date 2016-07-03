@@ -105,7 +105,7 @@ static const char *const ppsz_sout_options[] = {
 
 static int Control  ( sout_mux_t *, int, va_list );
 static int AddStream( sout_mux_t *, sout_input_t * );
-static int DelStream( sout_mux_t *, sout_input_t * );
+static void DelStream( sout_mux_t *, sout_input_t * );
 static int Mux      ( sout_mux_t * );
 
 typedef struct
@@ -282,6 +282,7 @@ static void Close( vlc_object_t * p_this )
         asf_track_t *track = (asf_track_t *)vlc_array_item_at_index( p_sys->p_tracks, i );
         free( track->p_extra );
         es_format_Clean( &track->fmt );
+        free( track );
     }
 
     vlc_array_clear( p_sys->p_tracks );
@@ -616,6 +617,7 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
         }
         default:
             msg_Err(p_mux, "unhandled track type" );
+            free( tk );
             return VLC_EGENERIC;
     }
 
@@ -634,7 +636,7 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
 /*****************************************************************************
  * DelStream:
  *****************************************************************************/
-static int DelStream( sout_mux_t *p_mux, sout_input_t *p_input )
+static void DelStream( sout_mux_t *p_mux, sout_input_t *p_input )
 {
     /* if bitrate ain't defined in commandline, reduce it when tracks are deleted
      */
@@ -664,7 +666,6 @@ static int DelStream( sout_mux_t *p_mux, sout_input_t *p_input )
         vlc_array_remove( p_sys->p_tracks, vlc_array_index_of_item( p_sys->p_tracks, (void *)tk ) );
         p_sys->b_write_header = true;
     }
-    return VLC_SUCCESS;
 }
 
 /*****************************************************************************

@@ -182,11 +182,13 @@ struct sout_access_out_sys_t
     char *psz_keyfile;
     mtime_t i_keyfile_modification;
     mtime_t i_opendts;
+    mtime_t i_dts_offset;
     mtime_t  i_seglenm;
     uint32_t i_segment;
     size_t  i_seglen;
     float   f_seglen;
     block_t *block_buffer;
+    block_t **last_block_buffer;
     int i_handle;
     unsigned i_numsegs;
     unsigned i_initial_segment;
@@ -195,6 +197,7 @@ struct sout_access_out_sys_t
     bool b_splitanywhere;
     bool b_caching;
     bool b_generate_iv;
+    bool b_segment_has_data;
     uint8_t aes_ivs[16];
     gcry_cipher_hd_t aes_ctx;
     char *key_uri;
@@ -232,6 +235,7 @@ static int Open( vlc_object_t *p_this )
     /* Try to get within asked segment length */
     p_sys->i_seglenm = CLOCK_FREQ * p_sys->i_seglen;
     p_sys->block_buffer = NULL;
+    p_sys->last_block_buffer = &p_sys->block_buffer;
 
     p_sys->i_numsegs = var_GetInteger( p_access, SOUT_CFG_PREFIX "numsegs" );
     p_sys->i_initial_segment = var_GetInteger( p_access, SOUT_CFG_PREFIX "initial-segment-number" );
@@ -240,27 +244,29 @@ static int Open( vlc_object_t *p_this )
     p_sys->b_ratecontrol = var_GetBool( p_access, SOUT_CFG_PREFIX "ratecontrol") ;
     p_sys->b_caching = var_GetBool( p_access, SOUT_CFG_PREFIX "caching") ;
     p_sys->b_generate_iv = var_GetBool( p_access, SOUT_CFG_PREFIX "generate-iv") ;
+    p_sys->b_segment_has_data = false;
 
     p_sys->segments_t = vlc_array_new();
 
     p_sys->stuffing_size = 0;
     p_sys->i_opendts = VLC_TS_INVALID;
+    p_sys->i_dts_offset  = 0;
 
     p_sys->psz_indexPath = NULL;
     psz_idx = var_GetNonEmptyString( p_access, SOUT_CFG_PREFIX "index" );
     if ( psz_idx )
     {
         char *psz_tmp;
-        psz_tmp = str_format_time( psz_idx );
+        psz_tmp = vlc_strftime( psz_idx );
         free( psz_idx );
         if ( !psz_tmp )
         {
             free( p_sys );
             return VLC_ENOMEM;
         }
-        path_sanitize( psz_tmp );
         p_sys->psz_indexPath = psz_tmp;
-        vlc_unlink( p_sys->psz_indexPath );
+        if( p_sys->i_initial_segment != 1 )
+            vlc_unlink( p_sys->psz_indexPath );
     }
 
     p_sys->psz_indexUrl = var_GetNonEmptyString( p_access, SOUT_CFG_PREFIX "index-url" );
@@ -287,7 +293,7 @@ static int Open( vlc_object_t *p_this )
     }
 
     p_sys->i_handle = -1;
-    p_sys->i_segment = p_sys->i_initial_segment > 0 ? p_sys->i_initial_segment -1 : 0;
+    p_sys->i_segment = p_sys->i_initial_segment-1;
     p_sys->psz_cursegPath = NULL;
 
     p_access->pf_write = Write;
@@ -348,7 +354,7 @@ static int CryptSetup( sout_access_out_t *p_access, char *key_file )
 
     ssize_t keylen = read( keyfd, key, 16 );
 
-    close( keyfd );
+    vlc_close( keyfd );
     if( keylen < 16 )
     {
         msg_Err( p_access, "No key at least 16 octects (you provided %zd), no encryption", keylen );
@@ -468,12 +474,12 @@ static int CryptKey( sout_access_out_t *p_access, uint32_t i_segment )
 /*****************************************************************************
  * formatSegmentPath: create segment path name based on seg #
  *****************************************************************************/
-static char *formatSegmentPath( char *psz_path, uint32_t i_seg, bool b_sanitize )
+static char *formatSegmentPath( char *psz_path, uint32_t i_seg )
 {
     char *psz_result;
     char *psz_firstNumSign;
 
-    if ( ! ( psz_result  = str_format_time( psz_path ) ) )
+    if ( ! ( psz_result  = vlc_strftime( psz_path ) ) )
         return NULL;
 
     psz_firstNumSign = psz_result + strcspn( psz_result, SEG_NUMBER_PLACEHOLDER );
@@ -490,9 +496,6 @@ static char *formatSegmentPath( char *psz_path, uint32_t i_seg, bool b_sanitize 
             return NULL;
         psz_result = psz_newResult;
     }
-
-    if ( b_sanitize )
-        path_sanitize( psz_result );
 
     return psz_result;
 }
@@ -560,7 +563,7 @@ static int updateIndexAndDel( sout_access_out_t *p_access, sout_access_out_sys_t
     if ( p_sys->i_numsegs == 0 ||
          p_sys->i_segment < ( p_sys->i_numsegs + p_sys->i_initial_segment ) )
     {
-        i_firstseg = p_sys->i_initial_segment == 0 ? 1 : p_sys->i_initial_segment;
+        i_firstseg = p_sys->i_initial_segment;
     }
     else
     {
@@ -587,10 +590,11 @@ static int updateIndexAndDel( sout_access_out_t *p_access, sout_access_out_sys_t
         }
 
         if ( fprintf( fp, "#EXTM3U\n#EXT-X-TARGETDURATION:%zu\n#EXT-X-VERSION:3\n#EXT-X-ALLOW-CACHE:%s"
-                          "%s\n#EXT-X-MEDIA-SEQUENCE:%"PRIu32"\n", p_sys->i_seglen,
+                          "%s\n#EXT-X-MEDIA-SEQUENCE:%"PRIu32"\n%s", p_sys->i_seglen,
                           p_sys->b_caching ? "YES" : "NO",
                           p_sys->i_numsegs > 0 ? "" : b_isend ? "\n#EXT-X-PLAYLIST-TYPE:VOD" : "\n#EXT-X-PLAYLIST-TYPE:EVENT",
-                          i_firstseg ) < 0 )
+                          i_firstseg, ((p_sys->i_initial_segment > 1) && (p_sys->i_initial_segment == i_firstseg)) ? "#EXT-X-DISCONTINUITY\n" : ""
+                          ) < 0 )
         {
             free( psz_idxTmp );
             fclose( fp );
@@ -614,13 +618,14 @@ static int updateIndexAndDel( sout_access_out_t *p_access, sout_access_out_sys_t
                 psz_current_uri = strdup( segment->psz_key_uri );
                 if( p_sys->b_generate_iv )
                 {
-                    unsigned long long iv_hi = 0, iv_lo = 0;
-                    for( unsigned short i = 0; i < 8; i++ )
+                    unsigned long long iv_hi = segment->aes_ivs[0];
+                    unsigned long long iv_lo = segment->aes_ivs[8];
+                    for( unsigned short i = 1; i < 8; i++ )
                     {
-                        iv_hi |= segment->aes_ivs[i] & 0xff;
                         iv_hi <<= 8;
-                        iv_lo |= segment->aes_ivs[8+i] & 0xff;
+                        iv_hi |= segment->aes_ivs[i] & 0xff;
                         iv_lo <<= 8;
+                        iv_lo |= segment->aes_ivs[8+i] & 0xff;
                     }
                     ret = fprintf( fp, "#EXT-X-KEY:METHOD=AES-128,URI=\"%s\",IV=0X%16.16llx%16.16llx\n",
                                    segment->psz_key_uri, iv_hi, iv_lo );
@@ -714,7 +719,8 @@ static void closeCurrentSegment( sout_access_out_t *p_access, sout_access_out_sy
             if( err ) {
                msg_Err( p_access, "Couldn't encrypt 16 bytes: %s", gpg_strerror(err) );
             } else {
-            int ret = write( p_sys->i_handle, p_sys->stuffing_bytes, 16 );
+
+            int ret = vlc_write( p_sys->i_handle, p_sys->stuffing_bytes, 16 );
             if( ret != 16 )
                 msg_Err( p_access, "Couldn't write 16 bytes" );
             }
@@ -722,7 +728,7 @@ static void closeCurrentSegment( sout_access_out_t *p_access, sout_access_out_sy
         }
 
 
-        close( p_sys->i_handle );
+        vlc_close( p_sys->i_handle );
         p_sys->i_handle = -1;
 
         if( ! ( us_asprintf( &segment->psz_duration, "%.2f", p_sys->f_seglen ) ) )
@@ -753,6 +759,7 @@ static void Close( vlc_object_t * p_this )
     sout_access_out_sys_t *p_sys = p_access->p_sys;
     block_t *output_block = p_sys->block_buffer;
     p_sys->block_buffer = NULL;
+    p_sys->last_block_buffer = &p_sys->block_buffer;
 
     while( output_block )
     {
@@ -761,10 +768,11 @@ static void Close( vlc_object_t * p_this )
 
         /* Since we are flushing, check the segment change by hand and don't wait
          * possible keyframe*/
-        if( ((float)(output_block->i_length * CLOCK_FREQ / INT64_C(1000000) ) +
-            (float)(output_block->i_dts - p_sys->i_opendts)) >= p_sys->i_seglenm )
+        if( p_sys->b_segment_has_data &&  (float)(output_block->i_length + p_sys->i_dts_offset +
+                     output_block->i_dts - p_sys->i_opendts) >= p_sys->i_seglenm )
         {
             closeCurrentSegment( p_access, p_sys, false );
+            p_sys->i_dts_offset = 0;
             if( unlikely(openNextFile( p_access, p_sys ) < 0 ) )
             {
                 block_ChainRelease( output_block );
@@ -786,6 +794,7 @@ static void Close( vlc_object_t * p_this )
     {
         block_ChainRelease( p_sys->block_buffer );
         p_sys->block_buffer = NULL;
+        p_sys->last_block_buffer = &p_sys->block_buffer;
     }
 
     closeCurrentSegment( p_access, p_sys, true );
@@ -852,9 +861,9 @@ static ssize_t openNextFile( sout_access_out_t *p_access, sout_access_out_sys_t 
         return -1;
 
     segment->i_segment_number = i_newseg;
-    segment->psz_filename = formatSegmentPath( p_access->psz_path, i_newseg, true );
+    segment->psz_filename = formatSegmentPath( p_access->psz_path, i_newseg );
     char *psz_idxFormat = p_sys->psz_indexUrl ? p_sys->psz_indexUrl : p_access->psz_path;
-    segment->psz_uri = formatSegmentPath( psz_idxFormat , i_newseg, false );
+    segment->psz_uri = formatSegmentPath( psz_idxFormat , i_newseg );
 
     if ( unlikely( !segment->psz_filename ) )
     {
@@ -892,6 +901,7 @@ static ssize_t openNextFile( sout_access_out_t *p_access, sout_access_out_sys_t 
     p_sys->psz_cursegPath = strdup(segment->psz_filename);
     p_sys->i_handle = fd;
     p_sys->i_segment = i_newseg;
+    p_sys->b_segment_has_data = false;
     return fd;
 }
 /*****************************************************************************
@@ -902,16 +912,28 @@ static int CheckSegmentChange( sout_access_out_t *p_access, block_t *p_buffer )
     sout_access_out_sys_t *p_sys = p_access->p_sys;
     block_t *output = p_sys->block_buffer;
 
-    if( p_sys->i_handle > 0 &&
-        ( ( p_buffer->i_dts - p_sys->i_opendts +
-          ( p_buffer->i_length * CLOCK_FREQ / INT64_C(1000000) )
-        ) >= p_sys->i_seglenm ) )
-     {
-        closeCurrentSegment( p_access, p_sys, false );
-     }
-
-    if ( p_sys->i_handle < 0 )
+    /* let's check if we need to store offset to keep
+     * better count of actual duration */
+    if( unlikely( p_buffer->i_dts < p_sys->i_opendts ) )
     {
+        block_t *last_buffer = p_sys->block_buffer;
+        while( last_buffer->p_next )
+            last_buffer = last_buffer->p_next;
+        p_sys->i_dts_offset += last_buffer->i_dts - p_sys->i_opendts;
+        p_sys->i_opendts    = p_buffer->i_dts;
+        msg_Dbg( p_access, "dts offset %"PRId64, p_sys->i_dts_offset );
+    }
+
+    if( p_sys->i_handle > 0 && p_sys->b_segment_has_data &&
+       (( p_buffer->i_length + p_buffer->i_dts - p_sys->i_opendts +
+          p_sys->i_dts_offset ) >= p_sys->i_seglenm ) )
+    {
+        closeCurrentSegment( p_access, p_sys, false );
+    }
+
+    if ( unlikely( p_sys->i_handle < 0 ) )
+    {
+        p_sys->i_dts_offset = 0;
         p_sys->i_opendts = output ? output->i_dts : p_buffer->i_dts;
         //For first segment we can get negative duration otherwise...?
         if( ( p_sys->i_opendts != VLC_TS_INVALID ) &&
@@ -929,6 +951,7 @@ static ssize_t writeSegment( sout_access_out_t *p_access )
     sout_access_out_sys_t *p_sys = p_access->p_sys;
     block_t *output = p_sys->block_buffer;
     p_sys->block_buffer = NULL;
+    p_sys->last_block_buffer = &p_sys->block_buffer;
     ssize_t i_write=0;
     bool crypted = false;
     while( output )
@@ -963,7 +986,8 @@ static ssize_t writeSegment( sout_access_out_t *p_access )
             crypted=true;
 
         }
-        ssize_t val = write( p_sys->i_handle, output->p_buffer, output->i_buffer );
+
+        ssize_t val = vlc_write( p_sys->i_handle, output->p_buffer, output->i_buffer );
         if ( val == -1 )
         {
            if ( errno == EINTR )
@@ -972,8 +996,8 @@ static ssize_t writeSegment( sout_access_out_t *p_access )
         }
 
         p_sys->f_seglen =
-            (float)(output->i_length / INT64_C(1000000) ) +
-            (float)(output->i_dts - p_sys->i_opendts) / CLOCK_FREQ;
+            (float)(output->i_length +
+                    output->i_dts - p_sys->i_opendts + p_sys->i_dts_offset) / CLOCK_FREQ;
 
         if ( (size_t)val >= output->i_buffer )
         {
@@ -1016,12 +1040,13 @@ static ssize_t Write( sout_access_out_t *p_access, block_t *p_buffer )
                 block_ChainRelease ( p_buffer );
                 return -1;
             }
+            p_sys->b_segment_has_data = true;
             i_write += writevalue;
         }
 
         p_temp = p_buffer->p_next;
         p_buffer->p_next = NULL;
-        block_ChainAppend( &p_sys->block_buffer, p_buffer );
+        block_ChainLastAppend( &p_sys->last_block_buffer, p_buffer );
         p_buffer = p_temp;
     }
 

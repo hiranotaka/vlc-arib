@@ -307,7 +307,7 @@ static int Open(vlc_object_t *p_this)
          U32_AT(&p_peek[4]) != 0x02 ||
          U32_AT(&p_peek[8]) != CHUNK_SIZE )
     {
-        if( !p_demux->b_force &&
+        if( !p_demux->obj.force &&
             !demux_IsPathExtension( p_demux, ".ty" ) &&
             !demux_IsPathExtension( p_demux, ".ty+" ) )
             return VLC_EGENERIC;
@@ -505,6 +505,10 @@ static int Control(demux_t *p_demux, int i_query, va_list args)
     /*msg_Info(p_demux, "control cmd %d", i_query);*/
     switch( i_query )
     {
+    case DEMUX_CAN_SEEK:
+        *va_arg( args, bool * ) = p_sys->b_seekable;
+        return VLC_SUCCESS;
+
     case DEMUX_GET_POSITION:
         /* arg is 0.0 - 1.0 percent of overall file position */
         if( ( i64 = p_sys->i_stream_size ) > 0 )

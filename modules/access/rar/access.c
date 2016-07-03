@@ -40,6 +40,7 @@ struct access_sys_t {
     stream_t               *s;
     rar_file_t             *file;
     const rar_file_chunk_t *chunk;
+    uint64_t                position;
 };
 
 static int Seek(access_t *access, uint64_t position)
@@ -49,6 +50,7 @@ static int Seek(access_t *access, uint64_t position)
 
     if (position > file->real_size)
         position = file->real_size;
+    sys->position = position;
 
     /* Search the chunk */
     const rar_file_chunk_t *old_chunk = sys->chunk;
@@ -57,7 +59,6 @@ static int Seek(access_t *access, uint64_t position)
         if (position < sys->chunk->cummulated_size + sys->chunk->size)
             break;
     }
-    access->info.i_pos = position;
     access->info.b_eof = false;
 
     const uint64_t offset = sys->chunk->offset +
@@ -78,7 +79,7 @@ static ssize_t Read(access_t *access, uint8_t *data, size_t size)
     size_t total = 0;
     while (total < size) {
         const uint64_t chunk_end = sys->chunk->cummulated_size + sys->chunk->size;
-        int max = __MIN(__MIN((int64_t)(size - total), (int64_t)(chunk_end - access->info.i_pos)), INT_MAX);
+        int max = __MIN(__MIN((int64_t)(size - total), (int64_t)(chunk_end - sys->position)), INT_MAX);
         if (max <= 0)
             break;
 
@@ -89,9 +90,9 @@ static ssize_t Read(access_t *access, uint8_t *data, size_t size)
         total += r;
         if( data )
             data += r;
-        access->info.i_pos += r;
-        if (access->info.i_pos >= chunk_end &&
-            Seek(access, access->info.i_pos))
+        sys->position += r;
+        if (sys->position >= chunk_end &&
+            Seek(access, sys->position))
             break;
     }
     if (size > 0 && total <= 0)
@@ -143,35 +144,72 @@ int RarAccessOpen(vlc_object_t *object)
 {
     access_t *access = (access_t*)object;
 
-    if (!strchr(access->psz_location, '|'))
+    const char *name = strchr(access->psz_location, '|');
+    if (name == NULL)
         return VLC_EGENERIC;
 
-    char *base = strdup(access->psz_location);
-    if (!base)
-        return VLC_EGENERIC;
-    char *name = strchr(base, '|');
-    *name++ = '\0';
-    decode_URI(base);
+    char *base = strndup(access->psz_location, name - access->psz_location);
+    if (unlikely(base == NULL))
+        return VLC_ENOMEM;
+
+    name++;
+    vlc_uri_decode(base);
 
     stream_t *s = stream_UrlNew(access, base);
-    if (!s)
+    if (!s || RarProbe(s))
         goto error;
-    int count = 0;
-    rar_file_t **files;
-     if ( RarProbe(s) || (
-            RarParse(s, &count, &files, false ) &&
-            RarParse(s, &count, &files, true )
-          ) ||
-          count <= 0 )
-         goto error;
-    rar_file_t *file = NULL;
-    for (int i = 0; i < count; i++) {
-        if (!file && !strcmp(files[i]->name, name))
-            file = files[i];
-        else
-            RarFileDelete(files[i]);
+
+    struct
+    {
+        int filescount;
+        rar_file_t **files;
+        unsigned int i_nbvols;
+    } newscheme = { 0, NULL, 0 }, oldscheme = { 0, NULL, 0 }, *p_scheme;
+
+    if (RarParse(s, &newscheme.filescount, &newscheme.files, &newscheme.i_nbvols, false)
+            || newscheme.filescount < 1 || newscheme.i_nbvols < 2 )
+    {
+        /* We might want to lookup old naming scheme, could be a part1.rar,part1.r00 */
+        stream_Seek(s, 0);
+        RarParse(s, &oldscheme.filescount, &oldscheme.files, &oldscheme.i_nbvols, true);
     }
-    free(files);
+
+    if (oldscheme.filescount >= newscheme.filescount && oldscheme.i_nbvols > newscheme.i_nbvols)
+    {
+        for (int i = 0; i < newscheme.filescount; i++)
+            RarFileDelete(newscheme.files[i]);
+        free(newscheme.files);
+        p_scheme = &oldscheme;
+        msg_Dbg(s, "using rar old naming for %d files nbvols %u", p_scheme->filescount, oldscheme.i_nbvols);
+    }
+    else if (newscheme.filescount)
+    {
+        for (int i = 0; i < oldscheme.filescount; i++)
+            RarFileDelete(oldscheme.files[i]);
+        free(oldscheme.files);
+        p_scheme = &newscheme;
+        msg_Dbg(s, "using rar new naming for %d files nbvols %u", p_scheme->filescount, oldscheme.i_nbvols);
+    }
+    else
+    {
+        msg_Info(s, "Invalid or unsupported RAR archive");
+        for (int i = 0; i < oldscheme.filescount; i++)
+            RarFileDelete(oldscheme.files[i]);
+        free(oldscheme.files);
+        for (int i = 0; i < newscheme.filescount; i++)
+            RarFileDelete(newscheme.files[i]);
+        free(newscheme.files);
+        goto error;
+    }
+
+    rar_file_t *file = NULL;
+    for (int i = 0; i < p_scheme->filescount; i++) {
+        if (!file && !strcmp(p_scheme->files[i]->name, name))
+            file = p_scheme->files[i];
+        else
+            RarFileDelete(p_scheme->files[i]);
+    }
+    free(p_scheme->files);
     if (!file)
         goto error;
 

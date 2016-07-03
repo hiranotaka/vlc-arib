@@ -58,6 +58,10 @@ static void Close(vlc_object_t *);
     "Force the SDL renderer to use a specific chroma format instead of " \
     "trying to improve performances by using the most efficient one.")
 
+#define OVERLAY_TEXT N_("YUV overlay")
+#define OVERLAY_LONGTEXT N_(\
+    "Use the hardware YUV overlay of the graphic card (if available).")
+
 vlc_module_begin()
     set_shortname("SDL")
     set_category(CAT_VIDEO)
@@ -65,6 +69,7 @@ vlc_module_begin()
     set_description(N_("Simple DirectMedia Layer video output"))
     set_capability("vout display", 70)
     add_shortcut("sdl")
+    add_bool("sdl-overlay", true, OVERLAY_TEXT, OVERLAY_LONGTEXT, false)
     add_string("sdl-chroma", NULL, CHROMA_TEXT, CHROMA_LONGTEXT, true)
     add_obsolete_string("sdl-video-driver") /* obsolete since 1.1.0 */
     set_callbacks(Open, Close)
@@ -116,6 +121,8 @@ static int Open(vlc_object_t *object)
     vout_display_t *vd = (vout_display_t *)object;
     vout_display_sys_t *sys;
 
+    if (vout_display_IsWindowed(vd))
+        return VLC_EGENERIC;
 #if !defined(_WIN32) && !defined(__OS2__)
     if (!vlc_xlib_init (object))
         return VLC_EGENERIC;
@@ -191,7 +198,6 @@ static int Open(vlc_object_t *object)
         msg_Err(vd, "no video mode available");
         goto error;
     }
-    vout_display_DeleteWindow(vd, NULL);
 
     sys->display = SDL_SetVideoMode(display_width, display_height,
                                     sys->display_bpp, sys->display_flags);
@@ -216,7 +222,7 @@ static int Open(vlc_object_t *object)
 
     /* Try to open an overlay if requested */
     sys->overlay = NULL;
-    const bool is_overlay = var_InheritBool(vd, "overlay");
+    const bool is_overlay = var_InheritBool(vd, "sdl-overlay");
     if (is_overlay) {
         static const struct
         {
@@ -342,7 +348,7 @@ static int Open(vlc_object_t *object)
     vd->manage  = Manage;
 
     /* */
-    vout_display_SendEventDisplaySize(vd, display_width, display_height, vd->cfg->is_fullscreen);
+    vout_display_SendEventDisplaySize(vd, display_width, display_height);
     return VLC_SUCCESS;
 
 error:
@@ -370,7 +376,7 @@ static void Close(vlc_object_t *object)
     vout_display_sys_t *sys = vd->sys;
 
     if (sys->pool)
-        picture_pool_Delete(sys->pool);
+        picture_pool_Release(sys->pool);
 
     if (sys->overlay) {
         SDL_LockYUVOverlay(sys->overlay);
@@ -493,24 +499,17 @@ static int Control(vout_display_t *vd, int query, va_list args)
         return VLC_SUCCESS;
     }
     case VOUT_DISPLAY_CHANGE_FULLSCREEN: {
-        vout_display_cfg_t cfg = *va_arg(args, const vout_display_cfg_t *);
+        bool fs = va_arg(args, int);
 
         /* Fix flags */
         sys->display_flags &= ~(SDL_FULLSCREEN | SDL_RESIZABLE);
-        sys->display_flags |= cfg.is_fullscreen ? SDL_FULLSCREEN : SDL_RESIZABLE;
+        sys->display_flags |= fs ? SDL_FULLSCREEN : SDL_RESIZABLE;
 
-        if (cfg.is_fullscreen) {
-            cfg.display.width = sys->desktop_width;
-            cfg.display.height = sys->desktop_height;
-        }
-
-        if (sys->overlay) {
-            sys->display = SDL_SetVideoMode(cfg.display.width, cfg.display.height,
+        if (sys->overlay)
+            sys->display = SDL_SetVideoMode(sys->desktop_width, sys->desktop_height,
                                             sys->display_bpp, sys->display_flags);
 
-            vout_display_PlacePicture(&sys->place, &vd->source, &cfg, !sys->overlay);
-        }
-        vout_display_SendEventDisplaySize(vd, cfg.display.width, cfg.display.height, cfg.is_fullscreen);
+        vout_display_SendEventDisplaySize(vd, sys->desktop_width, sys->desktop_height);
         return VLC_SUCCESS;
     }
     case VOUT_DISPLAY_CHANGE_ZOOM:
@@ -543,7 +542,7 @@ static int Control(vout_display_t *vd, int query, va_list args)
 
         /* */
         if (sys->pool)
-            picture_pool_Delete(sys->pool);
+            picture_pool_Release(sys->pool);
         sys->pool = NULL;
 
         vout_display_PlacePicture(&sys->place, &vd->source, vd->cfg, !sys->overlay);
@@ -648,7 +647,7 @@ static void Manage(vout_display_t *vd)
         }
 
         case SDL_VIDEORESIZE:
-            vout_display_SendEventDisplaySize(vd, event.resize.w, event.resize.h, vd->cfg->is_fullscreen);
+            vout_display_SendEventDisplaySize(vd, event.resize.w, event.resize.h);
             break;
 
         default:

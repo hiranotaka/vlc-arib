@@ -40,6 +40,7 @@
 #include <vlc_bits.h>
 #include <vlc_block_helper.h>
 #include "packetizer_helper.h"
+#include "startcode_helper.h"
 
 /*****************************************************************************
  * Module descriptor
@@ -91,6 +92,7 @@ struct decoder_sys_t
 };
 
 static block_t *Packetize( decoder_t *, block_t ** );
+static void PacketizeFlush( decoder_t * );
 
 static void PacketizeReset( void *p_private, bool b_broken );
 static block_t *PacketizeParse( void *p_private, bool *pb_ts_used, block_t * );
@@ -141,7 +143,7 @@ static int Open( vlc_object_t *p_this )
 
     /* Misc init */
     packetizer_Init( &p_sys->packetizer,
-                     p_mp4v_startcode, sizeof(p_mp4v_startcode),
+                     p_mp4v_startcode, sizeof(p_mp4v_startcode), startcode_FindAnnexB,
                      NULL, 0, 4,
                      PacketizeReset, PacketizeParse, PacketizeValidate, p_dec );
 
@@ -175,6 +177,7 @@ static int Open( vlc_object_t *p_this )
 
     /* Set callback */
     p_dec->pf_packetize = Packetize;
+    p_dec->pf_flush = PacketizeFlush;
 
     return VLC_SUCCESS;
 }
@@ -201,6 +204,13 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
     decoder_sys_t *p_sys = p_dec->p_sys;
 
     return packetizer_Packetize( &p_sys->packetizer, pp_block );
+}
+
+static void PacketizeFlush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    packetizer_Flush( &p_sys->packetizer );
 }
 
 /*****************************************************************************
@@ -490,13 +500,13 @@ static int ParseVOP( decoder_t *p_dec, block_t *p_vop )
         p_dec->fmt_in.video.i_frame_rate > 0 &&
         p_dec->fmt_in.video.i_frame_rate_base > 0 )
     {
-        p_sys->i_interpolated_pts += INT64_C(1000000) *
+        p_sys->i_interpolated_pts += CLOCK_FREQ *
         p_dec->fmt_in.video.i_frame_rate_base /
         p_dec->fmt_in.video.i_frame_rate;
     }
     else if( p_dec->p_sys->i_fps_num )
         p_sys->i_interpolated_pts +=
-            ( INT64_C(1000000) * (i_time_ref + i_time_increment -
+            ( CLOCK_FREQ * (i_time_ref + i_time_increment -
               p_sys->i_last_time - p_sys->i_last_timeincr) /
               p_dec->p_sys->i_fps_num );
 

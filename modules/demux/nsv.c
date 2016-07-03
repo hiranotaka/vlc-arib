@@ -100,7 +100,7 @@ static int Open( vlc_object_t *p_this )
     if( memcmp( p_peek, "NSVf", 4 ) && memcmp( p_peek, "NSVs", 4 ) )
     {
        /* In case we had force this demuxer we try to resynch */
-        if( !p_demux->b_force || ReSynch( p_demux ) )
+        if( !p_demux->obj.force || ReSynch( p_demux ) )
             return VLC_EGENERIC;
     }
 
@@ -330,6 +330,9 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
     switch( i_query )
     {
+        case DEMUX_CAN_SEEK:
+            return stream_vaControl( p_demux->s, i_query, args );
+
         case DEMUX_GET_POSITION:
             pf = (double*) va_arg( args, double* );
             i64 = stream_Size( p_demux->s );
@@ -406,17 +409,14 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
  *****************************************************************************/
 static int ReSynch( demux_t *p_demux )
 {
-    const uint8_t *p_peek;
-    int      i_skip;
-    int      i_peek;
-
-    while( vlc_object_alive (p_demux) )
+    for( ;; )
     {
-        if( ( i_peek = stream_Peek( p_demux->s, &p_peek, 1024 ) ) < 8 )
-        {
-            return VLC_EGENERIC;
-        }
-        i_skip = 0;
+        const uint8_t *p_peek;
+        int i_peek = stream_Peek( p_demux->s, &p_peek, 1024 );
+        if( i_peek < 8 )
+            break;
+
+        int i_skip = 0;
 
         while( i_skip < i_peek - 4 )
         {
@@ -433,7 +433,8 @@ static int ReSynch( demux_t *p_demux )
             i_skip++;
         }
 
-        stream_Read( p_demux->s, NULL, i_skip );
+        if( stream_Read( p_demux->s, NULL, i_skip ) < i_skip )
+            break;
     }
     return VLC_EGENERIC;
 }
@@ -505,6 +506,8 @@ static int ReadNSVs( demux_t *p_demux )
         es_format_Init( &p_sys->fmt_video, VIDEO_ES, fcc );
         p_sys->fmt_video.video.i_width = GetWLE( &header[12] );
         p_sys->fmt_video.video.i_height = GetWLE( &header[14] );
+        p_sys->fmt_video.video.i_visible_width = p_sys->fmt_video.video.i_width;
+        p_sys->fmt_video.video.i_visible_height = p_sys->fmt_video.video.i_height;
         if( p_sys->p_video )
         {
             es_out_Del( p_demux->out, p_sys->p_video );

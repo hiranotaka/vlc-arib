@@ -25,6 +25,7 @@
 # include "config.h"
 #endif
 
+#include <assert.h>
 #include <vlc_common.h>
 #include <vlc_services_discovery.h>
 
@@ -106,7 +107,7 @@ int Open_LuaSD( vlc_object_t *p_this )
     }
     vlclua_set_this( L, p_sd );
     luaL_openlibs( L );
-    luaL_register( L, "vlc", p_reg );
+    luaL_register_namespace( L, "vlc", p_reg );
     luaopen_input( L );
     luaopen_msg( L );
     luaopen_object( L );
@@ -124,7 +125,7 @@ int Open_LuaSD( vlc_object_t *p_this )
                   p_sys->psz_filename );
         goto error;
     }
-    if( luaL_dofile( L, p_sys->psz_filename ) )
+    if( vlclua_dofile( VLC_OBJECT(p_sd), L, p_sys->psz_filename ) )
     {
         msg_Err( p_sd, "Error loading script %s: %s", p_sys->psz_filename,
                   lua_tostring( L, lua_gettop( L ) ) );
@@ -231,9 +232,8 @@ static void* Run( void *data )
 
         vlc_mutex_lock( &p_sys->lock );
     }
-    vlc_cleanup_run();
-
-    return NULL;
+    vlc_cleanup_pop();
+    vlc_assert_unreachable();
 }
 
 /*****************************************************************************
@@ -317,7 +317,7 @@ static int FillDescriptor( services_discovery_t *p_sd,
     /* Create a new lua thread */
     lua_State *L = luaL_newstate();
 
-    if( luaL_dofile( L, p_sys->psz_filename ) )
+    if( vlclua_dofile( VLC_OBJECT(p_sd), L, p_sys->psz_filename ) )
     {
         msg_Err( p_sd, "Error loading script %s: %s", p_sys->psz_filename,
                  lua_tostring( L, -1 ) );

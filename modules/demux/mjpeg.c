@@ -298,7 +298,7 @@ static int Open( vlc_object_t * p_this )
     int         i_size;
     bool        b_matched = false;
 
-    if( IsMxpeg( p_demux->s ) && !p_demux->b_force )
+    if( IsMxpeg( p_demux->s ) && !p_demux->obj.force )
         // let avformat handle this case
         return VLC_EGENERIC;
 
@@ -322,14 +322,14 @@ static int Open( vlc_object_t * p_this )
         char* boundary = strstr( content_type, "boundary=" );
         if( boundary )
         {
-	    boundary += strlen( "boundary=" );
-	    size_t len = strlen( boundary );
-	    if( len > 2 && boundary[0] == '"'
-	        && boundary[len-1] == '"' )
-	    {
-	        boundary[len-1] = '\0';
-	        boundary++;
-	    }
+            boundary += strlen( "boundary=" );
+            size_t len = strlen( boundary );
+            if( len > 2 && boundary[0] == '"'
+                && boundary[len-1] == '"' )
+            {
+                boundary[len-1] = '\0';
+                boundary++;
+            }
             p_sys->psz_separator = strdup( boundary );
             if( !p_sys->psz_separator )
             {
@@ -462,7 +462,8 @@ static int MimeDemux( demux_t *p_demux )
 
     if( i_size > 0 )
     {
-        stream_Read( p_demux->s, NULL, i_size );
+        if( stream_Read( p_demux->s, NULL, i_size ) != i_size )
+            return 0;
     }
     else if( i_size < 0 )
     {

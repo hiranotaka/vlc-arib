@@ -1,7 +1,7 @@
 /*****************************************************************************
  * media_player.c: Libvlc API Media Instance management functions
  *****************************************************************************
- * Copyright (C) 2005-2011 VLC authors and VideoLAN
+ * Copyright (C) 2005-2015 VLC authors and VideoLAN
  *
  * Authors: Clément Stenac <zorglub@videolan.org>
  *
@@ -58,6 +58,34 @@ input_event_changed( vlc_object_t * p_this, char const * psz_cmd,
                      void * p_userdata );
 
 static int
+input_es_changed( vlc_object_t * p_this, char const * psz_cmd,
+                  int action, vlc_value_t *p_val,
+                  void *p_userdata);
+
+static int
+input_es_selected( vlc_object_t * p_this, char const * psz_cmd,
+                   vlc_value_t oldval, vlc_value_t newval,
+                   void * p_userdata );
+
+static int
+corks_changed(vlc_object_t *obj, const char *name, vlc_value_t old,
+              vlc_value_t cur, void *opaque);
+
+static int
+mute_changed(vlc_object_t *obj, const char *name, vlc_value_t old,
+             vlc_value_t cur, void *opaque);
+
+static int
+volume_changed(vlc_object_t *obj, const char *name, vlc_value_t old,
+               vlc_value_t cur, void *opaque);
+
+static void
+add_es_callbacks( input_thread_t *p_input_thread, libvlc_media_player_t *p_mi );
+
+static void
+del_es_callbacks( input_thread_t *p_input_thread, libvlc_media_player_t *p_mi );
+
+static int
 snapshot_was_taken( vlc_object_t *p_this, char const *psz_cmd,
                     vlc_value_t oldval, vlc_value_t newval, void *p_data );
 
@@ -66,12 +94,6 @@ static void libvlc_media_player_destroy( libvlc_media_player_t *p_mi );
 /*
  * Shortcuts
  */
-
-#define register_event(a, b) __register_event(a, libvlc_MediaPlayer ## b)
-static inline void __register_event(libvlc_media_player_t *mp, libvlc_event_type_t type)
-{
-    libvlc_event_manager_register_event_type(mp->p_event_manager, type);
-}
 
 /*
  * The input lock protects the input and input resource pointer.
@@ -102,13 +124,42 @@ static inline void unlock_input(libvlc_media_player_t *mp)
     vlc_mutex_unlock(&mp->input.lock);
 }
 
+static void input_item_preparsed_changed( const vlc_event_t *p_event,
+                                          void * user_data )
+{
+    libvlc_media_t *p_md = user_data;
+    if( p_event->u.input_item_preparsed_changed.new_status & ITEM_PREPARSED )
+    {
+        /* Send the event */
+        libvlc_event_t event;
+        event.type = libvlc_MediaParsedChanged;
+        event.u.media_parsed_changed.new_status = libvlc_media_parsed_status_done;
+        libvlc_event_send( p_md->p_event_manager, &event );
+    }
+}
+
+static void media_attach_preparsed_event( libvlc_media_t *p_md )
+{
+    vlc_event_attach( &p_md->p_input_item->event_manager,
+                      vlc_InputItemPreparsedChanged,
+                      input_item_preparsed_changed, p_md );
+}
+
+static void media_detach_preparsed_event( libvlc_media_t *p_md )
+{
+    vlc_event_detach( &p_md->p_input_item->event_manager,
+                      vlc_InputItemPreparsedChanged,
+                      input_item_preparsed_changed,
+                      p_md );
+}
+
 /*
  * Release the associated input thread.
  *
  * Object lock is NOT held.
  * Input lock is held or instance is being destroyed.
  */
-static void release_input_thread( libvlc_media_player_t *p_mi, bool b_input_abort )
+static void release_input_thread( libvlc_media_player_t *p_mi )
 {
     assert( p_mi );
 
@@ -116,6 +167,8 @@ static void release_input_thread( libvlc_media_player_t *p_mi, bool b_input_abor
     if( !p_input_thread )
         return;
     p_mi->input.p_thread = NULL;
+
+    media_detach_preparsed_event( p_mi->p_md );
 
     var_DelCallback( p_input_thread, "can-seek",
                      input_seekable_changed, p_mi );
@@ -125,9 +178,10 @@ static void release_input_thread( libvlc_media_player_t *p_mi, bool b_input_abor
                     input_scrambled_changed, p_mi );
     var_DelCallback( p_input_thread, "intf-event",
                      input_event_changed, p_mi );
+    del_es_callbacks( p_input_thread, p_mi );
 
     /* We owned this one */
-    input_Stop( p_input_thread, b_input_abort );
+    input_Stop( p_input_thread );
     input_Close( p_input_thread );
 }
 
@@ -240,7 +294,7 @@ input_event_changed( vlc_object_t * p_this, char const * psz_cmd,
                      vlc_value_t oldval, vlc_value_t newval,
                      void * p_userdata )
 {
-    VLC_UNUSED(oldval);
+    VLC_UNUSED(oldval); VLC_UNUSED(psz_cmd);
     input_thread_t * p_input = (input_thread_t *)p_this;
     libvlc_media_player_t * p_mi = p_userdata;
     libvlc_event_t event;
@@ -285,9 +339,9 @@ input_event_changed( vlc_object_t * p_this, char const * psz_cmd,
         set_state( p_mi, libvlc_state, false );
         libvlc_event_send( p_mi->p_event_manager, &event );
     }
-    else if( newval.i_int == INPUT_EVENT_ABORT )
+    else if( newval.i_int == INPUT_EVENT_DEAD )
     {
-        libvlc_state_t libvlc_state = libvlc_Stopped;
+        libvlc_state_t libvlc_state = libvlc_Ended;
         event.type = libvlc_MediaPlayerStopped;
 
         set_state( p_mi, libvlc_state, false );
@@ -307,14 +361,14 @@ input_event_changed( vlc_object_t * p_this, char const * psz_cmd,
         /* */
         event.type = libvlc_MediaPlayerTimeChanged;
         event.u.media_player_time_changed.new_time =
-           from_mtime(var_GetTime( p_input, "time" ));
+           from_mtime(var_GetInteger( p_input, "time" ));
         libvlc_event_send( p_mi->p_event_manager, &event );
     }
     else if( newval.i_int == INPUT_EVENT_LENGTH )
     {
         event.type = libvlc_MediaPlayerLengthChanged;
         event.u.media_player_length_changed.new_length =
-           from_mtime(var_GetTime( p_input, "length" ));
+           from_mtime(var_GetInteger( p_input, "length" ));
         libvlc_event_send( p_mi->p_event_manager, &event );
     }
     else if( newval.i_int == INPUT_EVENT_CACHE )
@@ -343,6 +397,97 @@ input_event_changed( vlc_object_t * p_this, char const * psz_cmd,
         event.u.media_player_vout.new_count = i_vout;
         libvlc_event_send( p_mi->p_event_manager, &event );
     }
+    else if ( newval.i_int == INPUT_EVENT_TITLE )
+    {
+        event.type = libvlc_MediaPlayerTitleChanged;
+        event.u.media_player_title_changed.new_title = var_GetInteger( p_input, "title" );
+        libvlc_event_send( p_mi->p_event_manager, &event );
+    }
+    else if ( newval.i_int == INPUT_EVENT_CHAPTER )
+    {
+        event.type = libvlc_MediaPlayerChapterChanged;
+        event.u.media_player_chapter_changed.new_chapter = var_GetInteger( p_input, "chapter" );
+        libvlc_event_send( p_mi->p_event_manager, &event );
+    }
+
+    return VLC_SUCCESS;
+}
+
+static int track_type_from_name(const char *psz_name)
+{
+   if( !strcmp( psz_name, "video-es" ) )
+       return libvlc_track_video;
+    else if( !strcmp( psz_name, "audio-es" ) )
+        return libvlc_track_audio;
+    else if( !strcmp( psz_name, "spu-es" ) )
+        return libvlc_track_text;
+    else
+        return libvlc_track_unknown;
+}
+
+static int input_es_changed( vlc_object_t *p_this,
+                             char const *psz_cmd,
+                             int action,
+                             vlc_value_t *p_val,
+                             void *p_userdata )
+{
+    VLC_UNUSED(p_this);
+    libvlc_media_player_t *mp = p_userdata;
+    libvlc_event_t event;
+
+    /* Ignore the "Disable" element */
+    if (p_val && p_val->i_int < 0)
+        return VLC_EGENERIC;
+
+    switch (action)
+    {
+    case VLC_VAR_ADDCHOICE:
+        event.type = libvlc_MediaPlayerESAdded;
+        break;
+    case VLC_VAR_DELCHOICE:
+    case VLC_VAR_CLEARCHOICES:
+        event.type = libvlc_MediaPlayerESDeleted;
+        break;
+    default:
+        return VLC_EGENERIC;
+    }
+
+    event.u.media_player_es_changed.i_type = track_type_from_name(psz_cmd);
+
+    int i_id;
+    if (action != VLC_VAR_CLEARCHOICES)
+    {
+        if (!p_val)
+            return VLC_EGENERIC;
+        i_id = p_val->i_int;
+    }
+    else
+    {
+        /* -1 means all ES tracks of this type were deleted. */
+        i_id = -1;
+    }
+    event.u.media_player_es_changed.i_id = i_id;
+
+    libvlc_event_send(mp->p_event_manager, &event);
+
+    return VLC_SUCCESS;
+}
+
+static int
+input_es_selected( vlc_object_t * p_this, char const * psz_cmd,
+                   vlc_value_t oldval, vlc_value_t newval,
+                   void * p_userdata )
+{
+    VLC_UNUSED(p_this);
+    VLC_UNUSED(oldval);
+    libvlc_media_player_t *mp = p_userdata;
+    libvlc_event_t event;
+
+    event.type = libvlc_MediaPlayerESSelected;
+    event.u.media_player_es_changed.i_type = track_type_from_name(psz_cmd);
+    event.u.media_player_es_changed.i_id = newval.i_int;
+
+    libvlc_event_send(mp->p_event_manager, &event);
 
     return VLC_SUCCESS;
 }
@@ -366,9 +511,65 @@ static int snapshot_was_taken(vlc_object_t *p_this, char const *psz_cmd,
     return VLC_SUCCESS;
 }
 
-/* */
-static void libvlc_media_player_destroy( libvlc_media_player_t * );
+static int corks_changed(vlc_object_t *obj, const char *name, vlc_value_t old,
+                         vlc_value_t cur, void *opaque)
+{
+    libvlc_media_player_t *mp = (libvlc_media_player_t *)obj;
 
+    if (!old.i_int != !cur.i_int)
+    {
+        libvlc_event_t event;
+
+        event.type = cur.i_int ? libvlc_MediaPlayerCorked
+                               : libvlc_MediaPlayerUncorked;
+        libvlc_event_send(mp->p_event_manager, &event);
+    }
+    VLC_UNUSED(name); VLC_UNUSED(opaque);
+    return VLC_SUCCESS;
+}
+
+static int audio_device_changed(vlc_object_t *obj, const char *name,
+                                vlc_value_t old, vlc_value_t cur, void *opaque)
+{
+    libvlc_media_player_t *mp = (libvlc_media_player_t *)obj;
+    libvlc_event_t event;
+
+    event.type = libvlc_MediaPlayerAudioDevice;
+    event.u.media_player_audio_device.device = cur.psz_string;
+    libvlc_event_send(mp->p_event_manager, &event);
+    VLC_UNUSED(name); VLC_UNUSED(old); VLC_UNUSED(opaque);
+    return VLC_SUCCESS;
+}
+
+static int mute_changed(vlc_object_t *obj, const char *name, vlc_value_t old,
+                        vlc_value_t cur, void *opaque)
+{
+    libvlc_media_player_t *mp = (libvlc_media_player_t *)obj;
+
+    if (old.b_bool != cur.b_bool)
+    {
+        libvlc_event_t event;
+
+        event.type = cur.b_bool ? libvlc_MediaPlayerMuted
+                                : libvlc_MediaPlayerUnmuted;
+        libvlc_event_send(mp->p_event_manager, &event);
+    }
+    VLC_UNUSED(name); VLC_UNUSED(opaque);
+    return VLC_SUCCESS;
+}
+
+static int volume_changed(vlc_object_t *obj, const char *name, vlc_value_t old,
+                          vlc_value_t cur, void *opaque)
+{
+    libvlc_media_player_t *mp = (libvlc_media_player_t *)obj;
+    libvlc_event_t event;
+
+    event.type = libvlc_MediaPlayerAudioVolume;
+    event.u.media_player_audio_volume.volume = cur.f_float;
+    libvlc_event_send(mp->p_event_manager, &event);
+    VLC_UNUSED(name); VLC_UNUSED(old); VLC_UNUSED(opaque);
+    return VLC_SUCCESS;
+}
 
 /**************************************************************************
  * Create a Media Instance object.
@@ -414,13 +615,19 @@ libvlc_media_player_new( libvlc_instance_t *instance )
     var_Create (mp, "vmem-width", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT);
     var_Create (mp, "vmem-height", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT);
     var_Create (mp, "vmem-pitch", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT);
+    var_Create (mp, "avcodec-hw", VLC_VAR_STRING);
     var_Create (mp, "drawable-xid", VLC_VAR_INTEGER);
 #if defined (_WIN32) || defined (__OS2__)
     var_Create (mp, "drawable-hwnd", VLC_VAR_INTEGER);
 #endif
 #ifdef __APPLE__
-    var_Create (mp, "drawable-agl", VLC_VAR_INTEGER);
     var_Create (mp, "drawable-nsobject", VLC_VAR_ADDRESS);
+#endif
+#ifdef __ANDROID__
+    var_Create (mp, "drawable-androidwindow", VLC_VAR_ADDRESS);
+#endif
+#ifdef HAVE_EVAS
+    var_Create (mp, "drawable-evasobject", VLC_VAR_ADDRESS);
 #endif
 
     var_Create (mp, "keyboard-events", VLC_VAR_BOOL);
@@ -429,16 +636,15 @@ libvlc_media_player_new( libvlc_instance_t *instance )
     var_SetBool (mp, "mouse-events", true);
 
     var_Create (mp, "fullscreen", VLC_VAR_BOOL);
-    var_Create (mp, "autoscale", VLC_VAR_BOOL);
-    var_SetBool (mp, "autoscale", true);
-    var_Create (mp, "scale", VLC_VAR_FLOAT);
-    var_SetFloat (mp, "scale", 1.);
+    var_Create (mp, "autoscale", VLC_VAR_BOOL | VLC_VAR_DOINHERIT);
+    var_Create (mp, "zoom", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
     var_Create (mp, "aspect-ratio", VLC_VAR_STRING);
     var_Create (mp, "crop", VLC_VAR_STRING);
     var_Create (mp, "deinterlace", VLC_VAR_INTEGER);
     var_Create (mp, "deinterlace-mode", VLC_VAR_STRING);
 
     var_Create (mp, "vbi-page", VLC_VAR_INTEGER);
+    var_SetInteger (mp, "vbi-page", 100);
 
     var_Create (mp, "marq-marquee", VLC_VAR_STRING);
     var_Create (mp, "marq-color", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT);
@@ -460,16 +666,18 @@ libvlc_media_player_new( libvlc_instance_t *instance )
 
     var_Create (mp, "contrast", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
     var_Create (mp, "brightness", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
-    var_Create (mp, "hue", VLC_VAR_INTEGER | VLC_VAR_DOINHERIT);
+    var_Create (mp, "hue", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
     var_Create (mp, "saturation", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
     var_Create (mp, "gamma", VLC_VAR_FLOAT | VLC_VAR_DOINHERIT);
 
      /* Audio */
     var_Create (mp, "aout", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
+    var_Create (mp, "audio-device", VLC_VAR_STRING);
     var_Create (mp, "mute", VLC_VAR_BOOL);
     var_Create (mp, "volume", VLC_VAR_FLOAT);
     var_Create (mp, "corks", VLC_VAR_INTEGER);
     var_Create (mp, "audio-filter", VLC_VAR_STRING);
+    var_Create (mp, "role", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
     var_Create (mp, "amem-data", VLC_VAR_ADDRESS);
     var_Create (mp, "amem-setup", VLC_VAR_ADDRESS);
     var_Create (mp, "amem-cleanup", VLC_VAR_ADDRESS);
@@ -509,7 +717,7 @@ libvlc_media_player_new( libvlc_instance_t *instance )
 
     vlc_mutex_init (&mp->input.lock);
     mp->i_refcount = 1;
-    mp->p_event_manager = libvlc_event_manager_new(mp, instance);
+    mp->p_event_manager = libvlc_event_manager_new(mp);
     if (unlikely(mp->p_event_manager == NULL))
     {
         input_resource_Release(mp->input.p_resource);
@@ -518,32 +726,12 @@ libvlc_media_player_new( libvlc_instance_t *instance )
     }
     vlc_mutex_init(&mp->object_lock);
 
-    register_event(mp, NothingSpecial);
-    register_event(mp, Opening);
-    register_event(mp, Buffering);
-    register_event(mp, Playing);
-    register_event(mp, Paused);
-    register_event(mp, Stopped);
-    register_event(mp, Forward);
-    register_event(mp, Backward);
-    register_event(mp, EndReached);
-    register_event(mp, EncounteredError);
-    register_event(mp, SeekableChanged);
-
-    register_event(mp, PositionChanged);
-    register_event(mp, TimeChanged);
-    register_event(mp, LengthChanged);
-    register_event(mp, TitleChanged);
-    register_event(mp, PausableChanged);
-
-    register_event(mp, Vout);
-    register_event(mp, ScrambledChanged);
+    var_AddCallback(mp, "corks", corks_changed, NULL);
+    var_AddCallback(mp, "audio-device", audio_device_changed, NULL);
+    var_AddCallback(mp, "mute", mute_changed, NULL);
+    var_AddCallback(mp, "volume", volume_changed, NULL);
 
     /* Snapshot initialization */
-    register_event(mp, SnapshotTaken);
-
-    register_event(mp, MediaChanged);
-
     /* Attach a var callback to the global object to provide the glue between
      * vout_thread that generates the event and media_player that re-emits it
      * with its own event manager
@@ -551,7 +739,7 @@ libvlc_media_player_new( libvlc_instance_t *instance )
      * FIXME: It's unclear why we want to put this in public API, and why we
      * want to expose it in such a limiting and ugly way.
      */
-    var_AddCallback(mp->p_libvlc, "snapshot-file", snapshot_was_taken, mp);
+    var_AddCallback(mp->obj.libvlc, "snapshot-file", snapshot_was_taken, mp);
 
     libvlc_retain(instance);
     return mp;
@@ -585,12 +773,18 @@ static void libvlc_media_player_destroy( libvlc_media_player_t *p_mi )
     assert( p_mi );
 
     /* Detach Callback from the main libvlc object */
-    var_DelCallback( p_mi->p_libvlc,
+    var_DelCallback( p_mi->obj.libvlc,
                      "snapshot-file", snapshot_was_taken, p_mi );
+
+    /* Detach callback from the media player / input manager object */
+    var_DelCallback( p_mi, "volume", volume_changed, NULL );
+    var_DelCallback( p_mi, "mute", mute_changed, NULL );
+    var_DelCallback( p_mi, "audio-device", audio_device_changed, NULL );
+    var_DelCallback( p_mi, "corks", corks_changed, NULL );
 
     /* No need for lock_input() because no other threads knows us anymore */
     if( p_mi->input.p_thread )
-        release_input_thread(p_mi, true);
+        release_input_thread(p_mi);
     input_resource_Terminate( p_mi->input.p_resource );
     input_resource_Release( p_mi->input.p_resource );
     vlc_mutex_destroy( &p_mi->input.lock );
@@ -647,12 +841,7 @@ void libvlc_media_player_set_media(
 {
     lock_input(p_mi);
 
-    /* FIXME I am not sure if it is a user request or on die(eof/error)
-     * request here */
-    release_input_thread( p_mi,
-                          p_mi->input.p_thread &&
-                          !p_mi->input.p_thread->b_eof &&
-                          !p_mi->input.p_thread->b_error );
+    release_input_thread( p_mi );
 
     lock( p_mi );
     set_state( p_mi, libvlc_NothingSpecial, true );
@@ -710,6 +899,26 @@ libvlc_media_player_event_manager( libvlc_media_player_t *p_mi )
     return p_mi->p_event_manager;
 }
 
+static void add_es_callbacks( input_thread_t *p_input_thread, libvlc_media_player_t *p_mi )
+{
+    var_AddListCallback( p_input_thread, "video-es", input_es_changed, p_mi );
+    var_AddListCallback( p_input_thread, "audio-es", input_es_changed, p_mi );
+    var_AddListCallback( p_input_thread, "spu-es", input_es_changed, p_mi );
+    var_AddCallback( p_input_thread, "video-es", input_es_selected, p_mi );
+    var_AddCallback( p_input_thread, "audio-es", input_es_selected, p_mi );
+    var_AddCallback( p_input_thread, "spu-es", input_es_selected, p_mi );
+}
+
+static void del_es_callbacks( input_thread_t *p_input_thread, libvlc_media_player_t *p_mi )
+{
+    var_DelListCallback( p_input_thread, "video-es", input_es_changed, p_mi );
+    var_DelListCallback( p_input_thread, "audio-es", input_es_changed, p_mi );
+    var_DelListCallback( p_input_thread, "spu-es", input_es_changed, p_mi );
+    var_DelCallback( p_input_thread, "video-es", input_es_selected, p_mi );
+    var_DelCallback( p_input_thread, "audio-es", input_es_selected, p_mi );
+    var_DelCallback( p_input_thread, "spu-es", input_es_selected, p_mi );
+}
+
 /**************************************************************************
  * Tell media player to start playing.
  **************************************************************************/
@@ -737,12 +946,15 @@ int libvlc_media_player_play( libvlc_media_player_t *p_mi )
         return -1;
     }
 
+    media_attach_preparsed_event( p_mi->p_md );
+
     p_input_thread = input_Create( p_mi, p_mi->p_md->p_input_item, NULL,
                                    p_mi->input.p_resource );
     unlock(p_mi);
     if( !p_input_thread )
     {
         unlock_input(p_mi);
+        media_detach_preparsed_event( p_mi->p_md );
         libvlc_printerr( "Not enough memory" );
         return -1;
     }
@@ -751,15 +963,18 @@ int libvlc_media_player_play( libvlc_media_player_t *p_mi )
     var_AddCallback( p_input_thread, "can-pause", input_pausable_changed, p_mi );
     var_AddCallback( p_input_thread, "program-scrambled", input_scrambled_changed, p_mi );
     var_AddCallback( p_input_thread, "intf-event", input_event_changed, p_mi );
+    add_es_callbacks( p_input_thread, p_mi );
 
     if( input_Start( p_input_thread ) )
     {
         unlock_input(p_mi);
+        del_es_callbacks( p_input_thread, p_mi );
         var_DelCallback( p_input_thread, "intf-event", input_event_changed, p_mi );
         var_DelCallback( p_input_thread, "can-pause", input_pausable_changed, p_mi );
         var_DelCallback( p_input_thread, "program-scrambled", input_scrambled_changed, p_mi );
         var_DelCallback( p_input_thread, "can-seek", input_seekable_changed, p_mi );
-        vlc_object_release( p_input_thread );
+        input_Close( p_input_thread );
+        media_detach_preparsed_event( p_mi->p_md );
         libvlc_printerr( "Input initialization failure" );
         return -1;
     }
@@ -775,14 +990,14 @@ void libvlc_media_player_set_pause( libvlc_media_player_t *p_mi, int paused )
         return;
 
     libvlc_state_t state = libvlc_media_player_get_state( p_mi );
-    if( state == libvlc_Playing || state == libvlc_Buffering )
+    if( state == libvlc_Playing )
     {
         if( paused )
         {
             if( libvlc_media_player_can_pause( p_mi ) )
                 input_Control( p_input_thread, INPUT_SET_STATE, PAUSE_S );
             else
-                libvlc_media_player_stop( p_mi );
+                input_Stop( p_input_thread );
         }
     }
     else
@@ -799,10 +1014,7 @@ void libvlc_media_player_set_pause( libvlc_media_player_t *p_mi, int paused )
  **************************************************************************/
 void libvlc_media_player_pause( libvlc_media_player_t *p_mi )
 {
-    libvlc_state_t state = libvlc_media_player_get_state( p_mi );
-    bool playing = (state == libvlc_Playing || state == libvlc_Buffering);
-
-    libvlc_media_player_set_pause( p_mi, playing );
+    libvlc_media_player_set_pause( p_mi, libvlc_media_player_is_playing( p_mi ) );
 }
 
 /**************************************************************************
@@ -813,7 +1025,7 @@ void libvlc_media_player_pause( libvlc_media_player_t *p_mi )
 int libvlc_media_player_is_playing( libvlc_media_player_t *p_mi )
 {
     libvlc_state_t state = libvlc_media_player_get_state( p_mi );
-    return (libvlc_Playing == state) || (libvlc_Buffering == state);
+    return libvlc_Playing == state;
 }
 
 /**************************************************************************
@@ -821,14 +1033,12 @@ int libvlc_media_player_is_playing( libvlc_media_player_t *p_mi )
  **************************************************************************/
 void libvlc_media_player_stop( libvlc_media_player_t *p_mi )
 {
-    libvlc_state_t state = libvlc_media_player_get_state( p_mi );
-
     lock_input(p_mi);
-    release_input_thread( p_mi, true ); /* This will stop the input thread */
+    release_input_thread( p_mi ); /* This will stop the input thread */
 
     /* Force to go to stopped state, in case we were in Ended, or Error
      * state. */
-    if( state != libvlc_Stopped )
+    if( p_mi->state != libvlc_Stopped )
     {
         set_state( p_mi, libvlc_Stopped, false );
 
@@ -853,7 +1063,9 @@ void libvlc_video_set_callbacks( libvlc_media_player_t *mp,
     var_SetAddress( mp, "vmem-unlock", unlock_cb );
     var_SetAddress( mp, "vmem-display", display_cb );
     var_SetAddress( mp, "vmem-data", opaque );
+    var_SetString( mp, "avcodec-hw", "none" );
     var_SetString( mp, "vout", "vmem" );
+    var_SetString( mp, "window", "none" );
 }
 
 void libvlc_video_set_format_callbacks( libvlc_media_player_t *mp,
@@ -881,9 +1093,16 @@ void libvlc_media_player_set_nsobject( libvlc_media_player_t *p_mi,
 {
     assert (p_mi != NULL);
 #ifdef __APPLE__
+    var_SetString (p_mi, "avcodec-hw", "");
+    var_SetString (p_mi, "vout", "");
+    var_SetString (p_mi, "window", "");
     var_SetAddress (p_mi, "drawable-nsobject", drawable);
 #else
-    (void) p_mi; (void)drawable;
+    (void)drawable;
+    libvlc_printerr ("can't set nsobject: APPLE build required");
+    assert(false);
+    var_SetString (p_mi, "vout", "none");
+    var_SetString (p_mi, "window", "none");
 #endif
 }
 
@@ -896,6 +1115,7 @@ void * libvlc_media_player_get_nsobject( libvlc_media_player_t *p_mi )
 #ifdef __APPLE__
     return var_GetAddress (p_mi, "drawable-nsobject");
 #else
+    (void) p_mi;
     return NULL;
 #endif
 }
@@ -906,11 +1126,11 @@ void * libvlc_media_player_get_nsobject( libvlc_media_player_t *p_mi )
 void libvlc_media_player_set_agl( libvlc_media_player_t *p_mi,
                                   uint32_t drawable )
 {
-#ifdef __APPLE__
-    var_SetInteger (p_mi, "drawable-agl", drawable);
-#else
-    (void) p_mi; (void)drawable;
-#endif
+    (void)drawable;
+    libvlc_printerr ("can't set agl: use libvlc_media_player_set_nsobject instead");
+    assert(false);
+    var_SetString (p_mi, "vout", "none");
+    var_SetString (p_mi, "window", "none");
 }
 
 /**************************************************************************
@@ -918,12 +1138,8 @@ void libvlc_media_player_set_agl( libvlc_media_player_t *p_mi,
  **************************************************************************/
 uint32_t libvlc_media_player_get_agl( libvlc_media_player_t *p_mi )
 {
-    assert (p_mi != NULL);
-#ifdef __APPLE__
-    return var_GetInteger (p_mi, "drawable-agl");
-#else
+    (void) p_mi;
     return 0;
-#endif
 }
 
 /**************************************************************************
@@ -934,8 +1150,9 @@ void libvlc_media_player_set_xwindow( libvlc_media_player_t *p_mi,
 {
     assert (p_mi != NULL);
 
-    var_SetString (p_mi, "vout", drawable ? "xid" : "any");
-    var_SetString (p_mi, "window", drawable ? "embed-xid,any" : "any");
+    var_SetString (p_mi, "avcodec-hw", "");
+    var_SetString (p_mi, "vout", drawable ? "xid" : "");
+    var_SetString (p_mi, "window", drawable ? "embed-xid,any" : "");
     var_SetInteger (p_mi, "drawable-xid", drawable);
 }
 
@@ -955,11 +1172,17 @@ void libvlc_media_player_set_hwnd( libvlc_media_player_t *p_mi,
 {
     assert (p_mi != NULL);
 #if defined (_WIN32) || defined (__OS2__)
+    var_SetString (p_mi, "avcodec-hw", "");
+    var_SetString (p_mi, "vout", "");
     var_SetString (p_mi, "window",
                    (drawable != NULL) ? "embed-hwnd,any" : "");
     var_SetInteger (p_mi, "drawable-hwnd", (uintptr_t)drawable);
 #else
-    (void) p_mi; (void) drawable;
+    (void) drawable;
+    libvlc_printerr ("can't set nsobject: WIN32 build required");
+    assert(false);
+    var_SetString (p_mi, "vout", "none");
+    var_SetString (p_mi, "window", "none");
 #endif
 }
 
@@ -972,7 +1195,44 @@ void *libvlc_media_player_get_hwnd( libvlc_media_player_t *p_mi )
 #if defined (_WIN32) || defined (__OS2__)
     return (void *)(uintptr_t)var_GetInteger (p_mi, "drawable-hwnd");
 #else
+    (void) p_mi;
     return NULL;
+#endif
+}
+
+/**************************************************************************
+ * set_android_context
+ **************************************************************************/
+void libvlc_media_player_set_android_context( libvlc_media_player_t *p_mi,
+                                              void *p_awindow_handler )
+{
+    assert (p_mi != NULL);
+#ifdef __ANDROID__
+    var_SetAddress (p_mi, "drawable-androidwindow", p_awindow_handler);
+#else
+    (void) p_awindow_handler;
+    libvlc_printerr ("can't set android context: ANDROID build required");
+    assert(false);
+    var_SetString (p_mi, "vout", "none");
+    var_SetString (p_mi, "window", "none");
+#endif
+}
+
+/**************************************************************************
+ * set_evas_object
+ **************************************************************************/
+int libvlc_media_player_set_evas_object( libvlc_media_player_t *p_mi,
+                                         void *p_evas_object )
+{
+    assert (p_mi != NULL);
+#ifdef HAVE_EVAS
+    var_SetString (p_mi, "vout", "evas");
+    var_SetString (p_mi, "window", "none");
+    var_SetAddress (p_mi, "drawable-evasobject", p_evas_object);
+    return 0;
+#else
+    (void) p_mi; (void) p_evas_object;
+    return -1;
 #endif
 }
 
@@ -1037,7 +1297,7 @@ libvlc_time_t libvlc_media_player_get_length(
     if( !p_input_thread )
         return -1;
 
-    i_time = from_mtime(var_GetTime( p_input_thread, "length" ));
+    i_time = from_mtime(var_GetInteger( p_input_thread, "length" ));
     vlc_object_release( p_input_thread );
 
     return i_time;
@@ -1052,7 +1312,7 @@ libvlc_time_t libvlc_media_player_get_time( libvlc_media_player_t *p_mi )
     if( !p_input_thread )
         return -1;
 
-    i_time = from_mtime(var_GetTime( p_input_thread , "time" ));
+    i_time = from_mtime(var_GetInteger( p_input_thread , "time" ));
     vlc_object_release( p_input_thread );
     return i_time;
 }
@@ -1066,7 +1326,7 @@ void libvlc_media_player_set_time( libvlc_media_player_t *p_mi,
     if( !p_input_thread )
         return;
 
-    var_SetTime( p_input_thread, "time", to_mtime(i_time) );
+    var_SetInteger( p_input_thread, "time", to_mtime(i_time) );
     vlc_object_release( p_input_thread );
 }
 
@@ -1135,34 +1395,29 @@ int libvlc_media_player_get_chapter_count( libvlc_media_player_t *p_mi )
     if( !p_input_thread )
         return -1;
 
-    var_Change( p_input_thread, "chapter", VLC_VAR_CHOICESCOUNT, &val, NULL );
+    int i_ret = var_Change( p_input_thread, "chapter", VLC_VAR_CHOICESCOUNT, &val, NULL );
     vlc_object_release( p_input_thread );
 
-    return val.i_int;
+    return i_ret == VLC_SUCCESS ? val.i_int : -1;
 }
 
 int libvlc_media_player_get_chapter_count_for_title(
                                  libvlc_media_player_t *p_mi,
                                  int i_title )
 {
-    input_thread_t *p_input_thread;
     vlc_value_t val;
 
-    p_input_thread = libvlc_get_input_thread ( p_mi );
+    input_thread_t *p_input_thread = libvlc_get_input_thread ( p_mi );
     if( !p_input_thread )
         return -1;
 
-    char *psz_name;
-    if( asprintf( &psz_name,  "title %2i", i_title ) == -1 )
-    {
-        vlc_object_release( p_input_thread );
-        return -1;
-    }
-    var_Change( p_input_thread, psz_name, VLC_VAR_CHOICESCOUNT, &val, NULL );
-    vlc_object_release( p_input_thread );
-    free( psz_name );
+    char psz_name[sizeof ("title ") + 3 * sizeof (int)];
+    sprintf( psz_name, "title %2u", i_title );
 
-    return val.i_int;
+    int i_ret = var_Change( p_input_thread, psz_name, VLC_VAR_CHOICESCOUNT, &val, NULL );
+    vlc_object_release( p_input_thread );
+
+    return i_ret == VLC_SUCCESS ? val.i_int : -1;
 }
 
 void libvlc_media_player_set_title( libvlc_media_player_t *p_mi,
@@ -1208,10 +1463,159 @@ int libvlc_media_player_get_title_count( libvlc_media_player_t *p_mi )
     if( !p_input_thread )
         return -1;
 
-    var_Change( p_input_thread, "title", VLC_VAR_CHOICESCOUNT, &val, NULL );
+    int i_ret = var_Change( p_input_thread, "title", VLC_VAR_CHOICESCOUNT, &val, NULL );
     vlc_object_release( p_input_thread );
 
-    return val.i_int;
+    return i_ret == VLC_SUCCESS ? val.i_int : -1;
+}
+
+int libvlc_media_player_get_full_title_descriptions( libvlc_media_player_t *p_mi,
+                                                     libvlc_title_description_t *** pp_titles )
+{
+    assert( p_mi );
+
+    input_thread_t *p_input_thread = libvlc_get_input_thread( p_mi );
+
+    if( !p_input_thread )
+        return -1;
+
+    input_title_t **p_input_title;
+    int count;
+
+    /* fetch data */
+    int ret = input_Control( p_input_thread, INPUT_GET_FULL_TITLE_INFO,
+                             &p_input_title, &count );
+    vlc_object_release( p_input_thread );
+    if( ret != VLC_SUCCESS )
+        return -1;
+
+    libvlc_title_description_t **titles = malloc( count * sizeof (*titles) );
+    if( count > 0 && unlikely(titles == NULL) )
+        return -1;
+
+    /* fill array */
+    for( int i = 0; i < count; i++)
+    {
+        libvlc_title_description_t *title = malloc( sizeof (*title) );
+        if( unlikely(title == NULL) )
+        {
+            libvlc_title_descriptions_release( titles, i );
+            return -1;
+        }
+        titles[i] = title;
+
+        /* we want to return milliseconds to match the rest of the API */
+        title->i_duration = p_input_title[i]->i_length / 1000;
+        title->i_flags = p_input_title[i]->i_flags;
+        if( p_input_title[i]->psz_name )
+            title->psz_name = strdup( p_input_title[i]->psz_name );
+        else
+            title->psz_name = NULL;
+        vlc_input_title_Delete( p_input_title[i] );
+    }
+    free( p_input_title );
+
+    *pp_titles = titles;
+    return count;
+}
+
+void libvlc_title_descriptions_release( libvlc_title_description_t **p_titles,
+                                        unsigned i_count )
+{
+    for (unsigned i = 0; i < i_count; i++ )
+    {
+        if ( !p_titles[i] )
+            continue;
+
+        free( p_titles[i]->psz_name );
+        free( p_titles[i] );
+    }
+    free( p_titles );
+}
+
+int libvlc_media_player_get_full_chapter_descriptions( libvlc_media_player_t *p_mi,
+                                                      int i_chapters_of_title,
+                                                      libvlc_chapter_description_t *** pp_chapters )
+{
+    assert( p_mi );
+
+    input_thread_t *p_input_thread = libvlc_get_input_thread( p_mi );
+
+    if( !p_input_thread )
+        return -1;
+
+    seekpoint_t **p_seekpoint = NULL;
+
+    /* fetch data */
+    int ret = input_Control(p_input_thread, INPUT_GET_SEEKPOINTS, &p_seekpoint, &i_chapters_of_title);
+    vlc_object_release( p_input_thread );
+
+    if( ret != VLC_SUCCESS)
+    {
+        return -1;
+    }
+
+    if (i_chapters_of_title == 0 || p_seekpoint == NULL)
+    {
+        return 0;
+    }
+
+    const int ci_chapter_count = (const int)i_chapters_of_title;
+
+    *pp_chapters = calloc( ci_chapter_count, sizeof(**pp_chapters) );
+    if( !*pp_chapters )
+    {
+        return -1;
+    }
+
+    /* fill array */
+    for( int i = 0; i < ci_chapter_count; i++)
+    {
+        libvlc_chapter_description_t *p_chapter = malloc( sizeof(*p_chapter) );
+        if( unlikely(p_chapter == NULL) )
+        {
+            libvlc_chapter_descriptions_release( *pp_chapters, ci_chapter_count );
+            return -1;
+        }
+        (*pp_chapters)[i] = p_chapter;
+
+        p_chapter->i_time_offset = p_seekpoint[i]->i_time_offset / 1000;
+
+        if( i > 0 )
+        {
+            p_chapter->i_duration = p_chapter->i_time_offset - (*pp_chapters)[i-1]->i_time_offset;
+        }
+        else
+        {
+            p_chapter->i_duration = p_chapter->i_time_offset;
+        }
+
+        if( p_seekpoint[i]->psz_name )
+        {
+            p_chapter->psz_name = strdup( p_seekpoint[i]->psz_name );
+        }
+        else
+        {
+            p_chapter->psz_name = NULL;
+        }
+        vlc_seekpoint_Delete( p_seekpoint[i] );
+    }
+
+    return ci_chapter_count;
+}
+
+void libvlc_chapter_descriptions_release( libvlc_chapter_description_t **p_chapters,
+                                          unsigned i_count )
+{
+    for (unsigned i = 0; i < i_count; i++ )
+    {
+        if ( !p_chapters[i] )
+            continue;
+
+        free( p_chapters[i]->psz_name );
+        free( p_chapters[i] );
+    }
+    free( p_chapters );
 }
 
 void libvlc_media_player_next_chapter( libvlc_media_player_t *p_mi )
@@ -1246,30 +1650,39 @@ void libvlc_media_player_previous_chapter( libvlc_media_player_t *p_mi )
 
 float libvlc_media_player_get_fps( libvlc_media_player_t *p_mi )
 {
-    input_thread_t *p_input_thread = libvlc_get_input_thread ( p_mi );
-    double f_fps = 0.0;
+    libvlc_media_t *media = libvlc_media_player_get_media( p_mi );
+    if( media == NULL )
+        return 0.f;
 
-    if( p_input_thread )
+    input_item_t *item = media->p_input_item;
+    float fps = 0.f;
+
+    vlc_mutex_lock( &item->lock );
+    for( int i = 0; i < item->i_es; i++ )
     {
-        if( input_Control( p_input_thread, INPUT_GET_VIDEO_FPS, &f_fps ) )
-            f_fps = 0.0;
-        vlc_object_release( p_input_thread );
+        const es_format_t *fmt = item->es[i];
+
+        if( fmt->i_cat == VIDEO_ES && fmt->video.i_frame_rate_base > 0 )
+            fps = (float)fmt->video.i_frame_rate
+                  / (float)fmt->video.i_frame_rate_base;
     }
-    return f_fps;
+    vlc_mutex_unlock( &item->lock );
+    libvlc_media_release( media );
+
+    return fps;
 }
 
 int libvlc_media_player_will_play( libvlc_media_player_t *p_mi )
 {
-    bool b_will_play;
     input_thread_t *p_input_thread =
                             libvlc_get_input_thread ( p_mi );
     if ( !p_input_thread )
         return false;
 
-    b_will_play = !p_input_thread->b_dead;
+    int state = var_GetInteger( p_input_thread, "state" );
     vlc_object_release( p_input_thread );
 
-    return b_will_play;
+    return state != END_S && state != ERROR_S;
 }
 
 int libvlc_media_player_set_rate( libvlc_media_player_t *p_mi, float rate )
@@ -1317,7 +1730,7 @@ void libvlc_media_player_navigate( libvlc_media_player_t* p_mi,
     static const vlc_action_t map[] =
     {
         INPUT_NAV_ACTIVATE, INPUT_NAV_UP, INPUT_NAV_DOWN,
-        INPUT_NAV_LEFT, INPUT_NAV_RIGHT,
+        INPUT_NAV_LEFT, INPUT_NAV_RIGHT, INPUT_NAV_POPUP,
     };
 
     if( navigate >= sizeof(map) / sizeof(map[0]) )
@@ -1344,7 +1757,9 @@ libvlc_track_description_t *
         return NULL;
 
     vlc_value_t val_list, text_list;
-    var_Change( p_input, psz_variable, VLC_VAR_GETLIST, &val_list, &text_list);
+    int i_ret = var_Change( p_input, psz_variable, VLC_VAR_GETCHOICES, &val_list, &text_list );
+    if( i_ret != VLC_SUCCESS )
+        return NULL;
 
     /* no tracks */
     if( val_list.p_list->i_count <= 0 )
@@ -1478,6 +1893,31 @@ void libvlc_media_player_set_video_title_display( libvlc_media_player_t *p_mi, l
     }
 }
 
+int libvlc_media_player_add_slave( libvlc_media_player_t *p_mi,
+                                   libvlc_media_slave_type_t i_type,
+                                   const char *psz_uri, bool b_select )
+{
+    input_thread_t *p_input_thread = libvlc_get_input_thread ( p_mi );
+
+    if( p_input_thread == NULL )
+    {
+        libvlc_media_t *p_media = libvlc_media_player_get_media( p_mi );
+        if( p_media == NULL )
+            return -1;
+
+        int i_ret = libvlc_media_slaves_add( p_media, i_type, 4, psz_uri );
+        libvlc_media_release( p_media );
+        return i_ret;
+    }
+    else
+    {
+        int i_ret = input_AddSlave( p_input_thread, i_type, psz_uri, b_select );
+        vlc_object_release( p_input_thread );
+
+        return i_ret == VLC_SUCCESS ? 0 : -1;
+    }
+}
+
 /**
  * Maximum size of a formatted equalizer amplification band frequency value.
  *
@@ -1497,7 +1937,7 @@ int libvlc_media_player_set_equalizer( libvlc_media_player_t *p_mi, libvlc_equal
     {
         for( unsigned i = 0, c = 0; i < EQZ_BANDS_MAX; i++ )
         {
-            c = snprintf( bands + c, sizeof(bands) - c, " %.07f",
+            c += snprintf( bands + c, sizeof(bands) - c, " %.07f",
                           p_equalizer->f_amp[i] );
             if( unlikely(c >= sizeof(bands)) )
                 return -1;
@@ -1517,9 +1957,48 @@ int libvlc_media_player_set_equalizer( libvlc_media_player_t *p_mi, libvlc_equal
             var_SetString( p_aout, "equalizer-bands", bands );
         }
 
-        var_SetString( p_mi, "audio-filter", p_equalizer ? "equalizer" : "" );
+        var_SetString( p_aout, "audio-filter", p_equalizer ? "equalizer" : "" );
         vlc_object_release( p_aout );
     }
 
     return 0;
+}
+
+static const char roles[][16] =
+{
+    [libvlc_role_Music] =         "music",
+    [libvlc_role_Video] =         "video",
+    [libvlc_role_Communication] = "communication",
+    [libvlc_role_Game] =          "game",
+    [liblvc_role_Notification] =  "notification",
+    [libvlc_role_Animation] =     "animation",
+    [libvlc_role_Production] =    "production",
+    [libvlc_role_Accessibility] = "accessibility",
+    [libvlc_role_Test] =          "test",
+};
+
+int libvlc_media_player_set_role(libvlc_media_player_t *mp, unsigned role)
+{
+    if (role >= ARRAY_SIZE(roles)
+     || var_SetString(mp, "role", roles[role]) != VLC_SUCCESS)
+        return -1;
+    return 0;
+}
+
+int libvlc_media_player_get_role(libvlc_media_player_t *mp)
+{
+    int ret = -1;
+    char *str = var_GetString(mp, "role");
+    if (str == NULL)
+        return 0;
+
+    for (size_t i = 0; i < ARRAY_SIZE(roles); i++)
+        if (!strcmp(roles[i], str))
+        {
+            ret = i;
+            break;
+        }
+
+    free(str);
+    return ret;
 }

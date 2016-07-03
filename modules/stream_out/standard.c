@@ -128,19 +128,14 @@ struct sout_stream_sys_t
     session_descriptor_t *p_session;
 };
 
-struct sout_stream_id_sys_t
-{
-};
-
-static sout_stream_id_sys_t * Add( sout_stream_t *p_stream, es_format_t *p_fmt )
+static sout_stream_id_sys_t * Add( sout_stream_t *p_stream, const es_format_t *p_fmt )
 {
     return (sout_stream_id_sys_t*)sout_MuxAddStream( p_stream->p_sys->p_mux, p_fmt );
 }
 
-static int Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
+static void Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
 {
     sout_MuxDeleteStream( p_stream->p_sys->p_mux, (sout_input_t*)id );
-    return VLC_SUCCESS;
 }
 
 static int Send( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
@@ -148,6 +143,12 @@ static int Send( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
 {
     return sout_MuxSendBuffer( p_stream->p_sys->p_mux, (sout_input_t*)id, p_buffer );
 }
+
+static void Flush( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
+{
+    sout_MuxFlush( p_stream->p_sys->p_mux, (sout_input_t*)id );
+}
+
 static void create_SDP(sout_stream_t *p_stream, sout_access_out_t *p_access)
 {
     sout_stream_sys_t   *p_sys = p_stream->p_sys;
@@ -292,24 +293,33 @@ static int fixAccessMux( sout_stream_t *p_stream, char **ppsz_mux,
     return 0;
 }
 
+static bool exactMatch( const char *psz_target, const char *psz_string,
+                        size_t i_len )
+{
+    if ( strncmp( psz_target, psz_string, i_len ) )
+        return false;
+    else
+        return ( psz_target[i_len] < 'a' || psz_target[i_len] > 'z' );
+}
+
 static void checkAccessMux( sout_stream_t *p_stream, char *psz_access,
                             char *psz_mux )
 {
-    if( !strncmp( psz_access, "mmsh", 4 ) && strncmp( psz_mux, "asfh", 4 ) )
+    if( exactMatch( psz_access, "mmsh", 4 ) && !exactMatch( psz_mux, "asfh", 4 ) )
         msg_Err( p_stream, "mmsh output is only valid with asfh mux" );
-    else if( strncmp( psz_access, "file", 4 ) &&
-            ( !strncmp( psz_mux, "mov", 3 ) || !strncmp( psz_mux, "mp4", 3 ) ) )
+    else if( !exactMatch( psz_access, "file", 4 ) &&
+             ( exactMatch( psz_mux, "mov", 3 ) || exactMatch( psz_mux, "mp4", 3 ) ) )
         msg_Err( p_stream, "mov and mp4 mux are only valid with file output" );
-    else if( !strncmp( psz_access, "udp", 3 ) )
+    else if( exactMatch( psz_access, "udp", 3 ) )
     {
-        if( !strncmp( psz_mux, "ffmpeg", 6 ) || !strncmp( psz_mux, "avformat", 8 ) )
+        if( exactMatch( psz_mux, "ffmpeg", 6 ) || exactMatch( psz_mux, "avformat", 8 ) )
         {   /* why would you use ffmpeg's ts muxer ? YOU DON'T LOVE VLC ??? */
             char *psz_ffmpeg_mux = var_CreateGetString( p_stream, "sout-avformat-mux" );
             if( !psz_ffmpeg_mux || strncmp( psz_ffmpeg_mux, "mpegts", 6 ) )
                 msg_Err( p_stream, "UDP output is only valid with TS mux" );
             free( psz_ffmpeg_mux );
         }
-        else if( strncmp( psz_mux, "ts", 2 ) )
+        else if( !exactMatch( psz_mux, "ts", 2 ) )
             msg_Err( p_stream, "UDP output is only valid with TS mux" );
     }
 }
@@ -401,6 +411,7 @@ static int Open( vlc_object_t *p_this )
     p_stream->pf_add    = Add;
     p_stream->pf_del    = Del;
     p_stream->pf_send   = Send;
+    p_stream->pf_flush  = Flush;
     if( !sout_AccessOutCanControlPace( p_access ) )
         p_stream->pace_nocontrol = true;
 

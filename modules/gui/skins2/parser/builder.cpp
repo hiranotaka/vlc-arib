@@ -57,12 +57,13 @@
 #include "../utils/var_bool.hpp"
 #include "../utils/var_text.hpp"
 
+#include <sys/stat.h>
+#include <vlc_fs.h>
 #include <vlc_image.h>
-#include <fstream>
 
 
 Builder::Builder( intf_thread_t *pIntf, const BuilderData &rData,
-                  const string &rPath ):
+                  const std::string &rPath ):
     SkinObject( pIntf ), m_rData( rData ), m_path( rPath ), m_pTheme( NULL )
 {
     m_pImageHandler = image_HandlerCreate( pIntf );
@@ -73,7 +74,7 @@ Builder::~Builder()
     if( m_pImageHandler ) image_HandlerDelete( m_pImageHandler );
 }
 
-CmdGeneric *Builder::parseAction( const string &rAction )
+CmdGeneric *Builder::parseAction( const std::string &rAction )
 {
     return Interpreter::instance( getIntf() )->parseAction( rAction, m_pTheme );
 }
@@ -131,7 +132,7 @@ Theme *Builder::build()
 
 
 // Macro to get a bitmap by its ID in the builder
-#define GET_BMP( pBmp, id ) \
+#define GET_BMP( pBmp, id, abort ) \
     if( id != "none" ) \
     { \
         pBmp = m_pTheme->getBitmapById(id); \
@@ -140,6 +141,11 @@ Theme *Builder::build()
             msg_Err( getIntf(), "unknown bitmap id: %s", id.c_str() ); \
             return; \
         } \
+    } \
+    else if( abort )\
+    { \
+        msg_Err( getIntf(), "bitmap required for id: %s", rData.m_id.c_str() ); \
+        return; \
     }
 
 // macro to check bitmap size consistency for button and checkbox
@@ -204,7 +210,7 @@ void Builder::addTheme( const BuilderData::Theme &rData )
 void Builder::addIniFile( const BuilderData::IniFile &rData )
 {
     // Parse the INI file
-    string full_path = getFilePath( rData.m_file );
+    std::string full_path = getFilePath( rData.m_file );
     if( !full_path.size() )
         return;
 
@@ -215,7 +221,7 @@ void Builder::addIniFile( const BuilderData::IniFile &rData )
 
 void Builder::addBitmap( const BuilderData::Bitmap &rData )
 {
-    string full_path = getFilePath( rData.m_fileName );
+    std::string full_path = getFilePath( rData.m_fileName );
     if( !full_path.size() )
         return;
 
@@ -243,7 +249,7 @@ void Builder::addSubBitmap( const BuilderData::SubBitmap &rData )
 
     // Get the parent bitmap
     GenericBitmap *pParentBmp = NULL;
-    GET_BMP( pParentBmp, rData.m_parent );
+    GET_BMP( pParentBmp, rData.m_parent, true );
 
     // Copy a region of the parent bitmap to the new one
     BitmapImpl *pBmp =
@@ -270,7 +276,7 @@ void Builder::addBitmapFont( const BuilderData::BitmapFont &rData )
         return;
     }
 
-    string full_path = getFilePath( rData.m_file );
+    std::string full_path = getFilePath( rData.m_file );
     if( !full_path.size() )
         return;
 
@@ -300,7 +306,7 @@ void Builder::addBitmapFont( const BuilderData::BitmapFont &rData )
 void Builder::addFont( const BuilderData::Font &rData )
 {
     // Try to load the font from the theme directory
-    string full_path = getFilePath( rData.m_fontFile );
+    std::string full_path = getFilePath( rData.m_fontFile );
     if( full_path.size() )
     {
         GenericFont *pFont = new FT2Font( getIntf(), full_path, rData.m_size );
@@ -314,13 +320,13 @@ void Builder::addFont( const BuilderData::Font &rData )
 
     // Font not found; try in the resource path
     OSFactory *pOSFactory = OSFactory::instance( getIntf() );
-    const list<string> &resPath = pOSFactory->getResourcePath();
-    const string &sep = pOSFactory->getDirSeparator();
+    const std::list<std::string> &resPath = pOSFactory->getResourcePath();
+    const std::string &sep = pOSFactory->getDirSeparator();
 
-    list<string>::const_iterator it;
+    std::list<std::string>::const_iterator it;
     for( it = resPath.begin(); it != resPath.end(); ++it )
     {
-        string path = (*it) + sep + "fonts" + sep + rData.m_fontFile;
+        std::string path = (*it) + sep + "fonts" + sep + rData.m_fontFile;
         GenericFont *pFont = new FT2Font( getIntf(), path, rData.m_size );
         if( pFont->init() )
         {
@@ -456,13 +462,13 @@ void Builder::addButton( const BuilderData::Button &rData )
 {
     // Get the bitmaps of the button
     GenericBitmap *pBmpUp = NULL;
-    GET_BMP( pBmpUp, rData.m_upId );
+    GET_BMP( pBmpUp, rData.m_upId, true );
 
     GenericBitmap *pBmpDown = pBmpUp;
-    GET_BMP( pBmpDown, rData.m_downId );
+    GET_BMP( pBmpDown, rData.m_downId, false );
 
     GenericBitmap *pBmpOver = pBmpUp;
-    GET_BMP( pBmpOver, rData.m_overId );
+    GET_BMP( pBmpOver, rData.m_overId, false );
 
     GenericLayout *pLayout = m_pTheme->getLayoutById( rData.m_layoutId );
     if( pLayout == NULL )
@@ -493,8 +499,8 @@ void Builder::addButton( const BuilderData::Button &rData )
     int height = pBmpUp->getHeight() / pBmpUp->getNbFrames();
     bool xkeepratio = rData.m_xKeepRatio;
     bool ykeepratio = rData.m_yKeepRatio;
-    string lefttop( rData.m_leftTop );
-    string rightbottom( rData.m_rightBottom );
+    std::string lefttop( rData.m_leftTop );
+    std::string rightbottom( rData.m_rightBottom );
 
     // various checks to help skin developers debug their skin
     CHECK_BMP( pBmpDown, pBmpUp, rData.m_id );
@@ -518,22 +524,22 @@ void Builder::addCheckbox( const BuilderData::Checkbox &rData )
 {
     // Get the bitmaps of the checkbox
     GenericBitmap *pBmpUp1 = NULL;
-    GET_BMP( pBmpUp1, rData.m_up1Id );
+    GET_BMP( pBmpUp1, rData.m_up1Id, true );
 
     GenericBitmap *pBmpDown1 = pBmpUp1;
-    GET_BMP( pBmpDown1, rData.m_down1Id );
+    GET_BMP( pBmpDown1, rData.m_down1Id, false );
 
     GenericBitmap *pBmpOver1 = pBmpUp1;
-    GET_BMP( pBmpOver1, rData.m_over1Id );
+    GET_BMP( pBmpOver1, rData.m_over1Id, false );
 
     GenericBitmap *pBmpUp2 = NULL;
-    GET_BMP( pBmpUp2, rData.m_up2Id );
+    GET_BMP( pBmpUp2, rData.m_up2Id, true );
 
     GenericBitmap *pBmpDown2 = pBmpUp2;
-    GET_BMP( pBmpDown2, rData.m_down2Id );
+    GET_BMP( pBmpDown2, rData.m_down2Id, false );
 
     GenericBitmap *pBmpOver2 = pBmpUp2;
-    GET_BMP( pBmpOver2, rData.m_over2Id );
+    GET_BMP( pBmpOver2, rData.m_over2Id, false );
 
     GenericLayout *pLayout = m_pTheme->getLayoutById( rData.m_layoutId );
     if( pLayout == NULL )
@@ -574,8 +580,8 @@ void Builder::addCheckbox( const BuilderData::Checkbox &rData )
     int height = pBmpUp1->getHeight() / pBmpUp1->getNbFrames();
     bool xkeepratio = rData.m_xKeepRatio;
     bool ykeepratio = rData.m_yKeepRatio;
-    string lefttop( rData.m_leftTop );
-    string rightbottom( rData.m_rightBottom );
+    std::string lefttop( rData.m_leftTop );
+    std::string rightbottom( rData.m_rightBottom );
 
 
     // various checks to help skin developers debug their skin
@@ -610,7 +616,7 @@ void Builder::addCheckbox( const BuilderData::Checkbox &rData )
 void Builder::addImage( const BuilderData::Image &rData )
 {
     GenericBitmap *pBmp = NULL;
-    GET_BMP( pBmp, rData.m_bmpId );
+    GET_BMP( pBmp, rData.m_bmpId, true );
 
     GenericLayout *pLayout = m_pTheme->getLayoutById( rData.m_layoutId );
     if( pLayout == NULL )
@@ -809,7 +815,7 @@ void Builder::addRadialSlider( const BuilderData::RadialSlider &rData )
 {
     // Get the bitmaps of the slider
     GenericBitmap *pSeq = NULL;
-    GET_BMP( pSeq, rData.m_sequence );
+    GET_BMP( pSeq, rData.m_sequence, true );
 
     GenericLayout *pLayout = m_pTheme->getLayoutById( rData.m_layoutId );
     if( pLayout == NULL )
@@ -863,7 +869,7 @@ void Builder::addSlider( const BuilderData::Slider &rData )
 
     // Get the bitmaps of the background
     GenericBitmap *pBgImage = NULL;
-    GET_BMP( pBgImage, rData.m_imageId );
+    GET_BMP( pBgImage, rData.m_imageId, false );
 
     GenericLayout *pLayout = m_pTheme->getLayoutById( rData.m_layoutId );
     if( pLayout == NULL )
@@ -915,13 +921,13 @@ void Builder::addSlider( const BuilderData::Slider &rData )
 
     // Get the bitmaps of the cursor
     GenericBitmap *pBmpUp = NULL;
-    GET_BMP( pBmpUp, rData.m_upId );
+    GET_BMP( pBmpUp, rData.m_upId, true );
 
     GenericBitmap *pBmpDown = pBmpUp;
-    GET_BMP( pBmpDown, rData.m_downId );
+    GET_BMP( pBmpDown, rData.m_downId, false );
 
     GenericBitmap *pBmpOver = pBmpUp;
-    GET_BMP( pBmpOver, rData.m_overId );
+    GET_BMP( pBmpOver, rData.m_overId, false );
 
     // Create the cursor control
     CtrlSliderCursor *pCursor = new CtrlSliderCursor( getIntf(), *pBmpUp,
@@ -941,7 +947,7 @@ void Builder::addList( const BuilderData::List &rData )
 {
     // Get the background bitmap, if any
     GenericBitmap *pBgBmp = NULL;
-    GET_BMP( pBgBmp, rData.m_bgImageId );
+    GET_BMP( pBgBmp, rData.m_bgImageId, false );
 
     GenericLayout *pLayout = m_pTheme->getLayoutById( rData.m_layoutId );
     if( pLayout == NULL )
@@ -1002,10 +1008,10 @@ void Builder::addTree( const BuilderData::Tree &rData )
     GenericBitmap *pItemBmp = NULL;
     GenericBitmap *pOpenBmp = NULL;
     GenericBitmap *pClosedBmp = NULL;
-    GET_BMP( pBgBmp, rData.m_bgImageId );
-    GET_BMP( pItemBmp, rData.m_itemImageId );
-    GET_BMP( pOpenBmp, rData.m_openImageId );
-    GET_BMP( pClosedBmp, rData.m_closedImageId );
+    GET_BMP( pBgBmp, rData.m_bgImageId, false );
+    GET_BMP( pItemBmp, rData.m_itemImageId, false );
+    GET_BMP( pOpenBmp, rData.m_openImageId, false );
+    GET_BMP( pClosedBmp, rData.m_closedImageId, false );
 
     GenericLayout *pLayout = m_pTheme->getLayoutById( rData.m_layoutId );
     if( pLayout == NULL )
@@ -1115,8 +1121,8 @@ void Builder::addVideo( const BuilderData::Video &rData )
 }
 
 
-const Position Builder::makePosition( const string &rLeftTop,
-                                      const string &rRightBottom,
+const Position Builder::makePosition( const std::string &rLeftTop,
+                                      const std::string &rRightBottom,
                                       int xPos, int yPos, int width,
                                       int height, const GenericRect &rRect,
                                       bool xKeepRatio, bool yKeepRatio ) const
@@ -1200,20 +1206,20 @@ const Position Builder::makePosition( const string &rLeftTop,
 }
 
 
-GenericFont *Builder::getFont( const string &fontId )
+GenericFont *Builder::getFont( const std::string &fontId )
 {
     GenericFont *pFont = m_pTheme->getFontById(fontId);
     if( !pFont && fontId == "defaultfont" )
     {
         // Get the resource path and try to load the default font
         OSFactory *pOSFactory = OSFactory::instance( getIntf() );
-        const list<string> &resPath = pOSFactory->getResourcePath();
-        const string &sep = pOSFactory->getDirSeparator();
+        const std::list<std::string> &resPath = pOSFactory->getResourcePath();
+        const std::string &sep = pOSFactory->getDirSeparator();
 
-        list<string>::const_iterator it;
+        std::list<std::string>::const_iterator it;
         for( it = resPath.begin(); it != resPath.end(); ++it )
         {
-            string path = (*it) + sep + "fonts" + sep + "FreeSans.ttf";
+            std::string path = (*it) + sep + "fonts" + sep + "FreeSans.ttf";
             pFont = new FT2Font( getIntf(), path, 12 );
             if( pFont->init() )
             {
@@ -1236,32 +1242,33 @@ GenericFont *Builder::getFont( const string &fontId )
 }
 
 
-string Builder::getFilePath( const string &rFileName ) const
+std::string Builder::getFilePath( const std::string &rFileName ) const
 {
     OSFactory *pFactory = OSFactory::instance( getIntf() );
-    const string &sep = pFactory->getDirSeparator();
+    const std::string &sep = pFactory->getDirSeparator();
 
-    string file = rFileName;
-    if( file.find( "\\" ) != string::npos )
+    std::string file = rFileName;
+    if( file.find( "\\" ) != std::string::npos )
     {
         // For skins to be valid on both Linux and Win32,
         // slash should be used as path separator for both OSs.
         msg_Warn( getIntf(), "use of '/' is preferred to '\\' for paths" );
-        string::size_type pos;
-        while( ( pos = file.find( "\\" ) ) != string::npos )
+        std::string::size_type pos;
+        while( ( pos = file.find( "\\" ) ) != std::string::npos )
            file[pos] = '/';
     }
 
 #if defined( _WIN32 ) || defined( __OS2__ )
-    string::size_type pos;
-    while( ( pos = file.find( "/" ) ) != string::npos )
+    std::string::size_type pos;
+    while( ( pos = file.find( "/" ) ) != std::string::npos )
        file.replace( pos, 1, sep );
 #endif
 
-    string full_path = m_path + sep + sFromLocale( file );
+    std::string full_path = m_path + sep + file;
 
-    // check that the file exists and can be read
-    if( ifstream( full_path.c_str() ).fail() )
+    // check that the file exists
+    struct stat stat;
+    if( vlc_stat( full_path.c_str(), &stat ) )
     {
         msg_Err( getIntf(), "missing file: %s", file.c_str() );
         full_path = "";
@@ -1274,7 +1281,7 @@ string Builder::getFilePath( const string &rFileName ) const
 
 Bezier *Builder::getPoints( const char *pTag ) const
 {
-    vector<float> xBez, yBez;
+    std::vector<float> xBez, yBez;
     int x, y, n;
     while( 1 )
     {
@@ -1301,11 +1308,11 @@ Bezier *Builder::getPoints( const char *pTag ) const
 }
 
 
-uint32_t Builder::getColor( const string &rVal ) const
+uint32_t Builder::getColor( const std::string &rVal ) const
 {
     // Check it the value is a registered constant
     Interpreter *pInterpreter = Interpreter::instance( getIntf() );
-    string val = pInterpreter->getConstant( rVal );
+    std::string val = pInterpreter->getConstant( rVal );
 
     // Convert to an int value
     return SkinParser::convertColor( val.c_str() );

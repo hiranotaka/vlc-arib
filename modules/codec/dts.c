@@ -31,6 +31,7 @@
 #endif
 #include <assert.h>
 
+#define VLC_MODULE_LICENSE VLC_LICENSE_GPL_2_PLUS
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
@@ -96,6 +97,7 @@ struct decoder_sys_t
  ****************************************************************************/
 static int OpenCommon( vlc_object_t *, bool b_packetizer );
 static block_t *DecodeBlock( decoder_t *, block_t ** );
+static void Flush( decoder_t * );
 
 static int  SyncInfo( const uint8_t *, bool *, unsigned int *, unsigned int *,
                       unsigned int *, unsigned int *, unsigned int * );
@@ -156,8 +158,21 @@ static int OpenCommon( vlc_object_t *p_this, bool b_packetizer )
     /* Set callback */
     p_dec->pf_decode_audio = DecodeBlock;
     p_dec->pf_packetize    = DecodeBlock;
+    p_dec->pf_flush        = Flush;
 
     return VLC_SUCCESS;
+}
+
+/*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    date_Set( &p_sys->end_date, 0 );
+    p_sys->i_state = STATE_NOSYNC;
+    block_BytestreamEmpty( &p_sys->bytestream );
 }
 
 /****************************************************************************
@@ -173,16 +188,17 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     if( !pp_block || !*pp_block )
         return NULL;
 
-    if( (*pp_block)->i_flags&(BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED) )
+    if( (*pp_block)->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED) )
     {
-        if( (*pp_block)->i_flags&BLOCK_FLAG_CORRUPTED )
+        if( (*pp_block)->i_flags & BLOCK_FLAG_CORRUPTED )
         {
-            p_sys->i_state = STATE_NOSYNC;
-            block_BytestreamEmpty( &p_sys->bytestream );
+            Flush( p_dec );
+            block_Release( *pp_block );
+            *pp_block = NULL;
+            return NULL;
         }
-        date_Set( &p_sys->end_date, 0 );
-        block_Release( *pp_block );
-        return NULL;
+        else /* BLOCK_FLAG_DISCONTINUITY */
+            date_Set( &p_sys->end_date, 0 );
     }
 
     if( !date_Get( &p_sys->end_date ) && (*pp_block)->i_pts <= VLC_TS_INVALID )
@@ -548,18 +564,20 @@ static int SyncInfo( const uint8_t *p_buf,
                                 AOUT_CHAN_REARRIGHT | AOUT_CHAN_LFE;
             break;
 
+        case 0xF:
         default:
-            if( i_audio_mode <= 63 )
+            if( (i_audio_mode & 0xFFFF) >= 0x10 )
             {
                 /* User defined */
                 *pi_channels = 0;
                 *pi_channels_conf = 0;
             }
             else return 0;
+
             break;
     }
 
-    if( i_audio_mode & 0x10000 )
+    if( *pi_channels && (i_audio_mode & 0x10000) )
     {
         (*pi_channels)++;
         *pi_channels_conf |= AOUT_CHAN_LFE;

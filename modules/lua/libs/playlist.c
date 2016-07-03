@@ -69,7 +69,7 @@ static int vlclua_playlist_next( lua_State * L )
 
 static int vlclua_playlist_skip( lua_State * L )
 {
-    int i_skip = luaL_checkint( L, 1 );
+    int i_skip = (int)luaL_checkinteger( L, 1 );
     playlist_t *p_playlist = vlclua_get_playlist_internal( L );
     playlist_Skip( p_playlist, i_skip );
     return 0;
@@ -85,7 +85,7 @@ static int vlclua_playlist_play( lua_State * L )
 static int vlclua_playlist_pause( lua_State * L )
 {
     playlist_t *p_playlist = vlclua_get_playlist_internal( L );
-    playlist_Pause( p_playlist );
+    playlist_TogglePause( p_playlist );
     return 0;
 }
 
@@ -127,19 +127,18 @@ static int vlclua_playlist_random( lua_State * L )
 
 static int vlclua_playlist_gotoitem( lua_State * L )
 {
-    int i_id = luaL_checkint( L, 1 );
+    int i_id = (int)luaL_checkinteger( L, 1 );
     playlist_t *p_playlist = vlclua_get_playlist_internal( L );
     PL_LOCK;
-    int i_ret = playlist_Control( p_playlist, PLAYLIST_VIEWPLAY,
-                                  true, NULL,
-                                  playlist_ItemGetById( p_playlist, i_id ) );
+    playlist_Control( p_playlist, PLAYLIST_VIEWPLAY, true, NULL,
+                      playlist_ItemGetById( p_playlist, i_id ) );
     PL_UNLOCK;
-    return vlclua_push_ret( L, i_ret );
+    return vlclua_push_ret( L, VLC_SUCCESS );
 }
 
 static int vlclua_playlist_delete( lua_State * L )
 {
-    int i_id = luaL_checkint( L, 1 );
+    int i_id = (int)luaL_checkinteger( L, 1 );
     playlist_t *p_playlist = vlclua_get_playlist_internal( L );
     PL_LOCK;
     playlist_item_t *p_item = playlist_ItemGetById( p_playlist, i_id );
@@ -155,8 +154,8 @@ static int vlclua_playlist_delete( lua_State * L )
 
 static int vlclua_playlist_move( lua_State * L )
 {
-    int i_item = luaL_checkint( L, 1 );
-    int i_target = luaL_checkint( L, 2 );
+    int i_item = (int)luaL_checkinteger( L, 1 );
+    int i_target = (int)luaL_checkinteger( L, 2 );
     playlist_t *p_playlist = vlclua_get_playlist_internal( L );
     PL_LOCK;
     playlist_item_t *p_item = playlist_ItemGetById( p_playlist, i_item );
@@ -170,7 +169,7 @@ static int vlclua_playlist_move( lua_State * L )
     if( p_target->i_children != -1 )
         i_ret = playlist_TreeMove( p_playlist, p_item, p_target, 0 );
     else
-    	i_ret = playlist_TreeMove( p_playlist, p_item, p_target->p_parent, p_target->i_id - p_target->p_parent->pp_children[0]->i_id + 1 );
+        i_ret = playlist_TreeMove( p_playlist, p_item, p_target->p_parent, p_target->i_id - p_target->p_parent->pp_children[0]->i_id + 1 );
     PL_UNLOCK;
     return vlclua_push_ret( L, i_ret );
 }
@@ -233,7 +232,7 @@ static void push_playlist_item( lua_State *L, playlist_item_t *p_item )
         else
             lua_pushnumber( L, ((double)p_input->i_duration)*1e-6 );
         lua_setfield( L, -2, "duration" );
-        lua_pushinteger( L, p_input->i_nb_played );
+        lua_pushinteger( L, p_item->i_nb_played );
         lua_setfield( L, -2, "nb_played" );
         luaopen_input_item( L, p_input );
         /* TODO: add (optional) info categories, meta, options, es */

@@ -84,8 +84,16 @@ static int Demux(demux_t *);
  */
 int Import_xspf(vlc_object_t *p_this)
 {
-    DEMUX_BY_EXTENSION_OR_MIMETYPE(".xspf", "application/xspf+xml",
-                                      "using XSPF playlist reader");
+    demux_t *p_demux = (demux_t *)p_this;
+
+    CHECK_FILE();
+
+    if( !demux_IsPathExtension( p_demux, ".xspf" )
+     && !demux_IsContentType( p_demux, "application/xspf+xml" ) )
+        return VLC_EGENERIC;
+
+    STANDARD_DEMUX_INIT_MSG("using XSPF playlist reader");
+
     return VLC_SUCCESS;
 }
 
@@ -113,7 +121,7 @@ static int Demux(demux_t *p_demux)
     p_demux->p_sys->pp_tracklist = NULL;
     p_demux->p_sys->i_tracklist_entries = 0;
     p_demux->p_sys->i_track_id = -1;
-    p_demux->p_sys->psz_base = NULL;
+    p_demux->p_sys->psz_base = FindPrefix(p_demux);
 
     /* create new xml parser from stream */
     p_xml_reader = xml_ReaderCreate(p_demux, p_demux->s);
@@ -258,8 +266,9 @@ static bool parse_playlist_node COMPLEX_INTERFACE
 
     /* simple element content */
     case XML_READER_TEXT:
+        FREE_VALUE();
         psz_value = strdup(name);
-        if (unlikely(!name))
+        if (unlikely(!psz_value))
             goto end;
         break;
 
@@ -479,8 +488,6 @@ static bool parse_track_node COMPLEX_INTERFACE
              * and anchors (#...) are not resolved correctly. Also,
              * host-relative (/...) and directory-relative locations
              * ("relative path" in vernacular) should be resolved.
-             * Last, psz_base should default to the XSPF resource
-             * location if missing (not the current working directory).
              * -- Courmisch */
             if (p_sys->psz_base && !strstr(psz_value, "://"))
             {
@@ -495,7 +502,7 @@ static bool parse_track_node COMPLEX_INTERFACE
             }
             else
                 input_item_SetURI(p_new_input, psz_value);
-            input_item_CopyOptions(p_input_item, p_new_input);
+            input_item_CopyOptions(p_new_input, p_input_item);
         }
         else
         {
@@ -512,6 +519,7 @@ static bool parse_track_node COMPLEX_INTERFACE
 
 end:
 
+    vlc_gc_decref(p_new_input);
     input_item_node_Delete(p_new_node);
     free(psz_value);
     return false;
@@ -527,7 +535,7 @@ static bool set_item_info SIMPLE_INTERFACE
         return false;
 
     /* re-convert xml special characters inside psz_value */
-    resolve_xml_special_chars(psz_value);
+    vlc_xml_decode(psz_value);
 
     /* handle each info element in a separate "if" clause */
     if (!strcmp(psz_name, "title"))
@@ -547,7 +555,7 @@ static bool set_item_info SIMPLE_INTERFACE
         input_item_SetDescription(p_input, psz_value);
     else if (!strcmp(psz_name, "info"))
         input_item_SetURL(p_input, psz_value);
-    else if (!strcmp(psz_name, "image"))
+    else if (!strcmp(psz_name, "image") && *psz_value)
         input_item_SetArtURL(p_input, psz_value);
     return true;
 }
@@ -562,7 +570,7 @@ static bool set_option SIMPLE_INTERFACE
         return false;
 
     /* re-convert xml special characters inside psz_value */
-    resolve_xml_special_chars(psz_value);
+    vlc_xml_decode(psz_value);
 
     input_item_AddOption(p_input, psz_value, 0);
 
@@ -600,7 +608,7 @@ static bool parse_extension_node COMPLEX_INTERFACE
             free(psz_title);
             psz_title = strdup(value);
             if (likely(psz_title != NULL))
-                resolve_xml_special_chars(psz_title);
+                vlc_xml_decode(psz_title);
         }
         /* extension attribute: application */
         else if (!strcmp(name, "application"))
@@ -619,12 +627,12 @@ static bool parse_extension_node COMPLEX_INTERFACE
     {
         if (!psz_title)
         {
+            free(psz_application);
             msg_Warn(p_demux, "<vlc:node> requires \"title\" attribute");
             return false;
         }
-        p_new_input = input_item_NewWithType("vlc://nop", psz_title,
-                                              0, NULL, 0, -1,
-                                              ITEM_TYPE_DIRECTORY);
+        p_new_input = input_item_NewDirectory("vlc://nop", psz_title,
+                                              ITEM_NET_UNKNOWN);
         if (p_new_input)
         {
             p_input_node =
@@ -632,12 +640,12 @@ static bool parse_extension_node COMPLEX_INTERFACE
             p_input_item = p_new_input;
             b_release_input_item = true;
         }
-        free(psz_title);
     }
     else if (!strcmp(psz_element, "extension"))
     {
         if (!psz_application)
         {
+            free(psz_title);
             msg_Warn(p_demux, "<extension> requires \"application\" attribute");
             return false;
         }
@@ -647,6 +655,7 @@ static bool parse_extension_node COMPLEX_INTERFACE
         {
             msg_Dbg(p_demux, "Skipping \"%s\" extension tag", psz_application);
             free(psz_application);
+            free(psz_title);
             /* Skip all children */
             for (unsigned lvl = 1; lvl;)
                 switch (xml_ReaderNextNode(p_xml_reader, NULL))
@@ -659,7 +668,7 @@ static bool parse_extension_node COMPLEX_INTERFACE
         }
     }
     free(psz_application);
-
+    free(psz_title);
 
     /* parse the child elements */
     while ((i_node = xml_ReaderNextNode(p_xml_reader, &name)) > 0)
@@ -752,6 +761,7 @@ static bool parse_extension_node COMPLEX_INTERFACE
         }
     }
     if (b_release_input_item) vlc_gc_decref(p_new_input);
+    free(psz_value);
     return false;
 }
 

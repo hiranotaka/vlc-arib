@@ -117,45 +117,71 @@ static char * str8indup( const char *psz_string, size_t i_skip, size_t n )
     return strndup( psz_string, psz_tmp - psz_string );
 }
 
-static void SegmentDoSplit( segment_t *p_segment, uint16_t i_start, uint16_t i_end,
-                            segment_t **pp_segment_left,
-                            segment_t **pp_segment_middle,
-                            segment_t **pp_segment_right )
+typedef struct tx3g_segment_t tx3g_segment_t;
+
+struct tx3g_segment_t
 {
-    segment_t *p_segment_left = *pp_segment_left;
-    segment_t *p_segment_right = *pp_segment_right;
-    segment_t *p_segment_middle = *pp_segment_middle;
-    p_segment_left = p_segment_middle = p_segment_right = NULL;
+    text_segment_t *s;
+    size_t i_size;
+    tx3g_segment_t *p_next3g;
+};
+
+static tx3g_segment_t * tx3g_segment_New( const char *psz_string )
+{
+    tx3g_segment_t *p_seg = malloc( sizeof(tx3g_segment_t) );
+    if( p_seg )
+    {
+        p_seg->i_size = 0;
+        p_seg->p_next3g = NULL;
+        p_seg->s = text_segment_New( psz_string );
+        if( !p_seg->s )
+        {
+            free( p_seg );
+            p_seg = NULL;
+        }
+    }
+    return p_seg;
+}
+
+static void SegmentDoSplit( tx3g_segment_t *p_segment, uint16_t i_start, uint16_t i_end,
+                            tx3g_segment_t **pp_segment_left,
+                            tx3g_segment_t **pp_segment_middle,
+                            tx3g_segment_t **pp_segment_right )
+{
+    tx3g_segment_t *p_segment_left = NULL, *p_segment_right = NULL, *p_segment_middle = NULL;
 
     if ( (p_segment->i_size - i_start < 1) || (p_segment->i_size - i_end < 1) )
-        return;
+        goto error;
 
     if ( i_start > 0 )
     {
-        p_segment_left = calloc( 1, sizeof(segment_t) );
+        char* psz_text = str8indup( p_segment->s->psz_text, 0, i_start );
+        p_segment_left = tx3g_segment_New( psz_text );
+        free( psz_text );
         if ( !p_segment_left ) goto error;
-        memcpy( &p_segment_left->styles, &p_segment->styles, sizeof(segment_style_t) );
-        p_segment_left->psz_string = str8indup( p_segment->psz_string, 0, i_start );
-        p_segment_left->i_size = str8len( p_segment_left->psz_string );
+        p_segment_left->s->style = text_style_Duplicate( p_segment->s->style );
+        p_segment_left->i_size = str8len( p_segment_left->s->psz_text );
     }
 
-    p_segment_middle = calloc( 1, sizeof(segment_t) );
+    char* psz_text = str8indup( p_segment->s->psz_text, i_start, i_end - i_start + 1 );
+    p_segment_middle = tx3g_segment_New( psz_text );
+    free( psz_text );
     if ( !p_segment_middle ) goto error;
-    memcpy( &p_segment_middle->styles, &p_segment->styles, sizeof(segment_style_t) );
-    p_segment_middle->psz_string = str8indup( p_segment->psz_string, i_start, i_end - i_start + 1 );
-    p_segment_middle->i_size = str8len( p_segment_middle->psz_string );
+    p_segment_middle->s->style = text_style_Duplicate( p_segment->s->style );
+    p_segment_middle->i_size = str8len( p_segment_middle->s->psz_text );
 
     if ( i_end < (p_segment->i_size - 1) )
     {
-        p_segment_right = calloc( 1, sizeof(segment_t) );
+        char* psz_text = str8indup( p_segment->s->psz_text, i_end + 1, p_segment->i_size - i_end - 1 );
+        p_segment_right = tx3g_segment_New( psz_text );
+        free( psz_text );
         if ( !p_segment_right ) goto error;
-        memcpy( &p_segment_right->styles, &p_segment->styles, sizeof(segment_style_t) );
-        p_segment_right->psz_string = str8indup( p_segment->psz_string, i_end + 1, p_segment->i_size - i_end - 1 );
-        p_segment_right->i_size = str8len( p_segment_right->psz_string );
+        p_segment_right->s->style = text_style_Duplicate( p_segment->s->style );
+        p_segment_right->i_size = str8len( p_segment_right->s->psz_text );
     }
 
-    if ( p_segment_left ) p_segment_left->p_next = p_segment_middle;
-    if ( p_segment_right ) p_segment_middle->p_next = p_segment_right;
+    if ( p_segment_left ) p_segment_left->p_next3g = p_segment_middle;
+    if ( p_segment_right ) p_segment_middle->p_next3g = p_segment_right;
 
     *pp_segment_left = p_segment_left;
     *pp_segment_middle = p_segment_middle;
@@ -164,16 +190,24 @@ static void SegmentDoSplit( segment_t *p_segment, uint16_t i_start, uint16_t i_e
     return;
 
 error:
-    SegmentFree( p_segment_left );
-    SegmentFree( p_segment_middle );
-    SegmentFree( p_segment_right );
+    if( p_segment_middle )
+    {
+        text_segment_Delete( p_segment_middle->s );
+        free( p_segment_middle );
+    }
+    if( p_segment_left )
+    {
+        text_segment_Delete( p_segment_left->s );
+        free( p_segment_left );
+    }
+    *pp_segment_left = *pp_segment_middle = *pp_segment_right = NULL;
 }
 
-static bool SegmentSplit( segment_t *p_prev, segment_t **pp_segment,
+static bool SegmentSplit( tx3g_segment_t *p_prev, tx3g_segment_t **pp_segment,
                           const uint16_t i_start, const uint16_t i_end,
-                          const segment_style_t *p_styles )
+                          const text_style_t *p_styles )
 {
-    segment_t *p_segment_left = NULL, *p_segment_middle = NULL, *p_segment_right = NULL;
+    tx3g_segment_t *p_segment_left = NULL, *p_segment_middle = NULL, *p_segment_right = NULL;
 
     if ( (*pp_segment)->i_size == 0 ) return false;
     if ( i_start > i_end ) return false;
@@ -184,35 +218,39 @@ static bool SegmentSplit( segment_t *p_prev, segment_t **pp_segment,
     if ( !p_segment_middle )
     {
         /* Failed */
-        SegmentFree( p_segment_left );
-        SegmentFree( p_segment_right );
+        text_segment_Delete( p_segment_left->s );
+        free( p_segment_left );
+        text_segment_Delete( p_segment_right->s );
+        free( p_segment_right );
         return false;
     }
 
-    segment_t *p_next = (*pp_segment)->p_next;
-    SegmentFree( *pp_segment );
+    tx3g_segment_t *p_next3g = (*pp_segment)->p_next3g;
+    text_segment_Delete( (*pp_segment)->s );
+    free( *pp_segment );
     *pp_segment = ( p_segment_left ) ? p_segment_left : p_segment_middle ;
-    if ( p_prev ) p_prev->p_next = *pp_segment;
+    if ( p_prev ) p_prev->p_next3g = *pp_segment;
 
     if ( p_segment_right )
-        p_segment_right->p_next = p_next;
+        p_segment_right->p_next3g = p_next3g;
     else
-        p_segment_middle->p_next = p_next;
+        p_segment_middle->p_next3g = p_next3g;
 
-    p_segment_middle->styles = *p_styles;
+    text_style_Delete( p_segment_middle->s->style );
+    p_segment_middle->s->style = text_style_Duplicate( p_styles );
 
     return true;
 }
 
 /* Creates a new segment using the given style and split existing ones according
    to the start & end offsets */
-static void ApplySegmentStyle( segment_t **pp_segment, const uint16_t i_absstart,
-                               const uint16_t i_absend, const segment_style_t *p_styles )
+static void ApplySegmentStyle( tx3g_segment_t **pp_segment, const uint16_t i_absstart,
+                               const uint16_t i_absend, const text_style_t *p_styles )
 {
     /* find the matching segment */
     uint16_t i_curstart = 0;
-    segment_t *p_prev = NULL;
-    segment_t *p_cur = *pp_segment;
+    tx3g_segment_t *p_prev = NULL;
+    tx3g_segment_t *p_cur = *pp_segment;
     while ( p_cur )
     {
         uint16_t i_curend = i_curstart + p_cur->i_size - 1;
@@ -229,7 +267,7 @@ static void ApplySegmentStyle( segment_t **pp_segment, const uint16_t i_absstart
         {
             i_curstart += p_cur->i_size;
             p_prev = p_cur;
-            p_cur = p_cur->p_next;
+            p_cur = p_cur->p_next3g;
         }
     }
 }
@@ -246,7 +284,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     p_block = *pp_block;
     *pp_block = NULL;
 
-    if( ( p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED) ) ||
+    if( ( p_block->i_flags & (BLOCK_FLAG_CORRUPTED) ) ||
           p_block->i_buffer < sizeof(uint16_t) )
     {
         block_Release( p_block );
@@ -278,27 +316,17 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     for( uint16_t i=0; i < i_psz_bytelength; i++ )
      if ( psz_subtitle[i] == '\r' ) psz_subtitle[i] = '\n';
 
-    segment_t *p_segment = calloc( 1, sizeof(segment_t) );
-    if ( !p_segment )
-    {
-        free( psz_subtitle );
-        return NULL;
-    }
-    p_segment->psz_string = strdup( psz_subtitle );
-    p_segment->i_size = str8len( psz_subtitle );
+    tx3g_segment_t *p_segment3g = tx3g_segment_New( psz_subtitle );
+    p_segment3g->i_size = str8len( psz_subtitle );
     if ( p_dec->fmt_in.subs.p_style )
-    {
-        p_segment->styles.i_color = p_dec->fmt_in.subs.p_style->i_font_color;
-        p_segment->styles.i_color |= p_dec->fmt_in.subs.p_style->i_font_alpha << 24;
-        if ( p_dec->fmt_in.subs.p_style->i_style_flags )
-            p_segment->styles.i_flags = p_dec->fmt_in.subs.p_style->i_style_flags;
-        p_segment->styles.i_fontsize = p_dec->fmt_in.subs.p_style->i_font_size;
-    }
+        p_segment3g->s->style = text_style_Duplicate( p_dec->fmt_in.subs.p_style );
 
-    if ( !p_segment->psz_string )
+    free( psz_subtitle );
+
+    if ( !p_segment3g->s->psz_text )
     {
-        SegmentFree( p_segment );
-        free( psz_subtitle );
+        text_segment_Delete( p_segment3g->s );
+        free( p_segment3g );
         return NULL;
     }
 
@@ -306,8 +334,8 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     p_spu = decoder_NewSubpictureText( p_dec );
     if( !p_spu )
     {
-        free( psz_subtitle );
-        SegmentFree( p_segment );
+        text_segment_Delete( p_segment3g->s );
+        free( p_segment3g );
         return NULL;
     }
     subpicture_updater_sys_t *p_spu_sys = p_spu->updater.p_sys;
@@ -333,24 +361,26 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
                 uint16_t i_start = __MIN( GetWBE(p_buf), i_psz_bytelength - 1 );
                 uint16_t i_end =  __MIN( GetWBE(p_buf + 2), i_psz_bytelength - 1 );
 
-                segment_style_t style;
-                style.i_flags = ConvertFlags( p_buf[6] );
-                style.i_fontsize = p_buf[7];
-                style.i_color = GetDWBE(p_buf+8) >> 8;// RGBA -> ARGB
-                style.i_color |= (GetDWBE(p_buf+8) & 0xFF) << 24;
-                ApplySegmentStyle( &p_segment, i_start, i_end, &style );
+                text_style_t style;
+                memset( &style, 0, sizeof(text_style_t) );
+                style.i_style_flags = ConvertFlags( p_buf[6] );
+                style.f_font_relsize = p_buf[7] * 5 / 100; /* in % units of 0.05 height */
+                style.i_font_color = GetDWBE(p_buf+8) >> 8;// RGBA -> RGB
+                style.i_font_alpha = GetDWBE(p_buf+8) & 0xFF;
+                style.i_features = STYLE_HAS_FONT_COLOR | STYLE_HAS_FONT_ALPHA;
+                ApplySegmentStyle( &p_segment3g, i_start, i_end, &style );
 
                 if ( i_nbrecords == 1 )
                 {
                     if ( p_buf[6] )
                     {
-                        p_spu_sys->style_flags.i_value = ConvertFlags( p_buf[6] );
-                        p_spu_sys->style_flags.b_set = true;
+                        if( (p_spu_sys->p_default_style->i_style_flags = ConvertFlags( p_buf[6] )) )
+                            p_spu_sys->p_default_style->i_features |= STYLE_HAS_FLAGS;
                     }
-                    p_spu_sys->i_font_height_abs_to_src = p_buf[7];
-                    p_spu_sys->font_color.i_value = GetDWBE(p_buf+8) >> 8;// RGBA -> ARGB
-                    p_spu_sys->font_color.i_value |= (GetDWBE(p_buf+8) & 0xFF) << 24;
-                    p_spu_sys->font_color.b_set = true;
+                    p_spu_sys->p_default_style->f_font_relsize = p_buf[7] * 5 / 100;
+                    p_spu_sys->p_default_style->i_font_color = GetDWBE(p_buf+8) >> 8;// RGBA -> ARGB
+                    p_spu_sys->p_default_style->i_font_alpha = (GetDWBE(p_buf+8) & 0xFF) << 24;
+                    p_spu_sys->p_default_style->i_features |= (STYLE_HAS_FONT_COLOR | STYLE_HAS_FONT_ALPHA);
                 }
 
                 p_buf += 12;
@@ -359,12 +389,13 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
 
         case VLC_FOURCC('d','r','p','o'):
             if ( (size_t)(p_buf - p_block->p_buffer) < 4 ) break;
-            p_spu_sys->i_drop_shadow = __MAX( GetWBE(p_buf), GetWBE(p_buf+2) );
+            p_spu_sys->p_default_style->i_shadow_width = __MAX( GetWBE(p_buf), GetWBE(p_buf+2) );
             break;
 
         case VLC_FOURCC('d','r','p','t'):
             if ( (size_t)(p_buf - p_block->p_buffer) < 2 ) break;
-            p_spu_sys->i_drop_shadow_alpha = GetWBE(p_buf);
+            p_spu_sys->p_default_style->i_shadow_alpha = GetWBE(p_buf);
+            p_spu_sys->p_default_style->i_features |= STYLE_HAS_SHADOW_ALPHA;
             break;
 
         default:
@@ -380,8 +411,21 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     p_spu->b_absolute = false;
 
     p_spu_sys->align = SUBPICTURE_ALIGN_BOTTOM;
-    p_spu_sys->text  = psz_subtitle;
-    p_spu_sys->p_htmlsegments = p_segment;
+
+    /* Unwrap */
+    text_segment_t *p_text_segments = p_segment3g->s;
+    text_segment_t *p_cur = p_text_segments;
+    while( p_segment3g )
+    {
+        tx3g_segment_t * p_old = p_segment3g;
+        p_segment3g = p_segment3g->p_next3g;
+        free( p_old );
+        if( p_segment3g )
+            p_cur->p_next = p_segment3g->s;
+        p_cur = p_cur->p_next;
+    }
+
+    p_spu_sys->p_segments = p_text_segments;
 
     block_Release( p_block );
 

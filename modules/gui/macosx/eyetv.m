@@ -30,46 +30,37 @@
 
 @implementation VLCEyeTVController
 
-@synthesize eyeTVRunning = b_eyeTVactive, deviceConnected = b_deviceConnected;
-
-static VLCEyeTVController *_o_sharedInstance = nil;
-
-+ (VLCEyeTVController *)sharedInstance
-{
-    return _o_sharedInstance ? _o_sharedInstance : [[self alloc] init];
-}
-
 - (id)init
 {
-    if (_o_sharedInstance)
-        [self dealloc];
-    else {
-        _o_sharedInstance = [super init];
-
-        [[NSDistributedNotificationCenter defaultCenter]
-                    addObserver: self
-                       selector: @selector(globalNotificationReceived:)
-                           name: NULL
-                         object: @"VLCEyeTVSupport"
-             suspensionBehavior: NSNotificationSuspensionBehaviorDeliverImmediately];
+    self = [super init];
+    if (self) {
+        [[NSDistributedNotificationCenter defaultCenter] addObserver:self
+                                                            selector:@selector(globalNotificationReceived:)
+                                                                name:NULL
+                                                              object:@"VLCEyeTVSupport"
+                                                  suspensionBehavior:NSNotificationSuspensionBehaviorDeliverImmediately];
     }
+    return self;
+}
 
-    return _o_sharedInstance;
+- (void)dealloc
+{
+    [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void)globalNotificationReceived: (NSNotification *)theNotification
 {
     /* update our info on the used device */
     if ([[theNotification name] isEqualToString: @"DeviceAdded"])
-        b_deviceConnected = YES;
+        _deviceConnected = YES;
     if ([[theNotification name] isEqualToString: @"DeviceRemoved"])
-        b_deviceConnected = NO;
+        _deviceConnected = NO;
 
     /* is eyetv running? */
     if ([[theNotification name] isEqualToString: @"PluginInit"])
-        b_eyeTVactive = YES;
+        _eyeTVRunning = YES;
     if ([[theNotification name] isEqualToString: @"PluginQuit"])
-        b_eyeTVactive = NO;
+        _eyeTVRunning = NO;
 }
 
 - (void)launchEyeTV
@@ -84,7 +75,6 @@ static VLCEyeTVController *_o_sharedInstance = nil;
         NSString *errorString = [errorDict objectForKey:NSAppleScriptErrorMessage];
         NSLog(@"opening EyeTV failed with error status '%@'", errorString);
     }
-    [script release];
 }
 
 - (int)channel
@@ -99,7 +89,6 @@ static VLCEyeTVController *_o_sharedInstance = nil;
         NSLog(@"EyeTV channel inventory failed with error status '%@'", errorString);
     } else
         currentChannel = (int)[descriptor int32Value];
-    [script release];
     return currentChannel;
 }
 
@@ -133,7 +122,6 @@ static VLCEyeTVController *_o_sharedInstance = nil;
     } else
         currentChannel = (int)[descriptor int32Value];
 
-    [script release];
     return currentChannel;
 }
 
@@ -179,7 +167,6 @@ static VLCEyeTVController *_o_sharedInstance = nil;
         NSString *errorString = [errorDict objectForKey:NSAppleScriptErrorMessage];
         NSLog(@"EyeTV source change failed with error status '%@'", errorString);
     }
-    [script release];
 }
 
 - (NSEnumerator *)allChannels
@@ -201,7 +188,6 @@ static VLCEyeTVController *_o_sharedInstance = nil;
 
         channels = [channelArray objectEnumerator];
     }
-    [script release];
     return channels;
 }
 

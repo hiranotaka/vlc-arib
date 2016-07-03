@@ -86,6 +86,8 @@ libvlc_audio_output_t *
         item->psz_description = strdup( module_get_name( module, true ) );
         if( unlikely(item->psz_name == NULL || item->psz_description == NULL) )
         {
+            free( item->psz_name );
+            free( item->psz_description );
             free( item );
             goto error;
         }
@@ -146,7 +148,7 @@ libvlc_audio_output_device_enum( libvlc_media_player_t *mp )
     if( aout == NULL )
         return NULL;
 
-    libvlc_audio_output_device_t *list = NULL, **pp = &list;
+    libvlc_audio_output_device_t *list, **pp = &list;
     char **values, **texts;
 
     int n = aout_DevicesList( aout, &values, &texts );
@@ -173,6 +175,7 @@ libvlc_audio_output_device_enum( libvlc_media_player_t *mp )
     free( texts );
     free( values );
 err:
+    *pp = NULL;
     return list;
 }
 
@@ -274,6 +277,19 @@ void libvlc_audio_output_device_set( libvlc_media_player_t *mp,
 
     aout_DeviceSet( aout, devid );
     vlc_object_release( aout );
+}
+
+char *libvlc_audio_output_device_get( libvlc_media_player_t *mp )
+{
+    audio_output_t *aout = GetAOut( mp );
+    if( aout == NULL )
+        return NULL;
+
+    char *devid = aout_DeviceGet( aout );
+
+    vlc_object_release( aout );
+
+    return devid;
 }
 
 int libvlc_audio_output_get_device_type( libvlc_media_player_t *mp )
@@ -464,7 +480,7 @@ int64_t libvlc_audio_get_delay( libvlc_media_player_t *p_mi )
     int64_t val = 0;
     if( p_input_thread != NULL )
     {
-      val = var_GetTime( p_input_thread, "audio-delay" );
+      val = var_GetInteger( p_input_thread, "audio-delay" );
       vlc_object_release( p_input_thread );
     }
     return val;
@@ -479,7 +495,7 @@ int libvlc_audio_set_delay( libvlc_media_player_t *p_mi, int64_t i_delay )
     int ret = 0;
     if( p_input_thread != NULL )
     {
-      var_SetTime( p_input_thread, "audio-delay", i_delay );
+      var_SetInteger( p_input_thread, "audio-delay", i_delay );
       vlc_object_release( p_input_thread );
     }
     else

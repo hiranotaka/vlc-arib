@@ -29,11 +29,11 @@
 #include "../utils/ustring.hpp"
 
 #ifdef HAVE_FRIBIDI
-#include <fribidi/fribidi.h>
+# include <fribidi.h>
 #endif
 
 
-FT2Font::FT2Font( intf_thread_t *pIntf, const string &rName, int size ):
+FT2Font::FT2Font( intf_thread_t *pIntf, const std::string &rName, int size ):
     GenericFont( pIntf ), m_name( rName ), m_buffer( NULL ), m_size( size ),
     m_lib( NULL ), m_face( NULL )
 {
@@ -62,7 +62,7 @@ bool FT2Font::init()
         return false;
     }
 
-    FILE *file = fopen( m_name.c_str(), "rb" );
+    FILE *file = vlc_fopen( m_name.c_str(), "rb" );
     if( !file )
     {
         msg_Dbg( getIntf(), "failed to open font %s (%s)",

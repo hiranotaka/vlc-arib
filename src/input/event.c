@@ -55,10 +55,6 @@ void input_SendEventDead( input_thread_t *p_input )
 
     Trigger( p_input, INPUT_EVENT_DEAD );
 }
-void input_SendEventAbort( input_thread_t *p_input )
-{
-    Trigger( p_input, INPUT_EVENT_ABORT );
-}
 
 void input_SendEventPosition( input_thread_t *p_input, double f_position, mtime_t i_time )
 {
@@ -69,7 +65,7 @@ void input_SendEventPosition( input_thread_t *p_input, double f_position, mtime_
     var_Change( p_input, "position", VLC_VAR_SETVALUE, &val, NULL );
 
     /* */
-    val.i_time = i_time;
+    val.i_int = i_time;
     var_Change( p_input, "time", VLC_VAR_SETVALUE, &val, NULL );
 
     Trigger( p_input, INPUT_EVENT_POSITION );
@@ -79,12 +75,12 @@ void input_SendEventLength( input_thread_t *p_input, mtime_t i_length )
     vlc_value_t val;
 
     /* FIXME ugly + what about meta change event ? */
-    if( var_GetTime( p_input, "length" ) == i_length )
+    if( var_GetInteger( p_input, "length" ) == i_length )
         return;
 
     input_item_SetDuration( p_input->p->p_item, i_length );
 
-    val.i_time = i_length;
+    val.i_int = i_length;
     var_Change( p_input, "length", VLC_VAR_SETVALUE, &val, NULL );
 
     Trigger( p_input, INPUT_EVENT_LENGTH );
@@ -106,7 +102,7 @@ void input_SendEventAudioDelay( input_thread_t *p_input, mtime_t i_delay )
 {
     vlc_value_t val;
 
-    val.i_time = i_delay;
+    val.i_int = i_delay;
     var_Change( p_input, "audio-delay", VLC_VAR_SETVALUE, &val, NULL );
 
     Trigger( p_input, INPUT_EVENT_AUDIO_DELAY );
@@ -116,7 +112,7 @@ void input_SendEventSubtitleDelay( input_thread_t *p_input, mtime_t i_delay )
 {
     vlc_value_t val;
 
-    val.i_time = i_delay;
+    val.i_int = i_delay;
     var_Change( p_input, "spu-delay", VLC_VAR_SETVALUE, &val, NULL );
 
     Trigger( p_input, INPUT_EVENT_SUBTITLE_DELAY );
@@ -153,9 +149,9 @@ void input_SendEventSeekpoint( input_thread_t *p_input, int i_title, int i_seekp
     val.i_int = i_seekpoint;
     var_Change( p_input, "chapter", VLC_VAR_SETVALUE, &val, NULL );
 
-    /* "title %2i" */
-    char psz_title[10];
-    snprintf( psz_title, sizeof(psz_title), "title %2i", i_title );
+    /* "title %2u" */
+    char psz_title[sizeof ("title ") + 3 * sizeof (int)];
+    sprintf( psz_title, "title %2u", i_title );
     var_Change( p_input, psz_title, VLC_VAR_SETVALUE, &val, NULL );
 
     /* */
@@ -270,6 +266,8 @@ static const char *GetEsVarName( int i_cat )
         return "video-es";
     case AUDIO_ES:
         return "audio-es";
+    case NAV_ES:
+        return "nav-es";
     default:
         assert( i_cat == SPU_ES );
         return "spu-es";

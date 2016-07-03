@@ -33,10 +33,12 @@
 #include <assert.h>
 #include <unistd.h>
 
+#define VLC_MODULE_LICENSE VLC_LICENSE_GPL_2_PLUS
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_interface.h>
 #include <vlc_playlist.h>
+#include <vlc_input.h>
 #include <vlc_vout.h>
 
 #include "motionlib.h"
@@ -187,7 +189,7 @@ static void *RunIntf( void *data )
 
         vlc_restorecancel( canc );
     }
-    assert(0);
+    vlc_assert_unreachable();
 }
 #undef LOW_THRESHOLD
 #undef HIGH_THRESHOLD

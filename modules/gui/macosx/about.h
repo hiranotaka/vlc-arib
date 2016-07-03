@@ -23,14 +23,14 @@
  *****************************************************************************/
 
 #import <WebKit/WebKit.h> //we need to be here, because we're using a WebView object below
+#import "VLCScrollingClipView.h"
 
 /*****************************************************************************
  * VLAboutBox interface
  *****************************************************************************/
-@interface VLAboutBox : NSObject
+@interface AboutWindowController : NSWindowController<NSWindowDelegate>
 {
     /* main about panel and stuff related to its views */
-    IBOutlet id o_about_window;
     IBOutlet id o_name_version_field;
     IBOutlet id o_revision_field;
     IBOutlet id o_copyright_field;
@@ -43,29 +43,23 @@
     IBOutlet id o_icon_view;
     IBOutlet id o_joinus_txt;
     IBOutlet id o_trademarks_txt;
+}
 
-    NSTimer *o_scroll_timer;
-    float f_current;
-    CGFloat f_end;
-    NSTimeInterval i_start;
-    BOOL b_restart;
-    BOOL b_isSetUp;
+- (void)showAbout;
+- (void)showGPL;
+- (IBAction)buttonAction:(id)sender;
 
-    NSString *o_authors;
+@end
 
-    /* generic help window */
-    IBOutlet id o_help_window;
+@interface HelpWindowController : NSWindowController
+{
     IBOutlet WebView *o_help_web_view; //we may _not_ use id here because of method name collisions
     IBOutlet id o_help_bwd_btn;
     IBOutlet id o_help_fwd_btn;
     IBOutlet id o_help_home_btn;
 }
 
-+ (VLAboutBox *)sharedInstance;
-- (void)showAbout;
-- (void)showHelp;
-- (void)showGPL;
-- (IBAction)buttonAction:(id)sender;
 - (IBAction)helpGoHome:(id)sender;
+- (void)showHelp;
 
 @end

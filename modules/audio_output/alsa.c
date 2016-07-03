@@ -158,6 +158,7 @@ static const uint16_t vlc_chans[] = {
     [SND_CHMAP_SR]   = AOUT_CHAN_MIDDLERIGHT,
     [SND_CHMAP_RC]   = AOUT_CHAN_REARCENTER,
 };
+static_assert(AOUT_CHAN_MAX == 9, "Missing channel entries");
 
 static int Map2Mask (vlc_object_t *obj, const snd_pcm_chmap_t *restrict map)
 {
@@ -325,9 +326,31 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
     }
 
     const char *device = sys->device;
-    char *devbuf = NULL;
+
     /* Choose the IEC device for S/PDIF output */
+    char sep = '\0';
     if (spdif)
+    {
+        const char *opt = NULL;
+
+        if (!strcmp (device, "default"))
+            device = "iec958"; /* TODO: hdmi */
+
+        if (!strncmp (device, "iec958", 6))
+            opt = device + 6;
+        if (!strncmp (device, "hdmi", 4))
+            opt = device + 4;
+
+        if (opt != NULL)
+            switch (*opt)
+            {
+                case ':':  sep = ','; break;
+                case '\0': sep = ':'; break;
+            }
+    }
+
+    char *devbuf = NULL;
+    if (sep != '\0')
     {
         unsigned aes3;
 
@@ -345,23 +368,8 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
                 break;
         }
 
-        char *opt = NULL;
-        if (!strcmp (device, "default"))
-            device = "iec958"; /* TODO: hdmi */
-        else
-        {
-            opt = strchr(device, ':');
-            if (opt && opt[1] == '\0') {
-                /* if device is terminated by : but there's no options,
-                 * remove ':', we'll add it back in the format string. */
-                *opt = '\0';
-                opt = NULL;
-            }
-        }
-
-        if (asprintf (&devbuf,
-                      "%s%cAES0=0x%x,AES1=0x%x,AES2=0x%x,AES3=0x%x", device,
-                      opt ? ',' : ':',
+        if (asprintf (&devbuf, "%s%cAES0=0x%x,AES1=0x%x,AES2=0x%x,AES3=0x%x",
+                      device, sep,
                       IEC958_AES0_CON_EMPHASIS_NONE | IEC958_AES0_NONAUDIO,
                       IEC958_AES1_CON_ORIGINAL | IEC958_AES1_CON_PCM_CODER,
                       0, aes3) == -1)
@@ -375,20 +383,21 @@ static int Start (audio_output_t *aout, audio_sample_format_t *restrict fmt)
     const int mode = SND_PCM_NO_AUTO_RESAMPLE;
 
     int val = snd_pcm_open (&pcm, device, SND_PCM_STREAM_PLAYBACK, mode);
-    free (devbuf);
     if (val != 0)
     {
-        msg_Err (aout, "cannot open ALSA device \"%s\": %s", sys->device,
+        msg_Err (aout, "cannot open ALSA device \"%s\": %s", device,
                  snd_strerror (val));
-        dialog_Fatal (aout, _("Audio output failed"),
-                      _("The audio device \"%s\" could not be used:\n%s."),
-                      sys->device, snd_strerror (val));
+        vlc_dialog_display_error (aout, _("Audio output failed"),
+            _("The audio device \"%s\" could not be used:\n%s."),
+            sys->device, snd_strerror (val));
+        free (devbuf);
         return VLC_EGENERIC;
     }
     sys->pcm = pcm;
 
     /* Print some potentially useful debug */
-    msg_Dbg (aout, "using ALSA device: %s", sys->device);
+    msg_Dbg (aout, "using ALSA device: %s", device);
+    free (devbuf);
     DumpDevice (VLC_OBJECT(aout), pcm);
 
     /* Get Initial hardware parameters */
@@ -718,6 +727,7 @@ static int EnumDevices(vlc_object_t *obj, char const *varname,
 
     char **ids = NULL, **names = NULL;
     unsigned n = 0;
+    bool hinted_default = false;
 
     for (size_t i = 0; hints[i] != NULL; i++)
     {
@@ -728,9 +738,10 @@ static int EnumDevices(vlc_object_t *obj, char const *varname,
             continue;
 
         char *desc = snd_device_name_get_hint(hint, "DESC");
-        if (desc != NULL)
-            for (char *lf = strchr(desc, '\n'); lf; lf = strchr(lf, '\n'))
-                 *lf = ' ';
+        if (desc == NULL)
+            desc = xstrdup (name);
+        for (char *lf = strchr(desc, '\n'); lf; lf = strchr(lf, '\n'))
+            *lf = ' ';
         msg_Dbg (obj, "%s (%s)", (desc != NULL) ? desc : name, name);
 
         ids = xrealloc (ids, (n + 1) * sizeof (*ids));
@@ -738,9 +749,22 @@ static int EnumDevices(vlc_object_t *obj, char const *varname,
         ids[n] = name;
         names[n] = desc;
         n++;
+
+        if (!strcmp(name, "default"))
+            hinted_default = true;
     }
 
     snd_device_name_free_hint(hints);
+
+    if (!hinted_default)
+    {
+        ids = xrealloc (ids, (n + 1) * sizeof (*ids));
+        names = xrealloc (names, (n + 1) * sizeof (*names));
+        ids[n] = xstrdup ("default");
+        names[n] = xstrdup (_("Default"));
+        n++;
+    }
+
     *idp = ids;
     *namep = names;
     (void) varname;

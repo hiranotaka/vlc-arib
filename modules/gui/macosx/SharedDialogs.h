@@ -23,75 +23,66 @@
 
 #import <Cocoa/Cocoa.h>
 
-@interface VLCEnterTextPanel : NSObject
-{
-    IBOutlet id _panel;
-    IBOutlet id _title_lbl;
-    IBOutlet id _subtitle_lbl;
-    IBOutlet id _text_fld;
-    IBOutlet id _cancel_btn;
-    IBOutlet id _ok_btn;
+@interface VLCTextfieldPanelController : NSWindowController
 
-    NSString * _title;
-    NSString * _subtitle;
-    NSString * _okTitle;
-    NSString * _cancelTitle;
-    id _target;
-}
-+ (VLCEnterTextPanel *)sharedInstance;
+@property (weak) IBOutlet NSTextField *titleLabel;
+@property (weak) IBOutlet NSTextField *subtitleLabel;
+@property (weak) IBOutlet NSTextField *textField;
+@property (weak) IBOutlet NSButton *cancelButton;
+@property (weak) IBOutlet NSButton *okButton;
 
-@property (readwrite, assign) NSString *title;
-@property (readwrite, assign) NSString *subTitle;
-@property (readwrite, assign) NSString *OKButtonLabel;
-@property (readwrite, assign) NSString *CancelButtonLabel;
-@property (readwrite, assign) id target;
-@property (readonly) NSString *enteredText;
+@property (readwrite, assign) NSString *titleString;
+@property (readwrite, assign) NSString *subTitleString;
+@property (readwrite, assign) NSString *okButtonString;
+@property (readwrite, assign) NSString *cancelButtonString;
 
-- (void)runModalForWindow:(NSWindow *)window;
+/**
+ * Completion handler for textfield panel
+ * \param returnCode Result from panel. Can be NSOKButton or NSCancelButton.
+ * \param resultingText Resulting text string entered in panel.
+ */
+typedef void(^TextfieldPanelCompletionBlock)(NSInteger returnCode, NSString *resultingText);
+
+/**
+ * Shows the panel as a modal dialog with window as its owner.
+ * \param window Parent window for the dialog.
+ * \param handler Completion block.
+ */
+- (void)runModalForWindow:(NSWindow *)window completionHandler:(TextfieldPanelCompletionBlock)handler;
 
 - (IBAction)windowElementAction:(id)sender;
 
 @end
 
-@protocol VLCEnterTextPanel <NSObject>
-@optional
-- (void)panel:(VLCEnterTextPanel *)view returnValue:(NSUInteger)value text:(NSString *)text;
-@end
 
-@interface VLCSelectItemInPopupPanel : NSObject
-{
-    IBOutlet id _panel;
-    IBOutlet id _title_lbl;
-    IBOutlet id _subtitle_lbl;
-    IBOutlet id _pop;
-    IBOutlet id _cancel_btn;
-    IBOutlet id _ok_btn;
+@interface VLCPopupPanelController : NSWindowController
 
-    NSString * _title;
-    NSString * _subtitle;
-    NSString * _okTitle;
-    NSString * _cancelTitle;
-    NSArray * _popData;
+@property (weak) IBOutlet NSTextField *titleLabel;
+@property (weak) IBOutlet NSTextField *subtitleLabel;
+@property (weak) IBOutlet NSPopUpButton *popupButton;
+@property (weak) IBOutlet NSButton *cancelButton;
+@property (weak) IBOutlet NSButton *okButton;
 
-    id _target;
-}
-+ (VLCSelectItemInPopupPanel *)sharedInstance;
-
-@property (readwrite, assign) NSString *title;
-@property (readwrite, assign) NSString *subTitle;
-@property (readwrite, assign) NSString *OKButtonLabel;
-@property (readwrite, assign) NSString *CancelButtonLabel;
+@property (readwrite, assign) NSString *titleString;
+@property (readwrite, assign) NSString *subTitleString;
+@property (readwrite, assign) NSString *okButtonString;
+@property (readwrite, assign) NSString *cancelButtonString;
 @property (readwrite, assign) NSArray *popupButtonContent;
-@property (readwrite, assign) id target;
-@property (readonly) NSUInteger currentItem;
 
-- (void)runModalForWindow:(NSWindow *)window;
+/**
+ * Completion handler for popup panel
+ * \param returnCode Result from panel. Can be NSOKButton or NSCancelButton.
+ * \param selectedIndex Selected index of the popup in panel.
+ */
+typedef void(^PopupPanelCompletionBlock)(NSInteger returnCode, NSInteger selectedIndex);
+
+/**
+ * Shows the panel as a modal dialog with window as its owner.
+ * \param window Parent window for the dialog.
+ * \param handler Completion block.
+ */
+- (void)runModalForWindow:(NSWindow *)window completionHandler:(PopupPanelCompletionBlock)handler;
 
 - (IBAction)windowElementAction:(id)sender;
 
-@end
-
-@protocol VLCSelectItemInPopupPanel <NSObject>
-@optional
-- (void)panel:(VLCSelectItemInPopupPanel *)panel returnValue:(NSUInteger)value item:(NSUInteger)item;
 @end

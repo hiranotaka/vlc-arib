@@ -10,7 +10,7 @@ PKGS_FOUND += samplerate
 endif
 
 $(TARBALLS)/libsamplerate-$(SAMPLERATE_VERSION).tar.gz:
-	$(call download,$(SAMPLERATE_URL))
+	$(call download_pkg,$(SAMPLERATE_URL),samplerate)
 
 .sum-samplerate: libsamplerate-$(SAMPLERATE_VERSION).tar.gz
 
@@ -21,5 +21,5 @@ samplerate: libsamplerate-$(SAMPLERATE_VERSION).tar.gz .sum-samplerate
 
 .samplerate: samplerate
 	cd $< && $(HOSTVARS) ./configure $(HOSTCONF)
-	cd $< && $(MAKE) install
+	cd $< && $(MAKE) -C src install && $(MAKE) install-data
 	touch $@

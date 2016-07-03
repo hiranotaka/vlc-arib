@@ -36,7 +36,7 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_codec.h>                              /* decoder_DeletePicture */
+#include <vlc_codec.h>
 
 #include <schroedinger/schro.h>
 
@@ -525,6 +525,7 @@ vlc_module_end ()
  * Local prototypes
  *****************************************************************************/
 static picture_t *DecodeBlock  ( decoder_t *p_dec, block_t **pp_block );
+static void Flush( decoder_t * );
 
 struct picture_free_t
 {
@@ -588,6 +589,7 @@ static int OpenDecoder( vlc_object_t *p_this )
 
     /* Set callbacks */
     p_dec->pf_decode_video = DecodeBlock;
+    p_dec->pf_flush        = Flush;
 
     return VLC_SUCCESS;
 }
@@ -602,7 +604,7 @@ static void SetVideoFormat( decoder_t *p_dec )
     p_sys->p_format = schro_decoder_get_video_format(p_sys->p_schro);
     if( p_sys->p_format == NULL ) return;
 
-    p_sys->i_frame_pts_delta = INT64_C(1000000)
+    p_sys->i_frame_pts_delta = CLOCK_FREQ
                             * p_sys->p_format->frame_rate_denominator
                             / p_sys->p_format->frame_rate_numerator;
 
@@ -646,7 +648,7 @@ static void SchroFrameFree( SchroFrame *frame, void *priv)
     if( !p_free )
         return;
 
-    decoder_DeletePicture( p_free->p_dec, p_free->p_pic );
+    picture_Release( p_free->p_pic );
     free(p_free);
     (void)frame;
 }
@@ -738,6 +740,17 @@ static void CloseDecoder( vlc_object_t *p_this )
     free( p_sys );
 }
 
+/*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    schro_decoder_reset( p_sys->p_schro );
+    p_sys->i_lastpts = VLC_TS_INVALID;
+}
+
 /****************************************************************************
  * DecodeBlock: the whole thing
  ****************************************************************************
@@ -760,10 +773,9 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
         /* reset the decoder when seeking as the decode in progress is invalid */
         /* discard the block as it is just a null magic block */
-        if( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY ) {
-            schro_decoder_reset( p_sys->p_schro );
+        if( p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY | BLOCK_FLAG_CORRUPTED) ) {
+            Flush( p_dec );
 
-            p_sys->i_lastpts = VLC_TS_INVALID;
             block_Release( p_block );
             *pp_block = NULL;
             return NULL;
@@ -1066,7 +1078,7 @@ static int OpenEncoder( vlc_object_t *p_this )
     char *psz_tmp;
 
     if( p_enc->fmt_out.i_codec != VLC_CODEC_DIRAC &&
-        !p_enc->b_force )
+        !p_enc->obj.force )
     {
         return VLC_EGENERIC;
     }
@@ -1548,6 +1560,10 @@ static block_t *Encode( encoder_t *p_enc, picture_t *p_pic )
                      * is appended to the sequence header to allow guard
                      * against poor streaming servers */
                     /* XXX, should this be done using the packetizer ? */
+
+                    if( len > UINT32_MAX - sizeof( eos ) )
+                        return NULL;
+
                     p_enc->fmt_out.p_extra = malloc( len + sizeof( eos ) );
                     if( !p_enc->fmt_out.p_extra )
                         return NULL;

@@ -148,7 +148,7 @@ static int Open (vlc_object_t *obj)
     r = xcb_intern_atom_reply (conn, ncl, NULL);
     if (r == NULL || r->atom == 0)
     {
-        dialog_Fatal (sd, _("Screen capture"),
+        vlc_dialog_display_error (sd, _("Screen capture"),
             _("Your window manager does not provide a list of applications."));
         msg_Err (sd, "client list not supported (_NET_CLIENT_LIST absent)");
     }
@@ -255,9 +255,7 @@ static struct app *AddApp (services_discovery_t *sd, xcb_window_t xid)
     else
         name = NULL;
 
-    input_item_t *item = input_item_NewWithType (mrl, name ? name : mrl,
-                                                 0, NULL, 0, -1,
-                                                 ITEM_TYPE_CARD /* FIXME */);
+    input_item_t *item = input_item_NewCard (mrl, name ? name : mrl); /* FIXME */
     free (mrl);
     free (name);
     if (item == NULL)
@@ -348,10 +346,10 @@ static void AddDesktop(services_discovery_t *sd)
 {
     input_item_t *item;
 
-    item = input_item_NewWithType ("screen://", _("Desktop"),
-                                   0, NULL, 0, -1, ITEM_TYPE_CARD);
+    item = input_item_NewCard ("screen://", _("Desktop"));
     if (item == NULL)
         return;
 
     services_discovery_AddItem (sd, item, NULL);
+    input_item_Release (item);
 }

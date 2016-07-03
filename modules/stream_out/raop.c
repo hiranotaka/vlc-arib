@@ -81,8 +81,8 @@ static const char psz_delim_semicolon[] = ";";
 static int Open( vlc_object_t * );
 static void Close( vlc_object_t * );
 
-static sout_stream_id_sys_t *Add( sout_stream_t *, es_format_t * );
-static int Del( sout_stream_t *, sout_stream_id_sys_t * );
+static sout_stream_id_sys_t *Add( sout_stream_t *, const es_format_t * );
+static void Del( sout_stream_t *, sout_stream_id_sys_t * );
 static int Send( sout_stream_t *, sout_stream_id_sys_t *, block_t* );
 
 static int VolumeCallback( vlc_object_t *p_this, char const *psz_cmd,
@@ -126,7 +126,7 @@ struct sout_stream_sys_t
     int i_audio_latency;
     int i_jack_type;
 
-    http_auth_t auth;
+    vlc_http_auth_t auth;
 
     /* Send buffer */
     size_t i_sendbuf_len;
@@ -208,6 +208,7 @@ static void FreeSys( vlc_object_t *p_this, sout_stream_sys_t *p_sys )
     free( p_sys->psz_session );
     free( p_sys->psz_client_instance );
     free( p_sys->psz_last_status_line );
+    vlc_http_auth_Deinit( &p_sys->auth );
     free( p_sys );
 }
 
@@ -632,8 +633,7 @@ static int ReadStatusLine( vlc_object_t *p_this )
     char *psz_next;
     int i_result = VLC_EGENERIC;
 
-    p_sys->psz_last_status_line = net_Gets( p_this, p_sys->i_control_fd,
-                                            NULL );
+    p_sys->psz_last_status_line = net_Gets( p_this, p_sys->i_control_fd );
     if ( !p_sys->psz_last_status_line )
         goto error;
 
@@ -681,7 +681,7 @@ static int ReadHeader( vlc_object_t *p_this,
     char *psz_value;
     int i_err = VLC_SUCCESS;
 
-    psz_line = net_Gets( p_this, p_sys->i_control_fd, NULL );
+    psz_line = net_Gets( p_this, p_sys->i_control_fd );
     if ( !psz_line )
     {
         i_err = VLC_EGENERIC;
@@ -735,7 +735,7 @@ static int WriteAuxHeaders( vlc_object_t *p_this,
         psz_key = ppsz_keys[i];
         psz_value = vlc_dictionary_value_for_key( p_req_headers, psz_key );
 
-        i_rc = net_Printf( p_this, p_sys->i_control_fd, NULL,
+        i_rc = net_Printf( p_this, p_sys->i_control_fd,
                            "%s: %s\r\n", psz_key, psz_value );
         if ( i_rc < 0 )
         {
@@ -763,7 +763,7 @@ static int SendRequest( vlc_object_t *p_this, const char *psz_method,
     int i_err = VLC_SUCCESS;
     int i_rc;
 
-    i_rc = net_Printf( p_this, p_sys->i_control_fd, NULL,
+    i_rc = net_Printf( p_this, p_sys->i_control_fd,
                        "%s %s RTSP/1.0\r\n"
                        "User-Agent: " RAOP_USER_AGENT "\r\n"
                        "Client-Instance: %s\r\n"
@@ -779,7 +779,7 @@ static int SendRequest( vlc_object_t *p_this, const char *psz_method,
 
     if ( psz_content_type )
     {
-        i_rc = net_Printf( p_this, p_sys->i_control_fd, NULL,
+        i_rc = net_Printf( p_this, p_sys->i_control_fd,
                            "Content-Type: %s\r\n", psz_content_type );
         if ( i_rc < 0 )
         {
@@ -792,7 +792,7 @@ static int SendRequest( vlc_object_t *p_this, const char *psz_method,
     {
         i_body_length = strlen( psz_body );
 
-        i_rc = net_Printf( p_this, p_sys->i_control_fd, NULL,
+        i_rc = net_Printf( p_this, p_sys->i_control_fd,
                            "Content-Length: %u\r\n",
                            (unsigned int)i_body_length );
         if ( i_rc < 0 )
@@ -806,7 +806,7 @@ static int SendRequest( vlc_object_t *p_this, const char *psz_method,
     if ( i_err != VLC_SUCCESS )
         goto error;
 
-    i_rc = net_Write( p_this, p_sys->i_control_fd, NULL,
+    i_rc = net_Write( p_this, p_sys->i_control_fd,
                       psz_headers_end, sizeof( psz_headers_end ) - 1 );
     if ( i_rc < 0 )
     {
@@ -815,8 +815,7 @@ static int SendRequest( vlc_object_t *p_this, const char *psz_method,
     }
 
     if ( psz_body )
-        net_Write( p_this, p_sys->i_control_fd, NULL,
-                   psz_body, i_body_length );
+        net_Write( p_this, p_sys->i_control_fd, psz_body, i_body_length );
 
 error:
     return i_err;
@@ -840,7 +839,7 @@ static int ParseAuthenticateHeader( vlc_object_t *p_this,
         goto error;
     }
 
-    http_auth_ParseWwwAuthenticateHeader( p_this, &p_sys->auth, psz_auth );
+    vlc_http_auth_ParseWwwAuthenticateHeader( p_this, &p_sys->auth, psz_auth );
 
 error:
     return i_err;
@@ -875,10 +874,10 @@ static int ExecRequest( vlc_object_t *p_this, const char *psz_method,
             FREENULL( psz_authorization );
 
             psz_authorization =
-                http_auth_FormatAuthorizationHeader( p_this, &p_sys->auth,
-                                                     psz_method,
-                                                     p_sys->psz_url, "",
-                                                     p_sys->psz_password );
+                vlc_http_auth_FormatAuthorizationHeader( p_this, &p_sys->auth,
+                                                         psz_method,
+                                                         p_sys->psz_url, "",
+                                                         p_sys->psz_password );
             if ( psz_authorization == NULL )
             {
                 i_err = VLC_EGENERIC;
@@ -1350,8 +1349,7 @@ static void SendAudio( sout_stream_t *p_stream, block_t *p_buffer )
             goto error;
 
         /* Send data */
-        rc = net_Write( p_stream, p_sys->i_stream_fd, NULL,
-                        p_sys->p_sendbuf, i_len );
+        rc = net_Write( p_stream, p_sys->i_stream_fd, p_sys->p_sendbuf, i_len );
         if ( rc < 0 )
             goto error;
 
@@ -1400,7 +1398,7 @@ static int Open( vlc_object_t *p_this )
     p_sys->i_volume = var_GetInteger( p_stream, SOUT_CFG_PREFIX "volume");
     p_sys->i_jack_type = JACK_TYPE_NONE;
 
-    http_auth_Init( &p_sys->auth );
+    vlc_http_auth_Init( &p_sys->auth );
 
     p_sys->psz_host = var_GetNonEmptyString( p_stream,
                                              SOUT_CFG_PREFIX "host" );
@@ -1560,7 +1558,7 @@ static void Close( vlc_object_t *p_this )
 /*****************************************************************************
  * Add:
  *****************************************************************************/
-static sout_stream_id_sys_t *Add( sout_stream_t *p_stream, es_format_t *p_fmt )
+static sout_stream_id_sys_t *Add( sout_stream_t *p_stream, const es_format_t *p_fmt )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
     sout_stream_id_sys_t *id = NULL;
@@ -1621,17 +1619,14 @@ error:
 /*****************************************************************************
  * Del:
  *****************************************************************************/
-static int Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
+static void Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
-    int i_err = VLC_SUCCESS;
 
     if ( p_sys->p_audio_stream == id )
         p_sys->p_audio_stream = NULL;
 
     FreeId( id );
-
-    return i_err;
 }
 
 

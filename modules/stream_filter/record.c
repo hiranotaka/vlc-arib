@@ -64,8 +64,8 @@ struct stream_sys_t
 /****************************************************************************
  * Local prototypes
  ****************************************************************************/
-static int  Read   ( stream_t *, void *p_read, unsigned int i_read );
-static int  Peek   ( stream_t *, const uint8_t **pp_peek, unsigned int i_peek );
+static ssize_t Read( stream_t *, void *p_read, size_t i_read );
+static int  Seek   ( stream_t *, uint64_t );
 static int  Control( stream_t *, int i_query, va_list );
 
 static int  Start  ( stream_t *, const char *psz_extension );
@@ -89,8 +89,9 @@ static int Open ( vlc_object_t *p_this )
 
     /* */
     s->pf_read = Read;
-    s->pf_peek = Peek;
+    s->pf_seek = Seek;
     s->pf_control = Control;
+    stream_FilterSetDefaultReadDir( s );
 
     return VLC_SUCCESS;
 }
@@ -112,7 +113,7 @@ static void Close( vlc_object_t *p_this )
 /****************************************************************************
  * Stream filters functions
  ****************************************************************************/
-static int Read( stream_t *s, void *p_read, unsigned int i_read )
+static ssize_t Read( stream_t *s, void *p_read, size_t i_read )
 {
     stream_sys_t *p_sys = s->p_sys;
     void *p_record = p_read;
@@ -122,7 +123,7 @@ static int Read( stream_t *s, void *p_read, unsigned int i_read )
         p_record = malloc( i_read );
 
     /* */
-    const int i_record = stream_Read( s->p_source, p_record, i_read );
+    const ssize_t i_record = stream_Read( s->p_source, p_record, i_read );
 
     /* Dump read data */
     if( p_sys->f )
@@ -136,9 +137,9 @@ static int Read( stream_t *s, void *p_read, unsigned int i_read )
     return i_record;
 }
 
-static int Peek( stream_t *s, const uint8_t **pp_peek, unsigned int i_peek )
+static int Seek( stream_t *s, uint64_t offset )
 {
-    return stream_Peek( s->p_source, pp_peek, i_peek );
+    return stream_Seek( s->p_source, offset );
 }
 
 static int Control( stream_t *s, int i_query, va_list args )
@@ -199,7 +200,7 @@ static int Start( stream_t *s, const char *psz_extension )
     }
 
     /* signal new record file */
-    var_SetString( s->p_libvlc, "record-file", psz_file );
+    var_SetString( s->obj.libvlc, "record-file", psz_file );
 
     msg_Dbg( s, "Recording into %s", psz_file );
     free( psz_file );

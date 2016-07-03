@@ -140,12 +140,12 @@ static const char *const ppsz_sout_options_in[] = {
     NULL
 };
 
-static sout_stream_id_sys_t *AddOut ( sout_stream_t *, es_format_t * );
-static int               DelOut ( sout_stream_t *, sout_stream_id_sys_t * );
+static sout_stream_id_sys_t *AddOut( sout_stream_t *, const es_format_t * );
+static void              DelOut ( sout_stream_t *, sout_stream_id_sys_t * );
 static int               SendOut( sout_stream_t *, sout_stream_id_sys_t *, block_t * );
 
-static sout_stream_id_sys_t *AddIn ( sout_stream_t *, es_format_t * );
-static int               DelIn ( sout_stream_t *, sout_stream_id_sys_t * );
+static sout_stream_id_sys_t *AddIn( sout_stream_t *, const es_format_t * );
+static void              DelIn ( sout_stream_t *, sout_stream_id_sys_t * );
 static int               SendIn( sout_stream_t *, sout_stream_id_sys_t *, block_t * );
 
 typedef struct bridged_es_t
@@ -233,7 +233,7 @@ static void CloseOut( vlc_object_t * p_this )
     free( p_sys );
 }
 
-static sout_stream_id_sys_t * AddOut( sout_stream_t *p_stream, es_format_t *p_fmt )
+static sout_stream_id_sys_t * AddOut( sout_stream_t *p_stream, const es_format_t *p_fmt )
 {
     out_sout_stream_sys_t *p_sys = (out_sout_stream_sys_t *)p_stream->p_sys;
     bridge_t *p_bridge;
@@ -249,13 +249,13 @@ static sout_stream_id_sys_t * AddOut( sout_stream_t *p_stream, es_format_t *p_fm
 
     vlc_mutex_lock( &lock );
 
-    p_bridge = var_GetAddress( p_stream->p_libvlc, p_sys->psz_name );
+    p_bridge = var_GetAddress( p_stream->obj.libvlc, p_sys->psz_name );
     if ( p_bridge == NULL )
     {
         p_bridge = xmalloc( sizeof( bridge_t ) );
 
-        var_Create( p_stream->p_libvlc, p_sys->psz_name, VLC_VAR_ADDRESS );
-        var_SetAddress( p_stream->p_libvlc, p_sys->psz_name, p_bridge );
+        var_Create( p_stream->obj.libvlc, p_sys->psz_name, VLC_VAR_ADDRESS );
+        var_SetAddress( p_stream->obj.libvlc, p_sys->psz_name, p_bridge );
 
         p_bridge->i_es_num = 0;
         p_bridge->pp_es = NULL;
@@ -295,16 +295,14 @@ static sout_stream_id_sys_t * AddOut( sout_stream_t *p_stream, es_format_t *p_fm
     return (sout_stream_id_sys_t *)p_sys;
 }
 
-static int DelOut( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
+static void DelOut( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
 {
     VLC_UNUSED(id);
     out_sout_stream_sys_t *p_sys = (out_sout_stream_sys_t *)p_stream->p_sys;
     bridged_es_t *p_es;
 
     if ( !p_sys->b_inited )
-    {
-        return VLC_SUCCESS;
-    }
+        return;
 
     vlc_mutex_lock( &lock );
 
@@ -318,8 +316,6 @@ static int DelOut( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
     vlc_mutex_unlock( &lock );
 
     p_sys->b_inited = false;
-
-    return VLC_SUCCESS;
 }
 
 static int SendOut( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
@@ -455,7 +451,7 @@ struct sout_stream_id_sys_t
     int i_cat; /* es category. Used for placeholder option */
 };
 
-static sout_stream_id_sys_t * AddIn( sout_stream_t *p_stream, es_format_t *p_fmt )
+static sout_stream_id_sys_t * AddIn( sout_stream_t *p_stream, const es_format_t *p_fmt )
 {
     in_sout_stream_sys_t *p_sys = (in_sout_stream_sys_t *)p_stream->p_sys;
 
@@ -490,17 +486,15 @@ static sout_stream_id_sys_t * AddIn( sout_stream_t *p_stream, es_format_t *p_fmt
     return id;
 }
 
-static int DelIn( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
+static void DelIn( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
 {
     in_sout_stream_sys_t *p_sys = (in_sout_stream_sys_t *)p_stream->p_sys;
 
     if( id == p_sys->id_video ) p_sys->id_video = NULL;
     if( id == p_sys->id_audio ) p_sys->id_audio = NULL;
 
-    int ret = p_stream->p_next->pf_del( p_stream->p_next, id->id );
-
+    p_stream->p_next->pf_del( p_stream->p_next, id->id );
     free( id );
-    return ret;
 }
 
 static int SendIn( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
@@ -519,7 +513,7 @@ static int SendIn( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
     /* Then check all bridged streams */
     vlc_mutex_lock( &lock );
 
-    p_bridge = var_GetAddress( p_stream->p_libvlc, p_sys->psz_name );
+    p_bridge = var_GetAddress( p_stream->obj.libvlc, p_sys->psz_name );
 
     if( p_bridge )
     {
@@ -661,7 +655,7 @@ static int SendIn( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
             free( p_bridge->pp_es[i] );
         free( p_bridge->pp_es );
         free( p_bridge );
-        var_Destroy( p_stream->p_libvlc, p_sys->psz_name );
+        var_Destroy( p_stream->obj.libvlc, p_sys->psz_name );
     }
     }
 

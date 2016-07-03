@@ -108,7 +108,7 @@ struct filter_sys_t
 #define OPACITY_LONGTEXT N_("Opacity (inverse of transparency) of " \
     "overlayed text. 0 = transparent, 255 = totally opaque. " )
 #define SIZE_TEXT N_("Font size, pixels")
-#define SIZE_LONGTEXT N_("Font size, in pixels. Default is -1 (use default " \
+#define SIZE_LONGTEXT N_("Font size, in pixels. Default is 0 (use default " \
     "font size)." )
 
 #define COLOR_TEXT N_("Color")
@@ -160,9 +160,9 @@ vlc_module_begin ()
     add_rgb( CFG_PREFIX "color", 0xFFFFFF, COLOR_TEXT, COLOR_LONGTEXT,
                  false )
         change_integer_list( pi_color_values, ppsz_color_descriptions )
-    add_integer( CFG_PREFIX "size", -1, SIZE_TEXT, SIZE_LONGTEXT,
+    add_integer( CFG_PREFIX "size", 0, SIZE_TEXT, SIZE_LONGTEXT,
                  false )
-        change_integer_range( -1, 4096)
+        change_integer_range( 0, 4096)
 
     set_section( N_("Misc"), NULL )
     add_integer( CFG_PREFIX "timeout", 0, TIMEOUT_TEXT, TIMEOUT_LONGTEXT,
@@ -192,8 +192,13 @@ static int CreateFilter( vlc_object_t *p_this )
     if( p_sys == NULL )
         return VLC_ENOMEM;
 
+    p_sys->p_style = text_style_Create( STYLE_NO_DEFAULTS );
+    if(unlikely(!p_sys->p_style))
+    {
+        free(p_sys);
+        return VLC_ENOMEM;
+    }
     vlc_mutex_init( &p_sys->lock );
-    p_sys->p_style = text_style_New();
 
     config_ChainParse( p_filter, CFG_PREFIX, ppsz_filter_options,
                        p_filter->p_cfg );
@@ -216,7 +221,9 @@ static int CreateFilter( vlc_object_t *p_this )
     p_sys->p_style->i_font_alpha = var_CreateGetIntegerCommand( p_filter,
                                                             "marq-opacity" );
     var_AddCallback( p_filter, "marq-opacity", MarqueeCallback, p_sys );
+    p_sys->p_style->i_features |= STYLE_HAS_FONT_ALPHA;
     CREATE_VAR( p_style->i_font_color, Integer, "marq-color" );
+    p_sys->p_style->i_features |= STYLE_HAS_FONT_COLOR;
     CREATE_VAR( p_style->i_font_size, Integer, "marq-size" );
 
     /* Misc init */
@@ -280,7 +287,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
         }
     }
 
-    char *msg = str_format_time( p_sys->format ? p_sys->format : "" );
+    char *msg = vlc_strftime( p_sys->format ? p_sys->format : "" );
     if( unlikely( msg == NULL ) )
         goto out;
     if( p_sys->message != NULL && !strcmp( msg, p_sys->message ) )
@@ -300,17 +307,18 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     fmt.i_width = fmt.i_height = 0;
     fmt.i_x_offset = 0;
     fmt.i_y_offset = 0;
+    fmt.i_sar_den = fmt.i_sar_num = 1;
     p_spu->p_region = subpicture_region_New( &fmt );
     if( !p_spu->p_region )
     {
-        p_filter->pf_sub_buffer_del( p_filter, p_spu );
+        subpicture_Delete( p_spu );
         p_spu = NULL;
         goto out;
     }
 
     p_sys->last_time = date;
 
-    p_spu->p_region->psz_text = strdup( msg );
+    p_spu->p_region->p_text = text_segment_New( msg );
     p_spu->i_start = date;
     p_spu->i_stop  = p_sys->i_timeout == 0 ? 0 : date + p_sys->i_timeout * 1000;
     p_spu->b_ephemer = true;
@@ -330,7 +338,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     p_spu->p_region->i_x = p_sys->i_xoff;
     p_spu->p_region->i_y = p_sys->i_yoff;
 
-    p_spu->p_region->p_style = text_style_Duplicate( p_sys->p_style );
+    p_spu->p_region->p_text->style = text_style_Duplicate( p_sys->p_style );
 
 out:
     vlc_mutex_unlock( &p_sys->lock );

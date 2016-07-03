@@ -39,6 +39,7 @@
 #ifdef HAVE_LIBAVUTIL_AVUTIL_H
 # include <libavutil/avutil.h>
 # include <libavutil/dict.h>
+# include <libavutil/cpu.h>
 # include <libavutil/log.h>
 
 #define AV_OPTIONS_TEXT     "Advanced options"
@@ -109,9 +110,6 @@ static inline void vlc_init_avcodec(vlc_object_t *obj)
 
     vlc_init_avutil(obj);
 
-#if LIBAVCODEC_VERSION_MAJOR < 54
-    avcodec_init();
-#endif
     avcodec_register_all();
 
     vlc_avcodec_unlock();

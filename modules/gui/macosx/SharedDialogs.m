@@ -23,107 +23,88 @@
 
 #import "SharedDialogs.h"
 
-static VLCEnterTextPanel *_textPanelInstance = nil;
-static VLCSelectItemInPopupPanel *_selectItemPanelInstance = nil;
-
-@implementation VLCEnterTextPanel
-+ (VLCEnterTextPanel *)sharedInstance
+@interface VLCTextfieldPanelController()
 {
-    return _textPanelInstance ? _textPanelInstance : [[self alloc] init];
-}
-
-- (id)init
-{
-    if (_textPanelInstance)
-        [self dealloc];
-    else
-        _textPanelInstance = [super init];
-
-    return _textPanelInstance;
-}
-
-@synthesize title=_title, subTitle=_subtitle, OKButtonLabel=_okTitle, CancelButtonLabel=_cancelTitle, target=_target;
-
-- (IBAction)windowElementAction:(id)sender
-{
-    [_panel orderOut:sender];
-    [NSApp endSheet: _panel];
-
-    if (self.target) {
-        if ([self.target respondsToSelector:@selector(panel:returnValue:text:)]) {
-            if (sender == _cancel_btn)
-                [self.target panel:self returnValue:NSCancelButton text:NULL];
-            else
-                [self.target panel:self returnValue:NSOKButton text:self.enteredText];
-        }
-    }
-}
-
-- (void)runModalForWindow:(NSWindow *)window
-{
-    [_title_lbl setStringValue:self.title];
-    [_subtitle_lbl setStringValue:self.subTitle];
-    [_cancel_btn setTitle:self.CancelButtonLabel];
-    [_ok_btn setTitle:self.OKButtonLabel];
-    [_text_fld setStringValue:@""];
-
-    [NSApp beginSheet:_panel modalForWindow:window modalDelegate:self didEndSelector:NULL contextInfo:nil];
-}
-
-- (NSString *)enteredText
-{
-    return [_text_fld stringValue];
+    TextfieldPanelCompletionBlock _completionBlock;
 }
 
 @end
 
-@implementation VLCSelectItemInPopupPanel
-@synthesize title=_title, subTitle=_subtitle, OKButtonLabel=_okTitle, CancelButtonLabel=_cancelTitle, popupButtonContent=_popData, target=_target;
+@implementation VLCTextfieldPanelController
 
-+ (VLCSelectItemInPopupPanel *)sharedInstance
-{
-    return _selectItemPanelInstance ? _selectItemPanelInstance : [[self alloc] init];
-}
 
 - (id)init
 {
-    if (_selectItemPanelInstance)
-        [self dealloc];
-    else
-        _selectItemPanelInstance = [super init];
+    self = [super initWithWindowNibName:@"TextfieldPanel"];
 
-    return _selectItemPanelInstance;
+    return self;
 }
 
 - (IBAction)windowElementAction:(id)sender
 {
-    [_panel orderOut:sender];
-    [NSApp endSheet: _panel];
+    [self.window orderOut:sender];
+    [NSApp endSheet: self.window];
 
-    if (self.target) {
-        if ([self.target respondsToSelector:@selector(panel:returnValue:item:)]) {
-            if (sender == _cancel_btn)
-                [self.target panel:self returnValue:NSCancelButton item:0];
-            else
-                [self.target panel:self returnValue:NSOKButton item:self.currentItem];
-        }
-    }
+    if (_completionBlock)
+        _completionBlock(sender == _okButton ? NSOKButton : NSCancelButton, [_textField stringValue]);
 }
 
-- (void)runModalForWindow:(NSWindow *)window
+- (void)runModalForWindow:(NSWindow *)window completionHandler:(TextfieldPanelCompletionBlock)handler;
 {
-    [_title_lbl setStringValue:self.title];
-    [_subtitle_lbl setStringValue:self.subTitle];
-    [_cancel_btn setTitle:self.CancelButtonLabel];
-    [_ok_btn setTitle:self.OKButtonLabel];
-    [_pop removeAllItems];
-    [_pop addItemsWithTitles:self.popupButtonContent];
-    [NSApp beginSheet:_panel modalForWindow:window modalDelegate:self didEndSelector:NULL contextInfo:nil];
+    [self window];
+
+    [_titleLabel setStringValue:self.titleString];
+    [_subtitleLabel setStringValue:self.subTitleString];
+    [_cancelButton setTitle:self.cancelButtonString];
+    [_okButton setTitle:self.okButtonString];
+    [_textField setStringValue:@""];
+
+    _completionBlock = [handler copy];
+
+    [NSApp beginSheet:self.window modalForWindow:window modalDelegate:self didEndSelector:NULL contextInfo:nil];
 }
 
-- (NSUInteger)currentItem
+@end
+
+@interface VLCPopupPanelController()
 {
-    return [_pop indexOfSelectedItem];
+    PopupPanelCompletionBlock _completionBlock;
+}
+@end
+
+@implementation VLCPopupPanelController
+
+- (id)init
+{
+    self = [super initWithWindowNibName:@"PopupPanel"];
+
+    return self;
+}
+
+- (IBAction)windowElementAction:(id)sender
+{
+    [self.window orderOut:sender];
+    [NSApp endSheet: self.window];
+
+    if (_completionBlock)
+        _completionBlock(sender == _okButton ? NSOKButton : NSCancelButton, [_popupButton indexOfSelectedItem]);
+}
+
+- (void)runModalForWindow:(NSWindow *)window completionHandler:(PopupPanelCompletionBlock)handler;
+{
+    [self window];
+
+    [_titleLabel setStringValue:self.titleString];
+    [_subtitleLabel setStringValue:self.subTitleString];
+    [_cancelButton setTitle:self.cancelButtonString];
+    [_okButton setTitle:self.okButtonString];
+    [_popupButton removeAllItems];
+    for (NSString *value in self.popupButtonContent)
+        [[_popupButton menu] addItemWithTitle:value action:nil keyEquivalent:@""];
+
+    _completionBlock = [handler copy];
+
+    [NSApp beginSheet:self.window modalForWindow:window modalDelegate:self didEndSelector:NULL contextInfo:nil];
 }
 
 @end

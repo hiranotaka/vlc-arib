@@ -94,7 +94,7 @@ struct demux_sys_t
     /* Current state */
     const bd_clpi_t *p_clpi;
     int             i_clpi_ep;
-    stream_t        *p_parser;
+    vlc_demux_chained_t *p_parser;
     stream_t        *p_m2ts;
     int             i_play_item;
     int             i_packet;
@@ -161,7 +161,10 @@ static int Open( vlc_object_t *p_this )
     /* Fill p_demux field */
     p_demux->p_sys = p_sys = malloc( sizeof(*p_sys) );
     if( !p_sys )
+    {
+        free( psz_base );
         return VLC_EGENERIC;
+    }
     p_sys->psz_base = psz_base;
     p_sys->b_shortname = b_shortname;
     TAB_INIT( p_sys->i_mpls, p_sys->pp_mpls );
@@ -380,7 +383,7 @@ static int Demux( demux_t *p_demux )
         {
             p_block->i_buffer -= BD_TS_PACKET_HEADER;
             p_block->p_buffer += BD_TS_PACKET_HEADER;
-            stream_DemuxSend( p_sys->p_parser, p_block );
+            vlc_demux_chained_Send( p_sys->p_parser, p_block );
         }
 
         stream_Seek( p_sys->p_m2ts, p_sys->i_packet_start * (int64_t)BD_TS_PACKET_SIZE );
@@ -436,7 +439,7 @@ static int Demux( demux_t *p_demux )
 
     p_block->i_buffer = i_read;
     p_block->p_buffer += BD_TS_PACKET_HEADER;
-    stream_DemuxSend( p_sys->p_parser, p_block );
+    vlc_demux_chained_Send( p_sys->p_parser, p_block );
 
     p_sys->i_packet += i_read / BD_TS_PACKET_SIZE;
 
@@ -610,6 +613,7 @@ static int SetPlayItem( demux_t *p_demux, int i_mpls, int i_play_item )
         if( p_sys->pp_clpi[i_clpi]->i_id == p_mpls_clpi->i_id )
             p_clpi = p_sys->pp_clpi[i_clpi];
     }
+    assert(p_clpi);
 
     const bool b_same_clpi = b_same_mpls && p_sys->p_clpi->i_id == p_clpi->i_id;
     stream_t *p_m2ts = NULL;
@@ -635,7 +639,7 @@ static int SetPlayItem( demux_t *p_demux, int i_mpls, int i_play_item )
      * - a way to completely flush the demuxer is also needed !
      */
     //const bool b_same_parser = b_same_play_item && false;
-    stream_t *p_parser = stream_DemuxNew( p_demux, "ts", p_sys->p_out );
+    vlc_demux_chained_t *p_parser = vlc_demux_chained_New( VLC_OBJECT(p_demux), "ts", p_sys->p_out );
     if( !p_parser )
     {
         msg_Err( p_demux, "Failed to create TS demuxer" );
@@ -698,7 +702,7 @@ static void ClosePlayItem( demux_t *p_demux )
     if( p_sys->p_m2ts )
         stream_Delete( p_sys->p_m2ts );
     if( p_sys->p_parser )
-        stream_Delete( p_sys->p_parser );
+        vlc_demux_chained_Delete( p_sys->p_parser );
 
     es_out_Control( p_demux->out, ES_OUT_RESET_PCR );
 }
@@ -1043,7 +1047,7 @@ static void LoadMpls( demux_t *p_demux, const char *psz_name, int i_id )
 
     block_t *p_block = LoadBlock( p_demux, psz_name );
     if( !p_block )
-        goto error;
+        return;
 
     /* */
     bd_mpls_t *p_mpls = malloc( sizeof(*p_mpls) );
@@ -1111,8 +1115,8 @@ static void LoadMpls( demux_t *p_demux, const char *psz_name, int i_id )
 
 error:
     msg_Err( p_demux, "Failed loading %s", psz_name );
-    if( p_block )
-        block_Release( p_block );
+    free( p_mpls );
+    block_Release( p_block );
 }
 
 /* */
@@ -1137,7 +1141,7 @@ static void LoadClpi( demux_t *p_demux, const char *psz_name, int i_id )
 
     block_t *p_block = LoadBlock( p_demux, psz_name );
     if( !p_block )
-        goto error;
+        return;
 
     /* */
     bd_clpi_t *p_clpi = malloc( sizeof(*p_clpi) );
@@ -1185,8 +1189,8 @@ static void LoadClpi( demux_t *p_demux, const char *psz_name, int i_id )
 
 error:
     msg_Err( p_demux, "Failed loading %s", psz_name );
-    if( p_block )
-        block_Release( p_block );
+    free( p_clpi );
+    block_Release( p_block );
 }
 
 /* */

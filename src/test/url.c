@@ -60,7 +60,7 @@ static void test (conv_t f, const char *in, const char *out)
 
 static inline void test_decode (const char *in, const char *out)
 {
-    test (decode_URI_duplicate, in, out);
+    test (vlc_uri_decode_duplicate, in, out);
 }
 
 static inline void test_b64 (const char *in, const char *out)
@@ -80,11 +80,37 @@ static inline void test_path (const char *in, const char *out)
 
 static inline void test_current_directory_path (const char *in, const char *cwd, const char *out)
 {
-    char * expected_result = NULL;
-    int val = asprintf(&expected_result, "file://%s/%s", cwd, out);
+    char *expected_result;
+    int val = asprintf (&expected_result, "file://%s/%s", cwd, out);
     assert (val != -1);
-    
+
     test (make_URI_def, in, expected_result);
+    free(expected_result);
+}
+
+static void test_url_parse(const char* in, const char* protocol, const char* user,
+                           const char* pass, const char* host, unsigned i_port,
+                           const char* path, const char* option )
+{
+#define CHECK( a, b ) \
+    if (a == NULL) \
+        assert(b == NULL); \
+    else \
+        assert(b != NULL && !strcmp((a), (b)))
+
+    vlc_url_t url;
+    vlc_UrlParse( &url, in );
+    CHECK( url.psz_protocol, protocol );
+    CHECK( url.psz_username, user );
+    CHECK( url.psz_password, pass );
+    CHECK( url.psz_host, host );
+    CHECK( url.psz_path, path );
+    assert( url.i_port == i_port );
+    CHECK( url.psz_option, option );
+
+    vlc_UrlClean( &url );
+
+#undef CHECK
 }
 
 int main (void)
@@ -119,14 +145,20 @@ int main (void)
     test_b64 ("foobar", "Zm9vYmFy");
 
     /* Path test */
+#ifndef _WIN32
     test_path ("/", "file:///");
     test_path ("/home/john/", "file:///home/john/");
     test_path ("/home/john//too///many//slashes",
                "file:///home/john//too///many//slashes");
     test_path ("/home/john/music.ogg", "file:///home/john/music.ogg");
-    test_path ("\\\\server/pub/music.ogg", "smb://server/pub/music.ogg");
-    test_path ("\\\\server\\pub\\music.ogg", "smb://server/pub/music.ogg");
-    test_path ("\\\\server", "smb://server");
+#else
+    test_path ("C:\\", "file:///C:/");
+    test_path ("C:\\Users\\john\\", "file:///C:/Users/john/");
+    test_path ("C:\\Users\\john\\music.ogg",
+               "file:///C:/Users/john/music.ogg");
+    test_path ("\\\\server\\share\\dir\\file.ext",
+               "file://server/share/dir/file.ext");
+#endif
 
     /*int fd = open (".", O_RDONLY);
     assert (fd != -1);*/
@@ -138,26 +170,69 @@ int main (void)
     tmpdir = getcwd(buf, sizeof(buf)/sizeof(*buf));
     assert (tmpdir);
 
+#ifndef _WIN32 /* FIXME: deal with anti-slashes */
     test_current_directory_path ("movie.ogg", tmpdir, "movie.ogg");
     test_current_directory_path (".", tmpdir, ".");
     test_current_directory_path ("", tmpdir, "");
+#endif
 
     /*val = fchdir (fd);
     assert (val != -1);*/
 
     /* URI to path tests */
-#define test( a, b ) test (make_path, a, b)
+#define test( a, b ) test (vlc_uri2path, a, b)
     test ("mailto:john@example.com", NULL);
     test ("http://www.example.com/file.html#ref", NULL);
     test ("file://", NULL);
+#ifndef _WIN32
     test ("file:///", "/");
     test ("file://localhost/home/john/music%2Eogg", "/home/john/music.ogg");
     test ("file://localhost/home/john/text#ref", "/home/john/text");
+    test ("file://localhost/home/john/text?name=value", "/home/john/text");
+    test ("file://localhost/home/john/text?name=value#ref", "/home/john/text");
+    test ("file://?name=value", NULL);
+    test ("file:///?name=value", "/");
     test ("fd://0foobar", NULL);
     test ("fd://0#ref", "/dev/stdin");
     test ("fd://1", "/dev/stdout");
     test ("fd://12345", "/dev/fd/12345");
+#else
+    test ("file:///C:", "C:");
+    test ("file:///C:/Users/john/music%2Eogg", "C:\\Users\\john\\music.ogg");
+    test ("file://server/share/dir/file%2Eext",
+          "\\\\server\\share\\dir\\file.ext");
+    test ("file:///C:/Users/john/text#ref", "C:\\Users\\john\\text");
+    test ("file:///C:/Users/john/text?name=value", "C:\\Users\\john\\text");
+    test ("file:///C:/Users/john/text?name=value#ref",
+          "C:\\Users\\john\\text");
+    test ("file://?name=value", NULL);
+    test ("file:///C:?name=value", "C:");
+    test ("fd://0foobar", NULL);
+    test ("fd://0#ref", "CON");
+    test ("fd://1", "CON");
+    test ("fd://12345", NULL);
+#endif
 #undef test
 
+    test_url_parse("http://example.com", "http", NULL, NULL, "example.com", 0,
+                   NULL, NULL);
+    test_url_parse("http://example.com/", "http", NULL, NULL, "example.com", 0,
+                   "/", NULL);
+    test_url_parse("http://[2001:db8::1]", "http", NULL, NULL, "2001:db8::1",
+                   0, NULL, NULL);
+    test_url_parse("protocol://john:doe@1.2.3.4:567", "protocol", "john", "doe", "1.2.3.4", 567, NULL, NULL);
+    test_url_parse("http://a.b/?opt=val", "http", NULL, NULL, "a.b", 0, "/", "opt=val");
+    test_url_parse("p://u:p@host:123/a/b/c?o=v", "p", "u", "p", "host", 123, "/a/b/c", "o=v");
+    test_url_parse("p://?o=v", "p", NULL, NULL, "", 0, NULL, "o=v");
+    test_url_parse("p://h?o=v", "p", NULL, NULL, "h", 0, NULL, "o=v");
+    test_url_parse("p://h:123?o=v", "p", NULL, NULL, "h", 123, NULL, "o=v");
+    test_url_parse("p://u:p@h:123?o=v", "p", "u", "p", "h", 123, NULL, "o=v");
+    test_url_parse("p://white%20spaced", "p", NULL, NULL, "white%20spaced", 0,
+                   NULL, NULL);
+    test_url_parse("p://h/white%20spaced", "p", NULL, NULL, "h", 0,
+                   "/white%20spaced", NULL);
+    /* Invalid URIs */
+    test_url_parse("p://G a r b a g e", "p", NULL, NULL, NULL, 0, NULL, NULL);
+    test_url_parse("p://h/G a r b a g e", "p", NULL, NULL, "h", 0, NULL, NULL);
     return 0;
 }

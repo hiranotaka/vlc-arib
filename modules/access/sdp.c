@@ -46,6 +46,7 @@ static int Control (access_t *, int, va_list);
 
 struct access_sys_t
 {
+    size_t offset;
     size_t length;
     char   data[];
 };
@@ -60,6 +61,7 @@ static int Open (vlc_object_t *obj)
         return VLC_ENOMEM;
 
     /* NOTE: This copy is not really needed. Better safe than sorry. */
+    sys->offset = 0;
     sys->length = len;
     memcpy (sys->data, access->psz_location, len);
 
@@ -85,28 +87,34 @@ static ssize_t Read (access_t *access, uint8_t *buf, size_t len)
 {
     access_sys_t *sys = access->p_sys;
 
-    if (access->info.i_pos >= sys->length)
+    if (sys->offset >= sys->length)
     {
         access->info.b_eof = true;
         return 0;
     }
 
-    if (len > sys->length)
-        len = sys->length;
-    memcpy (buf, sys->data + access->info.i_pos, len);
-    access->info.i_pos += len;
+    if (len > sys->length - sys->offset)
+        len = sys->length - sys->offset;
+    memcpy (buf, sys->data + sys->offset, len);
     return len;
 }
 
 static int Seek (access_t *access, uint64_t position)
 {
-    access->info.i_pos = position;
+    access_sys_t *sys = access->p_sys;
+
+    if (position > sys->length)
+        position = sys->length;
+
+    sys->offset = position;
     access->info.b_eof = false;
     return VLC_SUCCESS;
 }
 
 static int Control (access_t *access, int query, va_list args)
 {
+    access_sys_t *sys = access->p_sys;
+
     switch (query)
     {
         case ACCESS_CAN_SEEK:
@@ -119,6 +127,10 @@ static int Control (access_t *access, int query, va_list args)
             return VLC_SUCCESS;
         }
 
+        case ACCESS_GET_SIZE:
+            *va_arg(args, uint64_t *) = sys->length;
+            return VLC_SUCCESS;
+
         case ACCESS_GET_PTS_DELAY:
         {
             int64_t *dp = va_arg(args, int64_t *);
@@ -129,6 +141,5 @@ static int Control (access_t *access, int query, va_list args)
         case ACCESS_SET_PAUSE_STATE:
             return VLC_SUCCESS;
     }
-    (void) access;
     return VLC_EGENERIC;
 }

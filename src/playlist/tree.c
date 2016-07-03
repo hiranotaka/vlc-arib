@@ -67,8 +67,8 @@ playlist_item_t * playlist_NodeCreate( playlist_t *p_playlist,
     if( !psz_name ) psz_name = _("Undefined");
 
     if( !p_input )
-        p_new_input = input_item_NewWithType( NULL, psz_name, 0, NULL, 0, -1,
-                                              ITEM_TYPE_NODE );
+        p_new_input = input_item_NewExt( NULL, psz_name, -1, ITEM_TYPE_NODE,
+                                         ITEM_NET_UNKNOWN );
     p_item = playlist_ItemNewFromInput( p_playlist,
                                         p_input ? p_input : p_new_input );
     if( p_new_input )
@@ -222,6 +222,11 @@ int playlist_NodeInsert( playlist_t *p_playlist,
                  i_position,
                  p_item );
     p_item->p_parent = p_parent;
+
+    /* Inherit special flags from parent (sd cases) */
+    if( ( p_parent->i_flags & PLAYLIST_NO_INHERIT_FLAG ) == 0 )
+        p_item->i_flags |= (p_parent->i_flags & (PLAYLIST_RO_FLAG | PLAYLIST_SKIP_FLAG));
+
     return VLC_SUCCESS;
 }
 
@@ -323,7 +328,7 @@ playlist_item_t *playlist_GetNextLeaf( playlist_t *p_playlist,
         {
             if( b_ena && p_next->i_flags & PLAYLIST_DBL_FLAG )
                 b_ena_ok = false;
-            if( b_unplayed && p_next->p_input->i_nb_played != 0 )
+            if( b_unplayed && p_next->i_nb_played != 0 )
                 b_unplayed_ok = false;
             if( b_ena_ok && b_unplayed_ok ) break;
         }
@@ -364,7 +369,7 @@ playlist_item_t *playlist_GetPrevLeaf( playlist_t *p_playlist,
         {
             if( b_ena && p_prev->i_flags & PLAYLIST_DBL_FLAG )
                 b_ena_ok = false;
-            if( b_unplayed && p_prev->p_input->i_nb_played != 0 )
+            if( b_unplayed && p_prev->i_nb_played != 0 )
                 b_unplayed_ok = false;
             if( b_ena_ok && b_unplayed_ok ) break;
         }

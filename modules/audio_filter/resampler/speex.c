@@ -22,6 +22,8 @@
 # include <config.h>
 #endif
 
+#include <inttypes.h>
+
 #include <vlc_common.h>
 #include <vlc_aout.h>
 #include <vlc_filter.h>
@@ -41,7 +43,7 @@ vlc_module_begin ()
     set_shortname (N_("Speex resampler"))
     set_description (N_("Speex resampler") )
     set_category (CAT_AUDIO)
-    set_subcategory (SUBCAT_AUDIO_MISC)
+    set_subcategory (SUBCAT_AUDIO_RESAMPLER)
     add_integer ("speex-resampler-quality", 4,
                  QUALITY_TEXT, QUALITY_LONGTEXT, true)
         change_integer_range (0, 10)
@@ -51,6 +53,7 @@ vlc_module_begin ()
     add_submodule ()
     set_capability ("audio resampler", 0)
     set_callbacks (OpenResampler, Close)
+    add_shortcut ("speex")
 vlc_module_end ()
 
 static block_t *Resample (filter_t *, block_t *);
@@ -124,7 +127,8 @@ static block_t *Resample (filter_t *filter, block_t *in)
     const unsigned orate = filter->fmt_out.audio.i_rate;
 
     spx_uint32_t ilen = in->i_nb_samples;
-    spx_uint32_t olen = ((ilen + 2) * orate * 11) / (irate * 10);
+    spx_uint32_t olen = ((ilen + 2) * orate * UINT64_C(11))
+                      / (irate * UINT64_C(10));
 
     block_t *out = block_Alloc (olen * framesize);
     if (unlikely(out == NULL))

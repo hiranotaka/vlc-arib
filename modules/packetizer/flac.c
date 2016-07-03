@@ -84,12 +84,16 @@ struct decoder_sys_t
      * Common properties
      */
     mtime_t i_pts;
+    mtime_t i_firstpts;
+    mtime_t i_firstframepts;
     mtime_t i_duration;
 
-    int i_frame_length;
+    unsigned int i_frame_length;
     size_t i_frame_size;
     uint16_t crc;
     unsigned int i_rate, i_channels, i_bits_per_sample;
+    size_t i_buf;
+    uint8_t *p_buf;
 };
 
 static const int pi_channels_maps[9] =
@@ -342,14 +346,17 @@ static uint16_t flac_crc16_undo(uint16_t crc, const uint8_t last_byte)
 /*****************************************************************************
  * SyncInfo: parse FLAC sync info
  *****************************************************************************/
+/* Returns: 1 on success, 0 on failure, and -1 if could be incorrect */
 static int SyncInfo(decoder_t *p_dec, uint8_t *p_buf,
                      unsigned int * pi_channels,
                      unsigned int * pi_sample_rate,
                      unsigned int * pi_bits_per_sample,
                      mtime_t * pi_pts,
-                     mtime_t * pi_duration )
+                     mtime_t * pi_duration,
+                     unsigned int *pi_frame_length )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
+    bool b_guessing = false;
 
     /* Check syncword */
     if (p_buf[0] != 0xFF || (p_buf[1] & 0xFE) != 0xF8)
@@ -365,6 +372,7 @@ static int SyncInfo(decoder_t *p_dec, uint8_t *p_buf,
     if (blocksize >= 8) {
         blocksize = 256 << (blocksize - 8);
     } else if (blocksize == 0) { /* value 0 is reserved */
+        b_guessing = true;
         if (p_sys->b_stream_info &&
             p_sys->stream_info.min_blocksize == p_sys->stream_info.max_blocksize)
             blocksize = p_sys->stream_info.min_blocksize;
@@ -488,11 +496,18 @@ static int SyncInfo(decoder_t *p_dec, uint8_t *p_buf,
 
     if( pi_pts )
     {
+        /* Compute from frame absolute time */
         *pi_pts = VLC_TS_0;
         if ( (p_buf[1] & 0x01) == 0  ) /* Fixed blocksize stream / Frames */
             *pi_pts += CLOCK_FREQ * blocksize * i_fsnumber / samplerate;
         else /* Variable blocksize stream / Samples */
             *pi_pts += CLOCK_FREQ * i_fsnumber / samplerate;
+
+        if( p_sys->i_firstframepts == VLC_TS_INVALID )
+            p_sys->i_firstframepts = *pi_pts;
+
+        if( p_sys->i_firstpts > VLC_TS_INVALID )
+            *pi_pts += (p_sys->i_firstpts - p_sys->i_firstframepts);
     }
 
     if ( pi_duration )
@@ -502,7 +517,18 @@ static int SyncInfo(decoder_t *p_dec, uint8_t *p_buf,
     *pi_sample_rate = samplerate;
     *pi_channels = channels;
 
-    return blocksize;
+    if( pi_frame_length )
+        *pi_frame_length = blocksize;
+
+    return b_guessing ? -1 : 1;
+}
+
+static void Flush(decoder_t *p_dec)
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    p_sys->i_state = STATE_NOSYNC;
+    block_BytestreamEmpty(&p_sys->bytestream);
 }
 
 /* */
@@ -517,12 +543,11 @@ static block_t *Packetize(decoder_t *p_dec, block_t **pp_block)
         in = *pp_block;
 
         if (in->i_flags&(BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED)) {
+            Flush(p_dec);
             if (in->i_flags&BLOCK_FLAG_CORRUPTED) {
-                p_sys->i_state = STATE_NOSYNC;
-                block_BytestreamEmpty(&p_sys->bytestream);
+                block_Release(*pp_block);
+                return NULL;
             }
-            block_Release(*pp_block);
-            return NULL;
         }
     }
 
@@ -544,6 +569,10 @@ static block_t *Packetize(decoder_t *p_dec, block_t **pp_block)
             return NULL;
         }
         p_sys->i_rate = p_dec->fmt_out.audio.i_rate;
+    }
+    else if( in && p_sys->i_firstpts == VLC_TS_INVALID )
+    {
+         p_sys->i_firstpts = in->i_pts;
     }
 
     if ( in )
@@ -575,13 +604,13 @@ static block_t *Packetize(decoder_t *p_dec, block_t **pp_block)
             return NULL; /* Need more data */
 
         /* Check if frame is valid and get frame info */
-        p_sys->i_frame_length = SyncInfo(p_dec, p_header,
-                                          &p_sys->i_channels,
+        int i_ret = SyncInfo(p_dec, p_header, &p_sys->i_channels,
                                           &p_sys->i_rate,
                                           &p_sys->i_bits_per_sample,
                                           &p_sys->i_pts,
-                                          &p_sys->i_duration );
-        if (!p_sys->i_frame_length) {
+                                          &p_sys->i_duration,
+                                          &p_sys->i_frame_length );
+        if (!i_ret) {
             msg_Dbg(p_dec, "emulated sync word");
             block_SkipByte(&p_sys->bytestream);
             p_sys->i_state = STATE_NOSYNC;
@@ -603,19 +632,22 @@ static block_t *Packetize(decoder_t *p_dec, block_t **pp_block)
     {
         /* Calculate the initial CRC for the minimal frame size,
          * We'll update it as we look for the next start code. */
-        uint8_t *buf = malloc(p_sys->i_frame_size);
-        if (!buf)
-            return NULL;
+        if (p_sys->i_buf < p_sys->i_frame_size)
+        {
+            uint8_t *p_buf = realloc(p_sys->p_buf, p_sys->i_frame_size);
+            if (!p_buf)
+                return NULL;
+            p_sys->p_buf = p_buf;
+            p_sys->i_buf = p_sys->i_frame_size;
+        }
 
-        if (block_PeekOffsetBytes(&p_sys->bytestream, 0, buf, p_sys->i_frame_size)) {
-            free(buf);
+        if (block_PeekOffsetBytes(&p_sys->bytestream, 0, p_sys->p_buf, p_sys->i_frame_size)) {
             return NULL;
         }
 
         uint16_t crc = 0;
         for (unsigned i = 0; i < p_sys->i_frame_size; i++)
-            crc = flac_crc16(crc, buf[i]);
-        free(buf);
+            crc = flac_crc16(crc, p_sys->p_buf[i]);
         p_sys->crc = crc;
 
         /* Check if next expected frame contains the sync word */
@@ -623,14 +655,13 @@ static block_t *Packetize(decoder_t *p_dec, block_t **pp_block)
                     p_header, MAX_FLAC_HEADER_SIZE)) {
             if (p_header[0] == 0xFF && (p_header[1] & 0xFE) == 0xF8) {
                 /* Check if frame is valid and get frame info */
-                int i_frame_length =
-                    SyncInfo(p_dec, p_header,
+                int i_ret = SyncInfo(p_dec, p_header,
                               &p_sys->i_channels,
                               &p_sys->i_rate,
                               &p_sys->i_bits_per_sample,
-                              NULL, NULL );
+                              NULL, NULL, NULL );
 
-                if (i_frame_length) {
+                if (i_ret) {
                     uint8_t crc_bytes[2];
                     block_PeekOffsetBytes(&p_sys->bytestream,
                         p_sys->i_frame_size - 2, crc_bytes, 2);
@@ -639,9 +670,16 @@ static block_t *Packetize(decoder_t *p_dec, block_t **pp_block)
                     /* Calculate the frame CRC: remove the last 2 bytes */
                     uint16_t crc = flac_crc16_undo(p_sys->crc, crc_bytes[1]);
                              crc = flac_crc16_undo(crc,        crc_bytes[0]);
-                    if (stream_crc != crc) {
-                        msg_Warn(p_dec, "Bad CRC for frame size %zu: 0x%x != 0x%x",
-                            p_sys->i_frame_size, crc, stream_crc);
+                    if (stream_crc != crc)
+                    {
+                        if(i_ret > 0 || (p_sys->b_stream_info &&
+                           p_sys->stream_info.max_blocksize == p_sys->i_frame_size) )
+                        {
+                            msg_Warn(p_dec, "Bad CRC for frame size %zu: 0x%x != 0x%x",
+                                p_sys->i_frame_size, crc, stream_crc);
+                            block_SkipByte(&p_sys->bytestream);
+                            p_sys->i_state = STATE_NOSYNC;
+                        }
                     } else {
                         p_sys->i_state = STATE_SEND_DATA;
                         p_sys->crc = 0;
@@ -749,7 +787,11 @@ static int Open(vlc_object_t *p_this)
 
     p_sys->i_state       = STATE_NOSYNC;
     p_sys->b_stream_info = false;
+    p_sys->i_firstpts    = VLC_TS_INVALID;
+    p_sys->i_firstframepts   = VLC_TS_INVALID;
     p_sys->i_pts         = VLC_TS_INVALID;
+    p_sys->i_buf         = 0;
+    p_sys->p_buf         = NULL;
     block_BytestreamInit(&p_sys->bytestream);
 
     /* */
@@ -760,6 +802,7 @@ static int Open(vlc_object_t *p_this)
     /* */
     p_dec->pf_decode_audio = NULL;
     p_dec->pf_packetize    = Packetize;
+    p_dec->pf_flush        = Flush;
 
     return VLC_SUCCESS;
 }
@@ -769,6 +812,8 @@ static void Close(vlc_object_t *p_this)
     decoder_t *p_dec = (decoder_t *)p_this;
     decoder_sys_t *p_sys = p_dec->p_sys;
 
+    es_format_Clean(&p_dec->fmt_out);
     block_BytestreamRelease(&p_sys->bytestream);
+    free(p_sys->p_buf);
     free(p_sys);
 }

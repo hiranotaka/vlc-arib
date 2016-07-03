@@ -96,7 +96,7 @@ static int Open( vlc_object_t * p_this )
 
     if( memcmp( p_peek, "TTA1", 4 ) )
     {
-        if( !p_demux->b_force )
+        if( !p_demux->obj.force )
             return VLC_EGENERIC;
 
         /* User forced */
@@ -195,7 +195,7 @@ static int Demux( demux_t *p_demux )
     demux_sys_t *p_sys = p_demux->p_sys;
     block_t     *p_data;
 
-    if( p_sys->i_currentframe > p_sys->i_totalframes )
+    if( p_sys->i_currentframe >= p_sys->i_totalframes )
         return 0;
 
     p_data = stream_Block( p_demux->s, p_sys->pi_seektable[p_sys->i_currentframe] );
@@ -221,6 +221,9 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
     switch( i_query )
     {
+        case DEMUX_CAN_SEEK:
+            return stream_vaControl( p_demux->s, i_query, args );
+
         case DEMUX_GET_POSITION:
             pf = (double*) va_arg( args, double* );
             i64 = stream_Size( p_demux->s ) - p_sys->i_start;

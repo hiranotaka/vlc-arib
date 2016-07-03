@@ -167,9 +167,9 @@ RequestExecutionLevel admin
 ; Macro and Functions ;
 ;;;;;;;;;;;;;;;;;;;;;;;
 
-!include helpers/extensions.nsh
-!include helpers/install.nsh
-!include helpers/utils.nsh
+!include helpers\extensions.nsh
+!include helpers\install.nsh
+!include helpers\utils.nsh
 
 ;;;;;;;;;;;;;;;;;;;;;;
 ; Installer sections ;
@@ -201,12 +201,11 @@ ${MementoSection} $Name_Section01 SEC01
   ; Subfolders
   !insertmacro InstallFolder plugins
   !insertmacro InstallFolder locale
-  !insertmacro InstallFolder sdk
 @BUILD_SKINS_TRUE@   !insertmacro InstallFolder skins
 @BUILD_LUA_TRUE@     !insertmacro InstallFolder lua
 
   ; Generate the cache and add it to uninstall.log
-  nsExec::ExecToStack "$INSTDIR\vlc-cache-gen.exe $INSTDIR\plugins"
+  nsExec::ExecToStack '"$INSTDIR\vlc-cache-gen.exe" $INSTDIR\plugins'
   FindFirst $0 $1 "$INSTDIR\plugins\*.dat"
   FileWrite $UninstallLog "plugins\$1$\r$\n"
   FindClose $0
@@ -229,6 +228,10 @@ ${MementoSection} $Name_Section01 SEC01
   WriteRegStr HKCR Applications\vlc.exe\shell\Open\command "" '"$INSTDIR\vlc.exe" --started-from-file "%1"'
   !insertmacro MacroAllExtensions RegisterExtensionMacro
   !insertmacro MacroSkinExtensions RegisterSkinExtensionMacro
+
+  ; Add VLC to "App Paths" to run VLC from ShellExecute/ShellExecuteEx/run dialog without giving a full path
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\vlc.exe" "" "$INSTDIR\vlc.exe"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\vlc.exe" "Path" "$INSTDIR"
 
   ; Windows default programs Registration
   ; Vista and above detection
@@ -545,7 +548,7 @@ UAC_Success:
 ;  StrCmp $LANGUAGE ${LANG_SCOTTISH_GAELIC} Scottish_Gaelic 0
 ;  StrCmp $LANGUAGE ${LANG_SINHALA} Sinhala 0
   StrCmp $LANGUAGE ${LANG_THAI} Thai 0
-  StrCmp $LANGUAGE ${LANG_TRADITIONAL_CHINESE} TradChinese 0
+  StrCmp $LANGUAGE ${LANG_TRADCHINESE} TradChinese 0
   StrCmp $LANGUAGE ${LANG_TURKISH} Turkish 0
   StrCmp $LANGUAGE ${LANG_UKRAINIAN} Ukrainian 0
   StrCmp $LANGUAGE ${LANG_UZBEK} Uzbek 0
@@ -593,12 +596,12 @@ UAC_Success:
   Japanese:
   !include "languages\japanese.nsh"
   Goto EndLanguageCmp
-  Bengali:
-  !include "languages\bengali.nsh"
-  Goto EndLanguageCmp
-  Punjabi:
-  !include "languages\punjabi.nsh"
-  Goto EndLanguageCmp
+;  Bengali:
+;  !include "languages\bengali.nsh"
+;  Goto EndLanguageCmp
+;  Punjabi:
+;  !include "languages\punjabi.nsh"
+;  Goto EndLanguageCmp
   Slovenian:
   !include "languages\slovenian.nsh"
   Goto EndLanguageCmp
@@ -946,6 +949,7 @@ Section "un.$Name_Section91" SEC91
   DeleteRegKey HKLM Software\VideoLAN
 
   DeleteRegKey HKCR Applications\vlc.exe
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\vlc.exe"
   DeleteRegKey HKCR AudioCD\shell\PlayWithVLC
   DeleteRegKey HKCR DVD\shell\PlayWithVLC
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\EventHandlers\PlayDVDMovieOnArrival" "VLCPlayDVDMovieOnArrival"
@@ -1070,7 +1074,7 @@ UAC_Success:
 ;  StrCmp $LANGUAGE ${LANG_SCOTTISH_GAELIC} Scottish_Gaelic 0
 ;  StrCmp $LANGUAGE ${LANG_SINHALA} Sinhala 0
   StrCmp $LANGUAGE ${LANG_THAI} Thai 0
-  StrCmp $LANGUAGE ${LANG_TRADITIONAL_CHINESE} TradChinese 0
+  StrCmp $LANGUAGE ${LANG_TRADCHINESE} TradChinese 0
   StrCmp $LANGUAGE ${LANG_TURKISH} Turkish 0
   StrCmp $LANGUAGE ${LANG_UKRAINIAN} Ukrainian 0
   StrCmp $LANGUAGE ${LANG_UZBEK} Uzbek 0
@@ -1118,12 +1122,12 @@ UAC_Success:
   Japanese:
   !include "languages\japanese.nsh"
   Goto EndLanguageCmp
-  Bengali:
-  !include "languages\bengali.nsh"
-  Goto EndLanguageCmp
-  Punjabi:
-  !include "languages\punjabi.nsh"
-  Goto EndLanguageCmp
+;  Bengali:
+;  !include "languages\bengali.nsh"
+;  Goto EndLanguageCmp
+;  Punjabi:
+;  !include "languages\punjabi.nsh"
+;  Goto EndLanguageCmp
   Slovenian:
   !include "languages\slovenian.nsh"
   Goto EndLanguageCmp

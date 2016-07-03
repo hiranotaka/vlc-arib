@@ -36,8 +36,10 @@
 #include <vlc_plugin.h>
 #include <vlc_demux.h>
 
-#include "ps.h"
+#include "mpeg/pes.h"
+#include "mpeg/ps.h"
 #include "vobsub.h"
+#include "subtitle_helper.h"
 
 /*****************************************************************************
  * Module descriptor
@@ -121,17 +123,14 @@ static int Open ( vlc_object_t *p_this )
     demux_sys_t *p_sys;
     char *psz_vobname, *s;
     int i_len;
+    uint64_t i_read_offset = 0;
 
-    if( ( s = stream_ReadLine( p_demux->s ) ) != NULL )
+    if( ( s = peek_Readline( p_demux->s, &i_read_offset ) ) != NULL )
     {
         if( !strcasestr( s, "# VobSub index file" ) )
         {
             msg_Dbg( p_demux, "this doesn't seem to be a vobsub file" );
             free( s );
-            if( stream_Seek( p_demux->s, 0 ) )
-            {
-                msg_Warn( p_demux, "failed to rewind" );
-            }
             return VLC_EGENERIC;
         }
         free( s );
@@ -242,6 +241,10 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
     switch( i_query )
     {
+        case DEMUX_CAN_SEEK:
+            *va_arg( args, bool * ) = true;
+            return VLC_SUCCESS;
+
         case DEMUX_GET_LENGTH:
             pi64 = (int64_t*)va_arg( args, int64_t * );
             *pi64 = (int64_t) p_sys->i_length;
@@ -409,6 +412,8 @@ static int Demux( demux_t *p_demux )
             /* demux this block */
             DemuxVobSub( p_demux, p_block );
 
+            block_Release( p_block );
+
             tk.i_current_subtitle++;
         }
 #undef tk
@@ -558,7 +563,7 @@ static int ParseVobSubIDX( demux_t *p_demux )
             }
 
             current_tk->p_es = es_out_Add( p_demux->out, &fmt );
-            msg_Dbg( p_demux, "new vobsub track detected" );
+            msg_Dbg( p_demux, "New vobsub track detected: %i [%s]", i_track_id, language );
         }
         else if( !strncmp( line, "timestamp:", 10 ) )
         {
@@ -685,7 +690,7 @@ static int DemuxVobSub( demux_t *p_demux, block_t *p_bk )
 
         i_id = ps_pkt_id( p_pkt );
         if( (i_id&0xffe0) != 0xbd20 ||
-            ps_pkt_parse_pes( p_pkt, 1 ) )
+            ps_pkt_parse_pes( VLC_OBJECT(p_demux), p_pkt, 1 ) )
         {
             block_Release( p_pkt );
             continue;

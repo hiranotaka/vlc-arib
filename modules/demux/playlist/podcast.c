@@ -48,6 +48,7 @@ int Import_podcast( vlc_object_t *p_this )
 {
     demux_t *p_demux = (demux_t *)p_this;
 
+    CHECK_FILE();
     if( !demux_IsForced( p_demux, "podcast" ) )
         return VLC_EGENERIC;
 
@@ -210,7 +211,7 @@ static int Demux( demux_t *p_demux )
                 }
                 else
                 {
-                    if( !strcmp( psz_elname, "url" ) )
+                    if( !strcmp( psz_elname, "url" ) && *node )
                     {
                         free( psz_art_url );
                         psz_art_url = strdup( node );
@@ -251,8 +252,8 @@ static int Demux( demux_t *p_demux )
                         continue;
                     }
 
-                    resolve_xml_special_chars( psz_item_mrl );
-                    resolve_xml_special_chars( psz_item_name );
+                    vlc_xml_decode( psz_item_mrl );
+                    vlc_xml_decode( psz_item_name );
                     p_input = input_item_New( psz_item_mrl, psz_item_name );
                     FREENULL( psz_item_mrl );
                     FREENULL( psz_item_name );
@@ -282,7 +283,7 @@ static int Demux( demux_t *p_demux )
                     /* Add the global art url to this item, if any */
                     if( psz_art_url )
                     {
-                        resolve_xml_special_chars( psz_art_url );
+                        vlc_xml_decode( psz_art_url );
                         input_item_SetArtURL( p_input, psz_art_url );
                     }
 
@@ -354,7 +355,6 @@ static mtime_t strTimeToMTime( const char *psz )
         return (mtime_t)( ( h*60 + m )*60 + s ) * 1000000;
     case 2:
         return (mtime_t)( h*60 + m ) * 1000000;
-        break;
     default:
         return -1;
     }

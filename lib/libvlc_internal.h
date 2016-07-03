@@ -29,8 +29,8 @@
 # include "config.h"
 #endif
 
-#include <vlc/libvlc_structures.h>
 #include <vlc/libvlc.h>
+#include <vlc/libvlc_dialog.h>
 #include <vlc/libvlc_media.h>
 #include <vlc/libvlc_events.h>
 
@@ -78,6 +78,11 @@ struct libvlc_instance_t
         void (*cb) (void *, int, const libvlc_log_t *, const char *, va_list);
         void *data;
     } log;
+    struct
+    {
+        libvlc_dialog_cbs cbs;
+        void *data;
+    } dialog;
 };
 
 
@@ -90,24 +95,14 @@ void libvlc_threads_init (void);
 void libvlc_threads_deinit (void);
 
 /* Events */
-libvlc_event_manager_t * libvlc_event_manager_new(
-        void * p_obj, libvlc_instance_t * p_libvlc_inst );
+libvlc_event_manager_t * libvlc_event_manager_new(void * p_obj);
 
 void libvlc_event_manager_release(
         libvlc_event_manager_t * p_em );
 
-void libvlc_event_manager_register_event_type(
-        libvlc_event_manager_t * p_em,
-        libvlc_event_type_t event_type );
-
 void libvlc_event_send(
         libvlc_event_manager_t * p_em,
         libvlc_event_t * p_event );
-
-void libvlc_event_attach_async( libvlc_event_manager_t * p_event_manager,
-                               libvlc_event_type_t event_type,
-                               libvlc_callback_t pf_callback,
-                               void *p_user_data );
 
 static inline libvlc_time_t from_mtime(mtime_t time)
 {

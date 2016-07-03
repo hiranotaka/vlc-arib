@@ -94,7 +94,7 @@ struct decoder_sys_t
 
 
 static block_t *DecodeBlock (decoder_t *p_dec, block_t **pp_block);
-
+static void Flush (decoder_t *);
 
 static int Open (vlc_object_t *p_this)
 {
@@ -143,7 +143,7 @@ static int Open (vlc_object_t *p_this)
     if (p_sys->soundfont == -1)
     {
         msg_Err (p_this, "sound font file required for synthesis");
-        dialog_Fatal (p_this, _("MIDI synthesis not set up"),
+        vlc_dialog_display_error (p_this, _("MIDI synthesis not set up"),
             _("A sound font file (.SF2) is required for MIDI synthesis.\n"
               "Please install a sound font and configure it "
               "from the VLC preferences "
@@ -178,6 +178,7 @@ static int Open (vlc_object_t *p_this)
 
     p_dec->p_sys = p_sys;
     p_dec->pf_decode_audio = DecodeBlock;
+    p_dec->pf_flush        = Flush;
     return VLC_SUCCESS;
 }
 
@@ -192,6 +193,17 @@ static void Close (vlc_object_t *p_this)
     free (p_sys);
 }
 
+static void Flush (decoder_t *p_dec)
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    date_Set (&p_sys->end_date, VLC_TS_INVALID);
+    //fluid_synth_system_reset (p_sys->synth);
+    fluid_synth_program_reset (p_sys->synth);
+    for (unsigned channel = 0; channel < 16; channel++)
+        for (unsigned note = 0; note < 128; note++)
+            fluid_synth_noteoff (p_sys->synth, channel, note);
+}
 
 static block_t *DecodeBlock (decoder_t *p_dec, block_t **pp_block)
 {
@@ -205,6 +217,16 @@ static block_t *DecodeBlock (decoder_t *p_dec, block_t **pp_block)
     if (p_block == NULL)
         return NULL;
     *pp_block = NULL;
+
+    if (p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED))
+    {
+        Flush (p_dec);
+        if (p_block->i_flags & BLOCK_FLAG_CORRUPTED)
+        {
+            block_Release(p_block);
+            return NULL;
+        }
+    }
 
     if (p_block->i_pts > VLC_TS_INVALID && !date_Get (&p_sys->end_date))
         date_Set (&p_sys->end_date, p_block->i_pts);

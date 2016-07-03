@@ -29,7 +29,7 @@
 /**
  * Preparser opaque structure.
  *
- * The preparser object will retreive the meta data of any given input item in
+ * The preparser object will retrieve the meta data of any given input item in
  * an asynchronous way.
  * It will also issue art fetching requests.
  */
@@ -45,12 +45,28 @@ playlist_preparser_t *playlist_preparser_New( vlc_object_t * );
  *
  * The input item is retained until the preparsing is done or until the
  * preparser object is deleted.
+ * Listen to vlc_InputItemPreparseEnded event to get notified when item is
+ * preparsed.
+ *
+ * @param timeout maximum time allowed to preparse the item. If -1, the default
+ * "preparse-timeout" option will be used as a timeout. If 0, it will wait
+ * indefinitely. If > 0, the timeout will be used (in milliseconds).
+ * @param id unique id provided by the caller. This is can be used to cancel
+ * the request with playlist_preparser_Cancel()
  */
 void playlist_preparser_Push( playlist_preparser_t *, input_item_t *,
-                              input_item_meta_request_option_t );
+                              input_item_meta_request_option_t,
+                              int timeout, void *id );
 
 void playlist_preparser_fetcher_Push( playlist_preparser_t *, input_item_t *,
                                       input_item_meta_request_option_t );
+
+/**
+ * This function cancel all preparsing requests for a given id
+ *
+ * @param id unique id given to playlist_preparser_Push()
+ */
+void playlist_preparser_Cancel( playlist_preparser_t *, void *id );
 
 /**
  * This function destroys the preparser object and thread.

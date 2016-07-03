@@ -38,6 +38,8 @@
 #include <assert.h>
 #include <limits.h>
 
+#include <new>
+
 X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
                       X11Display &rDisplay, bool dragDrop, bool playOnDrop,
                       X11Window *pParentWindow, GenericWindow::WindowType_t type ):
@@ -46,7 +48,7 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
 {
     XSetWindowAttributes attr;
     unsigned long valuemask;
-    string name_type;
+    std::string name_type;
 
     if( type == GenericWindow::FullscreenWindow )
     {
@@ -164,7 +166,7 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
     }
 
     // Change the window title
-    string name_window = "VLC (" + name_type + ")";
+    std::string name_window = "VLC (" + name_type + ")";
     XStoreName( XDISPLAY, m_wnd, name_window.c_str() );
 
     // Set the WM_TRANSIENT_FOR property
@@ -201,7 +203,7 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
     long host_name_max = sysconf( _SC_HOST_NAME_MAX );
     if( host_name_max <= 0 )
         host_name_max = _POSIX_HOST_NAME_MAX;
-    hostname = new char[host_name_max];
+    hostname = new (std::nothrow) char[host_name_max];
     if( hostname && gethostname( hostname, host_name_max ) == 0 )
     {
         hostname[host_name_max - 1] = '\0';
@@ -221,6 +223,19 @@ X11Window::X11Window( intf_thread_t *pIntf, GenericWindow &rWindow,
     XChangeProperty( XDISPLAY, m_wnd, NET_WM_PID, XA_CARDINAL, 32,
                      PropModeReplace, (unsigned char *)&pid, 1 );
 
+    if( NET_WM_WINDOW_TYPE != None )
+    {
+        if( type == GenericWindow::FullscreenWindow )
+        {
+            // Some Window Managers like Gnome3 limit fullscreen to the
+            // subarea outside the task bar if no window type is provided.
+            // For those WMs, setting type window to normal ensures a clean
+            // 100% fullscreen
+            XChangeProperty( XDISPLAY, m_wnd, NET_WM_WINDOW_TYPE,
+                         XA_ATOM, 32, PropModeReplace,
+                         (unsigned char *)&NET_WM_WINDOW_TYPE_NORMAL, 1 );
+        }
+    }
 }
 
 

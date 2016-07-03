@@ -46,7 +46,7 @@
 static const char ppsz_supported_uri_schemes[][9] = {
     "file", "http", "https", "rtsp", "realrtsp", "pnm", "ftp", "mtp", "smb",
     "mms", "mmsu", "mmst", "mmsh", "unsv", "itpc", "icyx", "rtmp", "rtp",
-    "dccp", "dvd", "vcd", "vcdx"
+    "dccp", "dvd", "vcd"
 };
 
 static const char ppsz_supported_mime_types[][26] = {
@@ -261,14 +261,14 @@ MarshalSupportedUriSchemes( intf_thread_t *p_intf, DBusMessageIter *container )
 DBUS_METHOD( Quit )
 { /* exits vlc */
     REPLY_INIT;
-    libvlc_Quit(INTF->p_libvlc);
+    libvlc_Quit(INTF->obj.libvlc);
     REPLY_SEND;
 }
 
 DBUS_METHOD( Raise )
 {/* shows vlc's main window */
     REPLY_INIT;
-    var_ToggleBool( INTF->p_libvlc, "intf-show" );
+    var_ToggleBool( INTF->obj.libvlc, "intf-show" );
     REPLY_SEND;
 }
 

@@ -52,7 +52,7 @@ struct demux_sys_t
 static int vlclua_demux_peek( lua_State *L )
 {
     demux_t *p_demux = (demux_t *)vlclua_get_this( L );
-    int n = luaL_checkint( L, 1 );
+    int n = (int)luaL_checkinteger( L, 1 );
     const uint8_t *p_peek;
 
     int i_peek = stream_Peek( p_demux->s, &p_peek, n );
@@ -67,7 +67,7 @@ static int vlclua_demux_read( lua_State *L )
 {
     demux_t *p_demux = (demux_t *)vlclua_get_this( L );
     const uint8_t *p_read;
-    int n = luaL_checkint( L, 1 );
+    int n = (int)luaL_checkinteger( L, 1 );
     int i_read = stream_Peek( p_demux->s, &p_read, n );
 
     if( i_read > 0 )
@@ -141,7 +141,7 @@ static int probe_luascript( vlc_object_t *p_this, const char * psz_filename,
     luaL_openlibs( L ); /* FIXME: Don't open all the libs? */
 
     vlclua_set_this( L, p_demux );
-    luaL_register( L, "vlc", p_reg );
+    luaL_register_namespace( L, "vlc", p_reg );
     luaopen_msg( L );
     luaopen_strings( L );
     luaopen_stream( L );
@@ -163,7 +163,7 @@ static int probe_luascript( vlc_object_t *p_this, const char * psz_filename,
     }
 
     /* Load and run the script(s) */
-    if( luaL_dofile( L, psz_filename ) )
+    if( vlclua_dofile( VLC_OBJECT(p_demux), L, psz_filename ) )
     {
         msg_Warn( p_demux, "Error loading script %s: %s", psz_filename,
                   lua_tostring( L, lua_gettop( L ) ) );
@@ -246,10 +246,9 @@ static int Demux( demux_t *p_demux )
     lua_State *L = p_demux->p_sys->L;
     char *psz_filename = p_demux->p_sys->psz_filename;
 
-    input_thread_t *p_input_thread = demux_GetParentInput( p_demux );
-    input_item_t *p_current_input = input_GetItem( p_input_thread );
+    input_item_t *p_current_input = input_GetItem( p_demux->p_input );
 
-    luaL_register( L, "vlc", p_reg_parse );
+    luaL_register_namespace( L, "vlc", p_reg_parse );
 
     lua_getglobal( L, "parse" );
 
@@ -257,7 +256,6 @@ static int Demux( demux_t *p_demux )
     {
         msg_Warn( p_demux, "Error while running script %s, "
                   "function parse() not found", psz_filename );
-        vlc_object_release( p_input_thread );
         return VLC_EGENERIC;
     }
 
@@ -266,7 +264,6 @@ static int Demux( demux_t *p_demux )
         msg_Warn( p_demux, "Error while running script %s, "
                   "function parse(): %s", psz_filename,
                   lua_tostring( L, lua_gettop( L ) ) );
-        vlc_object_release( p_input_thread );
         return VLC_EGENERIC;
     }
 
@@ -274,8 +271,6 @@ static int Demux( demux_t *p_demux )
         vlclua_playlist_add_internal( p_demux, L, NULL, p_current_input, 0 );
     else
         msg_Err( p_demux, "Script went completely foobar" );
-
-    vlc_object_release( p_input_thread );
 
     return -1; /* Needed for correct operation of go back */
 }

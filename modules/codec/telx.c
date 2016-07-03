@@ -459,7 +459,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     {
         uint8_t * packet = (uint8_t *) p_block->p_buffer+offset;
 //        int vbi = ((0x20 & packet[2]) != 0 ? 0 : 313) + (0x1F & packet[2]);
- 
+
 //        dbg((p_dec, "vbi %d header %02x %02x %02x\n", vbi, packet[0], packet[1], packet[2]));
         if ( packet[0] == 0xFF ) continue;
 
@@ -491,7 +491,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
             /* row 0 : flags and header line */
             int flag = 0;
             int a;
- 
+
             for ( a = 0; a < 6; a++ )
             {
                 flag |= (0xF & (bytereverse( hamming_8_4(packet[8 + a]) ) >> 4))
@@ -527,7 +527,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
                   (1 & (flag>>18))? " interrupt" : "",
                   (1 & (flag>>19))? " inhibit" : "",
                   (1 & (flag>>20)) ));
- 
+
             if ( (p_sys->i_wanted_page != -1
                    && p_sys->i_page[magazine] != p_sys->i_wanted_page)
                    || !p_sys->b_is_subtitle[magazine] )
@@ -546,7 +546,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
                  p_sys->b_erase[magazine] )
             {
                 int i;
- 
+
                 dbg((p_dec, "ERASE !\n"));
 
                 p_sys->b_erase[magazine] = 0;
@@ -691,10 +691,9 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
         msg_Warn( p_dec, "can't get spu buffer" );
         goto error;
     }
- 
+
     /* Create a new subpicture region */
-    memset( &fmt, 0, sizeof(video_format_t) );
-    fmt.i_chroma = VLC_CODEC_TEXT;
+    video_format_Init(&fmt, VLC_CODEC_TEXT);
     fmt.i_width = fmt.i_height = 0;
     fmt.i_x_offset = fmt.i_y_offset = 0;
     p_spu->p_region = subpicture_region_New( &fmt );
@@ -708,7 +707,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     p_spu->p_region->i_align = SUBPICTURE_ALIGN_BOTTOM | p_sys->i_align;
     p_spu->p_region->i_x = p_sys->i_align ? 20 : 0;
     p_spu->p_region->i_y = 10;
-    p_spu->p_region->psz_text = strdup(psz_text);
+    p_spu->p_region->p_text = text_segment_New(psz_text);
 
     p_spu->i_start = p_block->i_pts;
     p_spu->i_stop = p_block->i_pts + p_block->i_length;
@@ -722,7 +721,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
 error:
     if ( p_spu != NULL )
     {
-        decoder_DeleteSubpicture( p_dec, p_spu );
+        subpicture_Delete( p_spu );
         p_spu = NULL;
     }
 

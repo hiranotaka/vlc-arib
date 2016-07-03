@@ -113,17 +113,30 @@ static subpicture_region_t * vout_OSDEpgText(const char *text,
         return NULL;
 
     /* Set subpicture parameters */
-    region->psz_text = strdup(text);
+    region->p_text   = text_segment_New(text);
+    if ( unlikely( !region->p_text ) )
+    {
+        subpicture_region_Delete( region );
+        return NULL;
+    }
     region->i_align  = 0;
     region->i_x      = x;
     region->i_y      = y;
 
     /* Set text style */
-    region->p_style = text_style_New();
-    if (region->p_style) {
-        region->p_style->i_font_size  = size;
-        region->p_style->i_font_color = color;
-        region->p_style->i_font_alpha = 0;
+    text_style_t *p_style = text_style_Create( STYLE_NO_DEFAULTS );
+    if ( unlikely( !p_style ) )
+    {
+        text_segment_Delete( region->p_text );
+        subpicture_region_Delete( region );
+        return NULL;
+    }
+    region->p_text->style = p_style;
+    if (p_style) {
+        p_style->i_font_size  = __MAX(size ,1 );
+        p_style->i_font_color = color;
+        p_style->i_font_alpha = STYLE_ALPHA_OPAQUE;
+        p_style->i_features |= STYLE_HAS_FONT_ALPHA | STYLE_HAS_FONT_COLOR;
     }
 
     return region;
@@ -263,7 +276,7 @@ static void OSDEpgDestroy(subpicture_t *subpic)
  */
 int vout_OSDEpg(vout_thread_t *vout, input_item_t *input)
 {
-    char *now_playing = input_item_GetNowPlaying(input);
+    char *now_playing = input_item_GetNowPlayingFb(input);
     vlc_epg_t *epg = NULL;
 
     vlc_mutex_lock(&input->lock);
@@ -282,6 +295,7 @@ int vout_OSDEpg(vout_thread_t *vout, input_item_t *input)
     }
 
     vlc_mutex_unlock(&input->lock);
+    free(now_playing);
 
     /* If no EPG event has been found. */
     if (epg == NULL)

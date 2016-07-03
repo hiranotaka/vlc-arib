@@ -104,6 +104,31 @@ int vlc_openat (int dir, const char *filename, int flags, ...)
     return -1;
 }
 
+int vlc_memfd (void)
+{
+#if 0
+    int fd, err;
+
+    FILE *stream = tmpfile();
+    if (stream == NULL)
+        return -1;
+
+    fd = vlc_dup(fileno(stream));
+    err = errno;
+    fclose(stream);
+    errno = err;
+    return fd;
+#else /* Not currently used */
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+int vlc_close (int fd)
+{
+    return close (fd);
+}
+
 int vlc_mkdir( const char *dirname, mode_t mode )
 {
     wchar_t *wpath = widen_path (dirname);
@@ -118,6 +143,9 @@ int vlc_mkdir( const char *dirname, mode_t mode )
 
 char *vlc_getcwd (void)
 {
+#if VLC_WINSTORE_APP
+    return NULL;
+#else
     wchar_t *wdir = _wgetcwd (NULL, 0);
     if (wdir == NULL)
         return NULL;
@@ -125,6 +153,7 @@ char *vlc_getcwd (void)
     char *dir = FromWide (wdir);
     free (wdir);
     return dir;
+#endif
 }
 
 /* Under Windows, these wrappers return the list of drive letters
@@ -149,6 +178,7 @@ DIR *vlc_opendir (const char *dirname)
         free (wpath);
         p_dir->wdir = NULL;
         p_dir->u.drives = GetLogicalDrives ();
+        p_dir->entry = NULL;
         return (void *)p_dir;
     }
 #endif
@@ -168,7 +198,7 @@ DIR *vlc_opendir (const char *dirname)
     return (void *)p_dir;
 }
 
-char *vlc_readdir (DIR *dir)
+const char *vlc_readdir (DIR *dir)
 {
     vlc_DIR *p_dir = (vlc_DIR *)dir;
 
@@ -180,7 +210,10 @@ char *vlc_readdir (DIR *dir)
     {
         DWORD drives = p_dir->u.drives;
         if (drives == 0)
+        {
+            p_dir->entry = NULL;
             return NULL; /* end */
+        }
 
         unsigned int i;
         for (i = 0; !(drives & 1); i++)
@@ -280,6 +313,16 @@ int vlc_pipe (int fds[2])
 #endif
 }
 
+ssize_t vlc_write(int fd, const void *buf, size_t len)
+{
+    return write(fd, buf, len);
+}
+
+ssize_t vlc_writev(int fd, const struct iovec *iov, int count)
+{
+    vlc_assert_unreachable();
+}
+
 #include <vlc_network.h>
 
 int vlc_socket (int pf, int type, int proto, bool nonblock)
@@ -293,6 +336,13 @@ int vlc_socket (int pf, int type, int proto, bool nonblock)
     return fd;
 }
 
+int vlc_socketpair(int pf, int type, int proto, int fds[2], bool nonblock)
+{
+    (void) pf; (void) type; (void) proto; (void) fds; (void) nonblock;
+    errno = ENOSYS;
+    return -1;
+}
+
 int vlc_accept (int lfd, struct sockaddr *addr, socklen_t *alen, bool nonblock)
 {
     int fd = accept (lfd, addr, alen);
@@ -300,3 +350,43 @@ int vlc_accept (int lfd, struct sockaddr *addr, socklen_t *alen, bool nonblock)
         ioctlsocket (fd, FIONBIO, &(unsigned long){ 1 });
     return fd;
 }
+
+#if !VLC_WINSTORE_APP
+FILE *vlc_win32_tmpfile(void)
+{
+    TCHAR tmp_path[MAX_PATH-14];
+    int i_ret = GetTempPath (MAX_PATH-14, tmp_path);
+    if (i_ret == 0)
+        return NULL;
+
+    TCHAR tmp_name[MAX_PATH];
+    i_ret = GetTempFileName(tmp_path, TEXT("VLC"), 0, tmp_name);
+    if (i_ret == 0)
+        return NULL;
+
+    HANDLE hFile = CreateFile(tmp_name,
+            GENERIC_READ | GENERIC_WRITE | DELETE, 0, NULL, CREATE_ALWAYS,
+            FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+        return NULL;
+
+    int fd = _open_osfhandle((intptr_t)hFile, 0);
+    if (fd == -1) {
+        CloseHandle(hFile);
+        return NULL;
+    }
+
+    FILE *stream = _fdopen(fd, "w+b");
+    if (stream == NULL) {
+        _close(fd);
+        return NULL;
+    }
+    return stream;
+}
+#else
+FILE *vlc_win32_tmpfile(void)
+{
+    return NULL;
+}
+#endif
+

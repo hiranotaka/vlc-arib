@@ -42,6 +42,7 @@
 
 #include <vlc_common.h>
 #include <vlc_keys.h>
+#include <vlc_charset.h>
 #include "configuration.h"
 #include "libvlc.h"
 
@@ -260,7 +261,7 @@ found:
 
 /*** VLC key map ***/
 
-#define MAXACTION 20
+#define MAXACTION 26
 struct action
 {
     char name[MAXACTION];
@@ -353,6 +354,9 @@ static const struct action actions[] =
     { "subsync-markaudio", ACTIONID_SUBSYNC_MARKAUDIO, },
     { "subsync-marksub", ACTIONID_SUBSYNC_MARKSUB, },
     { "subsync-reset", ACTIONID_SUBSYNC_RESET, },
+    { "subtitle-text-scale-down", ACTIONID_SUBTITLE_TEXT_SCALE_DOWN, },
+    { "subtitle-text-scale-normal", ACTIONID_SUBTITLE_TEXT_SCALE_NORMAL, },
+    { "subtitle-text-scale-up", ACTIONID_SUBTITLE_TEXT_SCALE_UP, },
     { "subtitle-toggle", ACTIONID_SUBTITLE_TOGGLE, },
     { "subtitle-track", ACTIONID_SUBTITLE_TRACK, },
     { "title-next", ACTIONID_TITLE_NEXT, },
@@ -386,11 +390,7 @@ static int keycmp (const void *a, const void *b)
 {
     const struct mapping *ka = a, *kb = b;
 
-#if (INT_MAX >= 0x7fffffff)
-    return ka->key - kb->key;
-#else
     return (ka->key < kb->key) ? -1 : (ka->key > kb->key) ? +1 : 0;
-#endif
 }
 
 struct vlc_actions
@@ -437,6 +437,34 @@ static int vlc_AddMapping (void **map, uint32_t keycode, vlc_action_t action)
     }
     return 0;
 }
+
+static void vlc_AddWheelMapping (void **map, uint32_t kmore, uint32_t kless,
+                                 int mode)
+{
+    vlc_action_t amore = ACTIONID_NONE, aless = ACTIONID_NONE;
+
+    switch (mode)
+    {
+        case 0: /* volume up/down */
+            amore = ACTIONID_VOL_UP;
+            aless = ACTIONID_VOL_DOWN;
+            break;
+        case 2: /* position latter/earlier */
+            amore = ACTIONID_JUMP_FORWARD_EXTRASHORT;
+            aless = ACTIONID_JUMP_BACKWARD_EXTRASHORT;
+            break;
+        case 3: /* position earlier/latter */
+            amore = ACTIONID_JUMP_BACKWARD_EXTRASHORT;
+            aless = ACTIONID_JUMP_FORWARD_EXTRASHORT;
+            break;
+    }
+
+    if (amore != ACTIONID_NONE)
+        vlc_AddMapping (map, kmore, amore);
+    if (aless != ACTIONID_NONE)
+        vlc_AddMapping (map, kless, aless);
+}
+
 
 /**
  * Sets up all key mappings for a given action.
@@ -511,23 +539,10 @@ struct vlc_actions *vlc_InitActions (libvlc_int_t *libvlc)
     keys->psz_action = NULL;
 
     /* Initialize mouse wheel events */
-    int mousemode = var_InheritInteger (obj, "hotkeys-mousewheel-mode");
-    if (mousemode < 2)
-    {
-        vlc_AddMapping (&as->map,
-                        mousemode ? KEY_MOUSEWHEELRIGHT : KEY_MOUSEWHEELUP,
-                        ACTIONID_VOL_UP);
-        vlc_AddMapping (&as->map,
-                        mousemode ? KEY_MOUSEWHEELLEFT : KEY_MOUSEWHEELDOWN,
-                        ACTIONID_VOL_DOWN);
-        vlc_AddMapping (&as->map,
-                        mousemode ? KEY_MOUSEWHEELUP : KEY_MOUSEWHEELRIGHT,
-                        ACTIONID_JUMP_FORWARD_EXTRASHORT);
-        vlc_AddMapping (&as->map,
-                        mousemode ? KEY_MOUSEWHEELDOWN : KEY_MOUSEWHEELLEFT,
-                        ACTIONID_JUMP_BACKWARD_EXTRASHORT);
-    }
-
+    vlc_AddWheelMapping (&as->map, KEY_MOUSEWHEELRIGHT, KEY_MOUSEWHEELLEFT,
+                         var_InheritInteger (obj, "hotkeys-x-wheel-mode"));
+    vlc_AddWheelMapping (&as->map, KEY_MOUSEWHEELUP, KEY_MOUSEWHEELDOWN,
+                         var_InheritInteger (obj, "hotkeys-y-wheel-mode"));
 
     libvlc->p_hotkeys = as->keys;
     var_AddCallback (obj, "key-pressed", vlc_key_to_action, &as->map);

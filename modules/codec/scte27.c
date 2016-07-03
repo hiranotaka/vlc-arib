@@ -252,7 +252,9 @@ static subpicture_region_t *DecodeSimpleBitmap(decoder_t *dec,
     video_format_t fmt = {
         .i_chroma = VLC_CODEC_YUVP,
         .i_width = frame_h,
+        .i_visible_width = frame_h,
         .i_height = frame_v,
+        .i_visible_height = frame_v,
         .i_sar_num = 0, /* Use video AR */
         .i_sar_den = 1,
         .p_palette = &palette,
@@ -414,7 +416,7 @@ static subpicture_t *Decode(decoder_t *dec, block_t **block)
     subpicture_t *sub_first = NULL;
     subpicture_t **sub_last = &sub_first;
 
-    if (b->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED))
+    if (b->i_flags & (BLOCK_FLAG_CORRUPTED))
         goto exit;
 
     while (b->i_buffer > 3) {

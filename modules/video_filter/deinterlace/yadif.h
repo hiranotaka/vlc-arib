@@ -29,13 +29,15 @@
 #  else
 #    define DECLARE_ASM_CONST(n,t,v)    static const t __attribute__ ((aligned (n))) v
 #  endif
+#elif defined(_MSC_VER)
+#    define DECLARE_ASM_CONST(n,t,v)    __declspec(align(n)) static const t v
 #endif
 
 typedef intptr_t x86_reg;
 typedef struct { uint64_t a, b; } xmm_reg;
 
-DECLARE_ASM_CONST(16, const xmm_reg, pb_1) = {0x0101010101010101ULL, 0x0101010101010101ULL};
-DECLARE_ASM_CONST(16, const xmm_reg, pw_1) = {0x0001000100010001ULL, 0x0001000100010001ULL};
+DECLARE_ASM_CONST(16, xmm_reg, pb_1) = {0x0101010101010101ULL, 0x0101010101010101ULL};
+DECLARE_ASM_CONST(16, xmm_reg, pw_1) = {0x0001000100010001ULL, 0x0001000100010001ULL};
 
 
 #ifdef CAN_COMPILE_SSSE3

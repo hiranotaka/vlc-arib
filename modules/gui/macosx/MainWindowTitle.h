@@ -28,34 +28,28 @@
  * VLCMainWindowTitleView
  *****************************************************************************/
 
-@interface VLCMainWindowTitleView : VLCThreePartImageView
-{
-    NSImage * o_red_img;
-    NSImage * o_red_over_img;
-    NSImage * o_red_on_img;
-    NSImage * o_yellow_img;
-    NSImage * o_yellow_over_img;
-    NSImage * o_yellow_on_img;
-    NSImage * o_green_img;
-    NSImage * o_green_over_img;
-    NSImage * o_green_on_img;
-    NSShadow * o_window_title_shadow;
-    NSDictionary * o_window_title_attributes_dict;
+@class VLCCustomWindowCloseButton;
+@class VLCCustomWindowMinimizeButton;
+@class VLCCustomWindowZoomButton;
+@class VLCCustomWindowFullscreenButton;
+@class VLCWindowTitleTextField;
 
-    IBOutlet id o_red_btn;
-    IBOutlet id o_yellow_btn;
-    IBOutlet id o_green_btn;
-    IBOutlet id o_fullscreen_btn;
-    IBOutlet id o_title_lbl;
-}
+@interface VLCMainWindowTitleView : VLCThreePartImageView
+
+@property (readwrite, strong) IBOutlet VLCCustomWindowCloseButton *redButton;
+@property (readwrite, strong) IBOutlet VLCCustomWindowMinimizeButton *yellowButton;
+@property (readwrite, strong) IBOutlet VLCCustomWindowZoomButton *greenButton;
+@property (readwrite, strong) IBOutlet VLCCustomWindowFullscreenButton *fullscreenButton;
+@property (readwrite, strong) IBOutlet VLCWindowTitleTextField *titleLabel;
+
 @property (readonly) NSButton * closeButton;
 @property (readonly) NSButton * minimizeButton;
 @property (readonly) NSButton * zoomButton;
 
+- (void)informModifierPressed:(BOOL)b_is_altkey;
 - (void)loadButtonIcons;
 - (IBAction)buttonAction:(id)sender;
 - (void)setWindowTitle:(NSString *)title;
-- (void)setFullscreenButtonHidden:(BOOL)b_value;
 - (void)setWindowButtonOver:(BOOL)b_value;
 - (void)setWindowFullscreenButtonOver:(BOOL)b_value;
 
@@ -73,24 +67,25 @@
 
 @end
 
-@interface VLCCustomWindowButtonPrototype: NSButton
+@interface VLCCustomWindowButtonPrototype : NSButton
+
 - (NSArray*)extendedAccessibilityAttributeNames: (NSArray*)theAttributeNames;
 - (id)extendedAccessibilityAttributeValue: (NSString*)theAttributeName;
 - (NSNumber*)extendedAccessibilityIsAttributeSettable: (NSString*)theAttributeName;
 
 @end
 
-@interface VLCCustomWindowCloseButton: VLCCustomWindowButtonPrototype
+@interface VLCCustomWindowCloseButton : VLCCustomWindowButtonPrototype
 
 @end
 
 
-@interface VLCCustomWindowMinimizeButton: VLCCustomWindowButtonPrototype
+@interface VLCCustomWindowMinimizeButton : VLCCustomWindowButtonPrototype
 
 @end
 
 
-@interface VLCCustomWindowZoomButton: VLCCustomWindowButtonPrototype
+@interface VLCCustomWindowZoomButton : VLCCustomWindowButtonPrototype
 
 @end
 
@@ -99,8 +94,5 @@
 @end
 
 @interface VLCWindowTitleTextField : NSTextField
-{
-    NSMenu * contextMenu;
-}
 
 @end

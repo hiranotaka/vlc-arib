@@ -69,11 +69,7 @@ struct vout_thread_sys_t
     filter_t        *spu_blend;
 
     /* Video output window */
-    struct {
-        bool              is_unused;
-        vout_window_cfg_t cfg;
-        vout_window_t     *object;
-    } window;
+    vout_window_t   *window;
 
     /* Thread & synchronization */
     vlc_thread_t    thread;
@@ -85,7 +81,6 @@ struct vout_thread_sys_t
         char           *title;
         vout_display_t *vd;
         bool           use_dr;
-        picture_t      *filtered;
     } display;
 
     struct {
@@ -122,15 +117,14 @@ struct vout_thread_sys_t
         vlc_mutex_t     lock;
         char            *configuration;
         video_format_t  format;
-        filter_chain_t  *chain_static;
-        filter_chain_t  *chain_interactive;
+        struct filter_chain_t *chain_static;
+        struct filter_chain_t *chain_interactive;
     } filter;
 
     /* */
     vlc_mouse_t     mouse;
 
     /* */
-    vlc_mutex_t     picture_lock;                 /**< picture heap lock */
     picture_pool_t  *private_pool;
     picture_pool_t  *display_pool;
     picture_pool_t  *decoder_pool;

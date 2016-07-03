@@ -2,7 +2,7 @@
  * TrackSynchronization.h: MacOS X interface module
  *****************************************************************************
  * Copyright (C) 2011-2012 VLC authors and VideoLAN
- * Copyright (C) 2011-2012 Felix Paul Kühne
+ * Copyright (C) 2011-2015 Felix Paul Kühne
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -24,44 +24,37 @@
 
 #import <Cocoa/Cocoa.h>
 
-
-@interface VLCTrackSynchronization : NSObject {
-    /* generic */
-    IBOutlet id o_window;
-    intf_thread_t *p_intf;
-    IBOutlet id o_reset_btn;
-
-    /* Audio / Video */
-    IBOutlet id o_av_lbl;
-    IBOutlet id o_av_advance_lbl;
-    IBOutlet id o_av_value_fld;
-    IBOutlet id o_av_stp;
-
-    /* Subtitles / Video */
-    IBOutlet id o_sv_lbl;
-    IBOutlet id o_sv_advance_lbl;
-    IBOutlet id o_sv_advance_value_fld;
-    IBOutlet id o_sv_advance_stp;
-    IBOutlet id o_sv_speed_lbl;
-    IBOutlet id o_sv_speed_value_fld;
-    IBOutlet id o_sv_speed_stp;
-    IBOutlet id o_sv_dur_lbl;
-    IBOutlet id o_sv_dur_value_fld;
-    IBOutlet id o_sv_dur_stp;
-}
+@interface VLCTrackSynchronization : NSWindowController
 
 /* generic */
-+ (VLCTrackSynchronization *)sharedInstance;
+@property (readwrite, weak) IBOutlet NSButton *resetButton;
+
+/* Audio / Video */
+@property (readwrite, weak) IBOutlet NSTextField *avLabel;
+@property (readwrite, weak) IBOutlet NSTextField *av_advanceLabel;
+@property (readwrite, weak) IBOutlet NSTextField *av_advanceTextField;
+@property (readwrite, weak) IBOutlet NSStepper *avStepper;
+
+/* Subtitles / Video */
+@property (readwrite, weak) IBOutlet NSTextField *svLabel;
+@property (readwrite, weak) IBOutlet NSTextField *sv_advanceLabel;
+@property (readwrite, weak) IBOutlet NSTextField *sv_advanceTextField;
+@property (readwrite, weak) IBOutlet NSStepper *sv_advanceStepper;
+@property (readwrite, weak) IBOutlet NSTextField *sv_speedLabel;
+@property (readwrite, weak) IBOutlet NSTextField *sv_speedTextField;
+@property (readwrite, weak) IBOutlet NSStepper *sv_speedStepper;
+@property (readwrite, weak) IBOutlet NSTextField *sv_durLabel;
+@property (readwrite, weak) IBOutlet NSTextField *sv_durTextField;
+@property (readwrite, weak) IBOutlet NSStepper *sv_durStepper;
+
 
 - (void)updateCocoaWindowLevel:(NSInteger)i_level;
 - (IBAction)toggleWindow:(id)sender;
 - (IBAction)resetValues:(id)sender;
 - (void)updateValues;
 
-/* Audio / Video */
 - (IBAction)avValueChanged:(id)sender;
 
-/* Subtitles / Video */
 - (IBAction)svAdvanceValueChanged:(id)sender;
 - (IBAction)svSpeedValueChanged:(id)sender;
 - (IBAction)svDurationValueChanged:(id)sender;

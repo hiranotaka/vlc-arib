@@ -1,7 +1,7 @@
 /*****************************************************************************
  * ControlsBar.h: MacOS X interface module
  *****************************************************************************
- * Copyright (C) 2012-2014 VLC authors and VideoLAN
+ * Copyright (C) 2012-2016 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne -at- videolan -dot- org>
@@ -26,6 +26,7 @@
 #import "misc.h"
 
 @class VLCFSPanel;
+@class VLCResizeControl;
 
 /*****************************************************************************
  * VLCControlsBarCommon
@@ -35,40 +36,27 @@
  *****************************************************************************/
 
 @interface VLCControlsBarCommon : NSObject
-{
-    IBOutlet id o_bottombar_view;
-    IBOutlet VLCDragDropView *o_drop_view;
 
-    IBOutlet id o_play_btn;
-    IBOutlet id o_bwd_btn;
-    IBOutlet id o_fwd_btn;
+@property (readwrite, strong) IBOutlet VLCDragDropView *dropView;
 
-    IBOutlet id o_progress_view;
-    IBOutlet id o_time_sld;
-    IBOutlet id o_time_sld_fancygradient_view;
-    IBOutlet id o_time_sld_background;
-    IBOutlet id o_progress_bar;
+@property (readwrite, strong) IBOutlet NSButton *playButton;
+@property (readwrite, strong) IBOutlet NSButton *backwardButton;
+@property (readwrite, strong) IBOutlet NSButton *forwardButton;
 
-    IBOutlet id o_time_fld;
-    IBOutlet id o_fullscreen_btn;
-    IBOutlet id o_resize_view;
+@property (readwrite, strong) IBOutlet VLCProgressView *progressView;
+@property (readwrite, strong) IBOutlet TimeLineSlider *timeSlider;
+@property (readwrite, strong) IBOutlet VLCThreePartImageView *timeSliderGradientView;
+@property (readwrite, strong) IBOutlet VLCThreePartImageView *timeSliderBackgroundView;
+@property (readwrite, strong) IBOutlet NSProgressIndicator *progressBar;
 
-    NSImage * o_pause_img;
-    NSImage * o_pause_pressed_img;
-    NSImage * o_play_img;
-    NSImage * o_play_pressed_img;
+@property (readwrite, strong) IBOutlet VLCTimeField *timeField;
+@property (readwrite, strong) IBOutlet NSButton *fullscreenButton;
+@property (readwrite, strong) IBOutlet VLCResizeControl *resizeView;
 
-    NSTimeInterval last_fwd_event;
-    NSTimeInterval last_bwd_event;
-    BOOL just_triggered_next;
-    BOOL just_triggered_previous;
+@property (readwrite, strong) IBOutlet VLCThreePartImageView *bottomBarView;
 
-    BOOL b_nativeFullscreenMode;
-    BOOL b_dark_interface;
-
-}
-
-@property (readonly) id bottomBarView;
+@property (readonly) BOOL darkInterface;
+@property (readonly) BOOL nativeFullscreenMode;
 
 - (CGFloat)height;
 - (void)toggleForwardBackwardMode:(BOOL)b_alt;
@@ -79,7 +67,6 @@
 
 - (IBAction)timeSliderAction:(id)sender;
 - (IBAction)fullscreen:(id)sender;
-
 
 - (void)updateTimeSlider;
 - (void)drawFancyGradientEffectForTimeSlider;
@@ -98,44 +85,25 @@
  *****************************************************************************/
 
 @interface VLCMainWindowControlsBar : VLCControlsBarCommon
-{
-    IBOutlet id o_stop_btn;
 
-    IBOutlet id o_playlist_btn;
-    IBOutlet id o_repeat_btn;
-    IBOutlet id o_shuffle_btn;
+@property (readwrite, strong) IBOutlet NSButton *stopButton;
 
-    IBOutlet VLCVolumeSliderCommon * o_volume_sld;
-    IBOutlet id o_volume_track_view;
-    IBOutlet id o_volume_down_btn;
-    IBOutlet id o_volume_up_btn;
+@property (readwrite, strong) IBOutlet NSButton *playlistButton;
+@property (readwrite, strong) IBOutlet NSButton *repeatButton;
+@property (readwrite, strong) IBOutlet NSButton *shuffleButton;
 
-    IBOutlet id o_effects_btn;
+@property (readwrite, strong) IBOutlet VLCVolumeSliderCommon * volumeSlider;
+@property (readwrite, strong) IBOutlet NSImageView *volumeTrackImageView;
+@property (readwrite, strong) IBOutlet NSButton *volumeDownButton;
+@property (readwrite, strong) IBOutlet NSButton *volumeUpButton;
 
-    NSImage * o_repeat_img;
-    NSImage * o_repeat_pressed_img;
-    NSImage * o_repeat_all_img;
-    NSImage * o_repeat_all_pressed_img;
-    NSImage * o_repeat_one_img;
-    NSImage * o_repeat_one_pressed_img;
-    NSImage * o_shuffle_img;
-    NSImage * o_shuffle_pressed_img;
-    NSImage * o_shuffle_on_img;
-    NSImage * o_shuffle_on_pressed_img;
-
-    NSButton * o_prev_btn;
-    NSButton * o_next_btn;
-
-    BOOL b_show_jump_buttons;
-    BOOL b_show_playmode_buttons;
-}
+@property (readwrite, strong) IBOutlet NSButton *effectsButton;
 
 - (IBAction)stop:(id)sender;
 
 - (IBAction)shuffle:(id)sender;
 - (IBAction)volumeAction:(id)sender;
 - (IBAction)effects:(id)sender;
-
 
 - (void)setRepeatOne;
 - (void)setRepeatAll;

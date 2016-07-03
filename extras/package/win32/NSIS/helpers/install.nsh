@@ -25,11 +25,14 @@
     FindNext $0 $1
     Goto "${Index}-Loop"
   "${Index}-End:"
+  FindClose $0
   !undef Index
 !macroend
 
 !macro InstallFolder FOLDER
-  File /r "${FOLDER}"
+  SetOutPath "$INSTDIR\${FOLDER}"
+  File /r "${FOLDER}\*.*"
+  SetOutPath "$INSTDIR"
   Push "${FOLDER}"
   Call InstallFolderInternal
 !macroend
@@ -57,6 +60,7 @@ Function InstallFolderInternal
     FindNext $0 $1
     Goto "${Index}-Loop"
   "${Index}-End:"
+  FindClose $0
   !undef Index
 FunctionEnd
 ;;; End of Macros

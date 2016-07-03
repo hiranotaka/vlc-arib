@@ -677,7 +677,7 @@ static block_t *dirac_DoSync( decoder_t *p_dec )
         case NOT_SYNCED:
         {
             if( VLC_SUCCESS !=
-                block_FindStartcodeFromOffset( &p_sys->bytestream, &p_sys->i_offset, p_parsecode, 4 ) )
+                block_FindStartcodeFromOffset( &p_sys->bytestream, &p_sys->i_offset, p_parsecode, 4, NULL ) )
             {
                 /* p_sys->i_offset will have been set to:
                  *   end of bytestream - amount of prefix found
@@ -1179,6 +1179,54 @@ static int dirac_TimeGenPush( decoder_t *p_dec, block_t *p_block_in )
     return 0;
 }
 
+
+static void dirac_ReorderDequeueAndReleaseBlock( decoder_t *p_dec, block_t *p_block )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+    /* Check if that block is present in reorder queue and release it
+       if needed */
+    struct dirac_reorder_entry **pp_at = &p_sys->reorder_buf.p_head;
+    for( ; *pp_at; pp_at = &(*pp_at)->p_next )
+    {
+        /* backup address in case we remove member */
+        struct dirac_reorder_entry *p_entry = *pp_at;
+        if ( p_entry->p_eu == p_block )
+        {
+            /* unlink member */
+            *pp_at = (*pp_at)->p_next;
+
+            /* Add to empty reorder entry list*/
+            p_entry->p_next = p_sys->reorder_buf.p_empty;
+            p_sys->reorder_buf.p_empty = p_entry;
+
+            p_sys->reorder_buf.u_size--;
+            break;
+        }
+    }
+
+    block_Release( p_block );
+}
+
+/*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    /* pre-emptively insert an EOS at a discontinuity, protects
+     * any decoders from any sudden changes */
+    block_t *p_block = dirac_EmitEOS( p_dec, 0 );
+    if( p_block )
+    {
+        p_block->p_next = dirac_EmitEOS( p_dec, 13 );
+        /* need two EOS to ensure it gets detected by synchro
+         * duplicates get discarded in forming encapsulation unit */
+
+        block_BytestreamPush( &p_sys->bytestream, p_block );
+    }
+}
+
 /*****************************************************************************
  * Packetize: form dated encapsulation units from anything
  *****************************************************************************/
@@ -1195,16 +1243,9 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
 
         if( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY )
         {
-            /* pre-emptively insert an EOS at a discontinuity, protects
-             * any decoders from any sudden changes */
             block_Release( p_block );
-            p_block = dirac_EmitEOS( p_dec, 0 );
-            if( p_block )
-            {
-                p_block->p_next = dirac_EmitEOS( p_dec, 13 );
-                /* need two EOS to ensure it gets detected by synchro
-                 * duplicates get discarded in forming encapsulation unit */
-            }
+            p_block = NULL;
+            Flush( p_dec );
         }
         else if( p_block->i_flags & BLOCK_FLAG_CORRUPTED )
         {
@@ -1307,7 +1348,7 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
             block_t *p_block_next = p_block->p_next;
             if( p_block->i_pts > VLC_TS_INVALID && p_block->i_dts > VLC_TS_INVALID )
                 break;
-            block_Release( p_block );
+            dirac_ReorderDequeueAndReleaseBlock( p_dec, p_block );
             p_sys->p_outqueue = p_block = p_block_next;
         }
     }
@@ -1331,6 +1372,7 @@ static int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
 
     p_dec->pf_packetize = Packetize;
+    p_dec->pf_flush     = Flush;
 
     /* Create the output format */
     es_format_Copy( &p_dec->fmt_out, &p_dec->fmt_in );

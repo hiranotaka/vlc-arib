@@ -44,7 +44,7 @@
 /* The SDK doesn't have a default bitrate, so here's one. */
 #define QSV_BITRATE_DEFAULT (842)
 
-/* Makes x a multiple of 'align'. 'align' must me a power of 2 */
+/* Makes x a multiple of 'align'. 'align' must be a power of 2 */
 #define QSV_ALIGN(align, x)     (((x)+(align)-1)&~((align)-1))
 
 /*****************************************************************************
@@ -122,7 +122,7 @@ static void     Close(vlc_object_t *);
 #define MAX_BITRATE_TEXT N_("Maximum Bitrate")
 #define MAX_BITRATE_LONGTEXT N_("Defines the maximum bitrate in Kpbs " \
     "(1000 bits/s) for VBR rate control method. If not set, this parameter" \
-    ". is computed from other sources such as bitrate, profile, level, etc.")
+    " is computed from other sources such as bitrate, profile, level, etc.")
 
 #define ACCURACY_TEXT N_("Accuracy of RateControl")
 #define ACCURACY_LONGTEXT N_("Tolerance in percentage of the 'avbr' " \
@@ -410,7 +410,7 @@ static int Open(vlc_object_t *this)
     uint8_t nals[128];
 
     if (enc->fmt_out.i_codec != VLC_CODEC_H264 &&
-        enc->fmt_out.i_codec != VLC_CODEC_MPGV && !enc->b_force)
+        enc->fmt_out.i_codec != VLC_CODEC_MPGV && !enc->obj.force)
         return VLC_EGENERIC;
 
     if (!enc->fmt_in.video.i_visible_height || !enc->fmt_in.video.i_visible_width ||

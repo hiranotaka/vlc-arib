@@ -90,7 +90,7 @@ static char *MakeConfig( intf_thread_t *p_intf, const char *name )
         else
         {
             vlc_url_t url;
-            vlc_UrlParse( &url, psz_host, 0 );
+            vlc_UrlParse( &url, psz_host );
             unsigned i_port = var_InheritInteger( p_intf, "telnet-port" );
             if ( url.i_port != 0 )
             {
@@ -208,17 +208,17 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
         char *n = var_InheritString( p_this, "lua-intf" );
         if( unlikely(n == NULL) )
             return VLC_EGENERIC;
-        name = p_intf->psz_header = n;
+        name = p_intf->obj.header = n;
     }
     else
         /* Cleaned up by vlc_object_release() */
-        p_intf->psz_header = strdup( name );
+        p_intf->obj.header = strdup( name );
 
     intf_sys_t *p_sys = malloc( sizeof(*p_sys) );
     if( unlikely(p_sys == NULL) )
     {
-        free( p_intf->psz_header );
-        p_intf->psz_header = NULL;
+        free( p_intf->obj.header );
+        p_intf->obj.header = NULL;
         return VLC_ENOMEM;
     }
     p_intf->p_sys = p_sys;
@@ -245,7 +245,7 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
     luaL_openlibs( L );
 
     /* register our functions */
-    luaL_register( L, "vlc", p_reg );
+    luaL_register_namespace( L, "vlc", p_reg );
 
     /* register submodules */
     luaopen_config( L );
@@ -377,8 +377,8 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
 error:
     free( p_sys->psz_filename );
     free( p_sys );
-    free( p_intf->psz_header );
-    p_intf->psz_header = NULL;
+    free( p_intf->obj.header );
+    p_intf->obj.header = NULL;
     return VLC_EGENERIC;
 }
 
@@ -390,8 +390,8 @@ void Close_LuaIntf( vlc_object_t *p_this )
     vlclua_fd_interrupt( &p_sys->dtable );
     vlc_join( p_sys->thread, NULL );
 
-    vlclua_fd_cleanup( &p_sys->dtable );
     lua_close( p_sys->L );
+    vlclua_fd_cleanup( &p_sys->dtable );
     free( p_sys->psz_filename );
     free( p_sys );
 }
@@ -402,7 +402,7 @@ static void *Run( void *data )
     intf_sys_t *p_sys = p_intf->p_sys;
     lua_State *L = p_sys->L;
 
-    if( luaL_dofile( L, p_sys->psz_filename ) )
+    if( vlclua_dofile( VLC_OBJECT(p_intf), L, p_sys->psz_filename ) )
     {
         msg_Err( p_intf, "Error loading script %s: %s", p_sys->psz_filename,
                  lua_tostring( L, lua_gettop( L ) ) );

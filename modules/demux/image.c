@@ -147,8 +147,7 @@ static block_t *Decode(demux_t *demux,
 
     size_t size = 0;
     for (int i = 0; i < image->i_planes; i++)
-        size += image->p[i].i_visible_pitch *
-                image->p[i].i_visible_lines;
+        size += image->p[i].i_pitch * image->p[i].i_lines;
 
     data = block_Alloc(size);
     if (!data) {
@@ -221,6 +220,9 @@ static int Control(demux_t *demux, int query, va_list args)
     demux_sys_t *sys = demux->p_sys;
 
     switch (query) {
+    case DEMUX_CAN_SEEK:
+        *va_arg(args, bool *) = sys->duration >= 0 && !sys->is_realtime;
+        return VLC_SUCCESS;
     case DEMUX_GET_POSITION: {
         double *position = va_arg(args, double *);
         if (sys->duration > 0)
@@ -438,7 +440,10 @@ static bool FindSVGmarker(int *position, const uint8_t *data, const int size, co
 
 static bool IsSVG(stream_t *s)
 {
-    char *ext = strstr(s->psz_path, ".svg");
+    if (s->psz_url == NULL)
+        return false;
+
+    char *ext = strstr(s->psz_url, ".svg");
     if (!ext) return false;
 
     const uint8_t *header;
@@ -584,6 +589,10 @@ static const image_format_t formats[] = {
     },
     { .codec = VLC_CODEC_JPEG,
       .detect = IsExif,
+    },
+    { .codec = VLC_CODEC_BPG,
+      .marker_size = 4,
+      .marker = { 'B', 'P', 'G', 0xFB },
     },
     { .codec = VLC_CODEC_SVG,
       .detect = IsSVG,

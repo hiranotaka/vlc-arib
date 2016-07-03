@@ -4,15 +4,21 @@ EXTRA_DIST =
 
 appdatadir = $(datadir)/applications
 if !HAVE_WIN32
+if !HAVE_DARWIN
 appdata_DATA = vlc.desktop
 endif
-EXTRA_DIST += vlc.desktop.in
+endif
+EXTRA_DIST += vlc.desktop.in vlc.desktop.mimetypes
 CLEANFILES += $(appdata_DATA)
 
 vlc.desktop: vlc.desktop.in $(top_builddir)/config.status
 	$(AM_V_GEN)sed -e 's,\@bindir\@,$(bindir),g' < "$<" > tmp-$@
+	$(AM_V_GEN)mimetypes="$$(sed 's/\s*#.*$$//g' $(srcdir)/vlc.desktop.mimetypes | egrep -v '^$$' | tr "\n" ';')"; sed -i "s,\@MIMETYPES\@,$$mimetypes,g" tmp-$@
 	$(AM_V_at)$(DESKTOP_FILE_VALIDATE) tmp-$@
 	$(AM_V_at)mv -f tmp-$@ $@
+
+vlc.appdata.xml: vlc.appdata.xml.in $(top_builddir)/config.status
+	cd $(top_builddir) && $(SHELL) ./config.status --file=$(subdir)/$@
 
 iconsdatadir = $(datadir)/icons/hicolor
 icons16dir = $(iconsdatadir)/16x16/apps
@@ -143,6 +149,7 @@ nobase_vlclib_DATA = \
 	lua/playlist/pinkbike.luac \
 	lua/playlist/pluzz.luac \
 	lua/playlist/rockbox_fm_presets.luac \
+	lua/playlist/satip.luac \
 	lua/playlist/soundcloud.luac \
 	lua/playlist/vimeo.luac \
 	lua/playlist/youtube.luac \
@@ -160,6 +167,7 @@ nobase_doc_DATA = \
 	lua/extensions/README.txt \
 	lua/intf/README.txt \
 	lua/intf/dumpmeta.lua \
+	lua/meta/README.txt \
 	lua/meta/art/README.txt \
 	lua/meta/art/01_googleimage.lua \
 	lua/meta/fetcher/README.txt \
@@ -167,7 +175,7 @@ nobase_doc_DATA = \
 	lua/meta/reader/README.txt \
 	lua/meta/reader/filename.lua \
 	lua/playlist/README.txt \
-	lua/playlist/soundcloud.lua \
+	lua/playlist/liveleak.lua \
 	lua/playlist/youtube.lua \
 	lua/sd/README.txt \
 	lua/sd/icecast.lua \
@@ -198,6 +206,7 @@ EXTRA_DIST += \
 	lua/intf/modules/host.lua \
 	lua/intf/modules/httprequests.lua \
 	lua/intf/telnet.lua \
+	lua/meta/README.txt \
 	lua/meta/art/README.txt \
 	lua/meta/art/02_frenchtv.lua \
 	lua/meta/art/03_lastfm.lua \
@@ -235,6 +244,7 @@ EXTRA_DIST += \
 	lua/playlist/pinkbike.lua \
 	lua/playlist/pluzz.lua \
 	lua/playlist/rockbox_fm_presets.lua \
+	lua/playlist/satip.lua \
 	lua/playlist/soundcloud.lua \
 	lua/playlist/vimeo.lua \
 	lua/playlist/youtube.lua \

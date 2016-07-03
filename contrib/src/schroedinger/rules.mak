@@ -9,7 +9,7 @@ PKGS_FOUND += schroedinger
 endif
 
 $(TARBALLS)/schroedinger-$(SCHROEDINGER_VERSION).tar.gz:
-	$(call download,$(SCHROEDINGER_URL))
+	$(call download_pkg,$(SCHROEDINGER_URL),schroedinger)
 
 .sum-schroedinger: schroedinger-$(SCHROEDINGER_VERSION).tar.gz
 

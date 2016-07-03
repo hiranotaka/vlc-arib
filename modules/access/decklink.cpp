@@ -22,8 +22,6 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#define __STDC_CONSTANT_MACROS 1
-
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
@@ -81,7 +79,7 @@ static const char *const ppsz_videoconns[] = {
     "sdi", "hdmi", "opticalsdi", "component", "composite", "svideo"
 };
 static const char *const ppsz_videoconns_text[] = {
-    N_("SDI"), N_("HDMI"), N_("Optical SDI"), N_("Component"), N_("Composite"), N_("S-video")
+    N_("SDI"), N_("HDMI"), N_("Optical SDI"), N_("Component"), N_("Composite"), N_("S-Video")
 };
 
 static const char *const ppsz_audioconns[] = {
@@ -135,7 +133,7 @@ struct demux_sys_t
     DeckLinkCaptureDelegate *delegate;
 
     /* We need to hold onto the IDeckLinkConfiguration object, or our settings will not apply.
-       See section 2.4.15 of the Blackmagic Decklink SDK documentation. */
+       See section 2.4.15 of the Blackmagic DeckLink SDK documentation. */
     IDeckLinkConfiguration *config;
     IDeckLinkAttributes *attributes;
 
@@ -215,19 +213,19 @@ class DeckLinkCaptureDelegate : public IDeckLinkInputCallback
 public:
     DeckLinkCaptureDelegate(demux_t *demux) : demux_(demux)
     {
-        atomic_store(&m_ref_, 1);
+        m_ref_.store(1);
     }
 
     virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, LPVOID *) { return E_NOINTERFACE; }
 
     virtual ULONG STDMETHODCALLTYPE AddRef(void)
     {
-        return atomic_fetch_add(&m_ref_, 1);
+        return m_ref_.fetch_add(1);
     }
 
     virtual ULONG STDMETHODCALLTYPE Release(void)
     {
-        uintptr_t new_ref = atomic_fetch_sub(&m_ref_, 1);
+        uintptr_t new_ref = m_ref_.fetch_sub(1);
         if (new_ref == 0)
             delete this;
         return new_ref;
@@ -266,7 +264,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*);
 
 private:
-    atomic_uint m_ref_;
+    std::atomic_uint m_ref_;
     demux_t *demux_;
 };
 

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * misc.m: code not specific to vlc
  *****************************************************************************
- * Copyright (C) 2003-2014 VLC authors and VideoLAN
+ * Copyright (C) 2003-2015 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Jon Lech Johansen <jon-vl@nanocrew.net>
@@ -26,12 +26,13 @@
 #import "misc.h"
 #import "intf.h"                                          /* VLCApplication */
 #import "MainWindow.h"
+#import "MainMenu.h"
 #import "ControlsBar.h"
-#import "controls.h"
 #import "CoreInteraction.h"
 #import <CoreAudio/CoreAudio.h>
 #import <vlc_keys.h>
 
+NSString *const VLCOpenTextFieldWasClicked = @"VLCOpenTextFieldWasClicked";
 
 /*****************************************************************************
  * NSSound (VLCAdditions)
@@ -55,7 +56,7 @@
     AudioObjectPropertyAddress deviceAddress = { kAudioHardwarePropertyDefaultOutputDevice, kAudioDevicePropertyScopeOutput, kAudioObjectPropertyElementMaster };
     err = AudioObjectGetPropertyData( kAudioObjectSystemObject, &deviceAddress, 0, NULL, &i_size, &i_device );
     if (err != noErr) {
-        msg_Warn( VLCIntf, "couldn't get main audio output device" );
+        msg_Warn( getIntf(), "couldn't get main audio output device" );
         return .0;
     }
 
@@ -63,7 +64,7 @@
     i_size = sizeof( f_volume );
     err = AudioObjectGetPropertyData(i_device, &propertyAddress, 0, NULL, &i_size, &f_volume);
     if (err != noErr) {
-        msg_Warn( VLCIntf, "couldn't get volume value" );
+        msg_Warn( getIntf(), "couldn't get volume value" );
         return .0;
     }
 
@@ -83,7 +84,7 @@
     AudioObjectPropertyAddress deviceAddress = { kAudioHardwarePropertyDefaultOutputDevice, kAudioDevicePropertyScopeOutput, kAudioObjectPropertyElementMaster };
     err = AudioObjectGetPropertyData( kAudioObjectSystemObject, &deviceAddress, 0, NULL, &i_size, &i_device );
     if (err != noErr) {
-        msg_Warn( VLCIntf, "couldn't get main audio output device" );
+        msg_Warn( getIntf(), "couldn't get main audio output device" );
         return NO;
     }
 
@@ -91,7 +92,7 @@
     i_size = sizeof( f_volume );
     err = AudioObjectIsPropertySettable( i_device, &propertyAddress, &b_writeable );
     if (err != noErr || !b_writeable ) {
-        msg_Warn( VLCIntf, "we can't set the main audio devices' volume" );
+        msg_Warn( getIntf(), "we can't set the main audio devices' volume" );
         return NO;
     }
     err = AudioObjectSetPropertyData(i_device, &propertyAddress, 0, NULL, i_size, &f_volume);
@@ -141,18 +142,17 @@ static NSMapTable *VLCAdditions_userInfo = NULL;
 
 - (void)dealloc
 {
-    NSMapRemove(VLCAdditions_userInfo, self);
-    [super dealloc];
+    NSMapRemove(VLCAdditions_userInfo, (__bridge const void * __nullable)(self));
 }
 
 - (void)setUserInfo: (void *)userInfo
 {
-    NSMapInsert(VLCAdditions_userInfo, self, (void*)userInfo);
+    NSMapInsert(VLCAdditions_userInfo, (__bridge const void * __nullable)(self), (void*)userInfo);
 }
 
 - (void *)userInfo
 {
-    return NSMapGet(VLCAdditions_userInfo, self);
+    return NSMapGet(VLCAdditions_userInfo, (__bridge const void * __nullable)(self));
 }
 @end
 
@@ -173,14 +173,13 @@ static bool b_old_spaces_style = YES;
     /* init our fake object attribute */
     blackoutWindows = [[NSMutableArray alloc] initWithCapacity:1];
 
-    if (OSX_MAVERICKS) {
+    if (!OSX_LION && !OSX_MOUNTAIN_LION) {
         NSUserDefaults *userDefaults = [[NSUserDefaults alloc] init];
         [userDefaults addSuiteNamed:@"com.apple.spaces"];
         /* this is system settings -> mission control -> monitors using different spaces */
         NSNumber *o_span_displays = [userDefaults objectForKey:@"spans-displays"];
 
         b_old_spaces_style = [o_span_displays boolValue];
-        [userDefaults release];
     }
 }
 
@@ -199,7 +198,7 @@ static bool b_old_spaces_style = YES;
 - (BOOL)hasMenuBar
 {
     if (b_old_spaces_style)
-        return ([self displayID] == [[[NSScreen screens] objectAtIndex:0] displayID]);
+        return ([self displayID] == [[[NSScreen screens] firstObject] displayID]);
     else
         return YES;
 }
@@ -261,7 +260,6 @@ static bool b_old_spaces_style = YES;
         [blackoutWindow orderFront: self animate: YES];
 
         [blackoutWindows addObject: blackoutWindow];
-        [blackoutWindow release];
 
         [screen setFullscreenPresentationOptions];
     }
@@ -317,10 +315,13 @@ static bool b_old_spaces_style = YES;
  * VLCDragDropView
  *****************************************************************************/
 
-@implementation VLCDragDropView
+@interface VLCDragDropView()
+{
+    bool b_activeDragAndDrop;
+}
+@end
 
-@synthesize dropHandler=_dropHandler;
-@synthesize drawBorder;
+@implementation VLCDragDropView
 
 - (id)initWithFrame:(NSRect)frame
 {
@@ -346,7 +347,6 @@ static bool b_old_spaces_style = YES;
 - (void)dealloc
 {
     [self unregisterDraggedTypes];
-    [super dealloc];
 }
 
 - (void)awakeFromNib
@@ -388,9 +388,9 @@ static bool b_old_spaces_style = YES;
     BOOL b_returned;
 
     if (_dropHandler && [_dropHandler respondsToSelector:@selector(performDragOperation:)])
-        b_returned = [_dropHandler performDragOperation: sender];
+        b_returned = [_dropHandler performDragOperation:sender];
     else // default
-        b_returned = [[VLCCoreInteraction sharedInstance] performDragOperation: sender];
+        b_returned = [[VLCCoreInteraction sharedInstance] performDragOperation:sender];
 
     [self setNeedsDisplay:YES];
     return b_returned;
@@ -407,7 +407,7 @@ static bool b_old_spaces_style = YES;
         NSRect frameRect = [self bounds];
 
         [[NSColor selectedControlColor] set];
-        NSFrameRectWithWidthUsingOperation(frameRect, 2., NSCompositeHighlight);
+        NSFrameRectWithWidthUsingOperation(frameRect, 2., NSCompositeSourceOver);
     }
 
     [super drawRect:dirtyRect];
@@ -492,7 +492,7 @@ void _drawFrameInRect(NSRect frameRect)
     CGFloat f_deltaY = [o_event deltaY];
     CGFloat f_deltaX = [o_event deltaX];
 
-    if (!OSX_SNOW_LEOPARD && [o_event isDirectionInvertedFromDevice])
+    if ([o_event isDirectionInvertedFromDevice])
         f_deltaX = -f_deltaX; // optimisation, actually double invertion of f_deltaY here
     else
         f_deltaY = -f_deltaY;
@@ -528,25 +528,27 @@ void _drawFrameInRect(NSRect frameRect)
  * TimeLineSlider
  *****************************************************************************/
 
+@interface TimeLineSlider()
+{
+    NSImage *o_knob_img;
+    NSRect img_rect;
+    BOOL b_dark;
+}
+@end
+
 @implementation TimeLineSlider
 
 - (void)awakeFromNib
 {
-    if (config_GetInt( VLCIntf, "macosx-interfacestyle" )) {
-        o_knob_img = [NSImage imageNamed:@"progression-knob_dark"];
+    if (config_GetInt( getIntf(), "macosx-interfacestyle" )) {
+        o_knob_img = imageFromRes(@"progression-knob_dark");
         b_dark = YES;
     } else {
-        o_knob_img = [NSImage imageNamed:@"progression-knob"];
+        o_knob_img = imageFromRes(@"progression-knob");
         b_dark = NO;
     }
     img_rect.size = [o_knob_img size];
     img_rect.origin.x = img_rect.origin.y = 0;
-}
-
-- (void)dealloc
-{
-    [o_knob_img release];
-    [super dealloc];
 }
 
 - (CGFloat)knobPosition
@@ -588,15 +590,13 @@ void _drawFrameInRect(NSRect frameRect)
 
 @implementation VLCVolumeSliderCommon : NSSlider
 
-@synthesize usesBrightArtwork = _usesBrightArtwork;
-
 - (void)scrollWheel:(NSEvent *)o_event
 {
     BOOL b_up = NO;
     CGFloat f_deltaY = [o_event deltaY];
     CGFloat f_deltaX = [o_event deltaX];
 
-    if (!OSX_SNOW_LEOPARD && [o_event isDirectionInvertedFromDevice])
+    if ([o_event isDirectionInvertedFromDevice])
         f_deltaX = -f_deltaX; // optimisation, actually double invertion of f_deltaY here
     else
         f_deltaY = -f_deltaY;
@@ -680,15 +680,22 @@ void _drawFrameInRect(NSRect frameRect)
  * ITSlider
  *****************************************************************************/
 
+@interface ITSlider()
+{
+    NSImage *img;
+    NSRect image_rect;
+}
+@end
+
 @implementation ITSlider
 
 - (void)awakeFromNib
 {
-    BOOL b_dark = config_GetInt( VLCIntf, "macosx-interfacestyle" );
+    BOOL b_dark = config_GetInt( getIntf(), "macosx-interfacestyle" );
     if (b_dark)
-        img = [NSImage imageNamed:@"volume-slider-knob_dark"];
+        img = imageFromRes(@"volume-slider-knob_dark");
     else
-        img = [NSImage imageNamed:@"volume-slider-knob"];
+        img = imageFromRes(@"volume-slider-knob");
 
     image_rect.size = [img size];
     image_rect.origin.x = 0;
@@ -730,8 +737,19 @@ void _drawFrameInRect(NSRect frameRect)
  * we need this to catch our click-event in the controller window
  *****************************************************************************/
 
+@interface VLCTimeField()
+{
+    NSShadow * o_string_shadow;
+    NSTextAlignment textAlignment;
+
+    NSString *o_remaining_identifier;
+    BOOL b_time_remaining;
+}
+@end
+
 @implementation VLCTimeField
-+ (void)initialize{
++ (void)initialize
+{
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSDictionary *appDefaults = [NSDictionary dictionaryWithObjectsAndKeys:
                                  @"NO", @"DisplayTimeAsTimeRemaining",
@@ -739,16 +757,6 @@ void _drawFrameInRect(NSRect frameRect)
                                  nil];
 
     [defaults registerDefaults:appDefaults];
-}
-
-- (id)initWithFrame:(NSRect)frameRect
-{
-    if (self = [super initWithFrame:frameRect]) {
-        textAlignment = NSCenterTextAlignment;
-        o_remaining_identifier = @"";
-    }
-
-    return self;
 }
 
 - (void)setRemainingIdentifier:(NSString *)o_string
@@ -761,12 +769,6 @@ void _drawFrameInRect(NSRect frameRect)
 {
     textAlignment = alignment;
     [self setStringValue:[self stringValue]];
-}
-
-- (void)dealloc
-{
-    [o_string_shadow release];
-    [super dealloc];
 }
 
 - (void)setStringValue:(NSString *)string
@@ -784,33 +786,27 @@ void _drawFrameInRect(NSRect frameRect)
     [o_attributed_string addAttribute: NSShadowAttributeName value: o_string_shadow range: NSMakeRange(0, i_stringLength)];
     [o_attributed_string setAlignment: textAlignment range: NSMakeRange(0, i_stringLength)];
     [self setAttributedStringValue: o_attributed_string];
-    [o_attributed_string release];
 }
 
 - (void)mouseDown: (NSEvent *)ourEvent
 {
     if ( [ourEvent clickCount] > 1 )
-        [[[VLCMain sharedInstance] controls] goToSpecificTime: nil];
+        [[[VLCMain sharedInstance] mainMenu] goToSpecificTime: nil];
     else
     {
-        if (![o_remaining_identifier isEqualToString: @""]) {
-            if ([[NSUserDefaults standardUserDefaults] boolForKey:o_remaining_identifier]) {
-                [[NSUserDefaults standardUserDefaults] setObject:@"NO" forKey:o_remaining_identifier];
-                b_time_remaining = NO;
-            } else {
-                [[NSUserDefaults standardUserDefaults] setObject:@"YES" forKey:o_remaining_identifier];
-                b_time_remaining = YES;
-            }
-        } else {
+        if (o_remaining_identifier) {
+            b_time_remaining = [[NSUserDefaults standardUserDefaults] boolForKey:o_remaining_identifier];
             b_time_remaining = !b_time_remaining;
             [[NSUserDefaults standardUserDefaults] setObject:(b_time_remaining ? @"YES" : @"NO") forKey:o_remaining_identifier];
+        } else {
+            b_time_remaining = !b_time_remaining;
         }
     }
 }
 
 - (BOOL)timeRemaining
 {
-    if (![o_remaining_identifier isEqualToString: @""])
+    if (o_remaining_identifier)
         return [[NSUserDefaults standardUserDefaults] boolForKey:o_remaining_identifier];
     else
         return b_time_remaining;
@@ -841,39 +837,37 @@ void _drawFrameInRect(NSRect frameRect)
 /*****************************************************************************
  * VLCThreePartImageView interface
  *****************************************************************************/
-@implementation VLCThreePartImageView
 
-- (void)dealloc
+@interface VLCThreePartImageView()
 {
-    [o_left_img release];
-    [o_middle_img release];
-    [o_right_img release];
-
-    [super dealloc];
+    NSImage *_left_img;
+    NSImage *_middle_img;
+    NSImage *_right_img;
 }
+@end
+
+@implementation VLCThreePartImageView
 
 - (void)setImagesLeft:(NSImage *)left middle: (NSImage *)middle right:(NSImage *)right
 {
-    if (o_left_img)
-        [o_left_img release];
-    if (o_middle_img)
-        [o_middle_img release];
-    if (o_right_img)
-        [o_right_img release];
-
-    o_left_img = [left retain];
-    o_middle_img = [middle retain];
-    o_right_img = [right retain];
+    _left_img = left;
+    _middle_img = middle;
+    _right_img = right;
 }
 
 - (void)drawRect:(NSRect)rect
 {
     NSRect bnds = [self bounds];
-    NSDrawThreePartImage( bnds, o_left_img, o_middle_img, o_right_img, NO, NSCompositeSourceOver, 1, NO );
+    NSDrawThreePartImage( bnds, _left_img, _middle_img, _right_img, NO, NSCompositeSourceOver, 1, NO );
 }
 
 @end
 
+@interface PositionFormatter()
+{
+    NSCharacterSet *o_forbidden_characters;
+}
+@end
 
 @implementation PositionFormatter
 
@@ -881,17 +875,10 @@ void _drawFrameInRect(NSRect frameRect)
 {
     self = [super init];
     NSMutableCharacterSet *nonNumbers = [[[NSCharacterSet decimalDigitCharacterSet] invertedSet] mutableCopy];
-    [nonNumbers removeCharactersInString:@":"];
+    [nonNumbers removeCharactersInString:@"-:"];
     o_forbidden_characters = [nonNumbers copy];
-    [nonNumbers release];
 
     return self;
-}
-
-- (void)dealloc
-{
-    [o_forbidden_characters release];
-    [super dealloc];
 }
 
 - (NSString*)stringForObjectValue:(id)obj
@@ -906,7 +893,7 @@ void _drawFrameInRect(NSRect frameRect)
 
 - (BOOL)getObjectValue:(id*)obj forString:(NSString*)string errorDescription:(NSString**)error
 {
-    *obj = [[string copy] autorelease];
+    *obj = [string copy];
     return YES;
 }
 
@@ -1008,9 +995,19 @@ void _drawFrameInRect(NSRect frameRect)
 
 end:
     returnString = [NSString stringWithFormat:@"%@ %@", [theFormatter stringFromNumber:[NSNumber numberWithFloat:returnValue]], suffix];
-    [theFormatter release];
 
     return returnString;
+}
+
+@end
+
+@implementation VLCOpenTextField
+
+- (void)mouseDown:(NSEvent *)theEvent
+{
+    [[NSNotificationCenter defaultCenter] postNotificationName: VLCOpenTextFieldWasClicked
+                                                        object: self];
+    [super mouseDown: theEvent];
 }
 
 @end

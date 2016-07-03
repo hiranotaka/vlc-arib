@@ -30,6 +30,7 @@
 # include "config.h"
 #endif
 
+#define VLC_MODULE_LICENSE VLC_LICENSE_GPL_2_PLUS
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_input.h>
@@ -255,7 +256,7 @@ static int Open( vlc_object_t *p_this )
     vlc_url_t url;
 
     psz_url = var_InheritString( p_vod, "rtsp-host" );
-    vlc_UrlParse( &url, psz_url, 0 );
+    vlc_UrlParse( &url, psz_url );
     free( psz_url );
 
     p_vod->p_sys = p_sys = malloc( sizeof( vod_sys_t ) );
@@ -1474,7 +1475,6 @@ static int RtspCallbackES( httpd_callback_sys_t *p_args, httpd_client_t *cl,
 
         default:
             return VLC_EGENERIC;
-            break;
     }
 
     httpd_MsgAdd( answer, "Server", "VLC/%s", VERSION );

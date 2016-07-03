@@ -144,7 +144,7 @@ static int Start(audio_output_t *p_aout, audio_sample_format_t *restrict fmt)
     if (error != noErr)
         return VLC_EGENERIC;
     fmt->i_format = VLC_CODEC_FL32;
-    fmt->i_physical_channels = AOUT_CHANS_STEREO;
+    fmt->i_original_channels = fmt->i_physical_channels = AOUT_CHANS_STEREO;
     aout_FormatPrepare(fmt);
     p_aout->sys->i_rate = fmt->i_rate;
 
@@ -165,10 +165,10 @@ static int Start(audio_output_t *p_aout, audio_sample_format_t *restrict fmt)
                             NULL,
                             NULL);
 
-	// Set audio session to mediaplayback
-	UInt32 sessionCategory = kAudioSessionCategory_MediaPlayback;
-	AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory),&sessionCategory);
-	AudioSessionSetActive(true);
+    // Set audio session to mediaplayback
+    UInt32 sessionCategory = kAudioSessionCategory_MediaPlayback;
+    AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory),&sessionCategory);
+    AudioSessionSetActive(true);
 #endif
 
     p_aout->sys->b_started = true;

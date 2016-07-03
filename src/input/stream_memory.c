@@ -30,14 +30,14 @@
 struct stream_sys_t
 {
     bool  i_preserve_memory;
-    uint64_t    i_pos;      /* Current reading offset */
-    uint64_t    i_size;
-    uint8_t    *p_buffer;
+    size_t    i_pos;      /* Current reading offset */
+    size_t    i_size;
+    uint8_t  *p_buffer;
 
 };
 
-static int  Read   ( stream_t *, void *p_read, unsigned int i_read );
-static int  Peek   ( stream_t *, const uint8_t **pp_peek, unsigned int i_read );
+static ssize_t Read( stream_t *, void *p_read, size_t i_read );
+static int Seek( stream_t *, uint64_t );
 static int  Control( stream_t *, int i_query, va_list );
 static void Delete ( stream_t * );
 
@@ -54,15 +54,14 @@ static void Delete ( stream_t * );
 stream_t *stream_MemoryNew( vlc_object_t *p_this, uint8_t *p_buffer,
                             uint64_t i_size, bool i_preserve_memory )
 {
-    stream_t *s = stream_CommonNew( p_this );
+    stream_t *s = stream_CommonNew( p_this, Delete );
     stream_sys_t *p_sys;
 
     if( !s )
         return NULL;
 
-    s->psz_path = strdup( "" ); /* N/A */
     s->p_sys = p_sys = malloc( sizeof( stream_sys_t ) );
-    if( !s->psz_path || !s->p_sys )
+    if( !s->p_sys )
     {
         stream_CommonDelete( s );
         return NULL;
@@ -73,9 +72,8 @@ stream_t *stream_MemoryNew( vlc_object_t *p_this, uint8_t *p_buffer,
     p_sys->i_preserve_memory = i_preserve_memory;
 
     s->pf_read    = Read;
-    s->pf_peek    = Peek;
+    s->pf_seek    = Seek;
     s->pf_control = Control;
-    s->pf_destroy = Delete;
     s->p_input = NULL;
 
     return s;
@@ -85,7 +83,6 @@ static void Delete( stream_t *s )
 {
     if( !s->p_sys->i_preserve_memory ) free( s->p_sys->p_buffer );
     free( s->p_sys );
-    stream_CommonDelete( s );
 }
 
 /****************************************************************************
@@ -95,7 +92,7 @@ static int Control( stream_t *s, int i_query, va_list args )
 {
     stream_sys_t *p_sys = s->p_sys;
 
-    uint64_t   *pi_64, i_64;
+    uint64_t   *pi_64;
 
     switch( i_query )
     {
@@ -109,17 +106,6 @@ static int Control( stream_t *s, int i_query, va_list args )
         case STREAM_CAN_PAUSE:
         case STREAM_CAN_CONTROL_PACE:
             *va_arg( args, bool * ) = true;
-            break;
-
-        case STREAM_GET_POSITION:
-            pi_64 = va_arg( args, uint64_t * );
-            *pi_64 = p_sys->i_pos;
-            break;
-
-        case STREAM_SET_POSITION:
-            i_64 = va_arg( args, uint64_t );
-            i_64 = __MIN( i_64, s->p_sys->i_size );
-            p_sys->i_pos = i_64;
             break;
 
         case STREAM_GET_PTS_DELAY:
@@ -153,19 +139,25 @@ static int Control( stream_t *s, int i_query, va_list args )
     return VLC_SUCCESS;
 }
 
-static int Read( stream_t *s, void *p_read, unsigned int i_read )
+static ssize_t Read( stream_t *s, void *p_read, size_t i_read )
 {
     stream_sys_t *p_sys = s->p_sys;
-    int i_res = __MIN( i_read, p_sys->i_size - p_sys->i_pos );
-    memcpy( p_read, p_sys->p_buffer + p_sys->i_pos, i_res );
-    p_sys->i_pos += i_res;
-    return i_res;
+
+    if( i_read > p_sys->i_size - p_sys->i_pos )
+        i_read = p_sys->i_size - p_sys->i_pos;
+    if ( p_read )
+        memcpy( p_read, p_sys->p_buffer + p_sys->i_pos, i_read );
+    p_sys->i_pos += i_read;
+    return i_read;
 }
 
-static int Peek( stream_t *s, const uint8_t **pp_peek, unsigned int i_read )
+static int Seek( stream_t *s, uint64_t offset )
 {
     stream_sys_t *p_sys = s->p_sys;
-    int i_res = __MIN( i_read, p_sys->i_size - p_sys->i_pos );
-    *pp_peek = p_sys->p_buffer + p_sys->i_pos;
-    return i_res;
+
+    if( offset > p_sys->i_size )
+        offset = p_sys->i_size;
+
+    p_sys->i_pos = offset;
+    return VLC_SUCCESS;
 }

@@ -44,9 +44,6 @@
 #include "../libs.h"
 #include "../extension.h"
 
-static const luaL_Reg vlclua_input_reg[];
-static const luaL_Reg vlclua_input_item_reg[];
-
 static input_item_t* vlclua_input_item_get_internal( lua_State *L );
 
 input_thread_t * vlclua_get_input_internal( lua_State *L )
@@ -255,25 +252,7 @@ static int vlclua_input_item_delete( lua_State *L )
     return 1;
 }
 
-static int vlclua_input_item_get( lua_State *L, input_item_t *p_item )
-{
-    vlc_gc_incref( p_item );
-    input_item_t **pp = lua_newuserdata( L, sizeof( input_item_t* ) );
-    *pp = p_item;
-
-    if( luaL_newmetatable( L, "input_item" ) )
-    {
-        lua_newtable( L );
-        luaL_register( L, NULL, vlclua_input_item_reg );
-        lua_setfield( L, -2, "__index" );
-        lua_pushcfunction( L, vlclua_input_item_delete );
-        lua_setfield( L, -2, "__gc" );
-    }
-
-    lua_setmetatable(L, -2);
-
-    return 1;
-}
+static int vlclua_input_item_get( lua_State *L, input_item_t *p_item );
 
 static int vlclua_input_item_get_current( lua_State *L )
 {
@@ -306,13 +285,17 @@ static int vlclua_input_item_is_preparsed( lua_State *L )
 
 static int vlclua_input_item_uri( lua_State *L )
 {
-    lua_pushstring( L, input_item_GetURI( vlclua_input_item_get_internal( L ) ) );
+    char *uri = input_item_GetURI( vlclua_input_item_get_internal( L ) );
+    lua_pushstring( L, uri );
+    free( uri );
     return 1;
 }
 
 static int vlclua_input_item_name( lua_State *L )
 {
-    lua_pushstring( L, input_item_GetName( vlclua_input_item_get_internal( L ) ) );
+    char *name = input_item_GetName( vlclua_input_item_get_internal( L ) );
+    lua_pushstring( L, name );
+    free( name );
     return 1;
 }
 
@@ -349,6 +332,7 @@ static int vlclua_input_item_set_meta( lua_State *L )
         META_TYPE( URL, "url" )
         META_TYPE( Language, "language" )
         META_TYPE( NowPlaying, "now_playing" )
+        META_TYPE( ESNowPlaying, "now_playing" )
         META_TYPE( Publisher, "publisher" )
         META_TYPE( EncodedBy, "encoded_by" )
         META_TYPE( ArtworkURL, "artwork_url" )
@@ -359,6 +343,9 @@ static int vlclua_input_item_set_meta( lua_State *L )
         META_TYPE( Episode, "episode" )
         META_TYPE( ShowName, "show_name" )
         META_TYPE( Actors, "actors" )
+        META_TYPE( AlbumArtist, "album_artist" )
+        META_TYPE( DiscNumber, "disc_number" )
+        META_TYPE( DiscTotal, "disc_total" )
     };
 #undef META_TYPE
 
@@ -408,6 +395,26 @@ static const luaL_Reg vlclua_input_item_reg[] = {
     { "info", vlclua_input_item_info },
     { NULL, NULL }
 };
+
+static int vlclua_input_item_get( lua_State *L, input_item_t *p_item )
+{
+    vlc_gc_incref( p_item );
+    input_item_t **pp = lua_newuserdata( L, sizeof( input_item_t* ) );
+    *pp = p_item;
+
+    if( luaL_newmetatable( L, "input_item" ) )
+    {
+        lua_newtable( L );
+        luaL_register( L, NULL, vlclua_input_item_reg );
+        lua_setfield( L, -2, "__index" );
+        lua_pushcfunction( L, vlclua_input_item_delete );
+        lua_setfield( L, -2, "__gc" );
+    }
+
+    lua_setmetatable(L, -2);
+
+    return 1;
+}
 
 
 void luaopen_input_item( lua_State *L, input_item_t *item )

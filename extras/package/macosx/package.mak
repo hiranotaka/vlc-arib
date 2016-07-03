@@ -10,7 +10,7 @@ endif
 VLC-dev.app: VLC-tmp
 	rm -Rf $@
 	cp -R VLC-tmp $@
-	$(INSTALL) -m 0755 $(top_builddir)/bin/.libs/vlc $@/Contents/MacOS/VLC
+	$(INSTALL) -m 0755 $(top_builddir)/bin/.libs/vlc-osx $@/Contents/MacOS/VLC
 	$(LN_S) -f ../../../modules $@/Contents/MacOS/plugins
 
 # VLC.app for packaging and giving it to your friends
@@ -18,13 +18,14 @@ VLC-dev.app: VLC-tmp
 VLC.app: VLC-tmp
 	rm -Rf $@
 	cp -R VLC-tmp $@
+	rm -Rf $@/Contents/Frameworks/BGHUDAppKit.framework/Versions/A/Resources/BGHUDAppKitPlugin.ibplugin
+	rm -Rf $@/Contents/Frameworks/BGHUDAppKit.framework/Versions/A/Resources/README.textile
 	PRODUCT="$@" ACTION="release-makefile" src_dir=$(srcdir) build_dir=$(top_builddir) sh $(srcdir)/extras/package/macosx/build-package.sh
+	bin/vlc-cache-gen $@/Contents/MacOS/plugins
 	find $@ -type d -exec chmod ugo+rx '{}' \;
 	find $@ -type f -exec chmod ugo+r '{}' \;
-	rm -Rf $@/Contents/Frameworks/BGHUDAppKit.framework/Resources/
 
-
-VLC-tmp: vlc
+VLC-tmp:
 	$(AM_V_GEN)for i in src lib share; do \
 		(cd $$i && $(MAKE) $(AM_MAKEFLAGS) install $(silentstd)); \
 	done
@@ -44,11 +45,16 @@ VLC-tmp: vlc
 	mkdir -p $(top_builddir)/tmp/modules/gui/macosx
 	cd "$(srcdir)/modules/gui/macosx/" && cp *.h *.m $(abs_top_builddir)/tmp/modules/gui/macosx/
 	cd $(top_builddir)/tmp/extras/package/macosx && \
-		xcodebuild -target vlc SYMROOT=../../../build DSTROOT=../../../build $(silentstd)
-	cp -R -L $(top_builddir)/tmp/build/Default/VLC.bundle $@
-	mkdir -p $@/Contents/Frameworks && cp -R -L $(CONTRIB_DIR)/Growl.framework $@/Contents/Frameworks/
+		xcodebuild -target vlc-bundle-helper SYMROOT=../../../build DSTROOT=../../../build $(silentstd)
+	cp -R $(top_builddir)/tmp/build/Default/VLC.bundle $@
+	mkdir -p $@/Contents/Frameworks && cp -R $(CONTRIB_DIR)/Growl.framework $@/Contents/Frameworks/
+if HAVE_SPARKLE
+	cp -R $(CONTRIB_DIR)/Sparkle.framework $@/Contents/Frameworks/
+endif
 	mkdir -p $@/Contents/MacOS/share/locale/
+if BUILD_LUA
 	cp -r "$(prefix)/lib/vlc/lua" "$(prefix)/share/vlc/lua" $@/Contents/MacOS/share/
+endif
 	mkdir -p $@/Contents/MacOS/include/
 	(cd "$(prefix)/include" && $(AMTAR) -c --exclude "plugins" vlc) | $(AMTAR) -x -C $@/Contents/MacOS/include/
 	$(INSTALL) -m 644 $(srcdir)/share/vlc512x512.png $@/Contents/MacOS/share/vlc512x512.png

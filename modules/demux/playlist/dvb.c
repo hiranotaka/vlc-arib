@@ -42,11 +42,12 @@ static int Demux(demux_t *);
 static input_item_t *ParseLine(char *line);
 
 /** Detect dvb-utils zap channels.conf format */
-int Import_DVB(vlc_object_t *obj)
+int Import_DVB(vlc_object_t *p_this)
 {
-    demux_t *demux = (demux_t *)obj;
+    demux_t *demux = (demux_t *)p_this;
 
-    if (!demux_IsPathExtension(demux, ".conf" ) && !demux->b_force )
+    CHECK_FILE();
+    if (!demux_IsPathExtension(demux, ".conf" ) && !demux->obj.force )
         return VLC_EGENERIC;
 
     /* Check if this really is a channels file */
@@ -86,6 +87,7 @@ static int Demux(demux_t *demux)
     while ((line = stream_ReadLine(demux->s)) != NULL)
     {
         input_item_t *item = ParseLine(line);
+        free(line);
         if (item == NULL)
             continue;
 
@@ -334,10 +336,9 @@ static input_item_t *ParseLine(char *line)
     char sid_opt[sizeof("program=65535")];
     snprintf(sid_opt, sizeof(sid_opt), "program=%lu", sid);
 
-    const char *opts[] = { sid_opt };
-
-    input_item_t *item = input_item_NewWithType(mrl, name, 1, opts, 0, -1,
-                                                ITEM_TYPE_CARD);
+    input_item_t *item = input_item_NewCard(mrl, name);
     free(mrl);
+    if (item != NULL)
+        input_item_AddOption(item, sid_opt, 0);
     return item;
 }

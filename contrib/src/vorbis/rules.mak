@@ -1,8 +1,7 @@
 # libvorbis
 
-VORBIS_VERSION := 1.3.4
+VORBIS_VERSION := 1.3.5
 VORBIS_URL := http://downloads.xiph.org/releases/vorbis/libvorbis-$(VORBIS_VERSION).tar.xz
-#VORBIS_URL := $(CONTRIB_VIDEOLAN)/libvorbis-$(VORBIS_VERSION).tar.gz
 
 ifdef HAVE_FPU
 PKGS += vorbis
@@ -19,14 +18,14 @@ PKGS_FOUND += vorbisenc
 endif
 
 $(TARBALLS)/libvorbis-$(VORBIS_VERSION).tar.xz:
-	$(call download,$(VORBIS_URL))
+	$(call download_pkg,$(VORBIS_URL),vorbis)
 
 .sum-vorbis: libvorbis-$(VORBIS_VERSION).tar.xz
 
 libvorbis: libvorbis-$(VORBIS_VERSION).tar.xz .sum-vorbis
 	$(UNPACK)
-	$(APPLY) $(SRC)/vorbis/osx.patch
 	$(UPDATE_AUTOCONFIG)
+	$(APPLY) $(SRC)/vorbis/vorbis-bitcode.patch
 	$(MOVE)
 
 DEPS_vorbis = ogg $(DEPS_ogg)

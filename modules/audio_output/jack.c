@@ -28,7 +28,6 @@
 /*****************************************************************************
  * Preamble
  *****************************************************************************/
-#include <unistd.h>                                      /* write(), close() */
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -40,6 +39,9 @@
 
 #include <jack/jack.h>
 #include <jack/ringbuffer.h>
+
+#include <stdio.h>
+#include <unistd.h>                                      /* write(), close() */
 
 typedef jack_default_audio_sample_t jack_sample_t;
 
@@ -89,6 +91,8 @@ static int  GraphChange  ( void *p_arg );
     "If automatic connection is enabled, only JACK clients whose names " \
     "match this regular expression will be considered for connection." )
 
+#define JACK_NAME_TEXT N_( "Jack client name" )
+
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -102,6 +106,8 @@ vlc_module_begin ()
               AUTO_CONNECT_LONGTEXT, false )
     add_string( CONNECT_REGEX_OPTION, "system", CONNECT_REGEX_TEXT,
                 CONNECT_REGEX_LONGTEXT, false )
+    add_string( "jack-name", "", JACK_NAME_TEXT, JACK_NAME_TEXT, false)
+
     add_sw_gain( )
     set_callbacks( Open, Close )
 vlc_module_end ()
@@ -109,7 +115,7 @@ vlc_module_end ()
 
 static int Start( audio_output_t *p_aout, audio_sample_format_t *restrict fmt )
 {
-    char psz_name[32];
+    char *psz_name;
     struct aout_sys_t *p_sys = p_aout->sys;
     int status = VLC_SUCCESS;
     unsigned int i;
@@ -119,8 +125,14 @@ static int Start( audio_output_t *p_aout, audio_sample_format_t *restrict fmt )
     p_sys->paused = VLC_TS_INVALID;
 
     /* Connect to the JACK server */
-    snprintf( psz_name, sizeof(psz_name), "vlc_%d", getpid());
-    psz_name[sizeof(psz_name) - 1] = '\0';
+    psz_name = var_InheritString( p_aout, "jack-name" );
+    if( !psz_name || !*psz_name )
+    {
+        free( psz_name );
+        if( asprintf( &psz_name, "vlc_%d", getpid()) == -1 )
+            return VLC_ENOMEM;
+    }
+
     p_sys->p_jack_client = jack_client_open( psz_name,
                                              JackNullOption | JackNoStartServer,
                                              NULL );
@@ -183,10 +195,13 @@ static int Start( audio_output_t *p_aout, audio_sample_format_t *restrict fmt )
     /* Create the output ports */
     for( i = 0; i < p_sys->i_channels; i++ )
     {
-        snprintf( psz_name, sizeof(psz_name), "out_%d", i + 1);
-        psz_name[sizeof(psz_name) - 1] = '\0';
-        p_sys->p_jack_ports[i] = jack_port_register( p_sys->p_jack_client,
-                psz_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0 );
+        char *psz_name_output;
+        if( asprintf( &psz_name_output, "%s_out_%d", psz_name, i + 1) != -1 )
+        {
+            p_sys->p_jack_ports[i] = jack_port_register( p_sys->p_jack_client,
+                    psz_name_output, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0 );
+            free( psz_name_output );
+        }
 
         if( p_sys->p_jack_ports[i] == NULL )
         {
@@ -260,6 +275,7 @@ error_out:
         free( p_sys->p_jack_ports );
         free( p_sys->p_jack_buffers );
     }
+    free( psz_name );
     return status;
 }
 

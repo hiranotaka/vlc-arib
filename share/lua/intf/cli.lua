@@ -26,7 +26,7 @@ description=
 [============================================================================[
  Command Line Interface for VLC
 
- This is a modules/control/rc.c look alike (with a bunch of new features).
+ This is a modules/control/oldrc.c look alike (with a bunch of new features).
  It also provides a VLM interface copied from the telnet interface.
 
  Use on local term:
@@ -343,7 +343,7 @@ function help(name,client,arg)
                 end
                 if val.args then str = str .. " " .. val.args end
                 if #str%2 == 1 then str = str .. " " end
-                str = str .. string.rep(" .",(width-(#str+#val.help)-1)/2)
+                str = str .. string.rep(" .",math.floor((width-(#str+#val.help)-1)/2))
                 str = str .. string.rep(" ",width-#str-#val.help) .. val.help
             end
             client:append(str)
@@ -430,7 +430,7 @@ function get_time(var)
     return function(name,client)
         local input = vlc.object.input()
 	if input then
-	    client:append(math.floor(vlc.var.get( input, var )))
+	    client:append(math.floor(vlc.var.get( input, var ) / 1000000))
 	else
 	    client:append("")
 	end

@@ -28,6 +28,8 @@
 # include "config.h"
 #endif
 
+#include <assert.h>
+
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_access.h>
@@ -303,7 +305,7 @@ static block_t *Block( access_t *p_access )
 
     vlc_mutex_lock( &p_sys->lock );
     p_block = p_sys->p_frame;
-    //msg_Dbg( p_access, "sending frame %p",p_block );
+    //msg_Dbg( p_access, "sending frame %p", (void *)p_block );
     p_sys->p_frame = NULL;
     vlc_mutex_unlock( &p_sys->lock );
 
@@ -346,8 +348,8 @@ static void* Raw1394EventThread( void *obj )
         }
     }
 
-    vlc_cleanup_run();
-    return NULL;
+    vlc_cleanup_pop();
+    vlc_assert_unreachable();
 }
 
 static enum raw1394_iso_disposition

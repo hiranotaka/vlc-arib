@@ -30,8 +30,8 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_vout.h>
-#include <vlc_aout.h>
+#include <vlc_picture.h>
+#include <vlc_block.h>
 
 #include "visual.h"
 #include <math.h>
@@ -962,8 +962,8 @@ static int vuMeter_Run(visual_effect_t * p_effect, vlc_object_t *p_aout,
         p_sample += p_effect->i_nb_chans;
     }
 
-    i_value_l = abs(i_value_l);
-    i_value_r = abs(i_value_r);
+    i_value_l = fabsf(i_value_l);
+    i_value_r = fabsf(i_value_r);
 
     /* Stay under maximum value admited */
     if ( i_value_l > 200 * M_PI_2 )

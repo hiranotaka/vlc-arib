@@ -18,7 +18,7 @@ OPTIONS="
         --prefix=`pwd`/vlc_install_dir
         --enable-macosx
         --enable-merge-ffmpeg
-        --enable-growl
+        --enable-osx-notifications
         --enable-faad
         --enable-flac
         --enable-theora
@@ -34,9 +34,8 @@ OPTIONS="
         --disable-xcb
         --disable-caca
         --disable-sdl
-        --disable-samplerate
-        --disable-macosx-dialog-provider
-        --with-macosx-version-min=10.6
+        --disable-vnc
+        --with-macosx-version-min=10.7
 "
 
 export CFLAGS

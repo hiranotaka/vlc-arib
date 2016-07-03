@@ -1,7 +1,7 @@
 /*****************************************************************************
  * rdp.c: libfreeRDP based Remote Desktop access
  *****************************************************************************
- * Copyright (C) 2013 VideoLAN Authors
+ * Copyright (C) 2013 VideoLAN and VLC Authors
  *****************************************************************************
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -46,7 +46,7 @@
 #endif
 
 #if !defined(FREERDP_VERSION_MAJOR) || \
-    (defined(FREERDP_VERSION_MAJOR) && !(FREERDP_VERSION_MAJOR >= 1 && FREERDP_VERSION_MINOR >= 1 ))
+    (defined(FREERDP_VERSION_MAJOR) && !(FREERDP_VERSION_MAJOR > 1 || (FREERDP_VERSION_MAJOR == 1 && FREERDP_VERSION_MINOR >= 1)))
 # define SoftwareGdi sw_gdi
 # define Fullscreen fullscreen
 # define ServerHostname hostname
@@ -62,9 +62,13 @@
 # include <poll.h>
 #endif
 
-#define RDP_USER N_("RDP auth username")
-#define RDP_PASSWORD N_("RDP auth password")
-#define RDP_PASSWORD_LONGTEXT N_("RDP Password")
+#define USER_TEXT N_("Username")
+#define USER_LONGTEXT N_("Username that will be used for the connection, " \
+        "if no username is set in the URL.")
+#define PASS_TEXT N_("Password")
+#define PASS_LONGTEXT N_("Password that will be used for the connection, " \
+        "if no username or password are set in URL.")
+
 #define RDP_ENCRYPT N_("Encrypted connexion")
 #define RDP_FPS N_("Frame rate")
 #define RDP_FPS_LONGTEXT N_("Acquisition rate (in fps)")
@@ -83,11 +87,11 @@ vlc_module_begin()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
     set_description( N_("RDP Remote Desktop") )
-    set_capability( "access_demux", 10 )
+    set_capability( "access_demux", 0 )
 
-    add_string( CFG_PREFIX "user", NULL, RDP_USER, RDP_USER, false )
+    add_string( CFG_PREFIX "user", NULL, USER_TEXT, USER_LONGTEXT, false )
         change_safe()
-    add_password( CFG_PREFIX "password", NULL, RDP_PASSWORD, RDP_PASSWORD_LONGTEXT, false )
+    add_password( CFG_PREFIX "password", NULL, PASS_TEXT, PASS_LONGTEXT, false )
         change_safe()
     add_float( CFG_PREFIX "fps", 5, RDP_FPS, RDP_FPS_LONGTEXT, true )
 
@@ -233,7 +237,7 @@ static bool postConnectHandler( freerdp *p_instance )
     vlcrdp_context_t * p_vlccontext = (vlcrdp_context_t *) p_instance->context;
 
     msg_Dbg( p_vlccontext->p_demux, "connected to desktop %dx%d (%d bpp)",
-#if (FREERDP_VERSION_MAJOR >= 1 && FREERDP_VERSION_MINOR >= 1 )
+#if defined(FREERDP_VERSION_MAJOR) && (FREERDP_VERSION_MAJOR > 1 || (FREERDP_VERSION_MAJOR == 1 && FREERDP_VERSION_MINOR >= 1))
              p_instance->settings->DesktopWidth,
              p_instance->settings->DesktopHeight,
              p_instance->settings->ColorDepth
@@ -248,7 +252,13 @@ static bool postConnectHandler( freerdp *p_instance )
     p_instance->update->BeginPaint = beginPaintHandler;
     p_instance->update->EndPaint = endPaintHandler;
 
-    gdi_init( p_instance, CLRBUF_16BPP | CLRBUF_24BPP | CLRBUF_32BPP, NULL );
+    gdi_init( p_instance,
+                CLRBUF_16BPP |
+#if defined(FREERDP_VERSION_MAJOR) && defined(FREERDP_VERSION_MINOR) && \
+    !(FREERDP_VERSION_MAJOR > 1 || (FREERDP_VERSION_MAJOR == 1 && FREERDP_VERSION_MINOR >= 2))
+                CLRBUF_24BPP |
+#endif
+                CLRBUF_32BPP, NULL );
 
     desktopResizeHandler( p_instance->context );
     return true;
@@ -422,12 +432,14 @@ static int Open( vlc_object_t *p_this )
     if ( p_sys->f_fps <= 0 ) p_sys->f_fps = 1.0;
     p_sys->i_frame_interval = 1000000 / p_sys->f_fps;
 
+#if FREERDP_VERSION_MAJOR == 1 && FREERDP_VERSION_MINOR < 2
     freerdp_channels_global_init();
+#endif
 
     p_sys->p_instance = freerdp_new();
     if ( !p_sys->p_instance )
     {
-        msg_Err( p_demux, "rdp instanciation error" );
+        msg_Err( p_demux, "rdp instantiation error" );
         free( p_sys );
         return VLC_EGENERIC;
     }
@@ -446,7 +458,7 @@ static int Open( vlc_object_t *p_this )
 
     /* Parse uri params for pre-connect */
     vlc_url_t url;
-    vlc_UrlParse( &url, p_demux->psz_location, 0 );
+    vlc_UrlParse( &url, p_demux->psz_location );
 
     if ( !EMPTY_STR(url.psz_host) )
         p_sys->psz_hostname = strdup( url.psz_host );
@@ -498,7 +510,9 @@ static void Close( vlc_object_t *p_this )
 
     freerdp_disconnect( p_sys->p_instance );
     freerdp_free( p_sys->p_instance );
+#if FREERDP_VERSION_MAJOR == 1 && FREERDP_VERSION_MINOR < 2
     freerdp_channels_global_uninit();
+#endif
 
     if ( p_sys->p_block )
         block_Release( p_sys->p_block );

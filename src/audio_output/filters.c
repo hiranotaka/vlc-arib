@@ -51,7 +51,7 @@ static filter_t *CreateFilter (vlc_object_t *obj, const char *type,
     if (unlikely(filter == NULL))
         return NULL;
 
-    filter->p_owner = owner;
+    filter->owner.sys = owner;
     filter->fmt_in.audio = *infmt;
     filter->fmt_in.i_codec = infmt->i_format;
     filter->fmt_out.audio = *outfmt;
@@ -244,8 +244,8 @@ static int aout_FiltersPipelineCreate(vlc_object_t *obj, filter_t **filters,
 
 overflow:
     msg_Err (obj, "maximum of %u conversion filters reached", max);
-    dialog_Fatal (obj, _("Audio filtering failed"),
-                  _("The maximum number of filters (%u) was reached."), max);
+    vlc_dialog_display_error (obj, _("Audio filtering failed"),
+        _("The maximum number of filters (%u) was reached."), max);
 error:
     aout_FiltersPipelineDestroy (filters, n);
     return -1;
@@ -268,6 +268,49 @@ static block_t *aout_FiltersPipelinePlay(filter_t *const *filters,
     }
     return block;
 }
+
+
+/**
+ * Drain the chain of filters.
+ */
+static block_t *aout_FiltersPipelineDrain(filter_t *const *filters,
+                                          unsigned count)
+{
+    block_t *chain = NULL;
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        filter_t *filter = filters[i];
+
+        block_t *block = filter_DrainAudio (filter);
+        if (block)
+        {
+            /* If there is a drained block, filter it through the following
+             * chain of filters  */
+            if (i + 1 < count)
+                block = aout_FiltersPipelinePlay (&filters[i + 1],
+                                                  count - i - 1, block);
+            if (block)
+                block_ChainAppend (&chain, block);
+        }
+    }
+
+    if (chain)
+        return block_ChainGather(chain);
+    else
+        return NULL;
+}
+
+/**
+ * Flush the chain of filters.
+ */
+static void aout_FiltersPipelineFlush(filter_t *const *filters,
+                                      unsigned count)
+{
+    for (unsigned i = 0; i < count; i++)
+        filter_Flush (filters[i]);
+}
+
 
 #define AOUT_MAX_FILTERS 10
 
@@ -317,8 +360,8 @@ vout_thread_t *aout_filter_RequestVout (filter_t *filter, vout_thread_t *vout,
      * If you want to use visualization filters from another place, you will
      * need to add a new pf_aout_request_vout callback or store a pointer
      * to aout_request_vout_t inside filter_t (i.e. a level of indirection). */
-    const aout_request_vout_t *req = (void *)filter->p_owner;
-    char *visual = var_InheritString (filter->p_parent, "audio-visual");
+    const aout_request_vout_t *req = filter->owner.sys;
+    char *visual = var_InheritString (filter->obj.parent, "audio-visual");
     /* NOTE: Disable recycling to always close the filter vout because OpenGL
      * visualizations do not use this function to ask for a context. */
     bool recycle = false;
@@ -548,4 +591,44 @@ block_t *aout_FiltersPlay (aout_filters_t *filters, block_t *block, int rate)
 drop:
     block_Release (block);
     return NULL;
+}
+
+block_t *aout_FiltersDrain (aout_filters_t *filters)
+{
+    /* Drain the filters pipeline */
+    block_t *block = aout_FiltersPipelineDrain (filters->tab, filters->count);
+
+    if (filters->resampler != NULL)
+    {
+        block_t *chain = NULL;
+
+        filters->resampler->fmt_in.audio.i_rate += filters->resampling;
+
+        if (block)
+        {
+            /* Resample the drained block from the filters pipeline */
+            block = aout_FiltersPipelinePlay (&filters->resampler, 1, block);
+            if (block)
+                block_ChainAppend (&chain, block);
+        }
+
+        /* Drain the resampler filter */
+        block = aout_FiltersPipelineDrain (&filters->resampler, 1);
+        if (block)
+            block_ChainAppend (&chain, block);
+
+        filters->resampler->fmt_in.audio.i_rate -= filters->resampling;
+
+        return chain ? block_ChainGather (chain) : NULL;
+    }
+    else
+        return block;
+}
+
+void aout_FiltersFlush (aout_filters_t *filters)
+{
+    aout_FiltersPipelineFlush (filters->tab, filters->count);
+
+    if (filters->resampler != NULL)
+        aout_FiltersPipelineFlush (&filters->resampler, 1);
 }

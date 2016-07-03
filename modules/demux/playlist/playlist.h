@@ -53,7 +53,6 @@ void Close_xspf ( vlc_object_t * );
 int Import_Shoutcast ( vlc_object_t * );
 
 int Import_ASX ( vlc_object_t * );
-void Close_ASX ( vlc_object_t * );
 
 int Import_SGIMB ( vlc_object_t * );
 void Close_SGIMB ( vlc_object_t * );
@@ -75,12 +74,21 @@ void Close_iTML ( vlc_object_t * );
 int Import_WPL ( vlc_object_t * );
 void Close_WPL ( vlc_object_t * );
 
-int Import_ZPL ( vlc_object_t * );
-void Close_ZPL ( vlc_object_t * );
+int Import_Dir ( vlc_object_t * );
+void Close_Dir ( vlc_object_t * );
+
 
 extern input_item_t * GetCurrentItem(demux_t *p_demux);
 
 bool CheckContentType( stream_t * p_stream, const char * psz_ctype );
+
+#define CHECK_FILE() \
+do { \
+    bool b_loop; \
+    if( stream_Control( ((demux_t *)p_this)->s, STREAM_IS_DIRECTORY, \
+                        &b_loop ) == VLC_SUCCESS ) \
+        return VLC_EGENERIC; \
+} while(0)
 
 #define STANDARD_DEMUX_INIT_MSG( msg ) do { \
     DEMUX_INIT_COMMON();                    \
@@ -88,24 +96,16 @@ bool CheckContentType( stream_t * p_stream, const char * psz_ctype );
 
 #define DEMUX_BY_EXTENSION_MSG( ext, msg ) \
     demux_t *p_demux = (demux_t *)p_this; \
+    CHECK_FILE(); \
     if( !demux_IsPathExtension( p_demux, ext ) ) \
         return VLC_EGENERIC; \
     STANDARD_DEMUX_INIT_MSG( msg );
 
 #define DEMUX_BY_EXTENSION_OR_FORCED_MSG( ext, module, msg ) \
     demux_t *p_demux = (demux_t *)p_this; \
+    CHECK_FILE(); \
     if( !demux_IsPathExtension( p_demux, ext ) && !demux_IsForced( p_demux, module ) ) \
         return VLC_EGENERIC; \
-    STANDARD_DEMUX_INIT_MSG( msg );
-
-#define DEMUX_BY_EXTENSION_OR_MIMETYPE( ext, mime, msg ) \
-    demux_t *p_demux = (demux_t *)p_this; \
-    char* demux_mimetype = stream_ContentType( p_demux->s ); \
-    if(!( demux_IsPathExtension( p_demux, ext ) || (demux_mimetype && !strcasecmp( mime, demux_mimetype )) )) { \
-        free( demux_mimetype ); \
-        return VLC_EGENERIC; \
-    } \
-    free( demux_mimetype ); \
     STANDARD_DEMUX_INIT_MSG( msg );
 
 #define CHECK_PEEK( zepeek, size ) do { \

@@ -26,11 +26,7 @@
 # include "config.h"
 #endif
 
-#include <vlc/libvlc.h>
-#include <vlc/libvlc_media.h>
-#include <vlc/libvlc_media_list.h>
-#include <vlc/libvlc_media_library.h>
-#include <vlc/libvlc_events.h>
+#include <vlc/vlc.h>
 
 #include <vlc_common.h>
 
@@ -73,13 +69,14 @@ libvlc_media_library_new( libvlc_instance_t * p_inst )
     p_mlib->i_refcount = 1;
     p_mlib->p_mlist = NULL;
 
-    p_mlib->p_event_manager = libvlc_event_manager_new( p_mlib, p_inst );
+    p_mlib->p_event_manager = libvlc_event_manager_new( p_mlib );
     if( unlikely(p_mlib->p_event_manager == NULL) )
     {
         free(p_mlib);
         return NULL;
     }
 
+    libvlc_retain( p_inst );
     return p_mlib;
 }
 
@@ -94,6 +91,7 @@ void libvlc_media_library_release( libvlc_media_library_t * p_mlib )
         return;
 
     libvlc_event_manager_release( p_mlib->p_event_manager );
+    libvlc_release( p_mlib->p_libvlc_instance );
     free( p_mlib );
 }
 

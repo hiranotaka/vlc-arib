@@ -28,7 +28,7 @@
 
 #include <vlc_vout.h>
 #include <vlc_vout_osd.h>
-#include <vlc_playlist.h>
+#include <vlc_input.h>
 
 #include "cmd_quit.hpp"
 #include "../src/os_factory.hpp"
@@ -48,7 +48,7 @@ void CmdQuit::execute()
     }
 
     // Kill libvlc
-    libvlc_Quit( getIntf()->p_libvlc );
+    libvlc_Quit( getIntf()->obj.libvlc );
 }
 
 

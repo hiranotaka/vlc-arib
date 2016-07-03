@@ -49,6 +49,7 @@ int Import_B4S( vlc_object_t *p_this )
 {
     demux_t *demux = (demux_t *)p_this;
 
+    CHECK_FILE();
     if( !demux_IsPathExtension( demux, ".b4s" )
      && !demux_IsForced( demux, "b4s-open" ) )
         return VLC_EGENERIC;
@@ -191,7 +192,7 @@ static int Demux( demux_t *p_demux )
                 // Read the element name
                 if( !strcmp( node, "entry" ) )
                 {
-                    resolve_xml_special_chars( psz_mrl );
+                    vlc_xml_decode( psz_mrl );
                     p_input = input_item_New( psz_mrl, psz_title );
                     if( psz_now )
                         input_item_SetNowPlaying( p_input, psz_now );

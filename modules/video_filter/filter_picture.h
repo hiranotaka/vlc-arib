@@ -36,13 +36,24 @@
         case VLC_CODEC_I422:   \
         case VLC_CODEC_J422:
 
+#define CASE_PLANAR_YUV10                   \
+        case VLC_CODEC_I420_10L:            \
+        case VLC_CODEC_I420_10B:            \
+        case VLC_CODEC_I444_10L:            \
+        case VLC_CODEC_I444_10B:
+
+#define CASE_PLANAR_YUV9                    \
+        case VLC_CODEC_I420_9L:             \
+        case VLC_CODEC_I420_9B:             \
+        case VLC_CODEC_I444_9L:             \
+        case VLC_CODEC_I444_9B:
+
 #define CASE_PLANAR_YUV                     \
         CASE_PLANAR_YUV_SQUARE              \
         CASE_PLANAR_YUV_NONSQUARE           \
 
 #define CASE_PACKED_YUV_422                 \
         case VLC_CODEC_UYVY:   \
-        case VLC_CODEC_CYUV:   \
         case VLC_CODEC_YUYV:   \
         case VLC_CODEC_YVYU:
 
@@ -52,7 +63,6 @@ static inline int GetPackedYuvOffsets( vlc_fourcc_t i_chroma,
     switch( i_chroma )
     {
         case VLC_CODEC_UYVY:
-        case VLC_CODEC_CYUV: /* <-- FIXME: reverted, whatever that means */
             /* UYVY */
             *i_y_offset = 1;
             *i_u_offset = 0;

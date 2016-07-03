@@ -32,6 +32,7 @@ pluginsinclude_HEADERS = \
 	../include/vlc_bits.h \
 	../include/vlc_block.h \
 	../include/vlc_block_helper.h \
+	../include/vlc_boxes.h \
 	../include/vlc_charset.h \
 	../include/vlc_codec.h \
 	../include/vlc_common.h \
@@ -56,7 +57,9 @@ pluginsinclude_HEADERS = \
 	../include/vlc_inhibit.h \
 	../include/vlc_input.h \
 	../include/vlc_input_item.h \
+	../include/vlc_interface.h \
 	../include/vlc_keys.h \
+	../include/vlc_keystore.h \
 	../include/vlc_main.h \
 	../include/vlc_md5.h \
 	../include/vlc_messages.h \
@@ -78,6 +81,8 @@ pluginsinclude_HEADERS = \
 	../include/vlc_rand.h \
 	../include/vlc_services_discovery.h \
 	../include/vlc_fingerprinter.h \
+	../include/vlc_interrupt.h \
+	../include/vlc_renderer_discovery.h \
 	../include/vlc_sout.h \
 	../include/vlc_spu.h \
 	../include/vlc_stream.h \
@@ -104,7 +109,6 @@ noinst_HEADERS = \
 	../include/vlc_codecs.h \
 	../include/vlc_extensions.h \
 	../include/vlc_fixups.h \
-	../include/vlc_interface.h \
 	../include/vlc_intf_strings.h \
 	../include/vlc_iso_lang.h \
 	../include/vlc_memory.h \
@@ -112,7 +116,6 @@ noinst_HEADERS = \
 	../include/vlc_update.h \
 	../include/vlc_vod.h \
 	../include/vlc_vout_wrapper.h \
-	../include/vlc_windows_interfaces.h \
 	$(NULL)
 
 ../include/vlc_about.h: Makefile.am $(top_srcdir)/COPYING $(top_srcdir)/THANKS $(top_srcdir)/AUTHORS
@@ -182,15 +185,18 @@ libvlccore_la_LDFLAGS = \
 	$(LDFLAGS_libvlccore) \
 	-no-undefined \
 	-export-symbols $(srcdir)/libvlccore.sym \
-	-version-info 7:0:0
+	-version-info 8:0:0
 libvlccore_la_LIBADD = $(LIBS_libvlccore) \
 	../compat/libcompat.la \
 	$(LTLIBINTL) $(LTLIBICONV) \
-	$(IDN_LIBS) $(LIBPTHREAD) $(SOCKET_LIBS) $(LIBDL) $(LIBM)
+	$(IDN_LIBS) $(LIBPTHREAD) $(SOCKET_LIBS) $(LIBRT) $(LIBDL) $(LIBM)
 libvlccore_la_DEPENDENCIES = libvlccore.sym
 if HAVE_WIN32
 libvlccore_la_DEPENDENCIES += libvlc_win32_rc.$(OBJEXT)
-libvlccore_la_LDFLAGS += -Wl,libvlc_win32_rc.$(OBJEXT) -avoid-version
+libvlccore_la_LDFLAGS += -Wl,libvlc_win32_rc.$(OBJEXT) -avoid-version -Wc,-static
+endif
+if HAVE_OS2
+libvlccore_la_LDFLAGS += -avoid-version
 endif
 if HAVE_DBUS
 libvlccore_la_LIBADD += $(DBUS_LIBS)
@@ -222,14 +228,10 @@ else
 if HAVE_WIN32
 libvlccore_la_SOURCES += $(SOURCES_libvlc_win32)
 else
-if HAVE_SYMBIAN
-#libvlccore_la_SOURCES += $(SOURCES_libvlc_symbian)
-else
 if HAVE_OS2
 libvlccore_la_SOURCES += $(SOURCES_libvlc_os2)
 else
 libvlccore_la_SOURCES += $(SOURCES_libvlc_other)
-endif
 endif
 endif
 endif
@@ -258,29 +260,31 @@ SOURCES_libvlc_darwin = \
 	$(NULL)
 
 SOURCES_libvlc_android = \
+	linux/cpu.c \
+	linux/dirs.c \
 	android/dirs.c \
+	linux/thread.c \
 	android/thread.c \
 	android/error.c \
 	posix/filesystem.c \
 	android/netconf.c \
 	posix/plugin.c \
 	posix/timer.c \
-	posix/linux_cpu.c \
-	posix/linux_specific.c \
-	posix/specific.c \
+	android/specific.c \
 	posix/rand.c \
 	$(NULL)
 
 SOURCES_libvlc_linux = \
+	linux/cpu.c \
+	linux/dirs.c \
 	posix/dirs.c \
 	posix/error.c \
 	posix/filesystem.c \
 	posix/netconf.c \
 	posix/plugin.c \
+	linux/thread.c \
 	posix/thread.c \
 	posix/timer.c \
-	posix/linux_cpu.c \
-	posix/linux_specific.c \
 	posix/specific.c \
 	posix/rand.c \
 	$(NULL)
@@ -295,13 +299,6 @@ SOURCES_libvlc_win32 = \
 	win32/specific.c \
 	win32/winsock.c \
 	win32/rand.c \
-	$(NULL)
-
-SOURCES_libvlc_symbian = \
-	symbian/path.cpp \
-	symbian/dirs.c \
-	win32/plugin.c \
-	posix/rand.c \
 	$(NULL)
 
 SOURCES_libvlc_os2 = \
@@ -361,13 +358,13 @@ SOURCES_libvlc_common = \
 	input/decoder.c \
 	input/decoder_synchro.c \
 	input/demux.c \
+	input/demux_chained.c \
 	input/es_out.c \
 	input/es_out_timeshift.c \
 	input/event.c \
 	input/input.c \
 	input/info.h \
 	input/meta.c \
-	input/access.h \
 	input/clock.h \
 	input/decoder.h \
 	input/demux.h \
@@ -384,7 +381,7 @@ SOURCES_libvlc_common = \
 	input/resource.c \
 	input/stats.c \
 	input/stream.c \
-	input/stream_demux.c \
+	input/stream_fifo.c \
 	input/stream_filter.c \
 	input/stream_memory.c \
 	input/subtitles.c \
@@ -408,6 +405,7 @@ SOURCES_libvlc_common = \
 	video_output/video_widgets.c \
 	video_output/vout_subpictures.c \
 	video_output/window.c \
+	video_output/window.h \
 	video_output/opengl.c \
 	video_output/vout_intf.c \
 	video_output/vout_internal.h \
@@ -420,6 +418,7 @@ SOURCES_libvlc_common = \
 	audio_output/output.c \
 	audio_output/volume.c \
 	network/getaddrinfo.c \
+	network/http_auth.c \
 	network/io.c \
 	network/tcp.c \
 	network/udp.c \
@@ -437,11 +436,18 @@ SOURCES_libvlc_common = \
 	misc/rand.c \
 	misc/mtime.c \
 	misc/block.c \
+	misc/fifo.c \
 	misc/fourcc.c \
+	misc/fourcc_list.h \
 	misc/es_format.c \
 	misc/picture.c \
+	misc/picture.h \
 	misc/picture_fifo.c \
 	misc/picture_pool.c \
+	misc/interrupt.h \
+	misc/interrupt.c \
+	misc/keystore.c \
+	misc/renderer_discovery.c \
 	modules/modules.h \
 	modules/modules.c \
 	modules/bank.c \
@@ -479,7 +485,7 @@ SOURCES_libvlc_common = \
 	misc/addons.c \
 	misc/filter.c \
 	misc/filter_chain.c \
-	misc/http_auth.c \
+	misc/httpcookies.c \
 	misc/fingerprinter.c \
 	misc/text_style.c \
 	misc/subpicture.c \
@@ -493,7 +499,6 @@ SOURCES_libvlc_httpd = \
 SOURCES_libvlc_sout = \
 	stream_output/stream_output.c \
 	stream_output/stream_output.h \
-	stream_output/announce.c \
 	stream_output/sap.c \
 	stream_output/sdp.c \
 	$(NULL)
@@ -508,20 +513,36 @@ SOURCES_libvlc = \
 	$(SOURCES_libvlc_common) \
 	$(NULL)
 
+# FourCC tables
+BUILT_SOURCES += fourcc_tables.h
+EXTRA_DIST += misc/fourcc_gen.c
+MOSTLYCLEANFILES = fourcc_gen$(BUILDEXEEXT)
+
+fourcc_gen$(BUILDEXEEXT): misc/fourcc_gen.c misc/fourcc_list.h ../include/vlc_fourcc.h
+	$(AM_V_at)rm -f -- $@
+	$(AM_V_CC)$(BUILDCC) -I$(srcdir) -o $@ $<
+
+fourcc_tables.h: fourcc_gen$(BUILDEXEEXT)
+	$(AM_V_at)rm -f -- $@.tmp
+	$(AM_V_GEN)$(builddir)/fourcc_gen > $@.tmp
+	$(AM_V_at)mv -f -- $@.tmp $@
+
 # Unit/regression tests
 #
 check_PROGRAMS = \
 	test_block \
 	test_dictionary \
 	test_i18n_atof \
+	test_interrupt \
 	test_md5 \
+	test_picture_pool \
 	test_timer \
 	test_url \
 	test_utf8 \
 	test_xmlent \
 	test_headers
 
-TESTS = $(check_PROGRAMS)
+TESTS = $(check_PROGRAMS) check_symbols
 
 test_block_SOURCES = test/block_test.c
 test_block_LDADD = $(LDADD) $(LIBS_libvlccore)
@@ -529,7 +550,10 @@ test_block_DEPENDENCIES =
 
 test_dictionary_SOURCES = test/dictionary.c
 test_i18n_atof_SOURCES = test/i18n_atof.c
+test_interrupt_SOURCES = test/interrupt.c
+test_interrupt_LDADD = $(LDADD) $(LIBS_libvlccore) $(LIBPTHREAD)
 test_md5_SOURCES = test/md5.c
+test_picture_pool_SOURCES = test/picture_pool.c
 test_timer_SOURCES = test/timer.c
 test_url_SOURCES = test/url.c
 test_utf8_SOURCES = test/utf8.c
@@ -574,7 +598,7 @@ stamp-revision:
 # Unit/regression test
 ###############################################################################
 
-dist_check_SCRIPTS = check_headers
+dist_check_SCRIPTS = check_headers check_symbols
 
 check-local:
 	for h in `echo $(pkginclude_HEADERS) | sed -e s,\.\./include/,,g`; \

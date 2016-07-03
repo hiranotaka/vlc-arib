@@ -1,7 +1,7 @@
 /*****************************************************************************
  * vnc.c: libVNC access
  *****************************************************************************
- * Copyright (C) 2013 VideoLAN Authors
+ * Copyright (C) 2013 VideoLAN and VLC Authors
  *****************************************************************************
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -50,9 +50,9 @@
 #define RFB_CRL_TEXT N_("X.509 Certificate Revocation List")
 #define RFB_CRL_LONGTEXT N_("List of revoked servers certificates")
 #define RFB_CERT_TEXT N_("X.509 Client certificate")
-#define RFB_CERT_LONGTEXT N_("Certificate for client authentification")
+#define RFB_CERT_LONGTEXT N_("Certificate for client authentication")
 #define RFB_KEY_TEXT N_("X.509 Client private key")
-#define RFB_KEY_LONGTEXT N_("Private key for authentification by certificate")
+#define RFB_KEY_LONGTEXT N_("Private key for authentication by certificate")
 
 #define RFB_CHROMA N_("Frame buffer depth")
 #define RFB_CHROMA_LONGTEXT N_("RGB chroma (RV32, RV24, RV16, RGB2)")
@@ -442,7 +442,7 @@ static int Open( vlc_object_t *p_this )
 
     /* Parse uri params */
     vlc_url_t url;
-    vlc_UrlParse( &url, p_demux->psz_location, 0 );
+    vlc_UrlParse( &url, p_demux->psz_location );
 
     if ( !EMPTY_STR(url.psz_host) )
         p_sys->p_client->serverHost = strdup( url.psz_host );
@@ -452,10 +452,9 @@ static int Open( vlc_object_t *p_this )
     p_sys->p_client->appData.viewOnly = TRUE;
     p_sys->p_client->serverPort = ( url.i_port > 0 ) ? url.i_port : 5900;
 
-    msg_Dbg( p_demux, "VNC init %s host=%s pass=%s port=%d",
+    msg_Dbg( p_demux, "VNC init %s host=%s port=%d",
              p_demux->psz_location,
              p_sys->p_client->serverHost,
-             url.psz_password,
              p_sys->p_client->serverPort );
 
     vlc_UrlClean( &url );

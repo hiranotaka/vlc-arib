@@ -100,12 +100,11 @@ const demux_index_entry_t *OggSeek_IndexAdd ( logical_stream_t *p_stream,
                                              int64_t i_pagepos )
 {
     demux_index_entry_t *idx;
-    demux_index_entry_t *oidx;
     demux_index_entry_t *last_idx = NULL;
 
     if ( p_stream == NULL ) return NULL;
 
-    oidx = idx = p_stream->idx;
+    idx = p_stream->idx;
 
     if ( i_timestamp < 1 || i_pagepos < 1 ) return NULL;
 
@@ -137,8 +136,8 @@ const demux_index_entry_t *OggSeek_IndexAdd ( logical_stream_t *p_stream,
     }
     else
     {
-        idx->p_next = oidx;
-        oidx = idx;
+        idx->p_next = p_stream->idx;
+        p_stream->idx = idx;
     }
 
     if ( idx->p_next != NULL )
@@ -334,7 +333,6 @@ static int64_t find_first_page_granule( demux_t *p_demux,
     *i_granulepos = -1;
     int64_t i_bytes_to_read = i_pos2 - i_pos1 + 1;
     int64_t i_bytes_read;
-    int64_t i_pages_checked = 0;
     int64_t i_packets_checked;
 
     demux_sys_t *p_sys  = p_demux->p_sys;
@@ -407,23 +405,22 @@ static int64_t find_first_page_granule( demux_t *p_demux,
             return p_sys->i_input_position;
         }
 
-        if ( ogg_page_granulepos( &p_sys->current_page ) <= 0 )
-        {
-            p_sys->i_input_position += i_result;
-            i_bytes_to_read += OGGSEEK_BYTES_TO_READ;
-            continue;
-        }
-
         // found a page
         if ( ogg_stream_pagein( &p_stream->os, &p_sys->current_page ) != 0 )
         {
             /* page is not for this stream or incomplete */
             p_sys->i_input_position += i_result;
-            if ( ! i_pages_checked ) i_pos1 = p_sys->i_input_position;
             continue;
         }
 
-        i_pages_checked++;
+        if ( ogg_page_granulepos( &p_sys->current_page ) <= 0 )
+        {
+            /* A negative granulepos means that the packet continues on the
+             * next page => read the next page */
+            p_sys->i_input_position += i_result;
+            continue;
+        }
+
         i_packets_checked = 0;
 
         while ( ogg_stream_packetout( &p_stream->os, &op ) > 0 )
@@ -439,6 +436,7 @@ static int64_t find_first_page_granule( demux_t *p_demux,
 
         /*  -> start of next page */
         p_sys->i_input_position += i_result;
+        i_pos1 = p_sys->i_input_position;
     }
 }
 
@@ -452,6 +450,7 @@ bool Ogg_IsKeyFrame( logical_stream_t *p_stream, ogg_packet *p_packet )
     else switch ( p_stream->fmt.i_codec )
     {
     case VLC_CODEC_THEORA:
+    case VLC_CODEC_DAALA: /* Same convention used in daala */
         if ( p_packet->bytes <= 0 || p_packet->packet[0] & THEORA_FTYPE_NOTDATA )
             return false;
         else
@@ -471,7 +470,8 @@ int64_t Ogg_GetKeyframeGranule( logical_stream_t *p_stream, int64_t i_granule )
     {
            return -1; /* We have no way to know */
     }
-    else if( p_stream->fmt.i_codec == VLC_CODEC_THEORA )
+    else if( p_stream->fmt.i_codec == VLC_CODEC_THEORA ||
+             p_stream->fmt.i_codec == VLC_CODEC_DAALA )
     {
         return ( i_granule >> p_stream->i_granule_shift ) << p_stream->i_granule_shift;
     }
@@ -689,6 +689,7 @@ int64_t Oggseek_GranuleToAbsTimestamp( logical_stream_t *p_stream,
     else  switch( p_stream->fmt.i_codec )
     {
     case VLC_CODEC_THEORA:
+    case VLC_CODEC_DAALA:
     case VLC_CODEC_KATE:
     {
         ogg_int64_t iframe = i_granule >> p_stream->i_granule_shift;
@@ -735,6 +736,13 @@ int64_t Oggseek_GranuleToAbsTimestamp( logical_stream_t *p_stream,
             i_granule -= p_stream->special.speex.i_framesize *
                          p_stream->special.speex.i_framesperpacket;
         i_timestamp = i_granule * CLOCK_FREQ / p_stream->f_rate;
+        break;
+    }
+    case VLC_CODEC_OGGSPOTS:
+    {
+        if ( b_presentation ) return VLC_TS_INVALID;
+        i_timestamp = ( i_granule >> p_stream->i_granule_shift )
+                * CLOCK_FREQ / p_stream->f_rate;
         break;
     }
     }
@@ -1009,6 +1017,7 @@ int Oggseek_SeektoAbsolutetime( demux_t *p_demux, logical_stream_t *p_stream,
     {
         /* be sure to clear any state or read+pagein() will fail on same # */
         ogg_stream_reset( &p_stream->os );
+        p_sys->i_input_position = i_pagepos;
         seek_byte( p_demux, p_sys->i_input_position );
     }
     /* Insert keyframe position into index */

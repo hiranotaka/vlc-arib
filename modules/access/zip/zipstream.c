@@ -32,12 +32,6 @@
 #include "zip.h"
 #include <stddef.h>
 
-/* FIXME remove */
-#include <vlc_input.h>
-
-#define FILENAME_TEXT N_( "Media in Zip" )
-#define FILENAME_LONGTEXT N_( "Path to the media in the Zip archive" )
-
 /** **************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -46,7 +40,7 @@ vlc_module_begin()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_STREAM_FILTER )
     set_description( N_( "Zip files filter" ) )
-    set_capability( "stream_filter", 1 )
+    set_capability( "stream_filter", 15 )
     set_callbacks( StreamOpen, StreamClose )
     add_submodule()
         set_subcategory( SUBCAT_INPUT_ACCESS )
@@ -59,8 +53,8 @@ vlc_module_end()
 /** *************************************************************************
  * Local prototypes
  ****************************************************************************/
-static int Read   ( stream_t *, void *p_read, unsigned int i_read );
-static int Peek   ( stream_t *, const uint8_t **pp_peek, unsigned int i_peek );
+static ssize_t Read( stream_t *, void *p_read, size_t i_read );
+static int Seek( stream_t *s, uint64_t );
 static int Control( stream_t *, int i_query, va_list );
 
 typedef struct node node;
@@ -110,7 +104,7 @@ struct node {
 inline static node* new_node( char *name )
 {
     node *n = (node*) calloc( 1, sizeof(node) );
-    n->name = convert_xml_special_chars( name );
+    n->name = vlc_xml_encode( name );
     return n;
 }
 
@@ -127,6 +121,13 @@ inline static void free_all_node( node *root )
     {
         free_all_node( root->child );
         free( root->name );
+        item *media = root->media;
+        while( media )
+        {
+            item *next_media = media->next;
+            free( media );
+            media = next_media;
+        }
         node *tmp = root->next;
         free( root );
         root = tmp;
@@ -177,22 +178,17 @@ int StreamOpen( vlc_object_t *p_this )
         return VLC_EGENERIC;
     if( memcmp( p_peek, p_zip_marker, i_zip_marker ) )
         return VLC_EGENERIC;
+    if( s->psz_url == NULL )
+        return VLC_EGENERIC;
 
     s->p_sys = p_sys = calloc( 1, sizeof( *p_sys ) );
     if( !p_sys )
         return VLC_ENOMEM;
 
-    s->pf_read = Read;
-    s->pf_peek = Peek;
-    s->pf_control = Control;
-
     p_sys->fileFunctions = ( zlib_filefunc_def * )
             calloc( 1, sizeof( zlib_filefunc_def ) );
     if( !p_sys->fileFunctions )
-    {
-        free( p_sys );
-        return VLC_ENOMEM;
-    }
+        goto error;
     p_sys->fileFunctions->zopen_file   = ZipIO_Open;
     p_sys->fileFunctions->zread_file   = ZipIO_Read;
     p_sys->fileFunctions->zwrite_file  = ZipIO_Write;
@@ -206,22 +202,32 @@ int StreamOpen( vlc_object_t *p_this )
     {
         msg_Warn( s, "unable to open file" );
         free( p_sys->fileFunctions );
-        free( p_sys );
-        return VLC_EGENERIC;
+        goto error;
     }
 
     /* Find the stream uri */
-    char *psz_tmp;
-    if( asprintf( &psz_tmp, "%s.xspf", s->psz_path ) == -1 )
-    {
-        free( p_sys->fileFunctions );
-        free( p_sys );
-        return VLC_ENOMEM;
-    }
-    p_sys->psz_path = s->psz_path;
-    s->psz_path = psz_tmp;
+    const char *p = strstr(s->psz_url, "://");
+    p_sys->psz_path = strdup(p ? p + 3 : "");
 
+    char *psz_tmp;
+    if( asprintf( &psz_tmp, "%s.xspf", s->psz_url ) == -1 )
+        psz_tmp = NULL;
+
+    if( p_sys->psz_path == NULL || psz_tmp == NULL )
+    {
+        free( psz_tmp );
+        free( p_sys->psz_path );
+        free( p_sys->fileFunctions );
+    }
+    free(s->psz_url);
+    s->psz_url = psz_tmp;
+    s->pf_read = Read;
+    s->pf_seek = Seek;
+    s->pf_control = Control;
     return VLC_SUCCESS;
+error:
+    free( p_sys );
+    return VLC_ENOMEM;
 }
 
 /** *************************************************************************
@@ -248,7 +254,7 @@ void StreamClose( vlc_object_t *p_this )
 /** *************************************************************************
  * Read
  ****************************************************************************/
-static int Read( stream_t *s, void *p_read, unsigned int i_read )
+static ssize_t Read( stream_t *s, void *p_read, size_t i_read )
 {
     stream_sys_t *p_sys = s->p_sys;
 
@@ -257,7 +263,7 @@ static int Read( stream_t *s, void *p_read, unsigned int i_read )
         return -1;
 
     /* Read the buffer */
-    unsigned i_len = __MIN( i_read, p_sys->i_len - p_sys->i_pos );
+    size_t i_len = __MIN( i_read, p_sys->i_len - p_sys->i_pos );
     if( p_read )
         memcpy( p_read, p_sys->psz_xspf + p_sys->i_pos, i_len );
     p_sys->i_pos += i_len;
@@ -265,22 +271,15 @@ static int Read( stream_t *s, void *p_read, unsigned int i_read )
     return i_len;
 }
 
-/** *************************************************************************
- * Peek
- ****************************************************************************/
-static int Peek( stream_t *s, const uint8_t **pp_peek, unsigned int i_peek )
+static int Seek( stream_t *s, uint64_t i_position )
 {
     stream_sys_t *p_sys = s->p_sys;
 
-    /* Fill the buffer */
-    if( Fill( s ) )
-        return -1;
+    if( i_position > p_sys->i_len )
+        i_position = p_sys->i_len;
 
-    /* Point to the buffer */
-    int i_len = __MIN( i_peek, p_sys->i_len - p_sys->i_pos );
-    *pp_peek = (uint8_t*) p_sys->psz_xspf + p_sys->i_pos;
-
-    return i_len;
+    p_sys->i_pos = i_position;
+    return VLC_SUCCESS;
 }
 
 /** *************************************************************************
@@ -292,25 +291,6 @@ static int Control( stream_t *s, int i_query, va_list args )
 
     switch( i_query )
     {
-        case STREAM_SET_POSITION:
-        {
-            uint64_t i_position = va_arg( args, uint64_t );
-            if( i_position >= p_sys->i_len )
-                return VLC_EGENERIC;
-            else
-            {
-                p_sys->i_pos = (size_t) i_position;
-                return VLC_SUCCESS;
-            }
-        }
-
-        case STREAM_GET_POSITION:
-        {
-            uint64_t *pi_position = va_arg( args, uint64_t* );
-            *pi_position = p_sys->i_pos;
-            return VLC_SUCCESS;
-        }
-
         case STREAM_GET_SIZE:
         {
             uint64_t *pi_size = va_arg( args, uint64_t* );
@@ -321,7 +301,6 @@ static int Control( stream_t *s, int i_query, va_list args )
         case STREAM_GET_CONTENT_TYPE:
             return VLC_EGENERIC;
 
-        case STREAM_UPDATE_SIZE:
         case STREAM_CAN_SEEK:
         case STREAM_CAN_FASTSEEK:
         case STREAM_SET_RECORD_STATE:
@@ -558,7 +537,7 @@ static int WriteXSPF( char **pp_buffer, vlc_array_t *p_filenames,
                       const char *psz_zippath )
 {
     char *psz_zip = strrchr( psz_zippath, DIR_SEP_CHAR );
-    psz_zip = convert_xml_special_chars( psz_zip ? (psz_zip+1) : psz_zippath );
+    psz_zip = vlc_xml_encode( psz_zip ? (psz_zip+1) : psz_zippath );
 
     if( asprintf( pp_buffer, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         "<playlist version=\"1\" xmlns=\"http://xspf.org/ns/0/\" "
@@ -569,11 +548,15 @@ static int WriteXSPF( char **pp_buffer, vlc_array_t *p_filenames,
 
     /* Root node */
     node *playlist = new_node( psz_zip );
+    free( psz_zip );
 
     /* Encode the URI and append ZIP_SEP */
     char *psz_pathtozip;
     escapeToXml( &psz_pathtozip, psz_zippath );
-    if( astrcatf( &psz_pathtozip, "%s", ZIP_SEP ) < 0 ) return -1;
+    if( astrcatf( &psz_pathtozip, "%s", ZIP_SEP ) < 0 ) {
+        free_all_node( playlist );
+        return -1;
+    }
 
     int i_track = 0;
     for( int i = 0; i < vlc_array_count( p_filenames ); ++i )
@@ -592,8 +575,7 @@ static int WriteXSPF( char **pp_buffer, vlc_array_t *p_filenames,
         {
             /* Extract file name */
             char *psz_file = strrchr( psz_name, '/' );
-            psz_file = convert_xml_special_chars( psz_file ?
-                    (psz_file+1) : psz_name );
+            psz_file = vlc_xml_encode( psz_file ? (psz_file+1) : psz_name );
 
             /* Build full MRL */
             char *psz_path = strdup( psz_pathtozip );
@@ -716,7 +698,7 @@ static node* findOrCreateParentNode( node *root, const char *fullpath )
 
     while( current )
     {
-        if( !strcmp( current->name, folder ) )
+        if( current->name && !strcmp( current->name, folder ) )
         {
             /* We found the folder, go recursively deeper */
             node *parentNode = findOrCreateParentNode( current, sep );

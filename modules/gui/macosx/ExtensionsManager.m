@@ -33,29 +33,32 @@
 #define MENU_GET_ACTION(a) ((uint16_t)(((uint32_t)a) >> 16))
 #define MENU_GET_EXTENSION(a) ((uint16_t)(((uint32_t)a) & 0xFFFF))
 
+@interface ExtensionsManager()
+{
+    extensions_manager_t *p_extensions_manager;
+    ExtensionsDialogProvider *_extensionDialogProvider;
+
+    NSMutableDictionary *p_extDict;
+
+    BOOL b_failed; ///< Flag set to true if we could not load the module
+
+    id <ExtensionsDelegate> delegate;
+}
+@end
+
 @implementation ExtensionsManager
 
-static ExtensionsManager* instance = nil;
-
-@synthesize isUnloading = b_unloading;
-
-+ (ExtensionsManager *)getInstance:(intf_thread_t *)_p_intf
+- (id)init
 {
-    if (!instance)
-        instance = [[[ExtensionsManager alloc] initWithIntf:_p_intf] autorelease];
-    return instance;
-}
+    self = [super init];
 
-- (id)initWithIntf:(intf_thread_t *)_p_intf
-{
-    if ((self = [super init])) {
-        p_intf = _p_intf;
+    if (self) {
         p_extensions_manager = NULL;
-        p_edp = NULL;
+        _extensionDialogProvider = [[ExtensionsDialogProvider alloc] init];
 
         p_extDict = [[NSMutableDictionary alloc] init];
 
-        b_unloading = false;
+        _isUnloading = false;
         b_failed = false;
 
         delegate = nil;
@@ -67,19 +70,24 @@ static ExtensionsManager* instance = nil;
 - (void)buildMenu:(NSMenu *)extMenu
 {
     assert(extMenu != nil);
-    if (![self isLoaded])
-        // This case can happen: do nothing
-        return;
+
+    /* check if stuff was loaded, which can fail */
+    if (![self isLoaded]) {
+        BOOL b_ret = [self loadExtensions];
+        if (b_ret == NO)
+            return;
+    }
+    intf_thread_t *p_intf = getIntf();
 
     vlc_mutex_lock(&p_extensions_manager->lock);
 
     extension_t *p_ext = NULL;
     int i_ext = 0;
+
     FOREACH_ARRAY(p_ext, p_extensions_manager->extensions) {
         bool b_Active = extension_IsActivated(p_extensions_manager, p_ext);
 
-        NSString *titleString = [NSString stringWithCString:p_ext->psz_title
-                                                   encoding:NSUTF8StringEncoding];
+        NSString *titleString = toNSStr(p_ext->psz_title);
 
         if (b_Active && extension_HasMenu(p_extensions_manager, p_ext)) {
             NSMenu *submenu = [[NSMenu alloc] initWithTitle:titleString];
@@ -88,18 +96,15 @@ static ExtensionsManager* instance = nil;
                                                   keyEquivalent:@""];
 
             [extMenu setSubmenu:submenu forItem:submenuItem];
-            [submenu release];
 
             char **ppsz_titles = NULL;
             uint16_t *pi_ids = NULL;
             size_t i_num = 0;
 
-            if (extension_GetMenu(p_extensions_manager, p_ext,
-                                   &ppsz_titles, &pi_ids) == VLC_SUCCESS) {
+            if (extension_GetMenu(p_extensions_manager, p_ext, &ppsz_titles, &pi_ids) == VLC_SUCCESS) {
                 for (int i = 0; ppsz_titles[i] != NULL; ++i) {
                     ++i_num;
-                    titleString = [NSString stringWithCString:ppsz_titles[i]
-                                                     encoding:NSUTF8StringEncoding];
+                    titleString = toNSStr(ppsz_titles[i]);
                     NSMenuItem *menuItem = [submenu addItemWithTitle:titleString
                                                               action:@selector(triggerMenu:)
                                                        keyEquivalent:@""];
@@ -155,17 +160,16 @@ static ExtensionsManager* instance = nil;
 
 - (BOOL)loadExtensions
 {
+    intf_thread_t *p_intf = getIntf();
     if (!p_extensions_manager) {
-        p_extensions_manager = (extensions_manager_t*)
-                    vlc_object_create(p_intf, sizeof(extensions_manager_t));
+        p_extensions_manager = (extensions_manager_t*)vlc_object_create(p_intf, sizeof(extensions_manager_t));
         if (!p_extensions_manager) {
             b_failed = true;
             [delegate extensionsUpdated];
             return false;
         }
 
-        p_extensions_manager->p_module =
-                module_need(p_extensions_manager, "extension", NULL, false);
+        p_extensions_manager->p_module = module_need(p_extensions_manager, "extension", NULL, false);
 
         if (!p_extensions_manager->p_module) {
             msg_Err(p_intf, "Unable to load extensions module");
@@ -176,21 +180,7 @@ static ExtensionsManager* instance = nil;
             return false;
         }
 
-        /* Initialize dialog provider */
-        p_edp = [ExtensionsDialogProvider sharedInstance:p_intf];
-        [p_edp retain];
-
-        if (!p_edp) {
-            msg_Err(p_intf, "Unable to create dialogs provider for extensions");
-            module_unneed(p_extensions_manager,
-                           p_extensions_manager->p_module);
-            vlc_object_release(p_extensions_manager);
-            p_extensions_manager = NULL;
-            b_failed = true;
-            [delegate extensionsUpdated];
-            return false;
-        }
-        b_unloading = false;
+        _isUnloading = false;
     }
     b_failed = false;
     [delegate extensionsUpdated];
@@ -201,8 +191,8 @@ static ExtensionsManager* instance = nil;
 {
     if (!p_extensions_manager)
         return;
-    b_unloading = true;
-    [p_edp release];
+    _isUnloading = true;
+
     module_unneed(p_extensions_manager, p_extensions_manager->p_module);
     vlc_object_release(p_extensions_manager);
     p_extensions_manager = NULL;
@@ -219,6 +209,8 @@ static ExtensionsManager* instance = nil;
 
 - (void)triggerMenu:(id)sender
 {
+    NSLog(@"%s", __PRETTY_FUNCTION__);
+    intf_thread_t *p_intf = getIntf();
     uint32_t identifier = [(NSMenuItem *)sender tag];
 
     uint16_t i_ext = MENU_GET_EXTENSION(identifier);
@@ -310,15 +302,12 @@ static ExtensionsManager* instance = nil;
 
 - (void)dealloc
 {
-    msg_Dbg(p_intf, "Killing extension dialog provider");
-    [ExtensionsDialogProvider killInstance];
+    intf_thread_t *p_intf = getIntf();
+    msg_Dbg(p_intf, "Deinitializing extensions manager");
 
+    _extensionDialogProvider = nil;
     if (p_extensions_manager)
         vlc_object_release(p_extensions_manager);
-
-    [p_extDict release];
-
-    [super dealloc];
 }
 
 - (BOOL)isLoaded
@@ -328,7 +317,7 @@ static ExtensionsManager* instance = nil;
 
 - (BOOL)cannotLoad
 {
-    return b_unloading || b_failed;
+    return self.isUnloading || b_failed;
 }
 
 @end

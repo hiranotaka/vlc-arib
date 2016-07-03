@@ -217,7 +217,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
             {
                 msg_Warn( p_filter, "Error on input file: %s",
                           vlc_strerror_c(errno) );
-                close( p_sys->i_inputfd );
+                vlc_close( p_sys->i_inputfd );
                 p_sys->i_inputfd = -1;
             }
         }
@@ -315,8 +315,8 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     /* Try emptying the output buffer */
     if( p_sys->i_outputfd != -1 )
     {
-        ssize_t i_len = write( p_sys->i_outputfd, p_sys->output.p_begin,
-                              p_sys->output.i_length );
+        ssize_t i_len = vlc_write( p_sys->i_outputfd, p_sys->output.p_begin,
+                                   p_sys->output.i_length );
         if( i_len == -1 )
         {
             /* We hit an error */
@@ -324,7 +324,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
             {
                 msg_Warn( p_filter, "Error on output file: %s",
                           vlc_strerror_c(errno) );
-                close( p_sys->i_outputfd );
+                vlc_close( p_sys->i_outputfd );
                 p_sys->i_outputfd = -1;
             }
         }
@@ -340,12 +340,9 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     subpicture_t *p_spu = NULL;
     overlay_t *p_overlay = NULL;
 
-    p_spu = p_filter->pf_sub_buffer_new( p_filter );
+    p_spu = filter_NewSubpicture( p_filter );
     if( !p_spu )
-    {
-        msg_Err( p_filter, "cannot allocate subpicture" );
         return NULL;
-    }
 
     p_spu->b_absolute = true;
     p_spu->i_start = date;
@@ -367,8 +364,8 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
 
         if( p_overlay->format.i_chroma == VLC_CODEC_TEXT )
         {
-            p_region->psz_text = strdup( p_overlay->data.p_text );
-            p_region->p_style = text_style_Duplicate( p_overlay->p_fontstyle );
+            p_region->p_text = text_segment_New( p_overlay->data.p_text );
+            p_region->p_text->style = text_style_Duplicate( p_overlay->p_fontstyle );
         }
         else
         {

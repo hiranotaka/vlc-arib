@@ -277,7 +277,11 @@ static int FrameSpanAddDescription( demux_t *p_demux, uint64_t i_desc_offset, fr
     }
 
     const uint8_t *p_peek;
-    uint32_t i_peek_len = stream_Peek( p_demux->s, &p_peek, 2 * 10 ); /* Peeking the maximum number of bytes that two 64 bit numbers could use (( 64 + 6 ) / 7 = 10 ). */
+    int i_peek_len = stream_Peek( p_demux->s, &p_peek, 2 * 10 );
+    /* Peeking the maximum number of bytes that two 64 bit numbers could use
+     * (( 64 + 6 ) / 7 = 10). */
+    if( i_peek_len < 0 )
+        i_peek_len = 0;
 
     if( p_sys->fmt.audio.i_bytes_per_frame )
     {
@@ -302,7 +306,7 @@ static int FrameSpanAddDescription( demux_t *p_demux, uint64_t i_desc_offset, fr
     }
     else
     {
-        if( i_desc_size >= i_peek_len )
+        if( i_desc_size >= (unsigned)i_peek_len )
         {
             return VLC_EGENERIC;
         }
@@ -1003,6 +1007,10 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
     switch( i_query )
     {
+        case DEMUX_CAN_SEEK:
+            *va_arg( args, bool * ) = true;
+            return VLC_SUCCESS;
+
         case DEMUX_GET_LENGTH:
             pi64 = ( int64_t* )va_arg( args, int64_t * );
             *pi64 = CLOCK_FREQ * ( i_num_samples / p_sys->fmt.audio.i_rate );

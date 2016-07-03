@@ -61,7 +61,7 @@ struct input_resource_t
 
     /* This lock is used to protect vout resources access (for hold)
      * It is a special case because of embed video (possible deadlock
-     * between vout window request and vout holds in some(qt4) interface)
+     * between vout window request and vout holds in some(qt) interface)
      */
     vlc_mutex_t    lock_hold;
 
@@ -158,7 +158,7 @@ static void DisplayVoutTitle( input_resource_t *p_resource,
 
     input_item_t *p_item = input_GetItem( p_resource->p_input );
 
-    char *psz_nowplaying = input_item_GetNowPlaying( p_item );
+    char *psz_nowplaying = input_item_GetNowPlayingFb( p_item );
     if( psz_nowplaying && *psz_nowplaying )
     {
         vout_DisplayTitle( p_vout, psz_nowplaying );

@@ -115,8 +115,12 @@ typedef struct logical_stream_s
     int i_secondary_header_packets;
 
     /* All blocks which can't be sent because track PCR isn't known yet */
-    block_t **p_prepcr_blocks;
-    int i_prepcr_blocks;
+    struct
+    {
+        block_t **pp_blocks;
+        uint8_t i_size; /* max 255 */
+        uint8_t i_used;
+    } prepcr;
     /* All blocks that are queued because ES isn't created yet */
     block_t *p_preparse_block;
 
@@ -127,7 +131,7 @@ typedef struct logical_stream_s
         {
             vorbis_info *p_info;
             vorbis_comment *p_comment;
-            bool b_invalid;
+            int i_headers_flags;
             int i_prev_blocksize;
         } vorbis;
 #endif
@@ -145,6 +149,10 @@ typedef struct logical_stream_s
             int32_t i_framesize;
             int32_t i_framesperpacket;
         } speex;
+        struct
+        {
+            bool b_old;
+        } flac;
     } special;
 
 } logical_stream_t;
@@ -175,6 +183,7 @@ struct demux_sys_t
      * the sub-streams */
     mtime_t i_pcr;
     mtime_t i_nzpcr_offset;
+    mtime_t i_nzlast_pts;
     /* informative only */
     mtime_t i_pcr_jitter;
     int64_t i_access_delay;

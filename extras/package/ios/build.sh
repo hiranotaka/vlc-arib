@@ -3,19 +3,35 @@ set -e
 
 PLATFORM=OS
 VERBOSE=no
-SDK_VERSION=7.0
-SDK_MIN=5.1
+DEBUG=no
+SDK_VERSION=`xcrun --sdk iphoneos --show-sdk-version`
+SDK_MIN=7.0
+SIXTYFOURBIT_SDK_MIN=7.0
 ARCH=armv7
+SCARY=yes
+TVOS=no
+OSSTYLE=iPhone
+OSVERSIONMINCFLAG=miphoneos-version-min
+OSVERSIONMINLDFLAG=ios_version_min
+BITCODE=no
+
+CORE_COUNT=`sysctl -n machdep.cpu.core_count`
+let MAKE_JOBS=$CORE_COUNT+1
 
 usage()
 {
 cat << EOF
-usage: $0 [-s] [-k sdk]
+usage: $0 [-s] [-d] [-v] [-k sdk]
 
 OPTIONS
    -k <sdk version>      Specify which sdk to use ('xcodebuild -showsdks', current: ${SDK_VERSION})
    -s            Build for simulator
    -a <arch>     Specify which arch to use (current: ${ARCH})
+   -d            Enable debug
+   -v            Enable verbose command-line output
+   -t            Build for tvOS
+   -w            Build a limited stack of non-scary libraries only
+   -b            Enable bitcode
 EOF
 }
 
@@ -36,7 +52,7 @@ info()
     echo "[${blue}info${normal}] $1"
 }
 
-while getopts "hvsk:a:" OPTION
+while getopts "hvbwdstk:a:" OPTION
 do
      case $OPTION in
          h)
@@ -49,11 +65,28 @@ do
          s)
              PLATFORM=Simulator
              ;;
+         d)
+             DEBUG=yes
+             ;;
+         w)
+             SCARY=no
+             ;;
+         b)
+             BITCODE=yes
+             ;;
          k)
              SDK_VERSION=$OPTARG
              ;;
          a)
              ARCH=$OPTARG
+             ;;
+         t)
+             TVOS=yes
+             BITCODE=yes
+             SDK_VERSION=`xcrun --sdk appletvos --show-sdk-version`
+             OSVERSIONMINCFLAG=mtvos-version-min
+             OSVERSIONMINLDFLAG=tvos_version_min
+             SIXTYFOURBIT_SDK_MIN=9.0
              ;;
          ?)
              usage
@@ -73,15 +106,29 @@ if [ "$VERBOSE" = "yes" ]; then
    out="/dev/stdout"
 fi
 
-info "Building libvlc for iOS"
+TARGET="${ARCH}-apple-darwin11"
 
-if [ "$PLATFORM" = "Simulator" ]; then
-    TARGET="${ARCH}-apple-darwin11"
-    OPTIM="-O3 -g"
+# apple doesn't call AArch64 that way, but arm64 (a contrario to all libraries)
+# so we need to translate it..
+if [ "$ARCH" = "aarch64" ]; then
+	ACTUAL_ARCH="arm64"
 else
-    TARGET="arm-apple-darwin11"
+	ACTUAL_ARCH="$ARCH"
+fi
+
+if [ "$DEBUG" = "yes" ]; then
+    OPTIM="-O0 -g"
+else
     OPTIM="-O3 -g"
 fi
+
+if [ "$TVOS" = "yes" ]; then
+	OSSTYLE=AppleTV
+	export BUILDFORTVOS="yes"
+fi
+export BUILDFORIOS="yes"
+
+info "Building libvlc for Apple embedded OS style '${OSSTYLE}'"
 
 info "Using ${ARCH} with SDK version ${SDK_VERSION}"
 
@@ -93,8 +140,8 @@ spopd
 
 if test -z "$SDKROOT"
 then
-    SDKROOT=`xcode-select -print-path`/Platforms/iPhone${PLATFORM}.platform/Developer/SDKs/iPhone${PLATFORM}${SDK_VERSION}.sdk
-    echo "SDKROOT not specified, assuming $SDKROOT"
+	SDKROOT=`xcode-select -print-path`/Platforms/${OSSTYLE}${PLATFORM}.platform/Developer/SDKs/${OSSTYLE}${PLATFORM}${SDK_VERSION}.sdk
+	echo "SDKROOT not specified, assuming $SDKROOT"
 fi
 
 if [ ! -d "${SDKROOT}" ]
@@ -103,9 +150,8 @@ then
     exit 1
 fi
 
-BUILDDIR="${VLCROOT}/build-ios-${PLATFORM}/${ARCH}"
-
-PREFIX="${VLCROOT}/install-ios-${PLATFORM}/${ARCH}"
+BUILDDIR="${VLCROOT}/build-ios-${OSSTYLE}${PLATFORM}/${ACTUAL_ARCH}"
+PREFIX="${VLCROOT}/install-ios-${OSSTYLE}${PLATFORM}/${ACTUAL_ARCH}"
 
 export PATH="${VLCROOT}/extras/tools/build/bin:${VLCROOT}/contrib/${TARGET}/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/X11/bin"
 
@@ -115,7 +161,7 @@ spushd "${VLCROOT}/extras/tools"
 make && make .gas
 spopd
 
-info "Building contrib for iOS in '${VLCROOT}/contrib/iPhone${PLATFORM}-${ARCH}'"
+info "Building contrib for iOS in '${VLCROOT}/contrib/${OSSTYLE}${PLATFORM}-${ARCH}'"
 
 # The contrib will read the following
 export AR="xcrun ar"
@@ -129,62 +175,85 @@ export STRIP="xcrun strip"
 
 export PLATFORM=$PLATFORM
 export SDK_VERSION=$SDK_VERSION
+export VLCSDKROOT=$SDKROOT
+
+CFLAGS="-isysroot ${SDKROOT} -arch ${ACTUAL_ARCH} ${OPTIM}"
 
 if [ "$PLATFORM" = "OS" ]; then
-export CFLAGS="-isysroot ${SDKROOT} -arch ${ARCH} -miphoneos-version-min=${SDK_MIN} ${OPTIM}"
-if [ "$ARCH" != "arm64" ]; then
-export CFLAGS="${CFLAGS} -mcpu=cortex-a8"
+if [ "$ARCH" != "aarch64" ]; then
+CFLAGS+=" -mcpu=cortex-a8 -${OSVERSIONMINCFLAG}=${SDK_MIN}"
+else
+CFLAGS+=" -${OSVERSIONMINCFLAG}=${SIXTYFOURBIT_SDK_MIN}"
 fi
 else
-export CFLAGS="-isysroot ${SDKROOT} -arch ${ARCH} -miphoneos-version-min=${SDK_MIN} ${OPTIM}"
+CFLAGS+=" -${OSVERSIONMINCFLAG}=${SIXTYFOURBIT_SDK_MIN}"
 fi
+
+if [ "$BITCODE" = "yes" ]; then
+CFLAGS+=" -fembed-bitcode"
+fi
+
+export CFLAGS="${CFLAGS}"
+export CXXFLAGS="${CFLAGS}"
+export CPPFLAGS="${CFLAGS}"
 
 export CPP="xcrun cc -E"
 export CXXCPP="xcrun c++ -E"
-
-export BUILDFORIOS="yes"
 
 if [ "$PLATFORM" = "Simulator" ]; then
     # Use the new ABI on simulator, else we can't build
     export OBJCFLAGS="-fobjc-abi-version=2 -fobjc-legacy-dispatch ${OBJCFLAGS}"
 fi
 
-export LDFLAGS="-L${SDKROOT}/usr/lib -arch ${ARCH} -isysroot ${SDKROOT} -miphoneos-version-min=${SDK_MIN}"
+export LDFLAGS="-isysroot ${SDKROOT} -L${SDKROOT}/usr/lib -arch ${ACTUAL_ARCH}"
 
 if [ "$PLATFORM" = "OS" ]; then
-    EXTRA_CFLAGS="-arch ${ARCH}"
-if [ "$ARCH" != "arm64" ]; then
+    EXTRA_CFLAGS="-arch ${ACTUAL_ARCH}"
+    EXTRA_LDFLAGS="-arch ${ACTUAL_ARCH}"
+if [ "$ARCH" != "aarch64" ]; then
     EXTRA_CFLAGS+=" -mcpu=cortex-a8"
+    EXTRA_CFLAGS+=" -${OSVERSIONMINCFLAG}=${SDK_MIN}"
+    EXTRA_LDFLAGS+=" -Wl,-${OSVERSIONMINLDFLAG},${SDK_MIN}"
+    export LDFLAGS="${LDFLAGS} -Wl,-${OSVERSIONMINLDFLAG},${SDK_MIN}"
+else
+    EXTRA_CFLAGS+=" -${OSVERSIONMINCFLAG}=${SIXTYFOURBIT_SDK_MIN}"
+    EXTRA_LDFLAGS+=" -Wl,-${OSVERSIONMINLDFLAG},${SIXTYFOURBIT_SDK_MIN}"
+    export LDFLAGS="${LDFLAGS} -Wl,-${OSVERSIONMINLDFLAG},${SIXTYFOURBIT_SDK_MIN}"
 fi
-    EXTRA_LDFLAGS="-arch ${ARCH}"
 else
     EXTRA_CFLAGS="-arch ${ARCH}"
-    EXTRA_LDFLAGS="-arch ${ARCH}"
+    EXTRA_CFLAGS+=" -${OSVERSIONMINCFLAG}=${SIXTYFOURBIT_SDK_MIN}"
+    EXTRA_LDFLAGS=" -Wl,-${OSVERSIONMINLDFLAG},${SIXTYFOURBIT_SDK_MIN}"
+    export LDFLAGS="${LDFLAGS} -v -Wl,-${OSVERSIONMINLDFLAG},${SIXTYFOURBIT_SDK_MIN}"
 fi
 
-EXTRA_CFLAGS+=" -miphoneos-version-min=${SDK_MIN}"
-EXTRA_LDFLAGS+=" -miphoneos-version-min=${SDK_MIN}"
 
 info "LD FLAGS SELECTED = '${LDFLAGS}'"
 
 spushd ${VLCROOT}/contrib
 
 echo ${VLCROOT}
-mkdir -p "${VLCROOT}/contrib/iPhone${PLATFORM}-${ARCH}"
-cd "${VLCROOT}/contrib/iPhone${PLATFORM}-${ARCH}"
+mkdir -p "${VLCROOT}/contrib/${OSSTYLE}${PLATFORM}-${ARCH}"
+cd "${VLCROOT}/contrib/${OSSTYLE}${PLATFORM}-${ARCH}"
 
 if [ "$PLATFORM" = "OS" ]; then
     export AS="gas-preprocessor.pl ${CC}"
     export ASCPP="gas-preprocessor.pl ${CC}"
     export CCAS="gas-preprocessor.pl ${CC}"
-    if [ "$ARCH" = "arm64" ]; then
+    if [ "$ARCH" = "aarch64" ]; then
         export GASPP_FIX_XCODE5=1
     fi
 else
     export ASCPP="xcrun as"
 fi
 
-../bootstrap --build=x86_64-apple-darwin11 --host=${TARGET} --prefix=${VLCROOT}/contrib/${TARGET}-${ARCH} --disable-gpl \
+if [ "$TVOS" = "yes" ]; then
+	TVOSOPTIONS="--disable-libarchive"
+else
+	TVOSOPTIONS=""
+fi
+
+../bootstrap --build=x86_64-apple-darwin11 --host=${TARGET} --prefix=${VLCROOT}/contrib/${OSSTYLE}-${TARGET}-${ARCH} --disable-gpl \
     --disable-disc --disable-sout \
     --disable-sdl \
     --disable-SDL_image \
@@ -213,13 +282,21 @@ fi
     --enable-ass \
     --disable-fontconfig \
     --disable-gpg-error \
+    --disable-vncclient \
+    --disable-gnutls \
     --disable-lua \
+    --disable-protobuf \
+    --disable-aribb24 \
+    --disable-aribb25 \
+    --enable-vpx \
+    --enable-libdsm \
+    ${TVOSOPTIONS} \
     --enable-taglib > ${out}
 
 echo "EXTRA_CFLAGS += ${EXTRA_CFLAGS}" >> config.mak
 echo "EXTRA_LDFLAGS += ${EXTRA_LDFLAGS}" >> config.mak
 make fetch
-make
+make -j$MAKE_JOBS > ${out}
 spopd
 
 info "Bootstraping vlc"
@@ -244,17 +321,36 @@ spushd ${BUILDDIR}
 
 info ">> --prefix=${PREFIX} --host=${TARGET}"
 
+if [ "$DEBUG" = "yes" ]; then
+    DEBUGFLAG="--enable-debug"
+else
+    DEBUGFLAG="--disable-debug"
+fi
+
+if [ "$SCARY" = "yes" ]; then
+	SCARYFLAG="--enable-dvbpsi --enable-avcodec --disable-vpx"
+else
+	SCARYFLAG="--disable-dca --disable-dvbpsi --disable-avcodec --disable-avformat --disable-zvbi --enable-vpx"
+fi
+
+if [ "$TVOS" = "yes" ]; then
+	TVOSOPTIONS="--disable-neon"
+else
+	TVOSOPTIONS="--enable-neon"
+fi
+
 # Run configure only upon changes.
 if [ "${VLCROOT}/configure" -nt config.log -o \
      "${THIS_SCRIPT_PATH}" -nt config.log ]; then
 ${VLCROOT}/configure \
     --prefix="${PREFIX}" \
     --host="${TARGET}" \
-    --with-contrib="${VLCROOT}/contrib/${TARGET}-${ARCH}" \
-    --disable-debug \
+    --with-contrib="${VLCROOT}/contrib/${OSSTYLE}-${TARGET}-${ARCH}" \
     --enable-static \
+    ${DEBUGFLAG} \
+    ${SCARYFLAG} \
+    ${TVOSOPTIONS} \
     --disable-macosx \
-    --disable-macosx-dialog-provider \
     --disable-macosx-qtkit \
     --disable-macosx-eyetv \
     --disable-macosx-vlc-app \
@@ -262,10 +358,8 @@ ${VLCROOT}/configure \
     --disable-audioqueue \
     --disable-shared \
     --enable-macosx-quartztext \
-    --enable-avcodec \
     --enable-mkv \
     --enable-opus \
-    --disable-sout \
     --disable-faad \
     --disable-lua \
     --disable-a52 \
@@ -276,13 +370,10 @@ ${VLCROOT}/configure \
     --disable-vlm \
     --disable-httpd \
     --disable-nls \
-    --disable-glx \
     --disable-sse \
-    --enable-neon \
     --disable-notify \
     --enable-live555 \
     --enable-realrtsp \
-    --enable-dvbpsi \
     --enable-swscale \
     --disable-projectm \
     --enable-libass \
@@ -309,11 +400,8 @@ ${VLCROOT}/configure \
     --enable-taglib \
     --disable-mmx \
     --disable-addonmanagermodules \
-    --disable-mad > ${out} # MMX and SSE support requires llvm which is broken on Simulator
+    --disable-mad > ${out}
 fi
-
-CORE_COUNT=`sysctl -n machdep.cpu.core_count`
-let MAKE_JOBS=$CORE_COUNT+1
 
 info "Building libvlc"
 make -j$MAKE_JOBS > ${out}
@@ -323,7 +411,7 @@ make install > ${out}
 
 find ${PREFIX}/lib/vlc/plugins -name *.a -type f -exec cp '{}' ${PREFIX}/lib/vlc/plugins \;
 rm -rf "${PREFIX}/contribs"
-cp -R "${VLCROOT}/contrib/${TARGET}-${ARCH}" "${PREFIX}/contribs"
+cp -R "${VLCROOT}/contrib/${OSSTYLE}-${TARGET}-${ARCH}" "${PREFIX}/contribs"
 
 info "Removing unneeded modules"
 blacklist="
@@ -391,7 +479,41 @@ colorthres
 antiflicker
 anaglyph
 remap
+oldmovie
+vhs
+demuxdump
+fingerprinter
+output_udp
+output_http
+output_livehttp
+libmux
+stream_out
 "
+
+if [ "$SCARY" = "no" ]; then
+blacklist="${blacklist}
+dts
+dvbsub
+svcd
+hevc
+packetizer_mlp
+a52
+vc1
+uleaddvaudio
+librar
+libvoc
+avio
+chorus_flanger
+smooth
+cvdsub
+libmod
+libdash
+libmpgv
+dolby_surround
+mpeg_audio"
+fi
+
+echo ${blacklist}
 
 for i in ${blacklist}
 do

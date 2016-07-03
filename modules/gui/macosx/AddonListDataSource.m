@@ -20,9 +20,15 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+#import "intf.h"
 #import "AddonListDataSource.h"
-
 #import "StringUtility.h"
+
+@interface VLCAddon ()
+{
+    addon_entry_t *p_addon_entry;
+}
+@end
 
 @implementation VLCAddon
 
@@ -39,8 +45,6 @@
 -(void)dealloc
 {
     addon_entry_Release(p_addon_entry);
-
-    [super dealloc];
 }
 
 - (NSData *)uuid

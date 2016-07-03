@@ -197,7 +197,7 @@ static int SkipFile(stream_t *s, int *count, rar_file_t ***file,
 
     rar_file_t *current = NULL;
     if (method != 0x30) {
-        msg_Warn(s, "Ignoring compressed file %s (method=0x%2.2x)", name, method);
+        msg_Dbg(s, "Ignoring compressed file %s (method=0x%2.2x)", name, method);
         goto exit;
     }
 
@@ -287,7 +287,8 @@ typedef struct {
 static const rar_pattern_t *FindVolumePattern(const char *location, bool b_extonly )
 {
     static const rar_pattern_t patterns[] = {
-        { ".part01.rar",  "%s.part%.2d.rar", 2,  99, false }, // new naming
+        { ".part1.rar",   "%s.part%.1d.rar", 2,   9, false }, // new naming
+        { ".part01.rar",  "%s.part%.2d.rar", 2,  99, false }, // new
         { ".part001.rar", "%s.part%.3d.rar", 2, 999, false }, // new
         { ".rar",         "%s.%c%.2d",       0, 999, true },  // old
         { NULL, NULL, 0, 0, false },
@@ -309,18 +310,22 @@ static const rar_pattern_t *FindVolumePattern(const char *location, bool b_exton
     return NULL;
 }
 
-int RarParse(stream_t *s, int *count, rar_file_t ***file, bool b_extonly)
+int RarParse(stream_t *s, int *count, rar_file_t ***file, unsigned int *pi_nbvols,
+             bool b_extonly)
 {
     *count = 0;
     *file = NULL;
+    *pi_nbvols = 1;
 
-    const rar_pattern_t *pattern = FindVolumePattern(s->psz_path, b_extonly);
+    if( s->psz_url == NULL )
+        return VLC_EGENERIC;
+
+    const rar_pattern_t *pattern = FindVolumePattern(s->psz_url, b_extonly);
     int volume_offset = 0;
 
-    char *volume_mrl;
-    if (asprintf(&volume_mrl, "%s://%s",
-                 s->psz_access, s->psz_path) < 0)
-        return VLC_EGENERIC;
+    char *volume_mrl = strdup(s->psz_url);
+    if (volume_mrl == NULL)
+        return VLC_ENOMEM;
 
     stream_t *vol = s;
     for (;;) {
@@ -361,28 +366,21 @@ int RarParse(stream_t *s, int *count, rar_file_t ***file, bool b_extonly)
             has_next = 1;
         if (vol != s)
             stream_Delete(vol);
+        free(volume_mrl);
 
-        if (!has_next || !pattern) {
-            free(volume_mrl);
+        if (!has_next || !pattern)
             return VLC_SUCCESS;
-        }
 
         /* Open next volume */
         const int volume_index = pattern->start + volume_offset++;
-        if (volume_index > pattern->stop) {
-            free(volume_mrl);
+        if (volume_index > pattern->stop)
             return VLC_SUCCESS;
-        }
 
-        char *volume_base;
-        if (asprintf(&volume_base, "%s://%.*s",
-                     s->psz_access,
-                     (int)(strlen(s->psz_path) - strlen(pattern->match)), s->psz_path) < 0) {
-            free(volume_mrl);
+        char *volume_base = strndup(s->psz_url,
+                                  strlen(s->psz_url) - strlen(pattern->match));
+        if (volume_base == NULL)
             return VLC_SUCCESS;
-        }
 
-        free(volume_mrl);
         if (pattern->start) {
             if (asprintf(&volume_mrl, pattern->format, volume_base, volume_index) < 0)
                 volume_mrl = NULL;
@@ -396,16 +394,16 @@ int RarParse(stream_t *s, int *count, rar_file_t ***file, bool b_extonly)
         if (!volume_mrl)
             return VLC_SUCCESS;
 
-        const int s_flags = s->i_flags;
-        if (has_next < 0)
-            s->i_flags |= OBJECT_FLAGS_NOINTERACT;
+        const int s_flags = s->obj.flags;
+        s->obj.flags |= OBJECT_FLAGS_NOINTERACT;
         vol = stream_UrlNew(s, volume_mrl);
-        s->i_flags = s_flags;
+        s->obj.flags = s_flags;
 
         if (!vol) {
             free(volume_mrl);
             return VLC_SUCCESS;
         }
+        (*pi_nbvols)++;
     }
 }
 

@@ -88,7 +88,7 @@ static int Open( vlc_object_t *p_this )
     if( p_peek[0] != 'A' || p_peek[1] != 'V' || p_peek[4] != 0x55 )
     {
         /* In case we had forced this demuxer we try to resynch */
-        if( !p_demux->b_force || ReSynch( p_demux ) )
+        if( !p_demux->obj.force || ReSynch( p_demux ) )
             return VLC_EGENERIC;
     }
 
@@ -290,6 +290,9 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
     int64_t i64;
     switch( i_query )
     {
+        case DEMUX_CAN_SEEK:
+            return stream_vaControl( p_demux->s, i_query, args );
+
         case DEMUX_GET_POSITION:
             if( ( i64 = stream_Size( p_demux->s ) ) > 0 )
             {
@@ -349,33 +352,30 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
  *****************************************************************************/
 static int ReSynch( demux_t *p_demux )
 {
-    const uint8_t *p_peek;
-    int      i_skip;
-    int      i_peek;
-
-    while( vlc_object_alive (p_demux) )
+    for( ;; )
     {
-        if( ( i_peek = stream_Peek( p_demux->s, &p_peek, 1024 ) ) < 8 )
-        {
-            return VLC_EGENERIC;
-        }
-        i_skip = 0;
+        const uint8_t *p_peek;
+        int i_peek = stream_Peek( p_demux->s, &p_peek, 1024 );
+        if( i_peek < 8 )
+            break;
+
+        int i_skip = 0;
 
         while( i_skip < i_peek - 5 )
         {
             if( p_peek[0] == 'A' && p_peek[1] == 'V' && p_peek[4] == 0x55 )
             {
-                if( i_skip > 0 )
-                {
-                    stream_Read( p_demux->s, NULL, i_skip );
-                }
+                if( i_skip > 0
+                 && stream_Read( p_demux->s, NULL, i_skip ) < i_skip )
+                    return VLC_EGENERIC;
                 return VLC_SUCCESS;
             }
             p_peek++;
             i_skip++;
         }
 
-        stream_Read( p_demux->s, NULL, i_skip );
+        if( stream_Read( p_demux->s, NULL, i_skip ) < i_skip )
+            break;
     }
 
     return VLC_EGENERIC;

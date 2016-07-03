@@ -207,28 +207,7 @@ void TopWindow::processEvent( EvtKey &rEvtKey )
     // Only do the action when the key is down
     if( rEvtKey.getKeyState() == EvtKey::kDown )
     {
-        //XXX not to be hardcoded!
-        // Ctrl-S = Change skin
-        if( (rEvtKey.getMod() & EvtInput::kModCtrl) &&
-            rEvtKey.getKey() == 's' )
-        {
-            CmdDlgChangeSkin cmd( getIntf() );
-            cmd.execute();
-            return;
-        }
-
-        //XXX not to be hardcoded!
-        // Ctrl-T = Toggle on top
-        if( (rEvtKey.getMod() & EvtInput::kModCtrl) &&
-            rEvtKey.getKey() == 't' )
-        {
-            CmdOnTop cmd( getIntf() );
-            cmd.execute();
-            return;
-        }
-
-        var_SetInteger( getIntf()->p_libvlc, "key-pressed",
-                        rEvtKey.getModKey() );
+        getIntf()->p_sys->p_dialogs->sendKey( rEvtKey.getModKey() );
     }
 
     // Always store the modifier, which can be needed for scroll events.
@@ -260,7 +239,7 @@ void TopWindow::processEvent( EvtScroll &rEvtScroll )
         int i = (rEvtScroll.getDirection() == EvtScroll::kUp ?
                  KEY_MOUSEWHEELUP : KEY_MOUSEWHEELDOWN) | m_currModifier;
 
-        var_SetInteger( getIntf()->p_libvlc, "key-pressed", i );
+        getIntf()->p_sys->p_dialogs->sendKey( i );
     }
 }
 
@@ -281,11 +260,11 @@ void TopWindow::processEvent( EvtDragDrop &rEvtDragDrop )
     {
         input_thread_t *pInput = getIntf()->p_sys->p_input;
         bool is_subtitle = false;
-        list<string> files = rEvtDragDrop.getFiles();
+        std::list<std::string> files = rEvtDragDrop.getFiles();
         if( files.size() == 1 && pInput != NULL )
         {
-            list<string>::const_iterator it = files.begin();
-            char* psz_file = make_path( it->c_str() );
+            std::list<std::string>::const_iterator it = files.begin();
+            char* psz_file = vlc_uri2path( it->c_str() );
             if( psz_file )
             {
                 is_subtitle = !input_AddSubtitleOSD( pInput, psz_file, true, true );
@@ -294,7 +273,7 @@ void TopWindow::processEvent( EvtDragDrop &rEvtDragDrop )
         }
         if( !is_subtitle )
         {
-            list<string>::const_iterator it = files.begin();
+            std::list<std::string>::const_iterator it = files.begin();
             for( bool first = true; it != files.end(); ++it, first = false )
             {
                 bool playOnDrop = m_playOnDrop && first;
@@ -382,13 +361,14 @@ void TopWindow::setActiveLayout( GenericLayout *pLayout )
     // Get the size of the layout and resize the window
     resize( pLayout->getWidth(), pLayout->getHeight() );
 
+    // The new layout is active
+    pLayout->getActiveVar().set( true );
+
     if( isVisible )
     {
         pLayout->onShow();
     }
 
-    // The new layout is active
-    pLayout->getActiveVar().set( true );
 }
 
 
@@ -506,8 +486,8 @@ CtrlGeneric *TopWindow::findHitControl( int xPos, int yPos )
     }
 
     // Get the controls in the active layout
-    const list<LayeredControl> &ctrlList = m_pActiveLayout->getControlList();
-    list<LayeredControl>::const_reverse_iterator iter;
+    const std::list<LayeredControl> &ctrlList = m_pActiveLayout->getControlList();
+    std::list<LayeredControl>::const_reverse_iterator iter;
 
     // New control hit by the mouse
     CtrlGeneric *pNewHitControl = NULL;

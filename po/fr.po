@@ -11369,7 +11369,7 @@ msgstr ""
 
 #: modules/codec/fluidsynth.c:53
 msgid "Polyphony"
-msgstr "Poliphonie"
+msgstr "Polyphonie"
 
 #: modules/codec/fluidsynth.c:55
 msgid ""
@@ -24632,7 +24632,7 @@ msgstr "Overlay/Sous-titres"
 
 #: modules/text_renderer/freetype.c:96
 msgid "Monospace Font"
-msgstr "Police proportionnelle"
+msgstr "Police à chasse fixe"
 
 #: modules/text_renderer/freetype.c:98
 msgid "Font family for the font you want to use"

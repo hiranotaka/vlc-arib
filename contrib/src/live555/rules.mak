@@ -1,15 +1,14 @@
 # live555
 
-#LIVEDOTCOM_URL := http://live555.com/liveMedia/public/live555-latest.tar.gz
-LIVE555_FILE := live.2014.05.27.tar.gz
-LIVEDOTCOM_URL := http://download.videolan.org/pub/contrib/live555/$(LIVE555_FILE)
+LIVE555_FILE := live.2016.02.22.tar.gz
+LIVEDOTCOM_URL := http://live555.com/liveMedia/public/$(LIVE555_FILE)
 
 ifdef BUILD_NETWORK
 PKGS += live555
 endif
 
 $(TARBALLS)/$(LIVE555_FILE):
-	$(call download,$(LIVEDOTCOM_URL))
+	$(call download_pkg,$(LIVEDOTCOM_URL),live555)
 
 .sum-live555: $(LIVE555_FILE)
 
@@ -27,13 +26,21 @@ ifdef HAVE_BSD
 LIVE_TARGET := freebsd
 endif
 endif
+ifdef HAVE_SOLARIS
+ifeq ($(ARCH),x86_64)
+LIVE_TARGET := solaris-64bit
+else
+LIVE_TARGET := solaris-32bit
+endif
+endif
 
-LIVE_EXTRA_CFLAGS := $(EXTRA_CFLAGS) -fexceptions
+LIVE_EXTRA_CFLAGS := $(EXTRA_CFLAGS) -fexceptions $(CFLAGS)
 
 live555: $(LIVE555_FILE) .sum-live555
 	rm -Rf live
 	$(UNPACK)
 	chmod -R u+w live
+	(cd live && patch -fp1) < $(SRC)/live555/live555-nosignal.patch
 	cd live && sed -e 's%cc%$(CC)%' -e 's%c++%$(CXX)%' -e 's%LIBRARY_LINK =.*ar%LIBRARY_LINK = $(AR)%' -i.orig config.$(LIVE_TARGET)
 	cd live && sed -i.orig -e s/"libtool -s -o"/"ar cr"/g config.macosx*
 	cd live && sed -i.orig \
@@ -41,9 +48,12 @@ live555: $(LIVE555_FILE) .sum-live555
 	cd live && sed -i.orig \
 		-e 's%^\(COMPILE_OPTS.*\)$$%\1 '"$(LIVE_EXTRA_CFLAGS)%" config.*
 	cd live && sed -e 's%-D_FILE_OFFSET_BITS=64%-D_FILE_OFFSET_BITS=64\ -fPIC\ -DPIC%' -i.orig config.linux
+	cd live && sed -e 's%-DSOLARIS%-DSOLARIS -DXLOCALE_NOT_USED%' -i.orig config.solaris-*bit
 ifdef HAVE_ANDROID
-	cd live && sed -e 's%-DPIC%-DPIC -DNO_SSTREAM=1 -DLOCALE_NOT_USED -I$(ANDROID_NDK)/platforms/android-9/arch-$(PLATFORM_SHORT_ARCH)/usr/include%' -i.orig config.linux
+	cd live && sed -e 's%-DPIC%-DPIC -DNO_SSTREAM=1 -DLOCALE_NOT_USED -I$(ANDROID_NDK)/platforms/$(ANDROID_API)/arch-$(PLATFORM_SHORT_ARCH)/usr/include%' -i.orig config.linux
 endif
+	cd live && patch -lfp1 < ../../src/live555/winstore.patch
+	cd live && patch -lfp1 < ../../src/live555/no-gettimeofday.patch
 	mv live $@
 	touch $@
 

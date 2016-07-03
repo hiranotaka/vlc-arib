@@ -1,5 +1,5 @@
 # gettext
-GETTEXT_VERSION=0.18.3
+GETTEXT_VERSION=0.19.6
 GETTEXT_URL=$(GNU)/gettext/gettext-$(GETTEXT_VERSION).tar.gz
 
 PKGS += gettext
@@ -9,7 +9,7 @@ PKGS_FOUND += gettext
 endif
 
 $(TARBALLS)/gettext-$(GETTEXT_VERSION).tar.gz:
-	$(call download,$(GETTEXT_URL))
+	$(call download_pkg,$(GETTEXT_URL),gettext)
 
 .sum-gettext: gettext-$(GETTEXT_VERSION).tar.gz
 

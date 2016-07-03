@@ -112,12 +112,16 @@
 
 /* Branch prediction */
 #ifdef __GNUC__
-#   define likely(p)   __builtin_expect(!!(p), 1)
-#   define unlikely(p) __builtin_expect(!!(p), 0)
+# define likely(p)     __builtin_expect(!!(p), 1)
+# define unlikely(p)   __builtin_expect(!!(p), 0)
+# define unreachable() __builtin_unreachable()
 #else
-#   define likely(p)   (!!(p))
-#   define unlikely(p) (!!(p))
+# define likely(p)     (!!(p))
+# define unlikely(p)   (!!(p))
+# define unreachable() ((void)0)
 #endif
+
+#define vlc_assert_unreachable() (assert(!"unreachable"), unreachable())
 
 /* Linkage */
 #ifdef __cplusplus
@@ -187,9 +191,6 @@ static inline void vlc_fourcc_to_char( vlc_fourcc_t fcc, char *psz_fourcc )
     memcpy( psz_fourcc, &fcc, 4 );
 }
 
-#define vlc_fourcc_to_char( a, b ) \
-        vlc_fourcc_to_char( (vlc_fourcc_t)(a), (char *)(b) )
-
 /*****************************************************************************
  * Classes declaration
  *****************************************************************************/
@@ -202,25 +203,13 @@ typedef struct date_t date_t;
 
 /* Playlist */
 
-/* FIXME */
-/**
- * Playlist commands
- */
-typedef enum {
-    PLAYLIST_PLAY,      /**< No arg.                            res=can fail*/
-    PLAYLIST_VIEWPLAY,  /**< arg1= playlist_item_t*,*/
-                        /**  arg2 = playlist_item_t*          , res=can fail */
-    PLAYLIST_PAUSE,     /**< No arg                             res=can fail*/
-    PLAYLIST_STOP,      /**< No arg                             res=can fail*/
-    PLAYLIST_SKIP,      /**< arg1=int,                          res=can fail*/
-} playlist_command_t;
-
-
 typedef struct playlist_t playlist_t;
 typedef struct playlist_item_t playlist_item_t;
 typedef struct services_discovery_t services_discovery_t;
 typedef struct services_discovery_sys_t services_discovery_sys_t;
 typedef struct playlist_add_t playlist_add_t;
+typedef struct vlc_renderer_discovery vlc_renderer_discovery;
+typedef struct vlc_renderer_item vlc_renderer_item;
 
 /* Modules */
 typedef struct module_t module_t;
@@ -304,7 +293,6 @@ typedef struct filter_t filter_t;
 typedef struct filter_sys_t filter_sys_t;
 
 /* Network */
-typedef struct virtual_socket_t v_socket_t;
 typedef struct vlc_url_t vlc_url_t;
 
 /* Misc */
@@ -350,9 +338,7 @@ typedef union
     float           f_float;
     char *          psz_string;
     void *          p_address;
-    vlc_object_t *  p_object;
     vlc_list_t *    p_list;
-    mtime_t         i_time;
     struct { int32_t x; int32_t y; } coords;
 
 } vlc_value_t;
@@ -362,10 +348,9 @@ typedef union
  */
 struct vlc_list_t
 {
-    int             i_count;
-    vlc_value_t *   p_values;
-    int *           pi_types;
-
+    int          i_type;
+    int          i_count;
+    vlc_value_t *p_values;
 };
 
 /*****************************************************************************
@@ -382,13 +367,22 @@ struct vlc_list_t
 #define VLC_ENOITEM        (-8) /**< Item not found */
 
 /*****************************************************************************
- * Variable callbacks
+ * Variable callbacks: called when the value is modified
  *****************************************************************************/
 typedef int ( * vlc_callback_t ) ( vlc_object_t *,      /* variable's object */
                                    char const *,            /* variable name */
                                    vlc_value_t,                 /* old value */
                                    vlc_value_t,                 /* new value */
                                    void * );                /* callback data */
+
+/*****************************************************************************
+ * List callbacks: called when elements are added/removed from the list
+ *****************************************************************************/
+typedef int ( * vlc_list_callback_t ) ( vlc_object_t *,      /* variable's object */
+                                        char const *,            /* variable name */
+                                        int,                  /* VLC_VAR_* action */
+                                        vlc_value_t *,      /* new/deleted value  */
+                                        void *);                 /* callback data */
 
 /*****************************************************************************
  * OS-specific headers and thread types
@@ -401,8 +395,9 @@ typedef int ( * vlc_callback_t ) ( vlc_object_t *,      /* variable's object */
 #   include <windows.h>
 #endif
 
-#ifdef __SYMBIAN32__
- #include <sys/syslimits.h>
+#ifdef __APPLE__
+#include <sys/syslimits.h>
+#include <AvailabilityMacros.h>
 #endif
 
 #ifdef __OS2__
@@ -416,47 +411,86 @@ typedef int ( * vlc_callback_t ) ( vlc_object_t *,      /* variable's object */
 #include "vlc_mtime.h"
 #include "vlc_threads.h"
 
-/*****************************************************************************
+/**
  * Common structure members
  *****************************************************************************/
 
-/* VLC_COMMON_MEMBERS : members common to all basic vlc objects */
-#define VLC_COMMON_MEMBERS                                                  \
-/** \name VLC_COMMON_MEMBERS                                                \
- * these members are common for all vlc objects                             \
- */                                                                         \
-/**@{*/                                                                     \
-    const char *psz_object_type;                                            \
-                                                                            \
-    /* Messages header */                                                   \
-    char *psz_header;                                                       \
-    int  i_flags;                                                           \
-                                                                            \
-    /* Object properties */                                                 \
-    bool b_force;      /**< set by the outside (eg. module_need()) */ \
-                                                                            \
-    /* Stuff related to the libvlc structure */                             \
-    libvlc_int_t *p_libvlc;                  /**< (root of all evil) - 1 */ \
-                                                                            \
-    vlc_object_t *  p_parent;                            /**< our parent */ \
-                                                                            \
-/**@}*/                                                                     \
+/**
+ * VLC object common members
+ *
+ * Common public properties for all VLC objects.
+ * Object also have private properties maintained by the core, see
+ * \ref vlc_object_internals_t
+ */
+struct vlc_common_members
+{
+    /** Object type name
+     *
+     * A constant string identifying the type of the object (for logging)
+     */
+    const char *object_type;
 
-/* VLC_OBJECT: attempt at doing a clever cast */
-#if VLC_GCC_VERSION(4,0)
+    /** Log messages header
+     *
+     * Human-readable header for log messages. This is not thread-safe and
+     * only used by VLM and Lua interfaces.
+     */
+    char *header;
+
+    int  flags;
+
+    /** Module probe flag
+     *
+     * A boolean during module probing when the probe is "forced".
+     * See \ref module_need().
+     */
+    bool force;
+
+    /** LibVLC instance
+     *
+     * Root VLC object of the objects tree that this object belongs in.
+     */
+    libvlc_int_t *libvlc;
+
+    /** Parent object
+     *
+     * The parent VLC object in the objects tree. For the root (the LibVLC
+     * instance) object, this is NULL.
+     */
+    vlc_object_t *parent;
+};
+
+/**
+ * Backward compatibility macro
+ */
+#define VLC_COMMON_MEMBERS struct vlc_common_members obj;
+
+/**
+ * Type-safe vlc_object_t cast
+ *
+ * This macro attempts to cast a pointer to a compound type to a
+ * \ref vlc_object_t pointer in a type-safe manner.
+ * It checks if the compound type actually starts with an embedded
+ * \ref vlc_object_t structure.
+ */
+#if !defined(__cplusplus) && (__STDC_VERSION__ >= 201112L)
+# define VLC_OBJECT(x) \
+    _Generic((x)->obj, \
+        struct vlc_common_members: (vlc_object_t *)(&(x)->obj) \
+    )
+#elif VLC_GCC_VERSION(4,0)
 # ifndef __cplusplus
 #  define VLC_OBJECT( x ) \
     __builtin_choose_expr( \
-        __builtin_offsetof(__typeof__(*(x)), psz_object_type), \
-        (void)0 /* screw you */, \
-        (vlc_object_t *)(x))
+        __builtin_types_compatible_p(__typeof__((x)->obj), struct vlc_common_members), \
+        (vlc_object_t *)(x), (void)0)
 # else
 #  define VLC_OBJECT( x ) \
-    ((vlc_object_t *)(x) \
-      + 0 * __builtin_offsetof(__typeof__(*(x)), psz_object_type))
+    ((vlc_object_t *)(&((x)->obj)) \
+      + 0 * __builtin_offsetof(__typeof__(*(x)), obj.object_type))
 # endif
 #else
-# define VLC_OBJECT( x ) ((vlc_object_t *)(x))
+# define VLC_OBJECT( x ) ((vlc_object_t *)&(x)->obj)
 #endif
 
 /*****************************************************************************
@@ -549,6 +583,23 @@ static inline unsigned popcount (unsigned x)
     return __builtin_popcount (x);
 #else
     unsigned count = 0;
+    while (x)
+    {
+        count += x & 1;
+        x = x >> 1;
+    }
+    return count;
+#endif
+}
+
+/** Bit weight of long long */
+VLC_USED
+static inline int popcountll(unsigned long long x)
+{
+#if VLC_GCC_VERSION(3,4)
+    return __builtin_popcountll(x);
+#else
+    int count = 0;
     while (x)
     {
         count += x & 1;
@@ -801,9 +852,6 @@ static inline void SetQWLE (void *p, uint64_t qw)
 VLC_API bool vlc_ureduce( unsigned *, unsigned *, uint64_t, uint64_t, uint64_t );
 
 /* Aligned memory allocator */
-#ifdef __APPLE__
-#include <AvailabilityMacros.h>
-#endif
 
 #ifdef __MINGW32__
 # define vlc_memalign(align, size) (__mingw_aligned_malloc(size, align))
@@ -811,26 +859,6 @@ VLC_API bool vlc_ureduce( unsigned *, unsigned *, uint64_t, uint64_t, uint64_t )
 #elif defined(_MSC_VER)
 # define vlc_memalign(align, size) (_aligned_malloc(size, align))
 # define vlc_free(base)            (_aligned_free(base))
-#elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
-static inline void *vlc_memalign(size_t align, size_t size)
-{
-    long diff;
-    void *ptr;
-
-    ptr = malloc(size+align);
-    if(!ptr)
-        return ptr;
-    diff = ((-(long)ptr - 1)&(align-1)) + 1;
-    ptr  = (char*)ptr + diff;
-    ((char*)ptr)[-1]= diff;
-    return ptr;
-}
-
-static void vlc_free(void *ptr)
-{
-    if (ptr)
-        free((char*)ptr - ((char*)ptr)[-1]);
-}
 #else
 static inline void *vlc_memalign(size_t align, size_t size)
 {
@@ -841,8 +869,6 @@ static inline void *vlc_memalign(size_t align, size_t size)
 }
 # define vlc_free(base) free(base)
 #endif
-
-VLC_API void vlc_tdestroy( void *, void (*)(void *) );
 
 /*****************************************************************************
  * I18n stuff
@@ -911,7 +937,7 @@ VLC_API const char * VLC_Compiler( void ) VLC_USED;
 #include "vlc_main.h"
 #include "vlc_configuration.h"
 
-#if defined( _WIN32 ) || defined( __SYMBIAN32__ ) || defined( __OS2__ )
+#if defined( _WIN32 ) || defined( __OS2__ )
 #   define DIR_SEP_CHAR '\\'
 #   define DIR_SEP "\\"
 #   define PATH_SEP_CHAR ';'

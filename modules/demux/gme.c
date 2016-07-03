@@ -88,8 +88,8 @@ static int Open (vlc_object_t *obj)
     block_t *data = NULL;
     if (size <= 0)
     {
-        data = stream_BlockRemaining (demux->s, 100000000);
-        if (!data )
+        data = stream_Block (demux->s, 1 << 24);
+        if (data == NULL)
             return VLC_EGENERIC;
     }
 
@@ -240,6 +240,10 @@ static int Control (demux_t *demux, int query, va_list args)
 
     switch (query)
     {
+        case DEMUX_CAN_SEEK:
+            *va_arg (args, bool *) = true;
+            return VLC_SUCCESS;
+
         case DEMUX_GET_POSITION:
         {
             double *pos = va_arg (args, double *);

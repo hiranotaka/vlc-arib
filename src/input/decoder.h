@@ -28,15 +28,12 @@
 #include <vlc_common.h>
 #include <vlc_codec.h>
 
-#define BLOCK_FLAG_CORE_FLUSH (1 <<BLOCK_FLAG_CORE_PRIVATE_SHIFT)
-#define BLOCK_FLAG_CORE_EOS   (1 <<(BLOCK_FLAG_CORE_PRIVATE_SHIFT + 1))
-
 decoder_t *input_DecoderNew( input_thread_t *, es_format_t *, input_clock_t *,
                              sout_instance_t * ) VLC_USED;
 
 /**
  * This function changes the pause state.
- * The date parameter MUST hold the exact date at wich the change has been
+ * The date parameter MUST hold the exact date at which the change has been
  * done for proper vout/aout pausing.
  */
 void input_DecoderChangePause( decoder_t *, bool b_paused, mtime_t i_date );

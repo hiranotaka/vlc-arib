@@ -51,11 +51,20 @@
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
+#define OPAQUE_TEXT N_("Opacity")
+#define OPAQUE_LONGTEXT N_("Setting to true " \
+        "makes the text to be boxed and maybe easier to read." )
+
 vlc_module_begin ()
     set_shortname( N_("CC 608/708"))
     set_description( N_("Closed Captions decoder") )
     set_capability( "decoder", 50 )
+    set_category( CAT_INPUT )
+        set_subcategory( SUBCAT_INPUT_SCODEC )
     set_callbacks( Open, Close )
+
+    add_bool( "cc-opaque", true,
+                 OPAQUE_TEXT, OPAQUE_LONGTEXT, false )
 vlc_module_end ()
 
 /*****************************************************************************
@@ -103,6 +112,68 @@ struct eia608_screen // A CC buffer
 };
 typedef struct eia608_screen eia608_screen;
 
+typedef enum
+{
+    EIA608_STATUS_DEFAULT         = 0x00,
+    EIA608_STATUS_CHANGED         = 0x01, /* current screen has been altered */
+    EIA608_STATUS_CAPTION_ENDED   = 0x02, /* screen flip */
+    EIA608_STATUS_CAPTION_CLEARED = 0x04, /* active screen erased */
+    EIA608_STATUS_DISPLAY         = EIA608_STATUS_CAPTION_CLEARED | EIA608_STATUS_CAPTION_ENDED,
+} eia608_status_t;
+
+static const struct {
+    eia608_color_t  i_color;
+    eia608_font_t   i_font;
+    int             i_column;
+} pac2_attribs[]= {
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,           0 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,         0 },
+    { EIA608_COLOR_GREEN,   EIA608_FONT_REGULAR,           0 },
+    { EIA608_COLOR_GREEN,   EIA608_FONT_UNDERLINE,         0 },
+    { EIA608_COLOR_BLUE,    EIA608_FONT_REGULAR,           0 },
+    { EIA608_COLOR_BLUE,    EIA608_FONT_UNDERLINE,         0 },
+    { EIA608_COLOR_CYAN,    EIA608_FONT_REGULAR,           0 },
+    { EIA608_COLOR_CYAN,    EIA608_FONT_UNDERLINE,         0 },
+    { EIA608_COLOR_RED,     EIA608_FONT_REGULAR,           0 },
+    { EIA608_COLOR_RED,     EIA608_FONT_UNDERLINE,         0 },
+    { EIA608_COLOR_YELLOW,  EIA608_FONT_REGULAR,           0 },
+    { EIA608_COLOR_YELLOW,  EIA608_FONT_UNDERLINE,         0 },
+    { EIA608_COLOR_MAGENTA, EIA608_FONT_REGULAR,           0 },
+    { EIA608_COLOR_MAGENTA, EIA608_FONT_UNDERLINE,         0 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_ITALICS,           0 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE_ITALICS, 0 },
+
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,           0 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,         0 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,           4 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,         4 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,           8 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,         8 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          12 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        12 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          16 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        16 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          20 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        20 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          24 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        24 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          28 },
+    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        28 } ,
+};
+
+#define EIA608_COLOR_DEFAULT EIA608_COLOR_WHITE
+
+static const int rgi_eia608_colors[] = {
+    0xffffff,  // white
+    0x00ff00,  // green
+    0x0000ff,  // blue
+    0x00ffff,  // cyan
+    0xff0000,  // red
+    0xffff00,  // yellow
+    0xff00ff,  // magenta
+    0xffffff,  // user defined XXX we use white
+};
+
 typedef struct
 {
     /* Current channel (used to reject packet without channel information) */
@@ -133,8 +204,8 @@ typedef struct
 } eia608_t;
 
 static void         Eia608Init( eia608_t * );
-static bool   Eia608Parse( eia608_t *h, int i_channel_selected, const uint8_t data[2] );
-static char        *Eia608Text( eia608_t *h, bool b_html );
+static eia608_status_t Eia608Parse( eia608_t *h, int i_channel_selected, const uint8_t data[2] );
+static text_segment_t *Eia608Text( eia608_t *h );
 
 /* It will be enough up to 63 B frames, which is far too high for
  * broadcast environment */
@@ -143,14 +214,19 @@ struct decoder_sys_t
 {
     int     i_block;
     block_t *pp_block[CC_MAX_REORDER_SIZE];
+    block_t *p_block; /* currently processed block (if incomplely) */
 
     int i_field;
     int i_channel;
 
+    mtime_t i_display_time;
+
     eia608_t eia608;
+    bool b_opaque;
 };
 
 static subpicture_t *Decode( decoder_t *, block_t ** );
+static void Flush( decoder_t * );
 
 /*****************************************************************************
  * Open: probe the decoder and return score
@@ -167,16 +243,16 @@ static int Open( vlc_object_t *p_this )
 
     switch( p_dec->fmt_in.i_codec )
     {
-        case VLC_FOURCC('c','c','1',' '):
+        case VLC_CODEC_EIA608_1:
             i_field = 0; i_channel = 1;
             break;
-        case VLC_FOURCC('c','c','2',' '):
+        case VLC_CODEC_EIA608_2:
             i_field = 0; i_channel = 2;
             break;
-        case VLC_FOURCC('c','c','3',' '):
+        case VLC_CODEC_EIA608_3:
             i_field = 1; i_channel = 1;
             break;
-        case VLC_FOURCC('c','c','4',' '):
+        case VLC_CODEC_EIA608_4:
             i_field = 1; i_channel = 2;
             break;
 
@@ -185,6 +261,7 @@ static int Open( vlc_object_t *p_this )
     }
 
     p_dec->pf_decode_sub = Decode;
+    p_dec->pf_flush      = Flush;
 
     /* Allocate the memory needed to store the decoder's structure */
     p_dec->p_sys = p_sys = calloc( 1, sizeof( *p_sys ) );
@@ -196,11 +273,23 @@ static int Open( vlc_object_t *p_this )
     p_sys->i_channel = i_channel;
 
     Eia608Init( &p_sys->eia608 );
+    p_sys->b_opaque = var_InheritBool( p_dec, "cc-opaque" );
 
     p_dec->fmt_out.i_cat = SPU_ES;
     p_dec->fmt_out.i_codec = VLC_CODEC_TEXT;
 
     return VLC_SUCCESS;
+}
+
+/*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    Eia608Init( &p_sys->eia608 );
+    p_sys->i_display_time = VLC_TS_INVALID;
 }
 
 /****************************************************************************
@@ -210,10 +299,12 @@ static int Open( vlc_object_t *p_this )
  ****************************************************************************/
 static void     Push( decoder_t *, block_t * );
 static block_t *Pop( decoder_t * );
-static subpicture_t *Convert( decoder_t *, block_t * );
+static subpicture_t *Convert( decoder_t *, block_t ** );
 
 static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
 {
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
     if( pp_block && *pp_block )
     {
         Push( p_dec, *pp_block );
@@ -222,11 +313,23 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
 
     for( ;; )
     {
-        block_t *p_block = Pop( p_dec );
-        if( !p_block )
+        if( !p_sys->p_block )
+            p_sys->p_block = Pop( p_dec );
+
+        /* Reset decoder if needed */
+        if( p_sys->p_block &&
+           (p_sys->p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY | BLOCK_FLAG_CORRUPTED)) )
+        {
+            Flush( p_dec );
+            /* clear flags, as we might process it more than once */
+            p_sys->p_block->i_flags ^= (BLOCK_FLAG_DISCONTINUITY | BLOCK_FLAG_CORRUPTED);
+            continue;
+        }
+
+        if( !p_sys->p_block )
             break;
 
-        subpicture_t *p_spu = Convert( p_dec, p_block );
+        subpicture_t *p_spu = Convert( p_dec, &p_sys->p_block );
         if( p_spu )
             return p_spu;
     }
@@ -273,6 +376,12 @@ static block_t *Pop( decoder_t *p_dec )
      * XXX it won't work with H264 which use non out of order B picture or MMCO
      */
 
+    if( p_sys->i_block && (p_sys->pp_block[0]->i_flags & BLOCK_FLAG_PRIVATE_MASK) )
+    {
+        p_sys->i_block--;
+        return p_sys->pp_block[0];
+    }
+
     /* Wait for a P and output all *previous* picture by pts order (for
      * hierarchical B frames) */
     if( p_sys->i_block <= 1 ||
@@ -296,7 +405,7 @@ static block_t *Pop( decoder_t *p_dec )
     return p_block;
 }
 
-static subpicture_t *Subtitle( decoder_t *p_dec, char *psz_subtitle, char *psz_html, mtime_t i_pts )
+static subpicture_t *Subtitle( decoder_t *p_dec, text_segment_t *p_segments, mtime_t i_pts )
 {
     //decoder_sys_t *p_sys = p_dec->p_sys;
     subpicture_t *p_spu = NULL;
@@ -305,21 +414,15 @@ static subpicture_t *Subtitle( decoder_t *p_dec, char *psz_subtitle, char *psz_h
     if( i_pts <= VLC_TS_INVALID )
     {
         msg_Warn( p_dec, "subtitle without a date" );
-        free( psz_subtitle );
-        free( psz_html );
+        text_segment_ChainDelete( p_segments );
         return NULL;
     }
-
-    EnsureUTF8( psz_subtitle );
-    if( psz_html )
-        EnsureUTF8( psz_html );
 
     /* Create the subpicture unit */
     p_spu = decoder_NewSubpictureText( p_dec );
     if( !p_spu )
     {
-        free( psz_subtitle );
-        free( psz_html );
+        text_segment_ChainDelete( p_segments );
         return NULL;
     }
     p_spu->i_start    = i_pts;
@@ -332,39 +435,64 @@ static subpicture_t *Subtitle( decoder_t *p_dec, char *psz_subtitle, char *psz_h
     /* The "leavetext" alignment is a special mode where the subpicture
        region itself gets aligned, but the text inside it does not */
     p_spu_sys->align = SUBPICTURE_ALIGN_LEAVETEXT;
-    p_spu_sys->text  = psz_subtitle;
-    p_spu_sys->html  = psz_html;
-    p_spu_sys->i_font_height_percent = 5;
-    p_spu_sys->renderbg = true;
+    p_spu_sys->p_segments = p_segments;
+    p_spu_sys->noregionbg = true;
+    p_spu_sys->gridmode = true;
+    /* Set style defaults (will be added to segments if none set) */
+    p_spu_sys->p_default_style->i_style_flags |= STYLE_MONOSPACED;
+    if( p_dec->p_sys->b_opaque )
+        p_spu_sys->p_default_style->i_style_flags |= STYLE_BACKGROUND;
+    p_spu_sys->p_default_style->i_font_color = rgi_eia608_colors[EIA608_COLOR_DEFAULT];
+    /* FCC defined "safe area" for EIA-608 captions is 80% of the height of the display */
+    p_spu_sys->p_default_style->f_font_relsize = 100 * 8 / 10 / EIA608_SCREEN_ROWS;
+    p_spu_sys->p_default_style->i_features |= (STYLE_HAS_FONT_COLOR | STYLE_HAS_FLAGS);
 
     return p_spu;
 }
 
-static subpicture_t *Convert( decoder_t *p_dec, block_t *p_block )
+static subpicture_t *Convert( decoder_t *p_dec, block_t **pp_block )
 {
-    assert( p_block );
+    assert( pp_block && *pp_block );
+
+    block_t *p_block = *pp_block;
 
     decoder_sys_t *p_sys = p_dec->p_sys;
-    const int64_t i_pts = p_block->i_pts;
-    bool b_changed = false;
+
+    if( p_sys->i_display_time == VLC_TS_INVALID )
+        p_sys->i_display_time = p_block->i_pts;
+
+    eia608_status_t i_status = EIA608_STATUS_DEFAULT;
 
     /* TODO do the real decoding here */
-    while( p_block->i_buffer >= 3 )
+    while( p_block->i_buffer >= 3 && !(i_status & EIA608_STATUS_DISPLAY) )
     {
         if( p_block->p_buffer[0] == p_sys->i_field )
-            b_changed |= Eia608Parse( &p_sys->eia608, p_sys->i_channel, &p_block->p_buffer[1] );
+            i_status = Eia608Parse( &p_sys->eia608, p_sys->i_channel, &p_block->p_buffer[1] );
 
         p_block->i_buffer -= 3;
         p_block->p_buffer += 3;
+        p_sys->i_display_time += CLOCK_FREQ / 30;
     }
-    if( p_block )
-        block_Release( p_block );
 
-    if( b_changed )
+    const mtime_t i_pts = p_sys->i_display_time;
+
+    if( p_block->i_buffer < 3 )
     {
-        char *psz_subtitle = Eia608Text( &p_sys->eia608, false );
-        char *psz_html = Eia608Text( &p_sys->eia608, true );
-        return Subtitle( p_dec, psz_subtitle, psz_html, i_pts );
+        block_Release( p_block );
+        p_sys->i_display_time = VLC_TS_INVALID;
+        *pp_block = NULL;
+    }
+
+    /* a caption is ready or removed, process its screen */
+    /*
+     * In case of rollup/painton with 1 packet/frame, we need to update on Changed status.
+     * Batch decoding might be incorrect if those in large number of commands (mp4, ...) then.
+     * see CEAv1.2zero.trp tests
+     */
+    if( i_status & (EIA608_STATUS_DISPLAY | EIA608_STATUS_CHANGED) )
+    {
+        text_segment_t *p_segments = Eia608Text( &p_sys->eia608 );
+        return Subtitle( p_dec, p_segments, i_pts );
     }
     return NULL;
 }
@@ -373,48 +501,6 @@ static subpicture_t *Convert( decoder_t *p_dec, block_t *p_block )
 /*****************************************************************************
  *
  *****************************************************************************/
-static const struct {
-    eia608_color_t  i_color;
-    eia608_font_t   i_font;
-    int             i_column;
-} pac2_attribs[]= {
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,           0 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,         0 },
-    { EIA608_COLOR_GREEN,   EIA608_FONT_REGULAR,           0 },
-    { EIA608_COLOR_GREEN,   EIA608_FONT_UNDERLINE,         0 },
-    { EIA608_COLOR_BLUE,    EIA608_FONT_REGULAR,           0 },
-    { EIA608_COLOR_BLUE,    EIA608_FONT_UNDERLINE,         0 },
-    { EIA608_COLOR_CYAN,    EIA608_FONT_REGULAR,           0 },
-    { EIA608_COLOR_CYAN,    EIA608_FONT_UNDERLINE,         0 },
-    { EIA608_COLOR_RED,     EIA608_FONT_REGULAR,           0 },
-    { EIA608_COLOR_RED,     EIA608_FONT_UNDERLINE,         0 },
-    { EIA608_COLOR_YELLOW,  EIA608_FONT_REGULAR,           0 },
-    { EIA608_COLOR_YELLOW,  EIA608_FONT_UNDERLINE,         0 },
-    { EIA608_COLOR_MAGENTA, EIA608_FONT_REGULAR,           0 },
-    { EIA608_COLOR_MAGENTA, EIA608_FONT_UNDERLINE,         0 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_ITALICS,           0 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE_ITALICS, 0 },
-
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,           0 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,         0 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,           4 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,         4 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,           8 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,         8 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          12 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        12 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          16 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        16 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          20 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        20 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          24 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        24 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_REGULAR,          28 },
-    { EIA608_COLOR_WHITE,   EIA608_FONT_UNDERLINE,        28 } ,
-};
-
-#define EIA608_COLOR_DEFAULT EIA608_COLOR_WHITE
-
 static void Eia608Cursor( eia608_t *h, int dx )
 {
     h->cursor.i_column += dx;
@@ -479,7 +565,7 @@ static int Eia608GetWritingScreenIndex( eia608_t *h )
         return h->i_screen;
     default:
         /* It cannot happen, else it is a bug */
-        assert( 0 );
+        vlc_assert_unreachable();
         return 0;
     }
 }
@@ -593,7 +679,7 @@ static void Eia608ParseChannel( eia608_t *h, const uint8_t d[2] )
     else if( d1 < 0x10 )
         h->i_channel = 3;
 }
-static bool Eia608ParseTextAttribute( eia608_t *h, uint8_t d2 )
+static eia608_status_t Eia608ParseTextAttribute( eia608_t *h, uint8_t d2 )
 {
     const int i_index = d2 - 0x20;
     assert( d2 >= 0x20 && d2 <= 0x2f );
@@ -602,21 +688,21 @@ static bool Eia608ParseTextAttribute( eia608_t *h, uint8_t d2 )
     h->font  = pac2_attribs[i_index].i_font;
     Eia608Cursor( h, 1 );
 
-    return false;
+    return EIA608_STATUS_DEFAULT;
 }
-static bool Eia608ParseSingle( eia608_t *h, const uint8_t dx )
+static eia608_status_t Eia608ParseSingle( eia608_t *h, const uint8_t dx )
 {
     assert( dx >= 0x20 );
     Eia608Write( h, dx );
-    return true;
+    return EIA608_STATUS_CHANGED;
 }
-static bool Eia608ParseDouble( eia608_t *h, uint8_t d2 )
+static eia608_status_t Eia608ParseDouble( eia608_t *h, uint8_t d2 )
 {
     assert( d2 >= 0x30 && d2 <= 0x3f );
     Eia608Write( h, d2 + 0x50 ); /* We use charaters 0x80...0x8f */
-    return true;
+    return EIA608_STATUS_CHANGED;
 }
-static bool Eia608ParseExtended( eia608_t *h, uint8_t d1, uint8_t d2 )
+static eia608_status_t Eia608ParseExtended( eia608_t *h, uint8_t d1, uint8_t d2 )
 {
     assert( d2 >= 0x20 && d2 <= 0x3f );
     assert( d1 == 0x12 || d1 == 0x13 );
@@ -629,11 +715,11 @@ static bool Eia608ParseExtended( eia608_t *h, uint8_t d1, uint8_t d2 )
      * advanced one */
     Eia608Cursor( h, -1 );
     Eia608Write( h, d2 );
-    return true;
+    return EIA608_STATUS_CHANGED;
 }
-static bool Eia608ParseCommand0x14( eia608_t *h, uint8_t d2 )
+static eia608_status_t Eia608ParseCommand0x14( eia608_t *h, uint8_t d2 )
 {
-    bool b_changed = false;
+    eia608_status_t i_status = EIA608_STATUS_DEFAULT;
 
     switch( d2 )
     {
@@ -642,7 +728,7 @@ static bool Eia608ParseCommand0x14( eia608_t *h, uint8_t d2 )
         break;
     case 0x21:  /* Backspace */
         Eia608Erase( h );
-        b_changed = true;
+        i_status = EIA608_STATUS_CHANGED;
         break;
     case 0x22:  /* Reserved */
     case 0x23:
@@ -657,7 +743,7 @@ static bool Eia608ParseCommand0x14( eia608_t *h, uint8_t d2 )
         {
             Eia608EraseScreen( h, true );
             Eia608EraseScreen( h, false );
-            b_changed = true;
+            i_status = EIA608_STATUS_CHANGED | EIA608_STATUS_CAPTION_CLEARED;
         }
 
         if( d2 == 0x25 )
@@ -686,11 +772,11 @@ static bool Eia608ParseCommand0x14( eia608_t *h, uint8_t d2 )
 
     case 0x2c: /* Erase displayed memory */
         Eia608EraseScreen( h, true );
-        b_changed = true;
+        i_status = EIA608_STATUS_CHANGED | EIA608_STATUS_CAPTION_CLEARED;
         break;
     case 0x2d: /* Carriage return */
         Eia608RollUp(h);
-        b_changed = true;
+        i_status = EIA608_STATUS_CHANGED;
         break;
     case 0x2e: /* Erase non displayed memory */
         Eia608EraseScreen( h, false );
@@ -703,10 +789,10 @@ static bool Eia608ParseCommand0x14( eia608_t *h, uint8_t d2 )
         h->cursor.i_row = 0;
         h->color = EIA608_COLOR_DEFAULT;
         h->font = EIA608_FONT_REGULAR;
-        b_changed = true;
+        i_status = EIA608_STATUS_CHANGED | EIA608_STATUS_CAPTION_ENDED;
         break;
     }
-    return b_changed;
+    return i_status;
 }
 static bool Eia608ParseCommand0x17( eia608_t *h, uint8_t d2 )
 {
@@ -752,14 +838,14 @@ static bool Eia608ParsePac( eia608_t *h, uint8_t d1, uint8_t d2 )
     return false;
 }
 
-static bool Eia608ParseData( eia608_t *h, uint8_t d1, uint8_t d2 )
+static eia608_status_t Eia608ParseData( eia608_t *h, uint8_t d1, uint8_t d2 )
 {
-    bool b_changed = false;
+    eia608_status_t i_status = EIA608_STATUS_DEFAULT;
 
     if( d1 >= 0x18 && d1 <= 0x1f )
         d1 -= 8;
 
-#define ON( d2min, d2max, cmd ) do { if( d2 >= d2min && d2 <= d2max ) b_changed = cmd; } while(0)
+#define ON( d2min, d2max, cmd ) do { if( d2 >= d2min && d2 <= d2max ) i_status = cmd; } while(0)
     switch( d1 )
     {
     case 0x11:
@@ -773,7 +859,7 @@ static bool Eia608ParseData( eia608_t *h, uint8_t d1, uint8_t d2 )
         ON( 0x20, 0x2f, Eia608ParseCommand0x14( h, d2 ) );
         break;
     case 0x17:
-        ON( 0x21, 0x22, Eia608ParseCommand0x17( h, d2 ) );
+        ON( 0x21, 0x23, Eia608ParseCommand0x17( h, d2 ) );
         ON( 0x2e, 0x2f, Eia608ParseTextAttribute( h, d2 ) );
         break;
     }
@@ -784,11 +870,11 @@ static bool Eia608ParseData( eia608_t *h, uint8_t d1, uint8_t d2 )
 #undef ON
     if( d1 >= 0x20 )
     {
-        b_changed = Eia608ParseSingle( h, d1 );
+        i_status = Eia608ParseSingle( h, d1 );
         if( d2 >= 0x20 )
-            b_changed |= Eia608ParseSingle( h, d2 );
+            i_status |= Eia608ParseSingle( h, d2 );
     }
-    return b_changed;
+    return i_status;
 }
 
 static void Eia608TextUtf8( char *psz_utf8, uint8_t c ) // Returns number of bytes used
@@ -923,7 +1009,7 @@ static void Eia608Strlcat( char *d, const char *s, int i_max )
 
 #define CAT(t) Eia608Strlcat( psz_text, t, i_text_max )
 
-static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_text_max, int i_row, bool b_html )
+static text_segment_t * Eia608TextLine( struct eia608_screen *screen, int i_row, bool b_endline )
 {
     const uint8_t *p_char = screen->characters[i_row];
     const eia608_color_t *p_color = screen->colors[i_row];
@@ -931,17 +1017,29 @@ static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_
     int i_start;
     int i_end;
     int x;
-    eia608_color_t last_color = EIA608_COLOR_DEFAULT;
-    bool     b_last_italics = false;
-    bool     b_last_underline = false;
+    eia608_color_t prev_color = EIA608_COLOR_DEFAULT;
+    eia608_font_t prev_font = EIA608_FONT_REGULAR;
+
     char utf8[4];
+    const unsigned i_text_max = 4 * EIA608_SCREEN_COLUMNS + 1;
+    char psz_text[i_text_max + 1];
+    psz_text[0] = '\0';
+
+    text_segment_t *p_segment, *p_segments_head = p_segment = text_segment_New( NULL );
+    if(!p_segment)
+        return NULL;
+
+    p_segment->style = text_style_Create( STYLE_NO_DEFAULTS );
+    if(!p_segment->style)
+    {
+        text_segment_Delete(p_segment);
+        return NULL;
+    }
+    /* Ensure we get a monospaced font (required for accurate positioning */
+    p_segment->style->i_style_flags |= STYLE_MONOSPACED;
 
     /* Search the start */
     i_start = 0;
-
-    /* Ensure we get a monospaced font (required for accurate positioning */
-    if( b_html )
-        CAT( "<tt>" );
 
     /* Convert leading spaces to non-breaking so that they don't get
        stripped by the RenderHtml routine as regular whitespace */
@@ -957,100 +1055,72 @@ static void Eia608TextLine( struct eia608_screen *screen, char *psz_text, int i_
         i_end--;
 
     /* */
+
     for( x = i_start; x <= i_end; x++ )
     {
         eia608_color_t color = p_color[x];
-        bool b_italics = p_font[x] & EIA608_FONT_ITALICS;
-        bool b_underline = p_font[x] & EIA608_FONT_UNDERLINE;
+        eia608_font_t font = p_font[x];
 
-        /* */
-        if( b_html )
+        if(font != prev_font || color != prev_color)
         {
-            bool b_close_color, b_close_italics, b_close_underline;
+            EnsureUTF8(psz_text);
+            p_segment->psz_text = strdup(psz_text);
+            psz_text[0] = '\0';
+            p_segment->p_next = text_segment_New( NULL );
+            p_segment = p_segment->p_next;
+            if(!p_segment)
+                return p_segments_head;
 
-            /* We create the tags font / i / u in that orders */
-            b_close_color = color != last_color && last_color != EIA608_COLOR_DEFAULT;
-            b_close_italics = !b_italics && b_last_italics;
-            b_close_underline = !b_underline && b_last_underline;
-
-            /* Be sure to create valid html */
-            b_close_italics |= b_last_italics && b_close_color;
-            b_close_underline |= b_last_underline && ( b_close_italics || b_close_color );
-
-            if( b_close_underline )
-                CAT( "</u>" );
-            if( b_close_italics )
-                CAT( "</i>" );
-            if( b_close_color )
-                CAT( "</font>" );
-
-            if( color != EIA608_COLOR_DEFAULT && color != last_color)
+            p_segment->style = text_style_Create( STYLE_NO_DEFAULTS );
+            if(!p_segment->style)
             {
-                static const char *ppsz_color[] = {
-                    "#ffffff",  // white
-                    "#00ff00",  // green
-                    "#0000ff",  // blue
-                    "#00ffff",  // cyan
-                    "#ff0000",  // red
-                    "#ffff00",  // yellow
-                    "#ff00ff",  // magenta
-                    "#ffffff",  // user defined XXX we use white
-                };
-                CAT( "<font color=\"" );
-                CAT( ppsz_color[color] );
-                CAT( "\">" );
+                text_segment_Delete(p_segment);
+                return p_segments_head;
             }
-            if( ( b_close_italics && b_italics ) || ( b_italics && !b_last_italics ) )
-                CAT( "<i>" );
-            if( ( b_close_underline && b_underline ) || ( b_underline && !b_last_underline ) )
-                CAT( "<u>" );
+            p_segment->style->i_style_flags |= STYLE_MONOSPACED;
+
+            /* start segment with new style */
+            if(font & EIA608_FONT_ITALICS)
+            {
+                p_segment->style->i_style_flags |= STYLE_ITALIC;
+                p_segment->style->i_features |= STYLE_HAS_FLAGS;
+            }
+            if(font & EIA608_FONT_UNDERLINE)
+            {
+                p_segment->style->i_style_flags |= STYLE_UNDERLINE;
+                p_segment->style->i_features |= STYLE_HAS_FLAGS;
+            }
+
+            if(color != EIA608_COLOR_DEFAULT)
+            {
+                p_segment->style->i_font_color = rgi_eia608_colors[color];
+                p_segment->style->i_features |= STYLE_HAS_FONT_COLOR;
+            }
         }
 
-        if( b_html ) {
-            /* Escape XML reserved characters
-               http://www.w3.org/TR/xml/#syntax */
-            switch (p_char[x]) {
-            case '>':
-                CAT( "&gt;" );
-                break;
-            case '<':
-                CAT( "&lt;" );
-                break;
-            case '"':
-                CAT( "&quot;" );
-                break;
-            case '\'':
-                CAT( "&apos;" );
-                break;
-            case '&':
-                CAT( "&amp;" );
-                break;
-            default:
-                Eia608TextUtf8( utf8, p_char[x] );
-                CAT( utf8 );
-                break;
-            }
-        } else {
-            Eia608TextUtf8( utf8, p_char[x] );
-            CAT( utf8 );
-        }
+        Eia608TextUtf8( utf8, p_char[x] );
+        CAT( utf8 );
 
         /* */
-        b_last_underline = b_underline;
-        b_last_italics = b_italics;
-        last_color = color;
+        prev_font = font;
+        prev_color = color;
     }
-    if( b_html )
+
+    if(b_endline)
     {
-        if( b_last_underline )
-            CAT( "</u>" );
-        if( b_last_italics )
-            CAT( "</i>" );
-        if( last_color != EIA608_COLOR_DEFAULT )
-            CAT( "</font>" );
-        CAT( "</tt>" );
+        CAT( "\n" );
     }
+
 #undef CAT
+
+    if( p_segment )
+    {
+        assert(!p_segment->psz_text); // shouldn't happen
+        EnsureUTF8(psz_text);
+        p_segment->psz_text = strdup(psz_text);
+    }
+
+    return p_segments_head;
 }
 
 /* */
@@ -1076,14 +1146,14 @@ static void Eia608Init( eia608_t *h )
     h->font = EIA608_FONT_REGULAR;
     h->i_row_rollup = EIA608_SCREEN_ROWS-1;
 }
-static bool Eia608Parse( eia608_t *h, int i_channel_selected, const uint8_t data[2] )
+static eia608_status_t Eia608Parse( eia608_t *h, int i_channel_selected, const uint8_t data[2] )
 {
     const uint8_t d1 = data[0] & 0x7f; /* Removed parity bit */
     const uint8_t d2 = data[1] & 0x7f;
-    bool b_screen_changed = false;
+    eia608_status_t i_screen_status = EIA608_STATUS_DEFAULT;
 
     if( d1 == 0 && d2 == 0 )
-        return false;   /* Ignore padding (parity check are sometimes invalid on them) */
+        return EIA608_STATUS_DEFAULT;   /* Ignore padding (parity check are sometimes invalid on them) */
 
     Eia608ParseChannel( h, data );
     if( h->i_channel != i_channel_selected )
@@ -1094,7 +1164,7 @@ static bool Eia608Parse( eia608_t *h, int i_channel_selected, const uint8_t data
     {
         if( d1 >= 0x20 ||
             d1 != h->last.d1 || d2 != h->last.d2 ) /* Command codes can be repeated */
-            b_screen_changed = Eia608ParseData( h, d1,d2 );
+            i_screen_status = Eia608ParseData( h, d1,d2 );
 
         h->last.d1 = d1;
         h->last.d2 = d2;
@@ -1103,32 +1173,26 @@ static bool Eia608Parse( eia608_t *h, int i_channel_selected, const uint8_t data
     {
         /* XDS block / End of XDS block */
     }
-    return b_screen_changed;
+    return i_screen_status;
 }
 
-static char *Eia608Text( eia608_t *h, bool b_html )
+static text_segment_t *Eia608Text( eia608_t *h )
 {
-    const int i_size = EIA608_SCREEN_ROWS * 10 * EIA608_SCREEN_COLUMNS+1;
     struct eia608_screen *screen = &h->screen[h->i_screen];
-    bool b_first = true;
-    char *psz;
+    text_segment_t *p_head = NULL, *p_last = NULL;
 
-    /* We allocate a buffer big enough for normal case */
-    psz = malloc( i_size );
-    if( !psz )
-        return NULL;
-    *psz = '\0';
-    if( b_html )
-        Eia608Strlcat( psz, "<text>", i_size );
     for( int i = 0; i < EIA608_SCREEN_ROWS; i++ )
     {
-        if( !b_first )
-            Eia608Strlcat( psz, b_html ? "<br />" : "\n", i_size );
-        b_first = false;
-
-        Eia608TextLine( screen, psz, i_size, i, b_html );
+        text_segment_t *p_line = Eia608TextLine( screen, i, (i + 1 != EIA608_SCREEN_ROWS) );
+        if(p_line)
+        {
+            if(!p_head)
+                p_head = p_line;
+            else
+                p_last->p_next = p_line;
+            p_last = p_line;
+        }
     }
-    if( b_html )
-        Eia608Strlcat( psz, "</text>", i_size );
-    return psz;
+
+    return p_head;
 }

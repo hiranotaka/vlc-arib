@@ -1,7 +1,7 @@
 # x265
 
 #X265_GITURL := https://github.com/videolan/x265
-X265_VERSION := 1.1
+X265_VERSION := 1.9
 X265_SNAPURL := https://bitbucket.org/multicoreware/x265/get/$(X265_VERSION).tar.bz2
 
 ifdef BUILD_ENCODERS
@@ -32,4 +32,5 @@ x265: x265-$(X265_VERSION).tar.bz2 .sum-x265
 .x265: x265 toolchain.cmake
 	cd $</source && $(HOSTVARS_PIC) $(CMAKE) -DENABLE_SHARED=OFF
 	cd $</source && $(MAKE) install
+	sed -e s/'[^ ]*clang_rt[^ ]*'//g -i.orig "$(PREFIX)/lib/pkgconfig/x265.pc"
 	touch $@

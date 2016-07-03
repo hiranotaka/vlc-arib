@@ -69,6 +69,7 @@ int Import_M3U( vlc_object_t *p_this )
     char *(*pf_dup) (const char *) = GuessEncoding;
     int offset = 0;
 
+    CHECK_FILE();
     if( stream_Peek( p_demux->s, &p_peek, 3 ) == 3
      && !memcmp( p_peek, "\xef\xbb\xbf", 3) )
     {
@@ -254,13 +255,16 @@ static int Demux( demux_t *p_demux )
                 goto error;
             }
 
-            p_input = input_item_NewExt( psz_mrl, psz_name,
-                                        i_options, ppsz_options, 0, i_duration );
-
+            p_input = input_item_NewExt( psz_mrl, psz_name, i_duration,
+                                         ITEM_TYPE_UNKNOWN, ITEM_NET_UNKNOWN );
             free( psz_parse );
             free( psz_mrl );
 
-            if ( !EMPTY_STR(psz_artist) )
+            if( !p_input )
+                goto error;
+            input_item_AddOptions( p_input, i_options, ppsz_options, 0 );
+
+            if( !EMPTY_STR(psz_artist) )
                 input_item_SetArtist( p_input, psz_artist );
             if( psz_name ) input_item_SetTitle( p_input, psz_name );
             if( !EMPTY_STR(psz_album_art) )

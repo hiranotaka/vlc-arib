@@ -150,6 +150,22 @@ static void input_item_add_subitem_tree ( const vlc_event_t * p_event,
             }
             else
             {
+                /* Don't Play a directory if it can loop into a parent */
+                if( p_new_root->b_can_loop )
+                {
+                    /* Play the first regular file */
+                    for( ; pos < last_pos; pos++ )
+                    {
+                        if( p_item->pp_children[pos]->p_input->i_type != ITEM_TYPE_DIRECTORY )
+                            break;
+                    }
+                    if( last_pos == pos )
+                    {
+                        PL_UNLOCK;
+                        playlist_Stop( p_playlist );
+                        return;
+                    }
+                }
                 p_play_item = p_item->pp_children[pos];
                 /* NOTE: this is a work around the general bug:
                 if node-to-be-played contains sub-nodes, then second instead
@@ -237,6 +253,7 @@ playlist_item_t *playlist_ItemNewFromInput( playlist_t *p_playlist,
     p_item->p_parent = NULL;
     p_item->i_children = -1;
     p_item->pp_children = NULL;
+    p_item->i_nb_played = 0;
     p_item->i_flags = 0;
     p_item->p_playlist = p_playlist;
 
@@ -419,11 +436,11 @@ int playlist_AddExt( playlist_t *p_playlist, const char * psz_uri,
     int i_ret;
     input_item_t *p_input;
 
-    p_input = input_item_NewExt( psz_uri, psz_name,
-                                 i_options, ppsz_options, i_option_flags,
-                                 i_duration );
+    p_input = input_item_NewExt( psz_uri, psz_name, i_duration,
+                                 ITEM_TYPE_UNKNOWN, ITEM_NET_UNKNOWN );
     if( p_input == NULL )
         return VLC_ENOMEM;
+    input_item_AddOptions( p_input, i_options, ppsz_options, i_option_flags );
     i_ret = playlist_AddInput( p_playlist, p_input, i_mode, i_pos, b_playlist,
                                b_locked );
     vlc_gc_decref( p_input );
@@ -448,10 +465,6 @@ int playlist_AddInput( playlist_t* p_playlist, input_item_t *p_input,
                        bool b_locked )
 {
     playlist_item_t *p_item;
-
-    if( !pl_priv(p_playlist)->b_doing_ml )
-        PL_DEBUG( "adding item `%s' ( %s )", p_input->psz_name,
-                                             p_input->psz_uri );
 
     PL_LOCK_IF( !b_locked );
 
@@ -696,7 +709,7 @@ int playlist_TreeMoveMany( playlist_t *p_playlist,
  *
  * \param p_playlist the playlist object
  * \param i_item_id id of the item added
- * \param i_node_id id of the node in wich the item was added
+ * \param i_node_id id of the node in which the item was added
  * \param b_signal TRUE if the function must send a signal
  * \return nothing
  */
@@ -758,18 +771,19 @@ static void GoAndPreparse( playlist_t *p_playlist, int i_mode,
         sys->request.i_skip = 0;
         sys->request.p_item = p_item;
         if( sys->p_input != NULL )
-            input_Stop( sys->p_input, true );
-        sys->request.i_status = PLAYLIST_RUNNING;
+            input_Stop( sys->p_input );
         vlc_cond_signal( &sys->signal );
     }
-    /* Preparse if no artist/album info, and hasn't been preparsed allready
+    /* Preparse if no artist/album info, and hasn't been preparsed already
        and if user has some preparsing option (auto-preparse variable)
        enabled*/
     char *psz_artist = input_item_GetArtist( p_item->p_input );
     char *psz_album = input_item_GetAlbum( p_item->p_input );
-    if( sys->p_preparser != NULL && !input_item_IsPreparsed( p_item->p_input )
+
+    if( sys->b_preparse && !input_item_IsPreparsed( p_item->p_input )
      && (EMPTY_STR(psz_artist) || EMPTY_STR(psz_album)) )
-        playlist_preparser_Push( sys->p_preparser, p_item->p_input, 0 );
+        libvlc_MetadataRequest( p_playlist->obj.libvlc, p_item->p_input, 0, -1,
+                                NULL );
     free( psz_artist );
     free( psz_album );
 }
@@ -787,9 +801,8 @@ static void AddItem( playlist_t *p_playlist, playlist_item_t *p_item,
     else
         playlist_NodeInsert( p_playlist, p_item, p_node, i_pos );
 
-    if( !pl_priv(p_playlist)->b_doing_ml )
-        playlist_SendAddNotify( p_playlist, p_item->i_id, p_node->i_id,
-                                 !( i_mode & PLAYLIST_NO_REBUILD ) );
+    playlist_SendAddNotify( p_playlist, p_item->i_id, p_node->i_id,
+                            !( i_mode & PLAYLIST_NO_REBUILD ) );
 }
 
 /* Actually convert an item to a node */

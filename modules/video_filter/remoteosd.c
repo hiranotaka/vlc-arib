@@ -158,15 +158,9 @@ static int MouseEvent( filter_t *,
 static int KeyEvent( vlc_object_t *p_this, char const *psz_var,
                      vlc_value_t oldval, vlc_value_t newval, void *p_data );
 
-static void stop_osdvnc ( filter_t *p_filter );
-
 static void* vnc_worker_thread ( void * );
 
 static void* update_request_thread( void * );
-
-static bool open_vnc_connection ( filter_t *p_filter );
-
-static bool handshaking ( filter_t *p_filter );
 
 static bool process_server_message ( filter_t *p_filter,
                                      rfbServerToClientMsg *msg );
@@ -200,23 +194,14 @@ static void vnc_encrypt_bytes( unsigned char *bytes, char *passwd );
  *****************************************************************************/
 struct filter_sys_t
 {
-    bool          b_need_update;       /* VNC picture is updated, do update the OSD*/
-    mtime_t       i_vnc_poll_interval; /* Update the OSD menu every n ms */
+    vlc_mutex_t   lock;                /* To lock for read/write on picture */
 
+    bool          b_need_update;       /* VNC picture is updated, do update the OSD*/
     uint8_t       i_alpha;             /* alpha transparency value */
 
     char          *psz_host;           /* VNC host */
-    int           i_port;
 
     char          *psz_passwd;         /* VNC password */
-
-    bool          b_vnc_poll;          /* Activate VNC polling ? */
-    bool          b_vnc_mouse_events;  /* Send MouseEvents ? */
-    bool          b_vnc_key_events;    /* Send KeyEvents ? */
-
-    bool          b_connection_active; /* Handshaking finished ? */
-
-    vlc_mutex_t   lock;                /* To lock for read/write on picture */
 
     picture_t     *p_pic;              /* The picture with OSD data from VNC */
 
@@ -224,13 +209,11 @@ struct filter_sys_t
 
     uint16_t      i_vnc_width;          /* The with of the VNC screen */
     uint16_t      i_vnc_height;         /* The height of the VNC screen */
-    uint32_t      i_vnc_pixels;         /* The pixels of the VNC screen */
 
+    bool          b_vnc_key_events;    /* Send KeyEvents ? */
     bool    b_alpha_from_vnc;    /* Special ffnetdev alpha feature enabled ? */
 
     char          read_buffer[READ_BUFFER_SIZE];
-
-    bool          b_continue;
 
     vlc_thread_t  worker_thread;
 
@@ -243,72 +226,36 @@ struct filter_sys_t
 static int CreateFilter ( vlc_object_t *p_this )
 {
     filter_t *p_filter = (filter_t *)p_this;
-    filter_sys_t *p_sys = NULL;
 
-    msg_Dbg( p_filter, "Creating vnc osd filter..." );
-
-    p_filter->p_sys = p_sys = calloc( 1, sizeof(*p_sys) );
-    if( !p_filter->p_sys )
+    filter_sys_t *p_sys = malloc( sizeof (*p_sys) );
+    if( unlikely(p_sys == NULL) )
         return VLC_ENOMEM;
 
     /* Populating struct */
     vlc_mutex_init( &p_sys->lock );
-    p_sys->b_continue = true;
-    p_sys->i_socket = -1;
+    p_sys->b_need_update = false;
+    p_sys->psz_host = var_InheritString( p_this, RMTOSD_CFG "host" );
+    p_sys->psz_passwd = var_InheritString( p_this, RMTOSD_CFG "password" );
+    p_sys->i_alpha = var_InheritInteger( p_this, RMTOSD_CFG "alpha" );
     p_sys->p_pic = NULL;
+    p_sys->i_socket = -1;
 
-    p_sys->psz_host = var_CreateGetString( p_this, RMTOSD_CFG "host" );
-    if( EMPTY_STR(p_sys->psz_host) )
+    memset( p_sys->ar_color_table_yuv, 255,
+            sizeof( p_sys->ar_color_table_yuv ) );
+
+    if( p_sys->psz_host == NULL )
     {
         msg_Err( p_filter, "unable to get vnc host" );
         goto error;
     }
 
-    p_sys->psz_passwd = var_CreateGetString( p_this, RMTOSD_CFG "password" );
-    if( !p_sys->psz_passwd )
+    if( p_sys->psz_passwd == NULL )
     {
         msg_Err( p_filter, "unable to get vnc password" );
         goto error;
     }
 
-    p_sys->i_port = var_CreateGetIntegerCommand( p_this, RMTOSD_CFG "port" );
-
-    p_sys->i_alpha = var_CreateGetIntegerCommand( p_this, RMTOSD_CFG "alpha" );
-
-    /* in milliseconds, 0 disables polling, should not be lower than 100 */
-    p_sys->i_vnc_poll_interval  = var_CreateGetIntegerCommand( p_this,
-                                                       RMTOSD_CFG "update" );
-    if ( p_sys->i_vnc_poll_interval < 100)
-    {
-       p_sys->i_vnc_poll_interval = 100;
-    }
-
-    for ( int i = 0; i < 256; i++ )
-    {
-        p_sys->ar_color_table_yuv[i][0] = 255;
-        p_sys->ar_color_table_yuv[i][1] = 255;
-        p_sys->ar_color_table_yuv[i][2] = 255;
-        p_sys->ar_color_table_yuv[i][3] = 255;
-    }
-
-    p_sys->b_vnc_poll = var_CreateGetBoolCommand( p_this,
-                                            RMTOSD_CFG "vnc-polling" );
-    p_sys->b_vnc_mouse_events = var_CreateGetBoolCommand( p_this,
-                                            RMTOSD_CFG "mouse-events" );
-    p_sys->b_vnc_key_events = var_CreateGetBoolCommand( p_this,
-                                            RMTOSD_CFG "key-events" );
-
-    /* Keep track of OSD Events */
-    p_sys->b_need_update  = false;
-
-    /* Attach subpicture source callback */
-    p_filter->pf_sub_source = Filter;
-    p_filter->pf_sub_mouse  = MouseEvent;
-
-    var_AddCallback( p_filter->p_libvlc, "key-pressed", KeyEvent, p_this );
-
-    es_format_Init( &p_filter->fmt_out, SPU_ES, VLC_CODEC_SPU );
-    p_filter->fmt_out.i_priority = ES_PRIORITY_SELECTABLE_MIN;
+    p_filter->p_sys = p_sys;
 
     vlc_gcrypt_init();
 
@@ -320,14 +267,26 @@ static int CreateFilter ( vlc_object_t *p_this )
         goto error;
     }
 
+    /* Attach subpicture source callback */
+    p_filter->pf_sub_source = Filter;
+
+    es_format_Init( &p_filter->fmt_out, SPU_ES, VLC_CODEC_SPU );
+    p_filter->fmt_out.i_priority = ES_PRIORITY_SELECTABLE_MIN;
+
+    if( var_InheritBool( p_this, RMTOSD_CFG "mouse-events" ) )
+        p_filter->pf_sub_mouse = MouseEvent;
+
+    p_sys->b_vnc_key_events = var_InheritBool( p_this,
+                                               RMTOSD_CFG "key-events" );
+    if( p_sys->b_vnc_key_events )
+        var_AddCallback( p_filter->obj.libvlc, "key-pressed", KeyEvent, p_this );
+
     msg_Dbg( p_filter, "osdvnc filter started" );
 
     return VLC_SUCCESS;
 
 error:
     msg_Err( p_filter, "osdvnc filter discarded" );
-
-    stop_osdvnc( p_filter );
 
     vlc_mutex_destroy( &p_sys->lock );
     free( p_sys->psz_host );
@@ -347,18 +306,16 @@ static void DestroyFilter( vlc_object_t *p_this )
 
     msg_Dbg( p_filter, "DestroyFilter called." );
 
-    stop_osdvnc( p_filter );
+    if( p_sys->b_vnc_key_events )
+        var_DelCallback( p_filter->obj.libvlc, "key-pressed", KeyEvent, p_this );
 
-    var_DelCallback( p_filter->p_libvlc, "key-pressed", KeyEvent, p_this );
+    vlc_cancel( p_sys->worker_thread );
+    vlc_join( p_sys->worker_thread, NULL );
 
-    var_Destroy( p_this, RMTOSD_CFG "host" );
-    var_Destroy( p_this, RMTOSD_CFG "port" );
-    var_Destroy( p_this, RMTOSD_CFG "password" );
-    var_Destroy( p_this, RMTOSD_CFG "update" );
-    var_Destroy( p_this, RMTOSD_CFG "vnc-polling" );
-    var_Destroy( p_this, RMTOSD_CFG "mouse-events" );
-    var_Destroy( p_this, RMTOSD_CFG "key-events" );
-    var_Destroy( p_this, RMTOSD_CFG "alpha" );
+    if( p_sys->p_pic != NULL )
+        picture_Release( p_sys->p_pic );
+    if( p_sys->i_socket >= 0 )
+        net_Close( p_sys->i_socket );
 
     vlc_mutex_destroy( &p_sys->lock );
     free( p_sys->psz_host );
@@ -366,70 +323,37 @@ static void DestroyFilter( vlc_object_t *p_this )
     free( p_sys );
 }
 
-static void stop_osdvnc ( filter_t *p_filter )
+static bool read_exact( filter_t *obj, int fd, void *buf, size_t len )
+{
+    return (ssize_t)len == net_Read( obj, fd, buf, len );
+}
+
+
+static bool write_exact( filter_t *obj, int fd, const void *buf, size_t len )
+{
+    return (ssize_t)len == net_Write( obj, fd, buf, len );
+}
+
+static int vnc_connect( filter_t *p_filter )
 {
     filter_sys_t *p_sys = p_filter->p_sys;
 
-    msg_Dbg( p_filter, "joining worker_thread" );
-    vlc_cancel( p_sys->worker_thread );
-    vlc_join( p_sys->worker_thread, NULL );
-    msg_Dbg( p_filter, "released worker_thread" );
+    int port = var_InheritInteger( p_filter, RMTOSD_CFG "port" );
 
-    msg_Dbg( p_filter, "osdvnc stopped" );
-}
-
-static bool read_exact( filter_t *p_filter,
-                        int i_socket,
-                        char* p_readbuf,
-                        int i_bytes )
-{
-    return i_bytes == net_Read( p_filter, i_socket, NULL,
-                                  (unsigned char*)p_readbuf,
-                                  i_bytes, true );
-}
-
-
-static bool write_exact( filter_t *p_filter,
-                         int i_socket,
-                         char* p_writebuf,
-                         int i_bytes )
-{
-    return i_bytes == net_Write( p_filter, i_socket, NULL,
-                                  (unsigned char*)p_writebuf, i_bytes );
-}
-
-static bool open_vnc_connection ( filter_t *p_filter )
-{
-    filter_sys_t *p_sys = p_filter->p_sys;
-
-    msg_Dbg( p_filter, "Open socket to vnc server on %s:%u.",
-              p_sys->psz_host, p_sys->i_port );
-
-    p_sys->i_socket = net_ConnectTCP( p_filter, p_sys->psz_host, p_sys->i_port );
-
-    if( p_sys->i_socket < 0 )
+    int fd = net_ConnectTCP( p_filter, p_sys->psz_host, port );
+    if( fd == -1 )
     {
-        msg_Err( p_filter, "Could not open socket" );
-        return false;
+        msg_Err( p_filter, "Could not connect to VNC host" );
+        return -1;
     }
-
-    msg_Dbg( p_filter, "socket is open." );
-
-    return true;
-}
-
-static bool handshaking ( filter_t *p_filter )
-{
-    filter_sys_t *p_sys = p_filter->p_sys;
 
     msg_Dbg( p_filter, "Reading protocol version" );
 
     rfbProtocolVersionMsg pv;
-    if ( !read_exact( p_filter, p_sys->i_socket, pv,
-                      sz_rfbProtocolVersionMsg ) )
+    if ( !read_exact( p_filter, fd, pv, sz_rfbProtocolVersionMsg ) )
     {
         msg_Err( p_filter, "Could not read version message" );
-        return false;
+        goto error;
     }
     pv[sz_rfbProtocolVersionMsg] = '\0'; /* pv size is sz_rfbProtocolVersionMsg+1 */
 
@@ -437,19 +361,18 @@ static bool handshaking ( filter_t *p_filter )
 
     strncpy(pv, "RFB 003.003\n", sz_rfbProtocolVersionMsg);
 
-    if( !write_exact(p_filter, p_sys->i_socket, pv,
-                     sz_rfbProtocolVersionMsg) )
+    if( !write_exact(p_filter, fd, pv, sz_rfbProtocolVersionMsg) )
     {
         msg_Err( p_filter, "Could not write version message" );
-        return false;
+        goto error;
     }
 
     msg_Dbg( p_filter, "Reading authentication scheme" );
     uint32_t i_authScheme;
-    if( !read_exact( p_filter, p_sys->i_socket, (char*)&i_authScheme, 4 ) )
+    if( !read_exact( p_filter, fd, &i_authScheme, 4 ) )
     {
         msg_Err( p_filter, "Could not read authentication scheme" );
-        return false;
+        goto error;
     }
     i_authScheme = htonl(i_authScheme);
 
@@ -457,57 +380,53 @@ static bool handshaking ( filter_t *p_filter )
     if ( i_authScheme == rfbConnFailed )
     {
         msg_Err( p_filter, "Connection rejected by server" );
-        return false;
+        goto error;
     }
     if (i_authScheme == rfbVncAuth)
     {
         unsigned char challenge[CHALLENGESIZE];
-        if ( !read_exact( p_filter, p_sys->i_socket,
-                          (char*)challenge, CHALLENGESIZE ) )
+        if ( !read_exact( p_filter, fd, challenge, CHALLENGESIZE ) )
         {
             msg_Err( p_filter, "Could not read password challenge" );
-            return false;
+            goto error;
         }
 
         vnc_encrypt_bytes( challenge, p_sys->psz_passwd );
 
-        if( !write_exact(p_filter, p_sys->i_socket,
-                         (char*)challenge, CHALLENGESIZE ) )
+        if( !write_exact(p_filter, fd, challenge, CHALLENGESIZE ) )
         {
             msg_Err( p_filter, "Could not write password" );
-            return false;
+            goto error;
         }
         uint32_t i_authResult;
-        if( !read_exact( p_filter, p_sys->i_socket, (char*)&i_authResult, 4 ) )
+        if( !read_exact( p_filter, fd, &i_authResult, 4 ) )
         {
             msg_Err( p_filter, "Could not read authentication result" );
-            return false;
+            goto error;
         }
         i_authResult = htonl(i_authResult);
         if (i_authResult != rfbVncAuthOK)
         {
             msg_Err( p_filter, "VNC authentication failed" );
-            return false;
+            goto error;
         }
     }
 
     msg_Dbg( p_filter, "Writing client init message" );
     rfbClientInitMsg ci;
     ci.shared = 1;
-    if( !write_exact( p_filter, p_sys->i_socket,
-                      (char*)&ci, sz_rfbClientInitMsg ) )
+    if( !write_exact( p_filter, fd, &ci, sz_rfbClientInitMsg ) )
     {
         msg_Err( p_filter, "Could not write client init message" );
-        return false;
+        goto error;
     }
 
     msg_Dbg( p_filter, "Reading server init message" );
     rfbServerInitMsg si;
-    if( !read_exact( p_filter, p_sys->i_socket,
-                     (char*)&si, sz_rfbServerInitMsg ) )
+    if( !read_exact( p_filter, fd, &si, sz_rfbServerInitMsg ) )
     {
         msg_Err( p_filter, "Could not read server init message" );
-        return false;
+        goto error;
     }
     si.framebufferWidth = htons(si.framebufferWidth);
     si.framebufferHeight = htons(si.framebufferHeight);
@@ -533,15 +452,15 @@ static bool handshaking ( filter_t *p_filter )
     if( i_nameLength > MAX_VNC_SERVER_NAME_LENGTH )
     {
         msg_Err( p_filter, "Server name too long" );
-        return false;
+        goto error;
     }
     char s_ServerName[MAX_VNC_SERVER_NAME_LENGTH+1];
 
     msg_Dbg( p_filter, "Reading server name with size = %u", i_nameLength );
-    if( !read_exact( p_filter, p_sys->i_socket, s_ServerName, i_nameLength ) )
+    if( !read_exact( p_filter, fd, s_ServerName, i_nameLength ) )
     {
         msg_Err( p_filter, "Could not read server name" );
-        return false;
+        goto error;
     }
     s_ServerName[i_nameLength] = '\0';
 
@@ -577,11 +496,10 @@ static bool handshaking ( filter_t *p_filter )
     sp.format.blueShift = 0;
     sp.format.pad1 = sp.format.pad2 = 0;
 
-    if( !write_exact( p_filter, p_sys->i_socket,
-                      (char*)&sp, sz_rfbSetPixelFormatMsg) )
+    if( !write_exact( p_filter, fd, &sp, sz_rfbSetPixelFormatMsg) )
     {
         msg_Err( p_filter, "Could not write SetPixelFormat message" );
-        return false;
+        goto error;
     }
 
     msg_Dbg( p_filter, "Writing SetEncodings message" );
@@ -591,29 +509,28 @@ static bool handshaking ( filter_t *p_filter )
     se.pad = 0;
     se.nEncodings = htons( p_sys->b_alpha_from_vnc ? 3 : 2 );
 
-    if( !write_exact( p_filter, p_sys->i_socket,
-                      (char*)&se, sz_rfbSetEncodingsMsg) )
+    if( !write_exact( p_filter, fd, &se, sz_rfbSetEncodingsMsg) )
     {
         msg_Err( p_filter, "Could not write SetEncodings message begin" );
-        return false;
+        goto error;
     }
 
     uint32_t i_encoding;
 
     msg_Dbg( p_filter, "Writing SetEncodings rfbEncodingCopyRect" );
     i_encoding = htonl(rfbEncodingCopyRect);
-    if( !write_exact( p_filter, p_sys->i_socket, (char*)&i_encoding, 4) )
+    if( !write_exact( p_filter, fd, &i_encoding, 4) )
     {
         msg_Err( p_filter, "Could not write encoding type rfbEncodingCopyRect." );
-        return false;
+        goto error;
     }
 
     msg_Dbg( p_filter, "Writing SetEncodings rfbEncodingRRE" );
     i_encoding = htonl(rfbEncodingRRE);
-    if( !write_exact(p_filter, p_sys->i_socket, (char*)&i_encoding, 4) )
+    if( !write_exact(p_filter, fd, &i_encoding, 4) )
     {
         msg_Err( p_filter, "Could not write encoding type rfbEncodingRRE." );
-        return false;
+        goto error;
     }
 
     if( p_sys->b_alpha_from_vnc )
@@ -621,72 +538,108 @@ static bool handshaking ( filter_t *p_filter )
         msg_Dbg( p_filter, "Writing SetEncodings rfbEncSpecialUseAlpha" );
         i_encoding = 0x00F0FFFF; /* rfbEncSpecialUseAlpha is 0xFFFFF000
                                   * before we swap it */
-        if( !write_exact(p_filter, p_sys->i_socket, (char*)&i_encoding, 4) )
+        if( !write_exact(p_filter, fd, &i_encoding, 4) )
         {
             msg_Err( p_filter, "Could not write encoding type rfbEncSpecialUseAlpha." );
-            return false;
+            goto error;
         }
     }
-    return true;
 
+    return fd;
+error:
+    net_Close( fd );
+    return -1;
+}
+
+static int write_update_request(filter_t *p_filter, bool incremental)
+{
+    filter_sys_t *p_sys = p_filter->p_sys;
+    rfbFramebufferUpdateRequestMsg udr;
+
+    udr.type = rfbFramebufferUpdateRequest;
+    udr.incremental = incremental;
+    udr.x = 0;
+    udr.y = 0;
+    udr.w = htons(p_sys->i_vnc_width);
+    udr.h = htons(p_sys->i_vnc_height);
+
+    int w = write_exact(p_filter, p_sys->i_socket, &udr,
+                        sz_rfbFramebufferUpdateRequestMsg);
+    if( !w )
+        msg_Err( p_filter, "Could not write rfbFramebufferUpdateRequestMsg." );
+    return w;
+}
+
+static void update_thread_cleanup( void *p )
+{
+    vlc_thread_t *th = p;
+
+    vlc_cancel( *th );
+    vlc_join( *th, NULL );
+}
+
+static void dummy_cleanup( void *p )
+{
+    (void) p;
 }
 
 static void* vnc_worker_thread( void *obj )
 {
     filter_t* p_filter = (filter_t*)obj;
     filter_sys_t *p_sys = p_filter->p_sys;
-    vlc_thread_t update_request_thread_handle;
+    vlc_thread_t update_thread;
     int canc = vlc_savecancel ();
 
     msg_Dbg( p_filter, "VNC worker thread started" );
 
-    if( !open_vnc_connection ( p_filter ) )
+    int fd = vnc_connect( p_filter );
+    if( fd == -1 )
     {
-        msg_Err( p_filter, "Could not connect to vnc host" );
-        goto exit;
+        msg_Err( p_filter, "Error occurred while handshaking VNC host" );
+        return NULL;
     }
-
-    if( !handshaking ( p_filter ) )
-    {
-        msg_Err( p_filter, "Error occurred while handshaking vnc host" );
-        goto exit;
-    }
-
-    p_sys->b_connection_active = true; /* to enable sending key
-                                            * and mouse events to host */
 
     /* Create an empty picture for VNC the data */
-    vlc_mutex_lock( &p_sys->lock );
-    p_sys->p_pic = picture_New( VLC_CODEC_YUVA,
-                                p_sys->i_vnc_width, p_sys->i_vnc_height, 1, 1 );
-    if( !p_sys->p_pic )
+    picture_t *pic =  picture_New( VLC_CODEC_YUVA, p_sys->i_vnc_width,
+                                   p_sys->i_vnc_height, 1, 1 );
+    if( likely(pic != NULL) )
     {
+        vlc_mutex_lock( &p_sys->lock );
+        p_sys->i_socket = fd;
+        p_sys->p_pic = pic;
         vlc_mutex_unlock( &p_sys->lock );
-        goto exit;
     }
-    p_sys->i_vnc_pixels = p_sys->i_vnc_width * p_sys->i_vnc_height;
+    else
+    {
+        net_Close( fd );
+        return NULL;
+    }
 
-    vlc_mutex_unlock( &p_sys->lock );
+    write_update_request( p_filter, false );
 
     /* create the update request thread */
-    if( vlc_clone( &update_request_thread_handle,
-                   update_request_thread, p_filter,
-                   VLC_THREAD_PRIORITY_LOW ) )
+    bool polling = var_InheritBool( p_filter, RMTOSD_CFG "vnc-polling" );
+    if( polling
+     && vlc_clone( &update_thread, update_request_thread,
+                   p_filter, VLC_THREAD_PRIORITY_LOW ) )
     {
-        msg_Err( p_filter, "cannot spawn vnc update request thread" );
-        goto exit;
+        msg_Err( p_filter, "cannot spawn VNC update request thread" );
+        polling = false;
     }
 
+    vlc_cleanup_push( polling ? update_thread_cleanup : dummy_cleanup,
+                      &update_thread );
+
     /* connection is initialized, now read and handle server messages */
-    vlc_restorecancel (canc);
     for( ;; )
     {
         rfbServerToClientMsg msg;
         int i_msgSize;
 
         memset( &msg, 0, sizeof(msg) );
+        vlc_restorecancel (canc);
 
-        if( !read_exact(p_filter, p_sys->i_socket, (char*)&msg, 1 ) )
+        if( !read_exact(p_filter, fd, &msg, 1 ) )
         {
             msg_Err( p_filter, "Error while waiting for next server message");
             break;
@@ -719,8 +672,7 @@ static void* vnc_worker_thread( void *obj )
 
         if( --i_msgSize > 0 )
         {
-            if ( !read_exact( p_filter, p_sys->i_socket,
-                              ((char*)&msg)+1, i_msgSize ) )
+            if ( !read_exact( p_filter, fd, ((char *)&msg) + 1, i_msgSize ) )
             {
                 msg_Err( p_filter, "Error while reading message of type %u",
                          msg.type );
@@ -730,94 +682,32 @@ static void* vnc_worker_thread( void *obj )
 
         canc = vlc_savecancel ();
         process_server_message( p_filter, &msg);
-        vlc_restorecancel (canc);
     }
-    canc = vlc_savecancel ();
 
-    msg_Dbg( p_filter, "joining update_request_thread" );
-    vlc_cancel( update_request_thread_handle );
-    vlc_join( update_request_thread_handle, NULL );
-    msg_Dbg( p_filter, "released update_request_thread" );
-
-exit:
-
-    vlc_mutex_lock( &p_sys->lock );
-    p_sys->b_connection_active = false;
-
-    if (p_sys->i_socket >= 0)
-        net_Close(p_sys->i_socket);
-
-    if( p_sys->p_pic )
-        picture_Release( p_sys->p_pic );
-
-    /* It will hide the subtitle */
-    p_sys->b_continue = false;
-    p_sys->b_need_update = true;
-    vlc_mutex_unlock( &p_sys->lock );
+    vlc_cleanup_pop();
+    if( polling )
+        update_thread_cleanup( &update_thread );
 
     msg_Dbg( p_filter, "VNC message reader thread ended" );
     vlc_restorecancel (canc);
     return NULL;
 }
 
-static void update_request_thread_cleanup( void *obj )
-{
-    filter_t* p_filter = (filter_t*)obj;
-
-    p_filter->p_sys->b_continue = false;
-}
-
 static void* update_request_thread( void *obj )
 {
     filter_t* p_filter = (filter_t*)obj;
-    filter_sys_t *p_sys = p_filter->p_sys;
+    int canc = vlc_savecancel();
+    mtime_t interval = var_InheritInteger( p_filter, RMTOSD_CFG "update" );
+    vlc_restorecancel(canc);
 
-    msg_Dbg( p_filter, "VNC update request thread started" );
+    if( interval < 100 )
+        interval = 100;
+    interval *= 1000; /* ms -> µs */
 
-    rfbFramebufferUpdateRequestMsg udr;
-    udr.type = rfbFramebufferUpdateRequest;
-    udr.incremental = 0;
-    udr.x = 0;
-    udr.y = 0;
-    udr.w = htons(p_sys->i_vnc_width);
-    udr.h = htons(p_sys->i_vnc_height);
+    do
+        msleep( interval );
+    while( write_update_request( p_filter, true ) );
 
-    int w;
-    vlc_cleanup_push( update_request_thread_cleanup, p_filter );
-    w = write_exact(p_filter, p_sys->i_socket, (char*)&udr,
-                    sz_rfbFramebufferUpdateRequestMsg);
-    vlc_cleanup_pop();
-
-    if( !w )
-    {
-        msg_Err( p_filter, "Could not write rfbFramebufferUpdateRequestMsg." );
-        update_request_thread_cleanup( p_filter );
-        return NULL;
-    }
-
-    udr.incremental = 1;
-
-    if( p_sys->b_vnc_poll)
-    {
-        vlc_cleanup_push( update_request_thread_cleanup, p_filter );
-        for( ;; )
-        {
-            msleep( p_sys->i_vnc_poll_interval * 1000 );
-            if( !write_exact(p_filter, p_sys->i_socket, (char*)&udr,
-                             sz_rfbFramebufferUpdateRequestMsg))
-            {
-                msg_Err( p_filter, "Could not write rfbFramebufferUpdateRequestMsg." );
-                break;
-            }
-        }
-        vlc_cleanup_run();
-    }
-    else
-    {
-        msg_Dbg( p_filter, "VNC polling disabled." );
-    }
-
-    msg_Dbg( p_filter, "VNC update request thread ended" );
     return NULL;
 }
 
@@ -835,8 +725,8 @@ static bool process_server_message ( filter_t *p_filter,
 
             for (int i_rect = 0; i_rect < msg->fu.nRects; i_rect++)
             {
-                if (!read_exact(p_filter, p_sys->i_socket, (char*)&hdr,
-                    sz_rfbFramebufferUpdateRectHeader ) )
+                if (!read_exact(p_filter, p_sys->i_socket, &hdr,
+                                sz_rfbFramebufferUpdateRectHeader ) )
                 {
                     msg_Err( p_filter, "Could not read FrameBufferUpdate header" );
                     return false;
@@ -880,8 +770,7 @@ static bool process_server_message ( filter_t *p_filter,
                         rfbCopyRect rect;
 
                         if ( !read_exact( p_filter, p_sys->i_socket,
-                                          (char*)&rect,
-                                          sz_rfbCopyRect ) )
+                                          &rect, sz_rfbCopyRect ) )
                         {
                             msg_Err( p_filter, "Could not read rfbCopyRect" );
                             return false;
@@ -907,15 +796,14 @@ static bool process_server_message ( filter_t *p_filter,
                     {
                         rfbRREHeader rrehdr;
                         if ( !read_exact( p_filter, p_sys->i_socket,
-                                          (char*)&rrehdr,
-                                          sz_rfbRREHeader ) )
+                                          &rrehdr, sz_rfbRREHeader ) )
                         {
                             msg_Err( p_filter, "Could not read rfbRREHeader" );
                             return false;
                         }
                         uint8_t i_pixcolor;
-                        if ( !read_exact(p_filter, p_sys->i_socket,
-                                         (char*)&i_pixcolor, 1 ) )
+                        if ( !read_exact( p_filter, p_sys->i_socket,
+                                          &i_pixcolor, 1 ) )
                         {
                             msg_Err( p_filter, "Could not read RRE pixcolor" );
                             return false;
@@ -944,7 +832,7 @@ static bool process_server_message ( filter_t *p_filter,
                             return false;
                         }
                         if ( !read_exact( p_filter, p_sys->i_socket,
-                                       p_sys->read_buffer, i_datasize ) )
+                                          p_sys->read_buffer, i_datasize ) )
                         {
                             msg_Err( p_filter,
                                      "Could not read RRE subrect data" );
@@ -1057,8 +945,8 @@ static bool process_server_message ( filter_t *p_filter,
             msg_Err( p_filter, "Buffer too small, need %u bytes", msg->sct.length );
             return false;
         }
-        if ( !read_exact(p_filter, p_sys->i_socket,
-                         p_sys->read_buffer, msg->sct.length ) )
+        if ( !read_exact( p_filter, p_sys->i_socket,
+                          p_sys->read_buffer, msg->sct.length ) )
         {
             msg_Err( p_filter, "Could not read Reading rfbServerCutText data" );
             return false;
@@ -1087,18 +975,14 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     subpicture_t *p_spu;
     subpicture_region_t *p_region;
     video_format_t fmt;
-    picture_t *p_pic;
-
-    if( !p_sys->b_need_update )
-    {
-        return NULL;
-    }
+    picture_t *p_pic = NULL;
 
     vlc_mutex_lock( &p_sys->lock );
 
-    p_pic = p_sys->p_pic;
+    if( p_sys->b_need_update )
+        p_pic = p_sys->p_pic;
 
-    if( !p_pic )
+    if( p_pic == NULL )
     {
         vlc_mutex_unlock( &p_sys->lock );
         return NULL;
@@ -1117,9 +1001,6 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     p_spu->i_stop = 0;
     p_spu->b_ephemer = true;
 
-    if( !p_sys->b_continue )
-        p_spu->i_stop = p_spu->i_start + 1;
-
     /* Create new SPU region */
     memset( &fmt, 0, sizeof(video_format_t) );
     fmt.i_chroma = VLC_CODEC_YUVA;
@@ -1131,7 +1012,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     if( !p_region )
     {
         msg_Err( p_filter, "cannot allocate SPU region" );
-        p_filter->pf_sub_buffer_del( p_filter, p_spu );
+        subpicture_Delete( p_spu );
         vlc_mutex_unlock( &p_sys->lock );
         return NULL;
     }
@@ -1303,9 +1184,6 @@ static int MouseEvent( filter_t *p_filter,
     filter_sys_t *p_sys = p_filter->p_sys;
     VLC_UNUSED(p_old);
 
-    if( !p_sys->b_vnc_mouse_events )
-        return VLC_SUCCESS;
-
     int i_v = p_new->i_pressed;
     int i_x = p_new->i_x;
     int i_y = p_new->i_y;
@@ -1324,7 +1202,8 @@ static int MouseEvent( filter_t *p_filter,
         msg_Dbg( p_filter, "invalid mouse event? x=%d y=%d btn=%x", i_x, i_y, i_v );
         return VLC_SUCCESS;
     }
-    if( !p_sys->b_connection_active )
+
+    if( p_sys->i_socket == -1 )
     {
         vlc_mutex_unlock( &p_sys->lock );
         return VLC_SUCCESS;
@@ -1345,9 +1224,7 @@ static int MouseEvent( filter_t *p_filter,
     ev.x = htons(i_x);
     ev.y = htons(i_y);
 
-    write_exact( p_filter, p_sys->i_socket,
-                 (char*)&ev, sz_rfbPointerEventMsg);
-
+    write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbPointerEventMsg);
     vlc_mutex_unlock( &p_sys->lock );
 
     return VLC_EGENERIC;
@@ -1364,9 +1241,6 @@ static int KeyEvent( vlc_object_t *p_this, char const *psz_var,
     filter_t *p_filter = (filter_t *)p_data;
     filter_sys_t *p_sys = p_filter->p_sys;
 
-    if( !p_sys->b_vnc_key_events )
-        return VLC_SUCCESS;
-
     msg_Dbg( p_this, "key pressed (%"PRId64") ", newval.i_int );
 
     if ( !newval.i_int )
@@ -1376,7 +1250,7 @@ static int KeyEvent( vlc_object_t *p_this, char const *psz_var,
     }
 
     vlc_mutex_lock( &p_sys->lock );
-    if( !p_sys->b_connection_active )
+    if( p_sys->i_socket == -1 )
     {
         vlc_mutex_unlock( &p_sys->lock );
         return VLC_SUCCESS;
@@ -1394,51 +1268,43 @@ static int KeyEvent( vlc_object_t *p_this, char const *psz_var,
     if (newval.i_int & KEY_MODIFIER_CTRL)
     {
         ev.key = 0xffe3;
-        write_exact( p_filter, p_sys->i_socket,
-                     (char*)&ev, sz_rfbKeyEventMsg);
+        write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbKeyEventMsg );
     }
     if (newval.i_int & KEY_MODIFIER_SHIFT)
     {
         ev.key = 0xffe1;
-        write_exact( p_filter, p_sys->i_socket,
-                     (char*)&ev, sz_rfbKeyEventMsg);
+        write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbKeyEventMsg );
     }
     if (newval.i_int & KEY_MODIFIER_ALT)
     {
         ev.key = 0xffe9;
-        write_exact( p_filter, p_sys->i_socket,
-                     (char*)&ev, sz_rfbKeyEventMsg);
+        write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbKeyEventMsg );
     }
 
     /* then key-down for the pressed key */
     ev.key = i_key32;
-    write_exact( p_filter, p_sys->i_socket,
-                 (char*)&ev, sz_rfbKeyEventMsg);
+    write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbKeyEventMsg );
 
     ev.down = 0;
 
     /* then key-up for the pressed key */
-    write_exact( p_filter, p_sys->i_socket,
-                 (char*)&ev, sz_rfbKeyEventMsg);
+    write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbKeyEventMsg );
 
     /* last key-down for modifier-keys */
     if (newval.i_int & KEY_MODIFIER_CTRL)
     {
         ev.key = 0xffe3;
-        write_exact( p_filter, p_sys->i_socket,
-                     (char*)&ev, sz_rfbKeyEventMsg);
+        write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbKeyEventMsg );
     }
     if (newval.i_int & KEY_MODIFIER_SHIFT)
     {
         ev.key = 0xffe1;
-        write_exact( p_filter, p_sys->i_socket,
-                     (char*)&ev, sz_rfbKeyEventMsg);
+        write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbKeyEventMsg );
     }
     if (newval.i_int & KEY_MODIFIER_ALT)
     {
        ev.key = 0xffe9;
-       write_exact( p_filter, p_sys->i_socket,
-                    (char*)&ev, sz_rfbKeyEventMsg);
+       write_exact( p_filter, p_sys->i_socket, &ev, sz_rfbKeyEventMsg );
     }
     vlc_mutex_unlock( &p_sys->lock );
 
@@ -1448,16 +1314,15 @@ static int KeyEvent( vlc_object_t *p_this, char const *psz_var,
 static void vnc_encrypt_bytes( unsigned char *bytes, char *passwd )
 {
     unsigned char key[8];
-    unsigned int i;
 
-    for (i = 0; i < 8; i++)
+    for( unsigned i = 0; i < 8; i++ )
         key[i] = i < strlen( passwd ) ? passwd[i] : '\0';
 
     gcry_cipher_hd_t ctx;
     gcry_cipher_open( &ctx, GCRY_CIPHER_DES, GCRY_CIPHER_MODE_ECB,0);
 
     /* reverse bits of the key */
-    for( i = 0 ; i < 8 ; i ++ )
+    for( unsigned i = 0 ; i < 8 ; i++ )
         key[i] =
             (key[i] >> 7) +
             (((key[i] >> 6) & 0x01 ) << 1 ) +

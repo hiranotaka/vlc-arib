@@ -39,7 +39,8 @@ void spu_OffsetSubtitleDate( spu_t *p_spu, mtime_t i_duration );
 /**
  * This function will return and reset internal statistics.
  */
-void vout_GetResetStatistic( vout_thread_t *p_vout, int *pi_displayed, int *pi_lost );
+void vout_GetResetStatistic( vout_thread_t *p_vout, unsigned *pi_displayed,
+                             unsigned *pi_lost );
 
 /**
  * This function will ensure that all ready/displayed pciture have at most
@@ -47,18 +48,16 @@ void vout_GetResetStatistic( vout_thread_t *p_vout, int *pi_displayed, int *pi_l
  */
 void vout_Flush( vout_thread_t *p_vout, mtime_t i_date );
 
-/**
- * This function will try to detect if pictures are being leaked. If so it
- * will release them.
- *
- * XXX This function is there to workaround bugs in decoder
- */
-void vout_FixLeaks( vout_thread_t *p_vout );
-
 /*
  * Reset the states of the vout.
  */
 void vout_Reset( vout_thread_t *p_vout );
+
+/*
+ * Cancel the vout, if cancel is true, it won't return any pictures after this
+ * call.
+ */
+void vout_Cancel( vout_thread_t *p_vout, bool b_canceled );
 
 /**
  * This function will force to display the next picture while paused

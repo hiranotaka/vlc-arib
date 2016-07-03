@@ -21,8 +21,8 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#ifndef _VLC_VIDEOCHROMA_COPY_H
-#define _VLC_VIDEOCHROMA_COPY_H 1
+#ifndef VLC_VIDEOCHROMA_COPY_H_
+#define VLC_VIDEOCHROMA_COPY_H_
 
 typedef struct {
 # ifdef CAN_COMPILE_SSE2
@@ -34,11 +34,24 @@ typedef struct {
 int  CopyInitCache(copy_cache_t *cache, unsigned width);
 void CopyCleanCache(copy_cache_t *cache);
 
+/* Copy planes from NV12 to YV12 */
 void CopyFromNv12(picture_t *dst, uint8_t *src[2], size_t src_pitch[2],
                   unsigned width, unsigned height,
                   copy_cache_t *cache);
+/* Copy planes from YV12 to YV12 */
 void CopyFromYv12(picture_t *dst, uint8_t *src[3], size_t src_pitch[3],
                   unsigned width, unsigned height,
                   copy_cache_t *cache);
+
+void CopyFromNv12ToNv12(picture_t *dst, uint8_t *src[2], size_t src_pitch[2],
+                        unsigned width, unsigned height,
+                        copy_cache_t *cache);
+
+void CopyFromNv12ToI420(picture_t *dst, uint8_t *src[2], size_t src_pitch[2],
+                        unsigned width, unsigned height);
+
+void CopyFromI420ToNv12(picture_t *dst, uint8_t *src[3], size_t src_pitch[3],
+                        unsigned width, unsigned height,
+                        copy_cache_t *cache);
 
 #endif

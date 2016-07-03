@@ -198,14 +198,14 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
     png_structp p_png;
     png_infop p_info, p_end_info;
-    png_bytep *p_row_pointers = NULL;
+    png_bytep *volatile p_row_pointers = NULL;
 
     if( !pp_block || !*pp_block ) return NULL;
 
     p_block = *pp_block;
     p_sys->b_error = false;
 
-    if( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY )
+    if( p_block->i_flags & BLOCK_FLAG_CORRUPTED )
     {
         block_Release( p_block ); *pp_block = NULL;
         return NULL;
@@ -372,6 +372,11 @@ static block_t *EncodeBlock(encoder_t *p_enc, picture_t *p_pic)
         return NULL;
     }
 
+    /* Disable filtering to speed-up encoding */
+    png_set_filter( p_png, 0, PNG_NO_FILTERS );
+    /* 1 == best speed */
+    png_set_compression_level( p_png, 1 );
+
     /* save buffer start */
     uint8_t *p_start = p_block->p_buffer;
     size_t i_start = p_block->i_buffer;
@@ -390,9 +395,6 @@ static block_t *EncodeBlock(encoder_t *p_enc, picture_t *p_pic)
     if( p_info == NULL )
         goto error;
 
-    png_infop p_end_info = png_create_info_struct( p_png );
-    if( p_end_info == NULL ) goto error;
-
     png_set_IHDR( p_png, p_info,
             p_enc->fmt_in.video.i_visible_width,
             p_enc->fmt_in.video.i_visible_height,
@@ -405,13 +407,13 @@ static block_t *EncodeBlock(encoder_t *p_enc, picture_t *p_pic)
 
     /* Encode picture */
 
-    for( int i = 0; i < p_pic->p->i_lines; i++ )
+    for( int i = 0; i < p_pic->p->i_visible_lines; i++ )
     {
         png_write_row( p_png, p_pic->p->p_pixels + (i * p_pic->p->i_pitch) );
         if( p_sys->b_error ) goto error;
     }
 
-    png_write_end( p_png, p_end_info );
+    png_write_end( p_png, p_info );
     if( p_sys->b_error ) goto error;
 
     png_destroy_write_struct( &p_png, &p_info );

@@ -51,6 +51,7 @@
 # include "config.h"
 #endif
 
+#define VLC_MODULE_LICENSE VLC_LICENSE_GPL_2_PLUS
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 
@@ -185,7 +186,7 @@ static int Open( vlc_object_t *p_this )
     /* Real Audio */
     if( !memcmp( p_peek, ".ra", 3 ) )
     {
-        msg_Err( p_demux, ".ra files unsuported" );
+        msg_Err( p_demux, ".ra files unsupported" );
         b_real_audio = true;
     }
     /* Real Media Format */
@@ -370,6 +371,22 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
 
     switch( i_query )
     {
+        case DEMUX_CAN_SEEK:
+        {
+            bool *b = va_arg( args, bool * );
+
+            if( stream_Size( p_demux->s ) == 0 )
+                *b = true; /* FIXME: kludge for Real-dialectal RTSP */
+            else
+            if( p_sys->p_index == NULL )
+                *b = false;
+            else
+            if( stream_Control( p_demux->s, STREAM_CAN_SEEK, &b ) )
+                *b = false;
+
+            return VLC_SUCCESS;
+        }
+
         case DEMUX_GET_POSITION:
             pf = (double*) va_arg( args, double* );
 
@@ -1297,7 +1314,7 @@ static int HeaderRead( demux_t *p_demux )
             i_ret = HeaderDATA( p_demux, i_size );
             break;
         default:
-            /* unknow header */
+            /* unknown header */
             msg_Dbg( p_demux, "unknown chunk" );
             i_ret = VLC_SUCCESS;
             break;
@@ -1374,6 +1391,8 @@ static int CodecVideoParse( demux_t *p_demux, int i_tk_id, const uint8_t *p_data
                     VLC_FOURCC( p_data[8], p_data[9], p_data[10], p_data[11] ) );
     fmt.video.i_width = GetWBE( &p_data[12] );
     fmt.video.i_height= GetWBE( &p_data[14] );
+    fmt.video.i_visible_width = fmt.video.i_width;
+    fmt.video.i_visible_height = fmt.video.i_height;
     fmt.video.i_frame_rate = (GetWBE( &p_data[22] ) << 16) | GetWBE( &p_data[24] );
     fmt.video.i_frame_rate_base = 1 << 16;
 
@@ -1626,7 +1645,6 @@ static int CodecAudioParse( demux_t *p_demux, int i_tk_id, const uint8_t *p_data
                 (char*)&fmt.i_codec );
         es_format_Clean( &fmt );
         return VLC_EGENERIC;
-        break;
     }
     msg_Dbg( p_demux, "    - extra data=%d", fmt.i_extra );
 

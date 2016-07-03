@@ -24,30 +24,40 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#import <vlc_input.h>
+#import "intf.h"
+#import "StringUtility.h"
+#import "CompatibilityFixes.h"
+
+#import <IOKit/storage/IOMedia.h>
+#import <IOKit/storage/IOCDMedia.h>
+#import <IOKit/storage/IODVDMedia.h>
+#import <IOKit/storage/IOBDMedia.h>
+
+NSString *const kVLCMediaAudioCD = @"AudioCD";
+NSString *const kVLCMediaDVD = @"DVD";
+NSString *const kVLCMediaVCD = @"VCD";
+NSString *const kVLCMediaSVCD = @"SVCD";
+NSString *const kVLCMediaBD = @"Blu-ray";
+NSString *const kVLCMediaVideoTSFolder = @"VIDEO_TS";
+NSString *const kVLCMediaBDMVFolder = @"BDMV";
+NSString *const kVLCMediaUnknown = @"Unknown";
+
 #import <vlc_keys.h>
 #import <vlc_strings.h>
 
-#import "StringUtility.h"
-#import "intf.h"
-
 @implementation VLCStringUtility
 
-static VLCStringUtility *_o_sharedInstance = nil;
 
 + (VLCStringUtility *)sharedInstance
 {
-    return _o_sharedInstance ? _o_sharedInstance : [[self alloc] init];
-}
+    static VLCStringUtility *sharedInstance = nil;
+    static dispatch_once_t pred;
 
-- (id)init
-{
-    if (_o_sharedInstance)
-        [self dealloc];
-    else
-        _o_sharedInstance = [super init];
+    dispatch_once(&pred, ^{
+        sharedInstance = [VLCStringUtility new];
+    });
 
-    return _o_sharedInstance;
+    return sharedInstance;
 }
 
 #pragma mark -
@@ -58,10 +68,10 @@ static VLCStringUtility *_o_sharedInstance = nil;
     NSString * stringObject = nil;
 
     if (psz != NULL) {
-        stringObject = [NSString stringWithCString: _(psz) encoding:NSUTF8StringEncoding];
+        stringObject = toNSStr(_(psz));
 
         if (stringObject == NULL) {
-            msg_Err(VLCIntf, "could not translate: %s", psz);
+            msg_Err(getIntf(), "could not translate: %s", psz);
             return @"";
         }
     } else
@@ -87,9 +97,7 @@ static VLCStringUtility *_o_sharedInstance = nil;
                                     initWithContainerSize: NSMakeSize(i_width, 2000)];
 
     [o_layout_manager addTextContainer: o_container];
-    [o_container release];
     [o_storage addLayoutManager: o_layout_manager];
-    [o_layout_manager release];
 
     o_wrapped = [o_in_string mutableCopy];
     glyphRange = [o_layout_manager glyphRangeForTextContainer: o_container];
@@ -107,8 +115,6 @@ static VLCStringUtility *_o_sharedInstance = nil;
         }
     }
     o_out_string = [NSString stringWithString: o_wrapped];
-    [o_wrapped release];
-    [o_storage release];
 
     return o_out_string;
 }
@@ -117,19 +123,17 @@ static VLCStringUtility *_o_sharedInstance = nil;
 {
     assert(p_input != nil);
 
-    vlc_value_t time;
     char psz_time[MSTRTIME_MAX_SIZE];
-
-    var_Get(p_input, "time", &time);
+    int64_t t = var_GetInteger(p_input, "time");
 
     mtime_t dur = input_item_GetDuration(input_GetItem(p_input));
     if (b_negative && dur > 0) {
         mtime_t remaining = 0;
-        if (dur > time.i_time)
-            remaining = dur - time.i_time;
+        if (dur > t)
+            remaining = dur - t;
         return [NSString stringWithFormat: @"-%s", secstotimestr(psz_time, (remaining / 1000000))];
     } else
-        return [NSString stringWithUTF8String:secstotimestr(psz_time, (time.i_time / 1000000))];
+        return toNSStr(secstotimestr(psz_time, t / CLOCK_FREQ ));
 }
 
 - (NSString *)stringForTime:(long long int)time
@@ -393,5 +397,146 @@ NSString *toNSStr(const char *str) {
     return returnStr;
 }
 
+- (NSString *) getBSDNodeFromMountPath:(NSString *)mountPath
+{
+    OSStatus err;
+    FSRef ref;
+    FSVolumeRefNum actualVolume;
+    err = FSPathMakeRef ((const UInt8 *) [mountPath fileSystemRepresentation], &ref, NULL);
+
+    // get a FSVolumeRefNum from mountPath
+    if (noErr == err) {
+        FSCatalogInfo   catalogInfo;
+        err = FSGetCatalogInfo (&ref,
+                                kFSCatInfoVolume,
+                                &catalogInfo,
+                                NULL,
+                                NULL,
+                                NULL
+                                );
+        if (noErr == err)
+            actualVolume = catalogInfo.volume;
+        else
+            return @"";
+    }
+    else
+        return @"";
+
+    GetVolParmsInfoBuffer volumeParms;
+    err = FSGetVolumeParms(actualVolume, &volumeParms, sizeof(volumeParms));
+    if (noErr == err) {
+        NSString *bsdName = [NSString stringWithUTF8String:(char *)volumeParms.vMDeviceID];
+        return [NSString stringWithFormat:@"/dev/r%@", bsdName];
+    }
+
+    return @"";
+}
+
+- (NSString *)getVolumeTypeFromMountPath:(NSString *)mountPath
+{
+    OSStatus err;
+    FSRef ref;
+    FSVolumeRefNum actualVolume;
+    NSString *returnValue;
+    err = FSPathMakeRef ((const UInt8 *) [mountPath fileSystemRepresentation], &ref, NULL);
+
+    // get a FSVolumeRefNum from mountPath
+    if (noErr == err) {
+        FSCatalogInfo   catalogInfo;
+        err = FSGetCatalogInfo (&ref,
+                                kFSCatInfoVolume,
+                                &catalogInfo,
+                                NULL,
+                                NULL,
+                                NULL
+                                );
+        if (noErr == err)
+            actualVolume = catalogInfo.volume;
+        else
+            goto out;
+    }
+    else
+        goto out;
+
+    GetVolParmsInfoBuffer volumeParms;
+    err = FSGetVolumeParms(actualVolume, &volumeParms, sizeof(volumeParms));
+
+    CFMutableDictionaryRef matchingDict;
+    io_service_t service;
+
+    if (!volumeParms.vMDeviceID) {
+        goto out;
+    }
+
+    matchingDict = IOBSDNameMatching(kIOMasterPortDefault, 0, volumeParms.vMDeviceID);
+    service = IOServiceGetMatchingService(kIOMasterPortDefault, matchingDict);
+
+    if (IO_OBJECT_NULL != service) {
+        if (IOObjectConformsTo(service, kIOCDMediaClass))
+            returnValue = kVLCMediaAudioCD;
+        else if (IOObjectConformsTo(service, kIODVDMediaClass))
+            returnValue = kVLCMediaDVD;
+        else if (IOObjectConformsTo(service, kIOBDMediaClass))
+            returnValue = kVLCMediaBD;
+        IOObjectRelease(service);
+
+        if (returnValue)
+            return returnValue;
+    }
+
+    out:
+    if ([mountPath rangeOfString:@"VIDEO_TS" options:NSCaseInsensitiveSearch | NSBackwardsSearch].location != NSNotFound)
+        returnValue = kVLCMediaVideoTSFolder;
+    else if ([mountPath rangeOfString:@"BDMV" options:NSCaseInsensitiveSearch | NSBackwardsSearch].location != NSNotFound)
+        returnValue = kVLCMediaBDMVFolder;
+    else {
+        // NSFileManager is not thread-safe, don't use defaultManager outside of the main thread
+        NSFileManager * fm = [[NSFileManager alloc] init];
+
+        NSArray *dirContents = [fm contentsOfDirectoryAtPath:mountPath error:nil];
+        for (int i = 0; i < [dirContents count]; i++) {
+            NSString *currentFile = [dirContents objectAtIndex:i];
+            NSString *fullPath = [mountPath stringByAppendingPathComponent:currentFile];
+
+            BOOL isDir;
+            if ([fm fileExistsAtPath:fullPath isDirectory:&isDir] && isDir)
+            {
+                if ([currentFile caseInsensitiveCompare:@"SVCD"] == NSOrderedSame) {
+                    returnValue = kVLCMediaSVCD;
+                    break;
+                }
+                if ([currentFile caseInsensitiveCompare:@"VCD"] == NSOrderedSame) {
+                    returnValue = kVLCMediaVCD;
+                    break;
+                }
+                if ([currentFile caseInsensitiveCompare:@"BDMV"] == NSOrderedSame) {
+                    returnValue = kVLCMediaBDMVFolder;
+                    break;
+                }
+                if ([currentFile caseInsensitiveCompare:@"VIDEO_TS"] == NSOrderedSame) {
+                    returnValue = kVLCMediaVideoTSFolder;
+                    break;
+                }
+            }
+        }
+
+        if (!returnValue)
+            returnValue = kVLCMediaVideoTSFolder;
+    }
+
+    return returnValue;
+}
 
 @end
+
+NSImage *imageFromRes(NSString *o_id)
+{
+    NSString *result = @"";
+    if (OSX_YOSEMITE || OSX_EL_CAPITAN || OSX_SIERRA) {
+        result = [result stringByAppendingString:@"ys-"];
+    }
+
+    result = [result stringByAppendingString:o_id];
+
+    return [NSImage imageNamed:result];
+}

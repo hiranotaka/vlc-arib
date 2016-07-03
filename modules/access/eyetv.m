@@ -34,6 +34,7 @@
 #include <vlc_access.h>
 
 #include <vlc_network.h>
+#include <vlc_interrupt.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -85,57 +86,57 @@ static int Control(access_t *, int, va_list);
 
 static void selectChannel(vlc_object_t *p_this, int theChannelNum)
 {
-    NSAppleScript *script;
-    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-    switch(theChannelNum) {
-        case -2: // Composite
-            script = [[NSAppleScript alloc] initWithSource:
-                        @"tell application \"EyeTV\"\n"
-                         "  input_change input source composite video input\n"
-                         "  volume_change level 0\n"
-                         "  show player_window\n"
-                         "  tell application \"System Events\" to set visible of process \"EyeTV\" to false\n"
-                         "end tell"];
-            break;
-        case -1: // S-Video
-            script = [[NSAppleScript alloc] initWithSource:
-                        @"tell application \"EyeTV\"\n"
-                         "  input_change input source S video input\n"
-                         "  volume_change level 0\n"
-                         "  show player_window\n"
-                         "  tell application \"System Events\" to set visible of process \"EyeTV\" to false\n"
-                         "end tell"];
-            break;
-        case 0: // Last
-            script = [[NSAppleScript alloc] initWithSource:
-                        @"tell application \"EyeTV\"\n"
-                         "  volume_change level 0\n"
-                         "  show player_window\n"
-                         "  tell application \"System Events\" to set visible of process \"EyeTV\" to false\n"
-                         "end tell"];
-            break;
-        default:
-            if (theChannelNum > 0) {
-                NSString *channel_change = [NSString stringWithFormat:
-                    @"tell application \"EyeTV\"\n"
-                     "  channel_change channel number %d\n"
-                     "  volume_change level 0\n"
-                     "  show player_window\n"
-                     "  tell application \"System Events\" to set visible of process \"EyeTV\" to false\n"
-                     "end tell", theChannelNum];
-                script = [[NSAppleScript alloc] initWithSource:channel_change];
-            }
-            else
-                return;
+    @autoreleasepool {
+        NSAppleScript *script;
+        switch(theChannelNum) {
+            case -2: // Composite
+                script = [[NSAppleScript alloc] initWithSource:
+                          @"tell application \"EyeTV\"\n"
+                          "  input_change input source composite video input\n"
+                          "  volume_change level 0\n"
+                          "  show player_window\n"
+                          "  tell application \"System Events\" to set visible of process \"EyeTV\" to false\n"
+                          "end tell"];
+                break;
+            case -1: // S-Video
+                script = [[NSAppleScript alloc] initWithSource:
+                          @"tell application \"EyeTV\"\n"
+                          "  input_change input source S video input\n"
+                          "  volume_change level 0\n"
+                          "  show player_window\n"
+                          "  tell application \"System Events\" to set visible of process \"EyeTV\" to false\n"
+                          "end tell"];
+                break;
+            case 0: // Last
+                script = [[NSAppleScript alloc] initWithSource:
+                          @"tell application \"EyeTV\"\n"
+                          "  volume_change level 0\n"
+                          "  show player_window\n"
+                          "  tell application \"System Events\" to set visible of process \"EyeTV\" to false\n"
+                          "end tell"];
+                break;
+            default:
+                if (theChannelNum > 0) {
+                    NSString *channel_change = [NSString stringWithFormat:
+                                                @"tell application \"EyeTV\"\n"
+                                                "  channel_change channel number %d\n"
+                                                "  volume_change level 0\n"
+                                                "  show player_window\n"
+                                                "  tell application \"System Events\" to set visible of process \"EyeTV\" to false\n"
+                                                "end tell", theChannelNum];
+                    script = [[NSAppleScript alloc] initWithSource:channel_change];
+                }
+                else
+                    return;
+        }
+        NSDictionary *errorDict;
+        NSAppleEventDescriptor *descriptor = [script executeAndReturnError:&errorDict];
+        if (nil == descriptor) {
+            NSString *errorString = [errorDict objectForKey:NSAppleScriptErrorMessage];
+            msg_Err(p_this, "EyeTV source change failed with error status '%s'", [errorString UTF8String]);
+        }
+        [script release];
     }
-    NSDictionary *errorDict;
-    NSAppleEventDescriptor *descriptor = [script executeAndReturnError:&errorDict];
-    if (nil == descriptor) {
-        NSString *errorString = [errorDict objectForKey:NSAppleScriptErrorMessage];
-        msg_Err(p_this, "EyeTV source change failed with error status '%s'", [errorString UTF8String]);
-    }
-    [script release];
-    [pool release];
 }
 
 /*****************************************************************************
@@ -170,7 +171,7 @@ static int Open(vlc_object_t *p_this)
         return VLC_EGENERIC;
     }
 
-    publicSock = socket(PF_UNIX, SOCK_STREAM, 0);
+    publicSock = vlc_socket(PF_UNIX, SOCK_STREAM, 0, false);
     if (publicSock == -1) {
         msg_Err(p_access, "create local socket failed (errno=%d)", errno);
         free(p_sys);
@@ -179,7 +180,7 @@ static int Open(vlc_object_t *p_this)
 
     if (bind(publicSock, (struct sockaddr *)&publicAddr, sizeof(struct sockaddr_un)) == -1) {
         msg_Err(p_access, "bind local socket failed (errno=%d)", errno);
-        close(publicSock);
+        vlc_close(publicSock);
         free(p_sys);
         return VLC_EGENERIC;
     }
@@ -187,7 +188,7 @@ static int Open(vlc_object_t *p_this)
     /* we are not expecting more than one connection */
     if (listen(publicSock, 1) == -1) {
         msg_Err(p_access, "cannot accept connection (errno=%d)", errno);
-        close(publicSock);
+        vlc_close(publicSock);
         free(p_sys);
         return VLC_EGENERIC;
     } else {
@@ -206,7 +207,7 @@ static int Open(vlc_object_t *p_this)
         peerSock = accept(publicSock, (struct sockaddr *)&peerAddr, &peerSockLen);
         if (peerSock == -1) {
             msg_Err(p_access, "cannot wait for connection (errno=%d)", errno);
-            close(publicSock);
+            vlc_close(publicSock);
             free(p_sys);
             return VLC_EGENERIC;
         }
@@ -216,7 +217,7 @@ static int Open(vlc_object_t *p_this)
         p_sys->eyetvSock = peerSock;
 
         /* remove public access */
-        close(publicSock);
+        vlc_close(publicSock);
         unlink(publicAddr.sun_path);
     }
     return VLC_SUCCESS;
@@ -240,7 +241,7 @@ static void Close(vlc_object_t *p_this)
                                           TRUE);
     msg_Dbg(p_access, "plugin notified");
 
-    close(p_sys->eyetvSock);
+    vlc_close(p_sys->eyetvSock);
     msg_Dbg(p_access, "msg port closed and freed");
 
     free(p_sys);
@@ -260,8 +261,7 @@ static block_t *BlockRead(access_t *p_access)
 
     /* Read data */
     p_block = block_Alloc(MTU);
-    len = net_Read(p_access, p_sys->eyetvSock, NULL,
-                    p_block->p_buffer, MTU, false);
+    len = vlc_read_i11e(p_sys->eyetvSock, p_block->p_buffer, MTU);
 
     if (len < 0) {
         block_Release(p_block);

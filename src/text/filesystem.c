@@ -30,7 +30,6 @@
 
 #include <vlc_common.h>
 #include <vlc_fs.h>
-#include <vlc_rand.h>
 
 #include <assert.h>
 
@@ -94,7 +93,7 @@ FILE *vlc_fopen (const char *filename, const char *mode)
 
     FILE *stream = fdopen (fd, mode);
     if (stream == NULL)
-        close (fd);
+        vlc_close (fd);
 
     return stream;
 }
@@ -153,7 +152,7 @@ int vlc_loaddir( DIR *dir, char ***namelist,
             num++;
     }
 
-    if (compar != NULL)
+    if (compar != NULL && num > 0)
         qsort (tab, num, sizeof (*tab),
                (int (*)( const void *, const void *))compar);
     *namelist = tab;
@@ -191,6 +190,9 @@ int vlc_scandir( const char *dirname, char ***namelist,
     }
     return val;
 }
+
+#if defined (_WIN32) || defined (__OS2__)
+# include <vlc_rand.h>
 
 int vlc_mkstemp( char *template )
 {
@@ -231,3 +233,4 @@ int vlc_mkstemp( char *template )
     errno = EEXIST;
     return -1;
 }
+#endif

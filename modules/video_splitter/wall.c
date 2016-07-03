@@ -69,7 +69,7 @@ vlc_module_begin()
     set_shortname( N_("Image wall" ))
     set_capability( "video splitter", 0 )
     set_category( CAT_VIDEO )
-    set_subcategory( SUBCAT_VIDEO_VFILTER )
+    set_subcategory( SUBCAT_VIDEO_SPLITTER )
 
     add_integer( CFG_PREFIX "cols", 3, COLS_TEXT, COLS_LONGTEXT, false )
     change_integer_range( 1, COL_MAX )
@@ -361,7 +361,7 @@ static int Open( vlc_object_t *p_this )
             p_cfg->fmt.i_height         = p_output->i_height;
             p_cfg->fmt.i_sar_num        = (int64_t)i_aspect * i_target_height;
             p_cfg->fmt.i_sar_den        = VOUT_ASPECT_FACTOR * i_target_width;
-            p_cfg->window.i_x     = p_output->i_left; /* FIXME relative to video-x/y (TODO in wrapper.c) ? */
+            p_cfg->window.i_x     = p_output->i_left;
             p_cfg->window.i_y     = p_output->i_top;
             p_cfg->window.i_align = p_output->i_align;
             p_cfg->psz_module = NULL;
@@ -446,7 +446,7 @@ static int Mouse( video_splitter_t *p_splitter, vlc_mouse_t *p_mouse,
             }
         }
     }
-    assert(0);
+    vlc_assert_unreachable();
     return VLC_EGENERIC;
 }
 

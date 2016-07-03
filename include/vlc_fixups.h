@@ -26,8 +26,36 @@
 #ifndef LIBVLC_FIXUPS_H
 # define LIBVLC_FIXUPS_H 1
 
-#if !defined (HAVE_GMTIME_R) || !defined (HAVE_LOCALTIME_R)
+/* needed to detect uClibc */
+#ifdef HAVE_FEATURES_H
+#include <features.h>
+#endif
+
+/* C++11 says there's no need to define __STDC_*_MACROS when including
+ * inttypes.h and stdint.h. */
+#if defined (__cplusplus) && (!defined(HAVE_CXX11) || defined(__MINGW32__) || defined(__UCLIBC__))
+# ifndef __STDC_FORMAT_MACROS
+#  define __STDC_FORMAT_MACROS 1
+# endif
+# ifndef __STDC_CONSTANT_MACROS
+#  define __STDC_CONSTANT_MACROS 1
+# endif
+# ifndef __STDC_LIMIT_MACROS
+#  define __STDC_LIMIT_MACROS 1
+# endif
+#endif
+
+#if !defined (HAVE_GMTIME_R) || !defined (HAVE_LOCALTIME_R) \
+ || !defined (HAVE_TIMEGM)
 # include <time.h> /* time_t */
+#endif
+
+#ifndef HAVE_GETTIMEOFDAY
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <sys/time.h>
+#endif
 #endif
 
 #ifndef HAVE_LLDIV
@@ -51,7 +79,8 @@ typedef struct
 #if !defined (HAVE_POSIX_MEMALIGN) || \
     !defined (HAVE_STRLCPY) || \
     !defined (HAVE_STRNDUP) || \
-    !defined (HAVE_STRNLEN)
+    !defined (HAVE_STRNLEN) || \
+    !defined (HAVE_STRNSTR)
 # include <stddef.h> /* size_t */
 #endif
 
@@ -106,6 +135,10 @@ int vasprintf (char **, const char *, va_list);
 #endif
 
 /* string.h */
+#ifndef HAVE_FFSLL
+int ffsll(unsigned long long);
+#endif
+
 #ifndef HAVE_STRCASECMP
 int strcasecmp (const char *, const char *);
 #endif
@@ -124,6 +157,10 @@ int strverscmp (const char *, const char *);
 
 #ifndef HAVE_STRNLEN
 size_t strnlen (const char *, size_t);
+#endif
+
+#ifndef HAVE_STRNSTR
+char * strnstr (const char *, const char *, size_t);
 #endif
 
 #ifndef HAVE_STRNDUP
@@ -174,6 +211,21 @@ struct tm *gmtime_r (const time_t *, struct tm *);
 
 #ifndef HAVE_LOCALTIME_R
 struct tm *localtime_r (const time_t *, struct tm *);
+#endif
+
+#ifndef HAVE_TIMEGM
+time_t timegm(struct tm *);
+#endif
+
+#ifndef HAVE_TIMESPEC_GET
+#define TIME_UTC 1
+struct timespec;
+int timespec_get(struct timespec *, int);
+#endif
+
+/* sys/time.h */
+#ifndef HAVE_GETTIMEOFDAY
+int gettimeofday(struct timeval *, struct timezone *);
 #endif
 
 /* unistd.h */
@@ -239,8 +291,10 @@ static inline locale_t newlocale(int mask, const char * locale, locale_t base)
 }
 #endif
 
-#if !defined (HAVE_STATIC_ASSERT)
-# define _Static_assert(x, s) ((void) sizeof (struct { unsigned:-!(x); }))
+#if !defined (HAVE_STATIC_ASSERT) && !defined(__cpp_static_assert)
+# define STATIC_ASSERT_CONCAT_(a, b) a##b
+# define STATIC_ASSERT_CONCAT(a, b) STATIC_ASSERT_CONCAT_(a, b)
+# define _Static_assert(x, s) extern char STATIC_ASSERT_CONCAT(static_assert_, __LINE__)[sizeof(struct { unsigned:-!(x); })]
 # define static_assert _Static_assert
 #endif
 
@@ -256,6 +310,10 @@ static inline locale_t newlocale(int mask, const char * locale, locale_t base)
 #define N_(str)           gettext_noop (str)
 #define gettext_noop(str) (str)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef HAVE_SWAB
 void swab (const void *, void *, ssize_t);
 #endif
@@ -269,13 +327,17 @@ const char *inet_ntop(int, const void *, char *, int);
 #ifndef HAVE_STRUCT_POLLFD
 enum
 {
-    POLLIN=1,
-    POLLOUT=2,
-    POLLPRI=4,
-    POLLERR=8,  // unsupported stub
-    POLLHUP=16, // unsupported stub
-    POLLNVAL=32 // unsupported stub
+    POLLERR=0x1,
+    POLLHUP=0x2,
+    POLLNVAL=0x4,
+    POLLWRNORM=0x10,
+    POLLWRBAND=0x20,
+    POLLRDNORM=0x100,
+    POLLRDBAND=0x200,
+    POLLPRI=0x400,
 };
+#define POLLIN  (POLLRDNORM|POLLRDBAND)
+#define POLLOUT (POLLWRNORM|POLLWRBAND)
 
 struct pollfd
 {
@@ -303,6 +365,42 @@ struct if_nameindex
 # define if_freenameindex(list) (void)0
 #endif
 
+#ifndef HAVE_STRUCT_TIMESPEC
+struct timespec {
+    time_t  tv_sec;   /* Seconds */
+    long    tv_nsec;  /* Nanoseconds */
+};
+#endif
+
+#ifdef _WIN32
+struct iovec
+{
+    void  *iov_base;
+    size_t iov_len;
+};
+#define IOV_MAX 255
+struct msghdr
+{
+    void         *msg_name;
+    size_t        msg_namelen;
+    struct iovec *msg_iov;
+    size_t        msg_iovlen;
+    void         *msg_control;
+    size_t        msg_controllen;
+    int           msg_flags;
+};
+#endif
+
+#ifndef HAVE_RECVMSG
+struct msghdr;
+ssize_t recvmsg(int, struct msghdr *, int);
+#endif
+
+#ifndef HAVE_SENDMSG
+struct msghdr;
+ssize_t sendmsg(int, const struct msghdr *, int);
+#endif
+
 /* search.h */
 #ifndef HAVE_SEARCH_H
 typedef struct entry {
@@ -328,6 +426,7 @@ void twalk( const void *root, void(*action)(const void *nodep, VISIT which, int 
 void tdestroy( void *root, void (*free_node)(void *nodep) );
 #else // HAVE_SEARCH_H
 # ifndef HAVE_TDESTROY
+void vlc_tdestroy( void *, void (*)(void *) );
 #  define tdestroy vlc_tdestroy
 # endif
 #endif
@@ -341,12 +440,34 @@ long nrand48 (unsigned short subi[3]);
 
 #ifdef __OS2__
 # undef HAVE_FORK   /* Implementation of fork() is imperfect on OS/2 */
+
+struct addrinfo
+{
+    int ai_flags;
+    int ai_family;
+    int ai_socktype;
+    int ai_protocol;
+    size_t ai_addrlen;
+    struct sockaddr *ai_addr;
+    char *ai_canonname;
+    struct addrinfo *ai_next;
+};
+
+void freeaddrinfo (struct addrinfo *res);
 #endif
 
 /* math.h */
 
-#ifdef __ANDROID__
+#ifndef HAVE_NANF
 #define nanf(tagp) NAN
+#endif
+
+#ifdef _WIN32
+FILE *vlc_win32_tmpfile(void);
+#endif
+
+#ifdef __cplusplus
+} /* extern "C" */
 #endif
 
 #endif /* !LIBVLC_FIXUPS_H */

@@ -8,7 +8,7 @@ PTHREADS_W32_VERSION := 2-9-1
 PTHREADS_W32_URL := ftp://sources.redhat.com/pub/pthreads-win32/pthreads-w32-$(PTHREADS_W32_VERSION)-release.tar.gz
 
 $(TARBALLS)/pthreads-w32-$(PTHREADS_W32_VERSION)-release.tar.gz:
-	$(call download,$(PTHREADS_W32_URL))
+	$(call download_pkg,$(PTHREADS_W32_URL),pthreads)
 
 .sum-pthreads: pthreads-w32-$(PTHREADS_W32_VERSION)-release.tar.gz
 
@@ -16,6 +16,9 @@ ifdef HAVE_WIN32
 pthreads: pthreads-w32-$(PTHREADS_W32_VERSION)-release.tar.gz .sum-pthreads
 	$(UNPACK)
 	sed -e 's/^CROSS.*=/CROSS ?=/' -i.orig $(UNPACK_DIR)/GNUmakefile
+ifdef HAVE_WINSTORE
+	$(APPLY) $(SRC)/pthreads/winrt.patch
+endif
 	$(MOVE)
 
 ifdef HAVE_CROSS_COMPILE

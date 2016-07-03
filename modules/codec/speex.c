@@ -194,6 +194,7 @@ static block_t *DecodeRtpSpeexPacket( decoder_t *, block_t **);
 static int  ProcessHeaders( decoder_t * );
 static int  ProcessInitialHeader ( decoder_t *, ogg_packet * );
 static void *ProcessPacket( decoder_t *, ogg_packet *, block_t ** );
+static void Flush( decoder_t * );
 
 static block_t *DecodePacket( decoder_t *, ogg_packet * );
 static block_t *SendPacket( decoder_t *, block_t * );
@@ -242,6 +243,7 @@ static int OpenDecoder( vlc_object_t *p_this )
         p_dec->pf_decode_audio = DecodeBlock;
     }
     p_dec->pf_packetize    = DecodeBlock;
+    p_dec->pf_flush        = Flush;
 
     p_sys->p_state = NULL;
     p_sys->p_header = NULL;
@@ -335,11 +337,13 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
     if( !pp_block ) return NULL;
 
-    if( *pp_block )
+    block_t *block = *pp_block;
+
+    if( block != NULL )
     {
         /* Block to Ogg packet */
-        oggpacket.packet = (*pp_block)->p_buffer;
-        oggpacket.bytes = (*pp_block)->i_buffer;
+        oggpacket.packet = block->p_buffer;
+        oggpacket.bytes = block->i_buffer;
     }
     else
     {
@@ -364,13 +368,15 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
             if( CreateDefaultHeader( p_dec ) )
             {
-                block_Release( *pp_block );
+                if( block != NULL )
+                    block_Release( block );
                 return NULL;
             }
         }
         else if( ProcessHeaders( p_dec ) )
         {
-            block_Release( *pp_block );
+            if( block != NULL )
+                block_Release( block );
             return NULL;
         }
         p_sys->b_has_headers = true;
@@ -418,9 +424,14 @@ static int ProcessHeaders( decoder_t *p_dec )
 
     if( p_sys->b_packetizer )
     {
+        void* p_extra = realloc( p_dec->fmt_out.p_extra,
+                                 p_dec->fmt_in.i_extra );
+        if( unlikely( p_extra == NULL ) )
+        {
+            return VLC_ENOMEM;
+        }
+        p_dec->fmt_out.p_extra = p_extra;
         p_dec->fmt_out.i_extra = p_dec->fmt_in.i_extra;
-        p_dec->fmt_out.p_extra = xrealloc( p_dec->fmt_out.p_extra,
-                                                  p_dec->fmt_out.i_extra );
         memcpy( p_dec->fmt_out.p_extra,
                 p_dec->fmt_in.p_extra, p_dec->fmt_out.i_extra );
     }
@@ -522,6 +533,16 @@ static int ProcessInitialHeader( decoder_t *p_dec, ogg_packet *p_oggpacket )
 }
 
 /*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    date_Set( &p_sys->end_date, 0 );
+}
+
+/*****************************************************************************
  * ProcessPacket: processes a Speex packet.
  *****************************************************************************/
 static void *ProcessPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
@@ -529,6 +550,9 @@ static void *ProcessPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     block_t *p_block = *pp_block;
+
+    if( p_block && p_block->i_flags & BLOCK_FLAG_DISCONTINUITY )
+        Flush( p_dec );
 
     /* Date management */
     if( p_block && p_block->i_pts > VLC_TS_INVALID &&
@@ -933,7 +957,7 @@ static int OpenEncoder( vlc_object_t *p_this )
     uint8_t *p_extra;
 
     if( p_enc->fmt_out.i_codec != VLC_CODEC_SPEEX &&
-        !p_enc->b_force )
+        !p_enc->obj.force )
     {
         return VLC_EGENERIC;
     }
@@ -1057,7 +1081,7 @@ static block_t *Encode( encoder_t *p_enc, block_t *p_aout_buf )
     if( unlikely( !p_aout_buf ) ) return NULL;
 
     unsigned char *p_buffer = p_aout_buf->p_buffer;
-    int i_samples = p_aout_buf->i_nb_samples;
+    unsigned i_samples = p_aout_buf->i_nb_samples;
     int i_samples_delay = p_sys->i_samples_delay;
 
     mtime_t i_pts = p_aout_buf->i_pts -

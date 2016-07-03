@@ -1017,3 +1017,29 @@ reactor leaks ionizing radiations."
  with pthreads, and the useless ones
  -- IRC, trol^Wdebating on mobile OSes
 %
+ -!- courmisch is now known as EvilCourmisch
+< cone-129> vlc.git Rémi Denis-Courmont NEWS configure.ac
+ modules/logger/Makefile.am modules/logger/journal.c:
+ journal: add native logger module for the SystemD Journal
+< EvilCourmisch> muahahahahahahahahahahahahahahahahahahahahaha
+ -- IRC, we're loosing Rémi!
+%
+< courmisch> lo
+< j-b> courmisch: SanDiego?
+< courmisch> j-b: uh?
+< j-b> uh!
+ * j-b lost context
+ * evilril gives j-b an MpegEncContext
+< courmisch> this happens when you omit the frame pointer
+< Sean_McG> lol
+ -- IRC, MpegEncContext is evil
+%
+< VLC> http://www.videolan.org/developers/libdvdcss.txt
+< VLC> i want to know if this is only for reading content, or also for ripping it
+< VLC> does VLC provide any kind of protection against unauthorized ripping?
+< VLC> or is this within the scope of the end user?
+<@j-b> end user
+< courmisch> VLC: what's the difference between ripping and reading?
+< TypX> courmisch: Jack the Reader was way less dangerous than Jack the Ripper
+ -- #videolan, badum ching
+%

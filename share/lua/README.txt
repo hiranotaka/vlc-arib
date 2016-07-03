@@ -71,7 +71,7 @@ d:add_label( text, ... ): Create a text label with caption "text" (string).
 d:add_html( text, ... ): Create a rich text label with caption "text" (string), that supports basic HTML formatting (such as <i> or <h1> for instance).
 d:add_text_input( text, ... ): Create an editable text field, in order to read user input.
 d:add_password( text, ... ): Create an editable text field, in order to read user input. Text entered in this box will not be readable (replaced by asterisks).
-d:add_check_box( text, ... ): Create a check box with a text. They have a boolean state (true/false).
+d:add_check_box( text, state, ... ): Create a check box with a text. They have a boolean state (true/false).
 d:add_dropdown( ... ): Create a drop-down widget. Only 1 element can be selected the same time.
 d:add_list( ... ): Create a list widget. Allows multiple or empty selections.
 d:add_image( path, ... ): Create an image label. path is a relative or absolute path to the image on the local computer.
@@ -163,7 +163,7 @@ Net
 /!\ NB: this namespace is ONLY usable for interfaces and extensions.
 ---
 ----------------------------------------------------------------
-net.url_parse( url, [option delimiter] ): Parse URL. Returns a table with
+net.url_parse( url ): Parse URL. Returns a table with
   fields "protocol", "username", "password", "host", "port", path" and
   "option".
 net.listen_tcp( host, port ): Listen to TCP connections. This returns an
@@ -241,8 +241,8 @@ playlist.loop( [status] ): Toggle playlist loop or set to specified value.
 playlist.random( [status] ): Toggle playlist random or set to specified value.
 playlist.goto( id ): Go to specified track.
 playlist.add( ... ): Add a bunch of items to the playlist.
-  The playlist is a table of playlist objects.
-  A playlist object has the following members:
+  The playlist is a table of playlist items.
+  A playlist item has the following members:
       .path: the item's full path / URL
       .name: the item's name in playlist (OPTIONAL)
       .title: the item's Title (OPTIONAL, meta data)
@@ -263,7 +263,7 @@ playlist.add( ... ): Add a bunch of items to the playlist.
       .arturl: the item's ArtURL (OPTIONAL, meta data)
       .trackid: the item's TrackID (OPTIONAL, meta data)
       .options: a list of VLC options (OPTIONAL)
-                example: .options = { "fullscreen" }
+                example: .options = { "run-time=60" }
       .duration: stream duration in seconds (OPTIONAL)
       .meta: custom meta data (OPTIONAL, meta data)
              A .meta field is a table of custom meta key value pairs.

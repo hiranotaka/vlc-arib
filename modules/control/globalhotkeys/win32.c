@@ -26,6 +26,7 @@
 
 #include <ctype.h>
 
+#define VLC_MODULE_LICENSE VLC_LICENSE_GPL_2_PLUS
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_interface.h>
@@ -166,7 +167,7 @@ static void *Thread( void *p_data )
             (LONG_PTR)p_intf );
 
     /* Registering of Hotkeys */
-    for( const struct hotkey *p_hotkey = p_intf->p_libvlc->p_hotkeys;
+    for( const struct hotkey *p_hotkey = p_intf->obj.libvlc->p_hotkeys;
             p_hotkey->psz_action != NULL;
             p_hotkey++ )
     {
@@ -265,7 +266,7 @@ static void *Thread( void *p_data )
         DispatchMessage( &message );
 
     /* Unregistering of Hotkeys */
-    for( const struct hotkey *p_hotkey = p_intf->p_libvlc->p_hotkeys;
+    for( const struct hotkey *p_hotkey = p_intf->obj.libvlc->p_hotkeys;
             p_hotkey->psz_action != NULL;
             p_hotkey++ )
     {
@@ -310,7 +311,7 @@ LRESULT CALLBACK WMHOTKEYPROC( HWND hwnd, UINT uMsg, WPARAM wParam,
                 vlc_action_t action = vlc_GetActionId( psz_atomName );
                 if( action != ACTIONID_NONE )
                 {
-                    var_SetInteger( p_intf->p_libvlc,
+                    var_SetInteger( p_intf->obj.libvlc,
                             "key-action", action );
                     return 1;
                 }

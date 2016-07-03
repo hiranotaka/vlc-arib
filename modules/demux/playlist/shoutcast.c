@@ -59,6 +59,7 @@ int Import_Shoutcast( vlc_object_t *p_this )
 {
     demux_t *p_demux = (demux_t *)p_this;
 
+    CHECK_FILE();
     if( !demux_IsForced( p_demux, "shout-winamp" ) )
         return VLC_EGENERIC;
 
@@ -170,9 +171,9 @@ static int DemuxGenre( demux_t *p_demux, xml_reader_t *p_xml_reader,
                                   psz_name ) != -1 )
                     {
                         input_item_t *p_input;
-                        resolve_xml_special_chars( psz_mrl );
+                        vlc_xml_decode( psz_mrl );
                         p_input = input_item_New( psz_mrl, psz_name );
-                        input_item_CopyOptions( p_input_node->p_item, p_input );
+                        input_item_CopyOptions( p_input, p_input_node->p_item );
                         free( psz_mrl );
                         input_item_node_AppendItem( p_input_node, p_input );
                         vlc_gc_decref( p_input );
@@ -314,28 +315,36 @@ static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
                     }
 
                     /* Create the item */
-                    input_item_t *p_input;
-                    resolve_xml_special_chars( psz_mrl );
-                    p_input = input_item_New( psz_mrl, psz_name );
-                    input_item_CopyOptions( p_input_node->p_item, p_input );
-                    free( psz_mrl );
+                    input_item_t *p_input = NULL;
+
+                    if( likely(psz_mrl != NULL) )
+                    {
+                        vlc_xml_decode( psz_mrl );
+                        p_input = input_item_New( psz_mrl, psz_name );
+                        free( psz_mrl );
+                    }
+
+                    if( likely(p_input != NULL) )
+                    {
+                        input_item_CopyOptions( p_input, p_input_node->p_item );
 
 #define SADD_INFO( type, field ) \
                     if( field ) \
                         input_item_AddInfo( p_input, _("Shoutcast"), \
                                             vlc_gettext(type), "%s", field )
-                    SADD_INFO( N_("Mime"), psz_mt );
-                    SADD_INFO( N_("Bitrate"), psz_br );
-                    SADD_INFO( N_("Listeners"), psz_lc );
-                    SADD_INFO( N_("Load"), psz_load );
-                    if( psz_genre )
-                        input_item_SetGenre( p_input, psz_genre );
-                    if( psz_ct )
-                        input_item_SetNowPlaying( p_input, psz_ct );
-                    if( psz_rt )
-                        input_item_SetRating( p_input, psz_rt );
-                    input_item_node_AppendItem( p_input_node, p_input );
-                    vlc_gc_decref( p_input );
+                        SADD_INFO( N_("Mime"), psz_mt );
+                        SADD_INFO( N_("Bitrate"), psz_br );
+                        SADD_INFO( N_("Listeners"), psz_lc );
+                        SADD_INFO( N_("Load"), psz_load );
+                        if( psz_genre )
+                            input_item_SetGenre( p_input, psz_genre );
+                        if( psz_ct )
+                            input_item_SetNowPlaying( p_input, psz_ct );
+                        if( psz_rt )
+                            input_item_SetRating( p_input, psz_rt );
+                        input_item_node_AppendItem( p_input_node, p_input );
+                        vlc_gc_decref( p_input );
+                    }
                     FREENULL( psz_base );
                     FREENULL( psz_name );
                     FREENULL( psz_mt );

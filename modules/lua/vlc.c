@@ -32,6 +32,8 @@
 #include <assert.h>
 #include <sys/stat.h>
 
+#define VLC_MODULE_LICENSE VLC_LICENSE_GPL_2_PLUS
+
 #include "vlc.h"
 
 #include <vlc_plugin.h>
@@ -213,7 +215,7 @@ int vlclua_dir_list( const char *luadirname, char ***pppsz_dir_list )
         i++;
     free( datadir );
 
-#if !(defined(__APPLE__) || defined(_WIN32) || defined(__OS2__))
+#if !(defined(__APPLE__) || defined(_WIN32))
     char *psz_libpath = config_GetLibDir();
     if( likely(psz_libpath != NULL) )
     {
@@ -294,8 +296,7 @@ int vlclua_scripts_batch_execute( vlc_object_t *p_this,
 
             if( likely(psz_filename != NULL) )
             {
-                msg_Dbg( p_this, "Trying Lua playlist script %s",
-                         psz_filename );
+                msg_Dbg( p_this, "Trying Lua playlist script %s", psz_filename );
                 i_ret = func( p_this, psz_filename, user_data );
                 free( psz_filename );
                 if( i_ret == VLC_SUCCESS )
@@ -540,10 +541,11 @@ int vlclua_playlist_add_internal( vlc_object_t *p_this, lua_State *L,
                     vlclua_read_options( p_this, L, &i_options, &ppsz_options );
 
                     /* Create input item */
-                    p_input = input_item_NewExt( psz_path, psz_name, i_options,
-                                                (const char **)ppsz_options,
-                                                VLC_INPUT_OPTION_TRUSTED,
-                                                i_duration );
+                    p_input = input_item_NewExt( psz_path, psz_name, i_duration,
+                                                 ITEM_TYPE_UNKNOWN, ITEM_NET_UNKNOWN );
+                    input_item_AddOptions( p_input, i_options,
+                                           (const char **)ppsz_options,
+                                           VLC_INPUT_OPTION_TRUSTED );
                     lua_pop( L, 3 ); /* pop "path name item" */
                     /* playlist key item */
 
@@ -573,7 +575,7 @@ int vlclua_playlist_add_internal( vlc_object_t *p_this, lua_State *L,
                     /* Append item to playlist */
                     if( p_parent ) /* Add to node */
                     {
-                        input_item_CopyOptions( p_parent, p_input );
+                        input_item_CopyOptions( p_input, p_parent );
                         input_item_node_AppendItem( p_parent_node, p_input );
                     }
                     else /* Play or Enqueue (preparse) */
@@ -669,7 +671,7 @@ static int vlc_sd_probe_Open( vlc_object_t *obj )
                 free( psz_filename );
                 goto error;
             }
-            if( luaL_dofile( L, psz_filename ) )
+            if( vlclua_dofile( VLC_OBJECT(probe), L, psz_filename ) )
             {
 
                 msg_Err( probe, "Error loading script %s: %s", psz_filename,
@@ -835,15 +837,23 @@ int vlclua_add_modules_path( lua_State *L, const char *psz_filename )
 }
 
 /** Replacement for luaL_dofile, using VLC's input capabilities */
-int vlclua_dofile( vlc_object_t *p_this, lua_State *L, const char *uri )
+int vlclua_dofile( vlc_object_t *p_this, lua_State *L, const char *curi )
 {
-    if( !strstr( uri, "://" ) )
-        return luaL_dofile( L, uri );
-    if( !strncasecmp( uri, "file://", 7 ) )
-        return luaL_dofile( L, uri + 7 );
+    char *uri = ToLocaleDup( curi );
+    if( !strstr( uri, "://" ) ) {
+        int ret = luaL_dofile( L, uri );
+        free( uri );
+        return ret;
+    }
+    if( !strncasecmp( uri, "file://", 7 ) ) {
+        int ret = luaL_dofile( L, uri + 7 );
+        free( uri );
+        return ret;
+    }
     stream_t *s = stream_UrlNew( p_this, uri );
     if( !s )
     {
+        free( uri );
         return 1;
     }
     int64_t i_size = stream_Size( s );
@@ -852,6 +862,7 @@ int vlclua_dofile( vlc_object_t *p_this, lua_State *L, const char *uri )
     {
         // FIXME: read the whole stream until we reach the end (if no size)
         stream_Delete( s );
+        free( uri );
         return 1;
     }
     int64_t i_read = stream_Read( s, p_buffer, (int) i_size );
@@ -862,5 +873,6 @@ int vlclua_dofile( vlc_object_t *p_this, lua_State *L, const char *uri )
         i_ret = lua_pcall( L, 0, LUA_MULTRET, 0 );
     stream_Delete( s );
     free( p_buffer );
+    free( uri );
     return i_ret;
 }

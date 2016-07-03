@@ -27,7 +27,7 @@
 
 #include "libvlc_internal.h"
 #include <vlc_modules.h>
-#include <vlc/libvlc.h>
+#include <vlc/vlc.h>
 
 #include <vlc_interface.h>
 #include <vlc_vlm.h>
@@ -154,7 +154,7 @@ void libvlc_set_app_id(libvlc_instance_t *p_i, const char *id,
 
     var_SetString(p_libvlc, "app-id", id ? id : "");
     var_SetString(p_libvlc, "app-version", version ? version : "");
-    var_SetString(p_libvlc, "app-version", icon ? icon : "");
+    var_SetString(p_libvlc, "app-icon-name", icon ? icon : "");
 }
 
 const char * libvlc_get_version(void)

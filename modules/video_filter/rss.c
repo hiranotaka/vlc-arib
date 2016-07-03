@@ -148,7 +148,7 @@ struct filter_sys_t
     "overlay text. 0 = transparent, 255 = totally opaque." )
 
 #define SIZE_TEXT N_("Font size, pixels")
-#define SIZE_LONGTEXT N_("Font size, in pixels. Default is -1 (use default " \
+#define SIZE_LONGTEXT N_("Font size, in pixels. Default is 0 (use default " \
     "font size)." )
 
 #define COLOR_TEXT N_("Color")
@@ -210,8 +210,8 @@ vlc_module_begin ()
     add_rgb( CFG_PREFIX "color", 0xFFFFFF, COLOR_TEXT, COLOR_LONGTEXT,
                   false )
         change_integer_list( pi_color_values, ppsz_color_descriptions )
-    add_integer( CFG_PREFIX "size", -1, SIZE_TEXT, SIZE_LONGTEXT, false )
-        change_integer_range( -1, 4096)
+    add_integer( CFG_PREFIX "size", 0, SIZE_TEXT, SIZE_LONGTEXT, false )
+        change_integer_range( 0, 4096)
 
     set_section( N_("Misc"), NULL )
     add_integer( CFG_PREFIX "speed", 100000, SPEED_TEXT, SPEED_LONGTEXT,
@@ -282,7 +282,7 @@ static int CreateFilter( vlc_object_t *p_this )
     }
     p_sys->psz_marquee[p_sys->i_length] = '\0';
 
-    p_sys->p_style = text_style_New();
+    p_sys->p_style = text_style_Create( STYLE_NO_DEFAULTS );
     if( p_sys->p_style == NULL )
         goto error;
 
@@ -291,6 +291,7 @@ static int CreateFilter( vlc_object_t *p_this )
     p_sys->i_pos = var_CreateGetInteger( p_filter, CFG_PREFIX "position" );
     p_sys->p_style->i_font_alpha = var_CreateGetInteger( p_filter, CFG_PREFIX "opacity" );
     p_sys->p_style->i_font_color = var_CreateGetInteger( p_filter, CFG_PREFIX "color" );
+    p_sys->p_style->i_features |= STYLE_HAS_FONT_ALPHA | STYLE_HAS_FONT_COLOR;
     p_sys->p_style->i_font_size = var_CreateGetInteger( p_filter, CFG_PREFIX "size" );
 
     if( p_sys->b_images && p_sys->p_style->i_font_size == -1 )
@@ -414,7 +415,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     p_spu->p_region = subpicture_region_New( &fmt );
     if( !p_spu->p_region )
     {
-        p_filter->pf_sub_buffer_del( p_filter, p_spu );
+        subpicture_Delete( p_spu );
         vlc_mutex_unlock( &p_sys->lock );
         return NULL;
     }
@@ -479,7 +480,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
         free( a2 );
     }
 
-    p_spu->p_region->psz_text = strdup(p_sys->psz_marquee);
+    p_spu->p_region->p_text = text_segment_New(p_sys->psz_marquee);
     if( p_sys->p_style->i_font_size > 0 )
         p_spu->p_region->fmt.i_visible_height = p_sys->p_style->i_font_size;
     p_spu->i_start = date;
@@ -500,7 +501,7 @@ static subpicture_t *Filter( filter_t *p_filter, mtime_t date )
     p_spu->p_region->i_x = p_sys->i_xoff;
     p_spu->p_region->i_y = p_sys->i_yoff;
 
-    p_spu->p_region->p_style = text_style_Duplicate( p_sys->p_style );
+    p_spu->p_region->p_text->style = text_style_Duplicate( p_sys->p_style );
 
     if( p_feed->p_pic )
     {
@@ -703,6 +704,7 @@ static bool ParseFeed( filter_t *p_filter, xml_reader_t *p_xml_reader,
 #ifdef RSS_DEBUG
             msg_Dbg( p_filter, "element <%s>", node );
 #endif
+            free(psz_eltname);
             psz_eltname = strdup( node );
             if( unlikely(!psz_eltname) )
                 goto end;
@@ -875,7 +877,6 @@ static bool ParseFeed( filter_t *p_filter, xml_reader_t *p_xml_reader,
     return true;
 
 end:
-    free( psz_eltname );
     return false;
 }
 
@@ -888,7 +889,6 @@ static rss_feed_t* FetchRSS( filter_t *p_filter )
     filter_sys_t *p_sys = p_filter->p_sys;
 
     stream_t *p_stream;
-    xml_t *p_xml;
     xml_reader_t *p_xml_reader;
     int i_feed;
 
@@ -901,14 +901,6 @@ static rss_feed_t* FetchRSS( filter_t *p_filter )
     rss_feed_t *p_feeds = malloc( i_feeds * sizeof( rss_feed_t ) );
     if( !p_feeds )
         return NULL;
-
-    p_xml = xml_Create( p_filter );
-    if( !p_xml )
-    {
-        msg_Err( p_filter, "Failed to open XML parser" );
-        free( p_feeds );
-        return NULL;
-    }
 
     /* Fetch all feeds and parse them */
     for( i_feed = 0; i_feed < i_feeds; i_feed++ )
@@ -938,7 +930,7 @@ static rss_feed_t* FetchRSS( filter_t *p_filter )
             goto error;
         }
 
-        p_xml_reader = xml_ReaderCreate( p_xml, p_stream );
+        p_xml_reader = xml_ReaderCreate( p_filter, p_stream );
         if( !p_xml_reader )
         {
             msg_Err( p_filter, "Failed to open %s for parsing", p_feed->psz_url );
@@ -960,7 +952,6 @@ static rss_feed_t* FetchRSS( filter_t *p_filter )
         stream_Delete( p_stream );
     }
 
-    xml_Delete( p_xml );
     return p_feeds;
 
 error:
@@ -969,8 +960,6 @@ error:
         xml_ReaderDelete( p_xml_reader );
     if( p_stream )
         stream_Delete( p_stream );
-    if( p_xml )
-        xml_Delete( p_xml );
 
     return NULL;
 }

@@ -55,7 +55,7 @@ vlc_module_end ()
  *****************************************************************************/
 static int Control( sout_mux_t *, int, va_list );
 static int AddStream( sout_mux_t *, sout_input_t * );
-static int DelStream( sout_mux_t *, sout_input_t * );
+static void DelStream( sout_mux_t *, sout_input_t * );
 static int Mux      ( sout_mux_t * );
 
 struct sout_mux_sys_t
@@ -132,11 +132,10 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
     return VLC_SUCCESS;
 }
 
-static int DelStream( sout_mux_t *p_mux, sout_input_t *p_input )
+static void DelStream( sout_mux_t *p_mux, sout_input_t *p_input )
 {
     VLC_UNUSED(p_input);
     msg_Dbg( p_mux, "removing input" );
-    return VLC_SUCCESS;
 }
 
 static int Mux( sout_mux_t *p_mux )
@@ -157,6 +156,8 @@ static int Mux( sout_mux_t *p_mux )
 
             memcpy( p_data->p_buffer, p_mux->pp_inputs[i]->p_fmt->p_extra,
                     p_mux->pp_inputs[i]->p_fmt->i_extra );
+
+            p_data->i_flags |= BLOCK_FLAG_HEADER;
 
             msg_Dbg( p_mux, "writing header data" );
             sout_AccessOutWrite( p_mux->p_access, p_data );

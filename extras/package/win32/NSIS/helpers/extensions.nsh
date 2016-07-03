@@ -21,7 +21,7 @@ Function RegisterExtension
   WriteRegStr HKCR "VLC$R0\shell\Open" "MultiSelectModel" "Player"
   WriteRegStr HKCR "VLC$R0\shell\Open\command" "" '"$INSTDIR\vlc.exe" --started-from-file "%1"'
   WriteRegStr HKCR "VLC$R0\DefaultIcon" "" '"$INSTDIR\vlc.exe",0'
-  WriteRegStr HKCR "Applications\vlc.exe\SupportedTypes" ${EXT} ""
+  WriteRegStr HKCR "Applications\vlc.exe\SupportedTypes" $0 ""
 
   ${If} ${AtLeastWinVista}
     WriteRegStr HKLM "Software\Clients\Media\VLC\Capabilities\FileAssociations" "$R0" "VLC$R0"
@@ -168,6 +168,7 @@ FunctionEnd
   !insertmacro ${_action} Video ".divx"
   !insertmacro ${_action} Video ".drc"
   !insertmacro ${_action} Video ".dv"
+  !insertmacro ${_action} Video ".evo"
   !insertmacro ${_action} Video ".f4v"
   !insertmacro ${_action} Video ".flv"
   !insertmacro ${_action} Video ".gvi"
@@ -179,7 +180,6 @@ FunctionEnd
   !insertmacro ${_action} Video ".m4v"
   !insertmacro ${_action} Video ".mkv"
   !insertmacro ${_action} Video ".mov"
-  !insertmacro ${_action} Video ".mp2"
   !insertmacro ${_action} Video ".mp2v"
   !insertmacro ${_action} Video ".mp4"
   !insertmacro ${_action} Video ".mp4v"
@@ -218,7 +218,6 @@ FunctionEnd
 !macro MacroOtherExtensions _action
   !insertmacro ${_action} Other ".asx"
   !insertmacro ${_action} Other ".b4s"
-  !insertmacro ${_action} Other ".bin"
   !insertmacro ${_action} Other ".cue"
   !insertmacro ${_action} Other ".ifo"
   !insertmacro ${_action} Other ".m3u"
@@ -246,9 +245,11 @@ FunctionEnd
 ; Generic function for adding the context menu for one ext.
 !macro AddContextMenuExt EXT
   WriteRegStr HKCR ${EXT}\shell\PlayWithVLC "" $ContextMenuEntry_PlayWith
+  WriteRegStr HKCR ${EXT}\shell\PlayWithVLC "MultiSelectModel" "Player"
   WriteRegStr HKCR ${EXT}\shell\PlayWithVLC\command "" '"$INSTDIR\vlc.exe" --started-from-file --no-playlist-enqueue "%1"'
 
   WriteRegStr HKCR ${EXT}\shell\AddToPlaylistVLC "" $ContextMenuEntry_AddToPlaylist
+  WriteRegStr HKCR ${EXT}\shell\AddToPlaylistVLC "MultiSelectModel" "Player"
   WriteRegStr HKCR ${EXT}\shell\AddToPlaylistVLC\command "" '"$INSTDIR\vlc.exe" --started-from-file --playlist-enqueue "%1"'
 !macroend
 

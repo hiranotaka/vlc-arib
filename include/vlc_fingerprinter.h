@@ -35,7 +35,7 @@ typedef struct fingerprinter_sys_t fingerprinter_sys_t;
 struct fingerprint_request_t
 {
     input_item_t *p_item;
-    unsigned int i_duration; /* track length hint in seconds, 0 if unkown */
+    unsigned int i_duration; /* track length hint in seconds, 0 if unknown */
     struct
     {
         char *psz_fingerprint;
@@ -74,7 +74,6 @@ struct fingerprinter_thread_t
     fingerprinter_sys_t * p_sys;
 
     module_t *   p_module;
-    void ( *pf_run ) ( struct fingerprinter_thread_t * );
 
     void ( *pf_enqueue ) ( struct fingerprinter_thread_t *f, fingerprint_request_t *r );
     fingerprint_request_t * ( *pf_getresults ) ( struct fingerprinter_thread_t *f );

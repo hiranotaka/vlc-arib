@@ -67,6 +67,7 @@ vlc_module_end ()
  * Local prototypes
  *****************************************************************************/
 static block_t *DecodeBlock( decoder_t *, block_t ** );
+static void Flush( decoder_t * );
 
 struct decoder_sys_t
 {
@@ -246,8 +247,8 @@ static int DecoderOpen( vlc_object_t *p_this )
     if( p_dec->fmt_in.audio.i_channels <= 0 ||
         p_dec->fmt_in.audio.i_channels > AOUT_CHAN_MAX )
     {
-        msg_Err( p_dec, "bad channels count (1-9): %i",
-                 p_dec->fmt_in.audio.i_channels );
+        msg_Err( p_dec, "bad channels count (1-%i): %i",
+                 AOUT_CHAN_MAX, p_dec->fmt_in.audio.i_channels );
         return VLC_EGENERIC;
     }
 
@@ -293,9 +294,20 @@ static int DecoderOpen( vlc_object_t *p_this )
     date_Set( &p_sys->end_date, 0 );
 
     p_dec->pf_decode_audio = DecodeBlock;
+    p_dec->pf_flush        = Flush;
     p_dec->p_sys = p_sys;
 
     return VLC_SUCCESS;
+}
+
+/*****************************************************************************
+ * Flush:
+ *****************************************************************************/
+static void Flush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    date_Set( &p_sys->end_date, 0 );
 }
 
 /****************************************************************************
@@ -313,6 +325,12 @@ static block_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     if( p_block == NULL )
         return NULL;
     *pp_block = NULL;
+
+    if( p_block->i_flags & BLOCK_FLAG_CORRUPTED )
+        goto skip;
+
+    if( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY )
+        Flush( p_dec );
 
     if( p_block->i_pts > VLC_TS_INVALID &&
         p_block->i_pts != date_Get( &p_sys->end_date ) )
@@ -583,13 +601,15 @@ static void F64IDecode( void *outp, const uint8_t *in, unsigned samples )
     }
 }
 
-static int16_t dat12tos16( uint16_t y )
+static int16_t dat12tos16( uint_fast16_t y )
 {
     static const uint16_t diff[16] = {
        0x0000, 0x0000, 0x0100, 0x0200, 0x0300, 0x0400, 0x0500, 0x0600,
        0x0A00, 0x0B00, 0x0C00, 0x0D00, 0x0E00, 0x0F00, 0x1000, 0x1000 };
     static const uint8_t shift[16] = {
         0, 0, 1, 2, 3, 4, 5, 6, 6, 5, 4, 3, 2, 1, 0, 0 };
+
+    assert(y < 0x1000);
 
     int d = y >> 8;
     return (y - diff[d]) << shift[d];

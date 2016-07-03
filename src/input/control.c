@@ -1,7 +1,7 @@
 /*****************************************************************************
  * control.c
  *****************************************************************************
- * Copyright (C) 1999-2004 VLC authors and VideoLAN
+ * Copyright (C) 1999-2015 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Gildas Bazin <gbazin@videolan.org>
@@ -87,17 +87,17 @@ int input_vaControl( input_thread_t *p_input, int i_query, va_list args )
 
         case INPUT_GET_LENGTH:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = var_GetTime( p_input, "length" );
+            *pi_64 = var_GetInteger( p_input, "length" );
             return VLC_SUCCESS;
 
         case INPUT_GET_TIME:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = var_GetTime( p_input, "time" );
+            *pi_64 = var_GetInteger( p_input, "time" );
             return VLC_SUCCESS;
 
         case INPUT_SET_TIME:
             i_64 = (int64_t)va_arg( args, int64_t );
-            return var_SetTime( p_input, "time", i_64 );
+            return var_SetInteger( p_input, "time", i_64 );
 
         case INPUT_GET_RATE:
             pi_int = (int*)va_arg( args, int * );
@@ -120,27 +120,29 @@ int input_vaControl( input_thread_t *p_input, int i_query, va_list args )
 
         case INPUT_GET_AUDIO_DELAY:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = var_GetTime( p_input, "audio-delay" );
+            *pi_64 = var_GetInteger( p_input, "audio-delay" );
             return VLC_SUCCESS;
 
         case INPUT_GET_SPU_DELAY:
             pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = var_GetTime( p_input, "spu-delay" );
+            *pi_64 = var_GetInteger( p_input, "spu-delay" );
             return VLC_SUCCESS;
 
         case INPUT_SET_AUDIO_DELAY:
             i_64 = (int64_t)va_arg( args, int64_t );
-            return var_SetTime( p_input, "audio-delay", i_64 );
+            return var_SetInteger( p_input, "audio-delay", i_64 );
 
         case INPUT_SET_SPU_DELAY:
             i_64 = (int64_t)va_arg( args, int64_t );
-            return var_SetTime( p_input, "spu-delay", i_64 );
+            return var_SetInteger( p_input, "spu-delay", i_64 );
 
         case INPUT_NAV_ACTIVATE:
         case INPUT_NAV_UP:
         case INPUT_NAV_DOWN:
         case INPUT_NAV_LEFT:
         case INPUT_NAV_RIGHT:
+        case INPUT_NAV_POPUP:
+        case INPUT_NAV_MENU:
             input_ControlPush( p_input, i_query - INPUT_NAV_ACTIVATE
                                + INPUT_CONTROL_NAV_ACTIVATE, NULL );
             return VLC_SUCCESS;
@@ -358,22 +360,94 @@ int input_vaControl( input_thread_t *p_input, int i_query, va_list args )
             }
         }
 
-        case INPUT_GET_VIDEO_FPS:
-            pf = (double*)va_arg( args, double * );
+        case INPUT_GET_FULL_TITLE_INFO:
+        {
+            input_title_t **array;
+            unsigned count;
 
             vlc_mutex_lock( &p_input->p->p_item->lock );
-            *pf = p_input->p->f_fps;
+            count = p_input->p->i_title;
+            array = malloc( count * sizeof (*array) );
+
+            if( count > 0 && unlikely(array == NULL) )
+            {
+                vlc_mutex_unlock( &p_input->p->p_item->lock );
+                return VLC_ENOMEM;
+            }
+
+            for( unsigned i = 0; i < count; i++ )
+                array[i] = vlc_input_title_Duplicate( p_input->p->title[i] );
+
             vlc_mutex_unlock( &p_input->p->p_item->lock );
+
+            *va_arg( args, input_title_t *** ) = array;
+            *va_arg( args, int * ) = count;
             return VLC_SUCCESS;
+        }
+
+        case INPUT_GET_SEEKPOINTS:
+        {
+            seekpoint_t ***array = va_arg( args, seekpoint_t *** );
+            int *pi_title_to_fetch = va_arg( args, int * );
+
+            vlc_mutex_lock( &p_input->p->p_item->lock );
+
+            if ( *pi_title_to_fetch < 0 ) /* query current title if -1 */
+                *pi_title_to_fetch = var_GetInteger( p_input, "title" );
+
+            if( !p_input->p->i_title || p_input->p->i_title < *pi_title_to_fetch )
+            {
+                vlc_mutex_unlock( &p_input->p->p_item->lock );
+                return VLC_EGENERIC;
+            }
+
+            input_title_t *p_title = vlc_input_title_Duplicate( p_input->p->title[*pi_title_to_fetch] );
+
+            /* set arg2 to the number of seekpoints we found */
+            const int i_chapters = p_title->i_seekpoint;
+            *pi_title_to_fetch = i_chapters;
+
+            if ( i_chapters == 0 )
+            {
+                vlc_mutex_unlock( &p_input->p->p_item->lock );
+                return VLC_SUCCESS;
+            }
+
+            *array = calloc( p_title->i_seekpoint, sizeof(**array) );
+            if( unlikely(array == NULL) )
+            {
+                vlc_mutex_unlock( &p_input->p->p_item->lock );
+                return VLC_ENOMEM;
+            }
+            for( int i = 0; i < i_chapters; i++ )
+            {
+                (*array)[i] = vlc_seekpoint_Duplicate( p_title->seekpoint[i] );
+            }
+
+            vlc_mutex_unlock( &p_input->p->p_item->lock );
+
+            return VLC_SUCCESS;
+        }
 
         case INPUT_ADD_SLAVE:
+        {
+            enum slave_type type =  (enum slave_type) va_arg( args, enum slave_type );
             psz = (char*)va_arg( args, char * );
-            if( psz && *psz )
-            {
-                val.psz_string = strdup( psz );
-                input_ControlPush( p_input, INPUT_CONTROL_ADD_SLAVE, &val );
-            }
+            b_bool = (bool)va_arg( args, int );
+
+            if( !psz || ( type != SLAVE_TYPE_SPU && type != SLAVE_TYPE_AUDIO ) )
+                return VLC_EGENERIC;
+
+            input_item_slave_t *p_slave =
+                input_item_slave_New( psz, type, SLAVE_PRIORITY_USER );
+            if( !p_slave )
+                return VLC_ENOMEM;
+            p_slave->b_forced = b_bool;
+
+            val.p_address = p_slave;
+            input_ControlPush( p_input, INPUT_CONTROL_ADD_SLAVE, &val );
             return VLC_SUCCESS;
+        }
 
         case INPUT_ADD_SUBTITLE:
             psz = (char*)va_arg( args, char * );
@@ -517,7 +591,7 @@ static void UpdateBookmarksOption( input_thread_t *p_input )
     }
 
     /* Create the "bookmarks" option value */
-    const char *psz_format = "{name=%s,bytes=%"PRId64",time=%"PRId64"}";
+    const char *psz_format = "{name=%s,time=%"PRId64"}";
     int i_len = strlen( "bookmarks=" );
     for( int i = 0; i < p_input->p->i_bookmark; i++ )
     {
@@ -525,33 +599,37 @@ static void UpdateBookmarksOption( input_thread_t *p_input )
 
         i_len += snprintf( NULL, 0, psz_format,
                            p_bookmark->psz_name,
-                           p_bookmark->i_byte_offset,
                            p_bookmark->i_time_offset/1000000 );
     }
 
     char *psz_value = malloc( i_len + p_input->p->i_bookmark + 1 );
-    char *psz_next = psz_value;
 
-    psz_next += sprintf( psz_next, "bookmarks=" );
-    for( int i = 0; i < p_input->p->i_bookmark && psz_value != NULL; i++ )
+    if( psz_value != NULL )
     {
-        const seekpoint_t *p_bookmark = p_input->p->pp_bookmark[i];
+        strcpy( psz_value, "bookmarks=" );
 
-        psz_next += sprintf( psz_next, psz_format,
-                             p_bookmark->psz_name,
-                             p_bookmark->i_byte_offset,
-                             p_bookmark->i_time_offset/1000000 );
+        char *psz_next = psz_value + strlen( "bookmarks=" );
 
-        if( i < p_input->p->i_bookmark - 1)
-            *psz_next++ = ',';
+        for( int i = 0; i < p_input->p->i_bookmark && psz_value != NULL; i++ )
+        {
+            const seekpoint_t *p_bookmark = p_input->p->pp_bookmark[i];
+
+            psz_next += sprintf( psz_next, psz_format,
+                                 p_bookmark->psz_name,
+                                 p_bookmark->i_time_offset/1000000 );
+
+            if( i < p_input->p->i_bookmark - 1)
+                *psz_next++ = ',';
+        }
     }
     vlc_mutex_unlock( &p_input->p->p_item->lock );
 
-    if( psz_value )
-        input_item_AddOption( p_input->p->p_item, psz_value, VLC_INPUT_OPTION_UNIQUE );
-
-    free( psz_value );
-
+    if( psz_value != NULL )
+    {
+        input_item_AddOption( p_input->p->p_item, psz_value,
+                              VLC_INPUT_OPTION_UNIQUE );
+        free( psz_value );
+    }
     input_SendEventBookmark( p_input );
 }
 

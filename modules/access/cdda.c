@@ -58,6 +58,24 @@
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
+#define CDAUDIO_DEV_TEXT N_("Audio CD device")
+#if defined( _WIN32 ) || defined( __OS2__ )
+# define CDAUDIO_DEV_LONGTEXT N_( \
+    "This is the default Audio CD drive (or file) to use. Don't forget the " \
+    "colon after the drive letter (e.g. D:)")
+# define CD_DEVICE      "D:"
+#else
+# define CDAUDIO_DEV_LONGTEXT N_( \
+    "This is the default Audio CD device to use." )
+# if defined(__OpenBSD__)
+#  define CD_DEVICE      "/dev/cd0c"
+# elif defined(__linux__)
+#  define CD_DEVICE      "/dev/sr0"
+# else
+#  define CD_DEVICE      "/dev/cdrom"
+# endif
+#endif
+
 vlc_module_begin ()
     set_shortname( N_("Audio CD") )
     set_description( N_("Audio CD input") )
@@ -65,6 +83,9 @@ vlc_module_begin ()
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_ACCESS )
     set_callbacks( Open, Close )
+
+    add_loadfile( "cd-audio", CD_DEVICE, CDAUDIO_DEV_TEXT,
+                  CDAUDIO_DEV_LONGTEXT, false )
 
     add_usage_hint( N_("[cdda:][device][@[track]]") )
     add_integer( "cdda-track", 0 , NULL, NULL, true )
@@ -127,16 +148,11 @@ static cddb_disc_t *GetCDDBInfo( access_t *p_access, int i_titles, int *p_sector
 static int Open( vlc_object_t *p_this )
 {
     access_t     *p_access = (access_t*)p_this;
-    access_sys_t *p_sys;
     vcddev_t     *vcddev;
     char         *psz_name;
 
     if( !p_access->psz_filepath || !*p_access->psz_filepath )
     {
-        /* Only when selected */
-        if( !p_access->psz_access || !*p_access->psz_access )
-            return VLC_EGENERIC;
-
         psz_name = var_InheritString( p_this, "cd-audio" );
         if( !psz_name )
             return VLC_EGENERIC;
@@ -147,18 +163,26 @@ static int Open( vlc_object_t *p_this )
     if( psz_name[0] && psz_name[1] == ':' &&
         psz_name[2] == '\\' && psz_name[3] == '\0' ) psz_name[2] = '\0';
 #endif
-    /* Set up p_access */
-    STANDARD_BLOCK_ACCESS_INIT
+
+    access_sys_t *p_sys = calloc( 1, sizeof (*p_sys) );
+    if( unlikely(p_sys == NULL) )
+    {
+        free( psz_name );
+        return VLC_ENOMEM;
+    }
+    p_access->p_sys = p_sys;
 
     /* Open CDDA */
-    if( (vcddev = ioctl_Open( VLC_OBJECT(p_access), psz_name ) ) == NULL )
-    {
+    vcddev = ioctl_Open( VLC_OBJECT(p_access), psz_name );
+    if( vcddev == NULL )
         msg_Warn( p_access, "could not open %s", psz_name );
-        free( psz_name );
+    free( psz_name );
+    if( vcddev == NULL )
+    {
         free( p_sys );
         return VLC_EGENERIC;
     }
-    free( psz_name );
+
     p_sys->vcddev = vcddev;
 
     /* Do we play a single track ? */
@@ -167,7 +191,7 @@ static int Open( vlc_object_t *p_this )
     if( p_sys->i_track < 0 )
     {
         /* We only do separate items if the whole disc is requested */
-        input_thread_t *p_input = access_GetParentInput( p_access );
+        input_thread_t *p_input = p_access->p_input;
 
         int i_ret = -1;
         if( p_input )
@@ -175,8 +199,6 @@ static int Open( vlc_object_t *p_this )
             input_item_t *p_current = input_GetItem( p_input );
             if( p_current )
                 i_ret = GetTracks( p_access, p_current );
-
-            vlc_object_release( p_input );
         }
         if( i_ret < 0 )
             goto error;
@@ -224,6 +246,9 @@ static int Open( vlc_object_t *p_this )
                                      * (int64_t)CDDA_DATA_SIZE;
     }
 
+    /* Set up p_access */
+    access_InitFields( p_access );
+    ACCESS_SET_CALLBACKS( NULL, Block, Control, Seek );
     return VLC_SUCCESS;
 
 error:
@@ -295,13 +320,11 @@ static block_t *Block( access_t *p_access )
 
         /* Try to skip one sector (in case of bad sectors) */
         p_sys->i_sector++;
-        p_access->info.i_pos += CDDA_DATA_SIZE;
         return NULL;
     }
 
     /* Update a few values */
     p_sys->i_sector += i_blocks;
-    p_access->info.i_pos += p_block->i_buffer;
 
     return p_block;
 }
@@ -316,7 +339,6 @@ static int Seek( access_t *p_access, uint64_t i_pos )
     /* Next sector to read */
     p_sys->i_sector = p_sys->i_first_sector + i_pos / CDDA_DATA_SIZE;
     assert( p_sys->i_sector >= 0 );
-    p_access->info.i_pos = i_pos;
 
     return VLC_SUCCESS;
 }
@@ -387,6 +409,7 @@ static int GetTracks( access_t *p_access, input_item_t *p_current )
     cddb_disc_t *p_disc = GetCDDBInfo( p_access, i_titles, p_sys->p_sectors );
     if( p_disc )
     {
+        msg_Dbg( p_access, "Disc ID: %08x", cddb_disc_get_discid( p_disc ) );
         psz_album = cddb_disc_get_title( p_disc );
         psz_genre = cddb_disc_get_genre( p_disc );
 
@@ -466,36 +489,45 @@ static int GetTracks( access_t *p_access, input_item_t *p_current )
     /* Build title table */
     for( int i = 0; i < i_titles; i++ )
     {
-        input_item_t *p_input_item;
-
-        char *psz_uri, *psz_opt, *psz_first, *psz_last;
-        char *psz_name;
+        char *psz_opt, *psz_name;
 
         msg_Dbg( p_access, "track[%d] start=%d", i, p_sys->p_sectors[i] );
 
-        /* */
-        if( asprintf( &psz_uri, "cdda://%s", p_access->psz_location ) == -1 )
-            psz_uri = NULL;
-        if( asprintf( &psz_opt, "cdda-track=%i", i+1 ) == -1 )
-            psz_opt = NULL;
-        if( asprintf( &psz_first, "cdda-first-sector=%i",p_sys->p_sectors[i] ) == -1 )
-            psz_first = NULL;
-        if( asprintf( &psz_last, "cdda-last-sector=%i", p_sys->p_sectors[i+1] ) == -1 )
-            psz_last = NULL;
-
         /* Define a "default name" */
         if( asprintf( &psz_name, _("Audio CD - Track %02i"), (i+1) ) == -1 )
-            psz_name = NULL;
+            psz_name = p_access->psz_url;
 
         /* Create playlist items */
         const mtime_t i_duration = (int64_t)( p_sys->p_sectors[i+1] - p_sys->p_sectors[i] ) *
                                    CDDA_DATA_SIZE * 1000000 / 44100 / 2 / 2;
-        p_input_item = input_item_NewWithType( psz_uri, psz_name, 0, NULL, 0,
-                                               i_duration, ITEM_TYPE_DISC );
-        input_item_CopyOptions( p_current, p_input_item );
-        input_item_AddOption( p_input_item, psz_first, VLC_INPUT_OPTION_TRUSTED );
-        input_item_AddOption( p_input_item, psz_last, VLC_INPUT_OPTION_TRUSTED );
-        input_item_AddOption( p_input_item, psz_opt, VLC_INPUT_OPTION_TRUSTED );
+
+        input_item_t *p_item = input_item_NewDisc( p_access->psz_url,
+                                                   psz_name, i_duration );
+        if( likely(psz_name != p_access->psz_url) )
+            free( psz_name );
+
+        if( unlikely(p_item == NULL) )
+            continue;
+
+        input_item_CopyOptions( p_item, p_current );
+
+        if( likely(asprintf( &psz_opt, "cdda-track=%i", i+1 ) != -1) )
+        {
+            input_item_AddOption( p_item, psz_opt, VLC_INPUT_OPTION_TRUSTED );
+            free( psz_opt );
+        }
+        if( likely(asprintf( &psz_opt, "cdda-first-sector=%i",
+                             p_sys->p_sectors[i] ) != -1) )
+        {
+            input_item_AddOption( p_item, psz_opt, VLC_INPUT_OPTION_TRUSTED );
+            free( psz_opt );
+        }
+        if( likely(asprintf( &psz_opt, "cdda-last-sector=%i",
+                             p_sys->p_sectors[i+1] ) != -1) )
+        {
+            input_item_AddOption( p_item, psz_opt, VLC_INPUT_OPTION_TRUSTED );
+            free( psz_opt );
+        }
 
         const char *psz_track_title = NULL;
         const char *psz_track_artist = NULL;
@@ -534,33 +566,31 @@ static int GetTracks( access_t *p_access, input_item_t *p_current )
         /* */
         if( NONEMPTY( psz_track_title ) )
         {
-            input_item_SetName( p_input_item, psz_track_title );
-            input_item_SetTitle( p_input_item, psz_track_title );
+            input_item_SetName( p_item, psz_track_title );
+            input_item_SetTitle( p_item, psz_track_title );
         }
 
         if( NONEMPTY( psz_track_artist ) )
-            input_item_SetArtist( p_input_item, psz_track_artist );
+            input_item_SetArtist( p_item, psz_track_artist );
 
         if( NONEMPTY( psz_track_genre ) )
-            input_item_SetGenre( p_input_item, psz_track_genre );
+            input_item_SetGenre( p_item, psz_track_genre );
 
         if( NONEMPTY( psz_track_description ) )
-            input_item_SetDescription( p_input_item, psz_track_description );
+            input_item_SetDescription( p_item, psz_track_description );
 
         if( NONEMPTY( psz_album ) )
-            input_item_SetAlbum( p_input_item, psz_album );
+            input_item_SetAlbum( p_item, psz_album );
 
         if( NONEMPTY( psz_year ) )
-            input_item_SetDate( p_input_item, psz_year );
+            input_item_SetDate( p_item, psz_year );
 
         char psz_num[3+1];
         snprintf( psz_num, sizeof(psz_num), "%d", 1+i );
-        input_item_SetTrackNum( p_input_item, psz_num );
+        input_item_SetTrackNum( p_item, psz_num );
 
-        input_item_node_AppendItem( p_root, p_input_item );
-        vlc_gc_decref( p_input_item );
-        free( psz_uri ); free( psz_opt ); free( psz_name );
-        free( psz_first ); free( psz_last );
+        input_item_node_AppendItem( p_root, p_item );
+        vlc_gc_decref( p_item );
     }
 #undef ON_EMPTY
 #undef NONEMPTY
@@ -641,17 +671,21 @@ static cddb_disc_t *GetCDDBInfo( access_t *p_access, int i_titles, int *p_sector
         goto error;
     }
 
-    int64_t i_length = 0;
+    int64_t i_length = 2000000; /* PreGap */
     for( int i = 0; i < i_titles; i++ )
     {
         cddb_track_t *t = cddb_track_new();
-        cddb_track_set_frame_offset( t, p_sectors[i] );
+        cddb_track_set_frame_offset( t, p_sectors[i] + 150 );  /* Pregap offset */
+
         cddb_disc_add_track( p_disc, t );
         const int64_t i_size = ( p_sectors[i+1] - p_sectors[i] ) *
                                (int64_t)CDDA_DATA_SIZE;
         i_length += INT64_C(1000000) * i_size / 44100 / 4  ;
+
+        msg_Dbg( p_access, "Track %i offset: %i", i, p_sectors[i] + 150 );
     }
 
+    msg_Dbg( p_access, "Total length: %i", (int)(i_length/1000000) );
     cddb_disc_set_length( p_disc, (int)(i_length/1000000) );
 
     if( !cddb_disc_calc_discid( p_disc ) )

@@ -74,7 +74,7 @@ static int OpenDecoderCommon( vlc_object_t *p_this, bool b_force_dump )
     decoder_t *p_dec = (decoder_t*)p_this;
     char psz_file[10 + 3 * sizeof (p_dec)];
 
-    snprintf( psz_file, sizeof( psz_file), "stream.%p", p_dec );
+    snprintf( psz_file, sizeof( psz_file), "stream.%p", (void *)p_dec );
 
     if( !b_force_dump )
         b_force_dump = var_InheritBool( p_dec, "dummy-save-es" );
@@ -127,10 +127,11 @@ static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
     if( !pp_block || !*pp_block ) return NULL;
     p_block = *pp_block;
+    *pp_block = NULL;
 
     if( stream != NULL
      && p_block->i_buffer > 0
-     && !(p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED)) )
+     && !(p_block->i_flags & (BLOCK_FLAG_CORRUPTED)) )
     {
         fwrite( p_block->p_buffer, 1, p_block->i_buffer, stream );
         msg_Dbg( p_dec, "dumped %zu bytes", p_block->i_buffer );

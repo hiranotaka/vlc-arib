@@ -32,21 +32,14 @@
 extern "C" {
 #endif
 
-/**********************************************************************
- * Base SPU structures
- **********************************************************************/
 /**
- * \defgroup spu Subpicture Unit
- * This module describes the programming interface for the subpicture unit.
- * It includes functions allowing to create/destroy an spu, and render
- * subpictures.
+ * \defgroup spu Sub-picture channels
+ * \ingroup video_output
  * @{
+ * \file
  */
 
 typedef struct spu_private_t spu_private_t;
-
-/* Default subpicture channel ID */
-#define SPU_DEFAULT_CHANNEL (1)
 
 /**
  * Subpicture unit descriptor

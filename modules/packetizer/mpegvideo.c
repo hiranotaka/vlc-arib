@@ -53,6 +53,7 @@
 #include <vlc_block_helper.h>
 #include "../codec/cc.h"
 #include "packetizer_helper.h"
+#include "startcode_helper.h"
 
 #define SYNC_INTRAFRAME_TEXT N_("Sync on Intra Frame")
 #define SYNC_INTRAFRAME_LONGTEXT N_("Normally the packetizer would " \
@@ -135,6 +136,7 @@ struct decoder_sys_t
 };
 
 static block_t *Packetize( decoder_t *, block_t ** );
+static void PacketizeFlush( decoder_t * );
 static block_t *GetCc( decoder_t *p_dec, bool pb_present[4] );
 
 static void PacketizeReset( void *p_private, bool b_broken );
@@ -159,8 +161,6 @@ static int Open( vlc_object_t *p_this )
     es_format_Init( &p_dec->fmt_out, VIDEO_ES, VLC_CODEC_MPGV );
     p_dec->fmt_out.i_original_fourcc = p_dec->fmt_in.i_original_fourcc;
 
-    p_dec->pf_packetize = Packetize;
-    p_dec->pf_get_cc = GetCc;
 
     p_dec->p_sys = p_sys = malloc( sizeof( decoder_sys_t ) );
     if( !p_dec->p_sys )
@@ -169,7 +169,7 @@ static int Open( vlc_object_t *p_this )
 
     /* Misc init */
     packetizer_Init( &p_sys->packetizer,
-                     p_mp2v_startcode, sizeof(p_mp2v_startcode),
+                     p_mp2v_startcode, sizeof(p_mp2v_startcode), startcode_FindAnnexB,
                      NULL, 0, 4,
                      PacketizeReset, PacketizeParse, PacketizeValidate, p_dec );
 
@@ -210,6 +210,10 @@ static int Open( vlc_object_t *p_this )
     p_sys->i_cc_flags = 0;
     cc_Init( &p_sys->cc );
 
+    p_dec->pf_packetize = Packetize;
+    p_dec->pf_flush = PacketizeFlush;
+    p_dec->pf_get_cc = GetCc;
+
     return VLC_SUCCESS;
 }
 
@@ -248,6 +252,13 @@ static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
     decoder_sys_t *p_sys = p_dec->p_sys;
 
     return packetizer_Packetize( &p_sys->packetizer, pp_block );
+}
+
+static void PacketizeFlush( decoder_t *p_dec )
+{
+    decoder_sys_t *p_sys = p_dec->p_sys;
+
+    packetizer_Flush( &p_sys->packetizer );
 }
 
 /*****************************************************************************
@@ -318,8 +329,8 @@ static int PacketizeValidate( void *p_private, block_t *p_au )
 
     /* If a discontinuity has been encountered, then wait till
      * the next Intra frame before continuing with packetizing */
-    if( p_sys->b_discontinuity &&
-        p_sys->b_sync_on_intra_frame )
+    if( unlikely( p_sys->b_discontinuity &&
+        p_sys->b_sync_on_intra_frame ) )
     {
         if( (p_au->i_flags & BLOCK_FLAG_TYPE_I) == 0 )
         {
@@ -333,8 +344,8 @@ static int PacketizeValidate( void *p_private, block_t *p_au )
 
     /* We've just started the stream, wait for the first PTS.
      * We discard here so we can still get the sequence header. */
-    if( p_sys->i_dts <= VLC_TS_INVALID && p_sys->i_pts <= VLC_TS_INVALID &&
-        p_sys->i_interpolated_dts <= VLC_TS_INVALID )
+    if( unlikely( p_sys->i_dts <= VLC_TS_INVALID && p_sys->i_pts <= VLC_TS_INVALID &&
+        p_sys->i_interpolated_dts <= VLC_TS_INVALID ))
     {
         msg_Dbg( p_dec, "need a starting pts/dts" );
         return VLC_EGENERIC;
@@ -342,7 +353,7 @@ static int PacketizeValidate( void *p_private, block_t *p_au )
 
     /* When starting the stream we can have the first frame with
      * an invalid DTS (i_interpolated_pts is initialized to VLC_TS_INVALID) */
-    if( p_au->i_dts <= VLC_TS_INVALID )
+    if( unlikely( p_au->i_dts <= VLC_TS_INVALID ) )
         p_au->i_dts = p_au->i_pts;
 
     return VLC_SUCCESS;
@@ -527,6 +538,66 @@ static block_t *ParseMPEGBlock( decoder_t *p_dec, block_t *p_frag )
             p_sys->i_seq_old = 0;
         }
     }
+    else if( p_frag->p_buffer[3] == 0xb5 && p_frag->i_buffer >= 10 )
+    {
+        /* Sequence display extension */
+        bool contains_color_description = (p_frag->p_buffer[4] & 0x01);
+        //uint8_t video_format = (p_frag->p_buffer[4] & 0x0f) >> 1;
+
+        if( contains_color_description )
+        {
+            uint8_t color_primaries = p_frag->p_buffer[5];
+            uint8_t color_transfer  = p_frag->p_buffer[6];
+            uint8_t color_matrix    = p_frag->p_buffer[7];
+            switch( color_primaries )
+            {
+                case 1:
+                    p_dec->fmt_out.video.primaries = COLOR_PRIMARIES_BT709;
+                    break;
+                case 4: /* BT.470M    */
+                case 5: /* BT.470BG   */
+                    p_dec->fmt_out.video.primaries = COLOR_PRIMARIES_BT601_625;
+                    break;
+                case 6: /* SMPTE 170M */
+                case 7: /* SMPTE 240M */
+                    p_dec->fmt_out.video.primaries = COLOR_PRIMARIES_BT601_525;
+                    break;
+                default:
+                    break;
+            }
+            switch( color_transfer )
+            {
+                case 1:
+                    p_dec->fmt_out.video.transfer = TRANSFER_FUNC_BT709;
+                    break;
+                case 4: /* BT.470M assumed gamma 2.2  */
+                    p_dec->fmt_out.video.transfer = TRANSFER_FUNC_SRGB;
+                    break;
+                case 5: /* BT.470BG */
+                case 6: /* SMPTE 170M */
+                    p_dec->fmt_out.video.transfer = TRANSFER_FUNC_BT2020;
+                    break;
+                case 8: /* Linear */
+                    p_dec->fmt_out.video.transfer = TRANSFER_FUNC_LINEAR;
+                    break;
+                default:
+                    break;
+            }
+            switch( color_matrix )
+            {
+                case 1:
+                    p_dec->fmt_out.video.space = COLOR_SPACE_BT709;
+                    break;
+                case 5: /* BT.470BG */
+                case 6: /* SMPTE 170 M */
+                    p_dec->fmt_out.video.space = COLOR_SPACE_BT601;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+    }
     else if( p_frag->p_buffer[3] == 0xb3 && p_frag->i_buffer >= 8 )
     {
         /* Sequence header code */
@@ -566,6 +637,7 @@ static block_t *ParseMPEGBlock( decoder_t *p_dec, block_t *p_frag )
 
         p_sys->b_seq_progressive = true;
         p_sys->b_low_delay = true;
+
 
         if ( !p_sys->b_inited )
         {

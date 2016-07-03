@@ -162,7 +162,7 @@ nop:
         msg_Info( p_demux, "command `quit'" );
         p_demux->pf_demux = DemuxNoOp;
         p_demux->pf_control = DemuxControl;
-        libvlc_Quit( p_demux->p_libvlc );
+        libvlc_Quit( p_demux->obj.libvlc );
         return VLC_SUCCESS;
     }
 
@@ -197,7 +197,7 @@ nop:
         p_demux->pf_control = ControlPause;
         return VLC_SUCCESS;
     }
- 
+
     msg_Err( p_demux, "unknown command `%s'", psz_name );
     return VLC_EGENERIC;
 }

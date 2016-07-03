@@ -163,7 +163,7 @@ processcommands = function ()
     elseif command == "audiodelay" then
         if vlc.object.input() and val then
             val = common.us_tonumber(val)
-            vlc.var.set(vlc.object.input(),"audio-delay",val)
+            vlc.var.set(vlc.object.input(),"audio-delay",val * 1000000)
         end
     elseif command == "rate" then
         val = common.us_tonumber(val)
@@ -173,7 +173,7 @@ processcommands = function ()
     elseif command == "subdelay" then
         if vlc.object.input() then
             val = common.us_tonumber(val)
-            vlc.var.set(vlc.object.input(),"spu-delay",val)
+            vlc.var.set(vlc.object.input(),"spu-delay",val * 1000000)
         end
     elseif command == "aspectratio" then
         if vlc.object.vout() then
@@ -456,13 +456,13 @@ getstatus = function (includecategories)
     s.volume=vlc.volume.get()
 
     if input then
-        s.length=math.floor(vlc.var.get(input,"length"))
-        s.time=math.floor(vlc.var.get(input,"time"))
+        s.length=math.floor(vlc.var.get(input,"length") / 1000000)
+        s.time=math.floor(vlc.var.get(input,"time") / 1000000)
         s.position=vlc.var.get(input,"position")
         s.currentplid=vlc.playlist.current()
-        s.audiodelay=vlc.var.get(input,"audio-delay")
+        s.audiodelay=vlc.var.get(input,"audio-delay") / 1000000
         s.rate=vlc.var.get(input,"rate")
-        s.subtitledelay=vlc.var.get(input,"spu-delay")
+        s.subtitledelay=vlc.var.get(input,"spu-delay") / 1000000
     else
         s.length=0
         s.time=0

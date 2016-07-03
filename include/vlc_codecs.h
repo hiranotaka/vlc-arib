@@ -252,6 +252,8 @@ ATTR_PACKED
 #define WAVE_FORMAT_WMAP                0x0162 /* WMA 9 Professional */
 #define WAVE_FORMAT_WMAL                0x0163 /* WMA 9 Lossless */
 
+#define WAVE_FORMAT_CREATIVE_ADPCM      0x0200 /* Creative */
+
 #define WAVE_FORMAT_ULEAD_DV_AUDIO_NTSC 0x0215 /* Ulead */
 #define WAVE_FORMAT_ULEAD_DV_AUDIO_PAL  0x0216 /* Ulead */
 
@@ -306,27 +308,11 @@ ATTR_PACKED
 #endif
 
 /* GUID SubFormat IDs */
-/* We need both b/c const variables are not compile-time constants in C, giving
- * us an error if we use the const GUID in an enum */
-
-#ifndef _KSDATAFORMAT_SUBTYPE_PCM_
-#define _KSDATAFORMAT_SUBTYPE_PCM_ {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
-static const GUID VLC_KSDATAFORMAT_SUBTYPE_PCM = {0xE923AABF, 0xCB58, 0x4471, {0xA1, 0x19, 0xFF, 0xFA, 0x01, 0xE4, 0xCE, 0x62}};
-#define KSDATAFORMAT_SUBTYPE_PCM VLC_KSDATAFORMAT_SUBTYPE_PCM
-#endif
-
-#ifndef _KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_
-#define _KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_ {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}}
-static const GUID VLC_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-#define KSDATAFORMAT_SUBTYPE_IEEE_FLOAT VLC_KSDATAFORMAT_SUBTYPE_PCM
-#endif
-
-
-#ifndef _KSDATAFORMAT_SUBTYPE_UNKNOWN_
-#define _KSDATAFORMAT_SUBTYPE_UNKNOWN_ {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}
-static const GUID VLC_KSDATAFORMAT_SUBTYPE_UNKNOWN = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
-#define KSDATAFORMAT_SUBTYPE_UNKNOWN VLC_KSDATAFORMAT_SUBTYPE_UNKNOWN
-#endif
+#define VLC_KSDATAFORMAT_SUBTYPE_ATRAC3P {0xE923AABF, 0xCB58, 0x4471, {0xA1, 0x19, 0xFF, 0xFA, 0x01, 0xE4, 0xCE, 0x62}} /* Undocumented */
+#define VLC_KSDATAFORMAT_SUBTYPE_UNKNOWN {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}
+#define VLC_WAVEFORMATEX_GUIDBASE        {0x00000000, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}} /* Generated from Wave Format */
+#define VLC_AMBISONIC_SUBTYPE_PCM        {0x00000001, 0x0721, 0x11D3, {0x86, 0x44, 0xC8, 0xC1, 0xCA, 0x00, 0x00, 0x00}} /* AMBISONIC_B_FORMAT_PCM */
+#define VLC_AMBISONIC_SUBTYPE_IEEE_FLOAT {0x00000003, 0x0721, 0x11D3, {0x86, 0x44, 0xC8, 0xC1, 0xCA, 0x00, 0x00, 0x00}} /* AMBISONIC_B_FORMAT_IEEE_FLOAT */
 
 /* Microsoft speaker definitions */
 #define WAVE_SPEAKER_FRONT_LEFT             0x1
@@ -369,6 +355,7 @@ wave_format_tag_to_fourcc[] =
     { WAVE_FORMAT_ALAW,             VLC_CODEC_ALAW,                   "A-Law" },
     { WAVE_FORMAT_MULAW,            VLC_CODEC_MULAW,                  "Mu-Law" },
     { WAVE_FORMAT_IMA_ADPCM,        VLC_CODEC_ADPCM_IMA_WAV,          "Ima-ADPCM" },
+    { WAVE_FORMAT_CREATIVE_ADPCM,   VLC_CODEC_ADPCM_CREATIVE,         "Creative ADPCM" },
     { WAVE_FORMAT_YAMAHA_ADPCM,     VLC_CODEC_ADPCM_YAMAHA,           "Yamaha ADPCM" },
     { WAVE_FORMAT_TRUESPEECH,       VLC_CODEC_TRUESPEECH,             "Truespeech" },
     { WAVE_FORMAT_GSM610,           VLC_CODEC_GSM_MS,                 "Microsoft WAV GSM" },
@@ -453,36 +440,67 @@ static inline void fourcc_to_wf_tag( vlc_fourcc_t fcc, uint16_t *pi_tag )
  */
 static const struct
 {
-    GUID         guid_tag;
-    vlc_fourcc_t i_fourcc;
+    const GUID   guid_tag;
+    const vlc_fourcc_t i_fourcc;
     const char  *psz_name;
 }
 sub_format_tag_to_fourcc[] =
 {
-    { _KSDATAFORMAT_SUBTYPE_PCM_, VLC_FOURCC( 'a', 'r', 'a', 'w' ), "PCM" },
-    { _KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_, VLC_FOURCC( 'a', 'f', 'l', 't' ), "Float PCM" },
-    { _KSDATAFORMAT_SUBTYPE_UNKNOWN_, VLC_FOURCC( 'u', 'n', 'd', 'f' ), "Unknown" }
+    { VLC_AMBISONIC_SUBTYPE_PCM,        VLC_FOURCC( 'a', 'r', 'a', 'w' ), "Ambisonic B format (PCM)" },
+    { VLC_AMBISONIC_SUBTYPE_IEEE_FLOAT, VLC_FOURCC( 'a', 'f', 'l', 't' ), "Ambisonic B format (IEEE float)" },
+    { VLC_KSDATAFORMAT_SUBTYPE_ATRAC3P, VLC_CODEC_ATRAC3P,                "Sony Atrac3+" },
+    { VLC_KSDATAFORMAT_SUBTYPE_UNKNOWN, VLC_FOURCC( 'u', 'n', 'd', 'f' ), "Unknown" }
 };
+
+static inline int guidcmpbase( const GUID *s1, const GUID *s2 )
+{
+    return( s1->Data2 == s2->Data2 &&
+            s1->Data3 == s2->Data3 && !memcmp( s1->Data4, s2->Data4, 8 ) );
+}
 
 /* compares two GUIDs, returns 1 if identical, 0 otherwise */
 static inline int guidcmp( const GUID *s1, const GUID *s2 )
 {
-    return( s1->Data1 == s2->Data1 && s1->Data2 == s2->Data2 &&
-            s1->Data3 == s2->Data3 && !memcmp( s1->Data4, s2->Data4, 8 ) );
+    return( s1->Data1 == s2->Data1 && guidcmpbase( s1, s2 ) );
 }
 
-static inline void sf_tag_to_fourcc( GUID *guid_tag,
+#define GUID_FMT "0x%x-0x%x-0x%x-0x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x"
+#define GUID_PRINT( guid )  \
+    (unsigned)(guid).Data1,              \
+    (guid).Data2,              \
+    (guid).Data3,              \
+    (guid).Data4[0],(guid).Data4[1],(guid).Data4[2],(guid).Data4[3],    \
+    (guid).Data4[4],(guid).Data4[5],(guid).Data4[6],(guid).Data4[7]
+
+
+static inline void sf_tag_to_fourcc( const GUID *guid_tag,
                                      vlc_fourcc_t *fcc, const char **ppsz_name )
 {
     int i;
+    bool b_found = false;
+
+    const GUID unknown = VLC_KSDATAFORMAT_SUBTYPE_UNKNOWN;
+    const GUID waveformatex = VLC_WAVEFORMATEX_GUIDBASE;
 
     for( i = 0; !guidcmp( &sub_format_tag_to_fourcc[i].guid_tag,
-                          &KSDATAFORMAT_SUBTYPE_UNKNOWN ); i++ )
+                          &unknown ); i++ )
     {
-        if( guidcmp( &sub_format_tag_to_fourcc[i].guid_tag, guid_tag ) ) break;
+        if( guidcmp( &sub_format_tag_to_fourcc[i].guid_tag, guid_tag ) )
+        {
+            b_found = true;
+            break;
+        }
     }
-    if( fcc ) *fcc = sub_format_tag_to_fourcc[i].i_fourcc;
-    if( ppsz_name ) *ppsz_name = sub_format_tag_to_fourcc[i].psz_name;
+
+    if( !b_found && guidcmpbase(guid_tag, &waveformatex) )
+    {
+        wf_tag_to_fourcc(guid_tag->Data1, fcc, ppsz_name);
+    }
+    else
+    {
+        if( fcc ) *fcc = sub_format_tag_to_fourcc[i].i_fourcc;
+        if( ppsz_name ) *ppsz_name = sub_format_tag_to_fourcc[i].psz_name;
+    }
 }
 
 #endif /* "codecs.h" */
