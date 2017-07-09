@@ -34,6 +34,7 @@
 #include <mmsystem.h>
 #include <winsock.h>
 
+DWORD LoadLibraryFlags = 0;
 
 static int system_InitWSA(int hi, int lo)
 {
@@ -52,14 +53,28 @@ static int system_InitWSA(int hi, int lo)
 /**
  * Initializes MME timer, Winsock.
  */
+static HMODULE hWinmm = INVALID_HANDLE_VALUE;
 void system_Init(void)
 {
-#if !VLC_WINSTORE_APP
-    timeBeginPeriod(5);
-#endif
+    hWinmm = LoadLibrary(TEXT("winmm.dll"));
+    if (hWinmm)
+    {
+        MMRESULT (WINAPI * timeBeginPeriod)(UINT);
+        timeBeginPeriod = (void*)GetProcAddress(hWinmm, "timeBeginPeriod");
+        if (timeBeginPeriod)
+            timeBeginPeriod(5);
+    }
 
     if (system_InitWSA(2, 2) && system_InitWSA(1, 1))
         fputs("Error: cannot initialize Winsocks\n", stderr);
+
+#if !VLC_WINSTORE_APP
+# if (_WIN32_WINNT < _WIN32_WINNT_WIN8)
+    if (GetProcAddress(GetModuleHandle(TEXT("kernel32.dll")),
+                                       "SetDefaultDllDirectories") != NULL)
+# endif /* FIXME: not reentrant */
+        LoadLibraryFlags = LOAD_LIBRARY_SEARCH_SYSTEM32;
+#endif
 }
 
 /*****************************************************************************
@@ -193,9 +208,14 @@ void system_Configure( libvlc_int_t *p_this, int i_argc, const char *const ppsz_
  */
 void system_End(void)
 {
-#if !VLC_WINSTORE_APP
-    timeEndPeriod(5);
-#endif
+    if (hWinmm)
+    {
+        MMRESULT (WINAPI * timeEndPeriod)(UINT);
+        timeEndPeriod = (void*)GetProcAddress(hWinmm, "timeEndPeriod");
+        if (timeEndPeriod)
+            timeEndPeriod(5);
+        FreeLibrary(hWinmm);
+    }
 
     /* XXX: In theory, we should not call this if WSAStartup() failed. */
     WSACleanup();

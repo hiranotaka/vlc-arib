@@ -315,8 +315,8 @@ static void Prepare(vout_display_t *vd, picture_t *picture, subpicture_t *subpic
 
     d3d_region_t picture_region;
     if (!Direct3DImportPicture(vd, &picture_region, surface)) {
-        picture_region.width = picture->format.i_visible_width;
-        picture_region.height = picture->format.i_visible_height;
+        picture_region.width = picture->format.i_width;
+        picture_region.height = picture->format.i_height;
         int subpicture_region_count     = 0;
         d3d_region_t *subpicture_region = NULL;
         if (subpicture)
@@ -875,11 +875,12 @@ static const d3d_format_t d3d_formats[] = {
 static const d3d_format_t *Direct3DFindFormat(vout_display_t *vd, vlc_fourcc_t chroma, D3DFORMAT target)
 {
     vout_display_sys_t *sys = vd->sys;
+    bool hardware_scale_ok = !(vd->fmt.i_visible_width & 1) && !(vd->fmt.i_visible_height & 1);
 
     for (unsigned pass = 0; pass < 2; pass++) {
         const vlc_fourcc_t *list;
 
-        if (pass == 0 && sys->allow_hw_yuv && vlc_fourcc_IsYUV(chroma))
+        if (pass == 0 && hardware_scale_ok && sys->allow_hw_yuv && vlc_fourcc_IsYUV(chroma))
             list = vlc_fourcc_GetYUVFallback(chroma);
         else if (pass == 1)
             list = vlc_fourcc_GetRGBFallback(chroma);
@@ -1054,8 +1055,8 @@ static int Direct3DCreateScene(vout_display_t *vd, const video_format_t *fmt)
      */
     LPDIRECT3DTEXTURE9 d3dtex;
     hr = IDirect3DDevice9_CreateTexture(d3ddev,
-                                        fmt->i_visible_width,
-                                        fmt->i_visible_height,
+                                        fmt->i_width,
+                                        fmt->i_height,
                                         1,
                                         D3DUSAGE_RENDERTARGET,
                                         sys->d3dpp.BackBufferFormat,
@@ -1386,6 +1387,7 @@ static void orientationVertexOrder(video_orientation_t orientation, int vertex_o
 }
 
 static void Direct3DSetupVertices(CUSTOMVERTEX *vertices,
+                                  const RECT *src, const RECT *src_clipped,
                                   const RECT dst,
                                   int alpha,
                                   video_orientation_t orientation)
@@ -1407,17 +1409,22 @@ static void Direct3DSetupVertices(CUSTOMVERTEX *vertices,
         vertices[i].y  = vertices_coords[vertex_order[i]][1];
     }
 
-    vertices[0].tu = .0f;
-    vertices[0].tv = .0f;
+    float right = (float)src_clipped->right / (float)src->right;
+    float left = (float)src_clipped->left / (float)src->right;
+    float top = (float)src_clipped->top / (float)src->bottom;
+    float bottom = (float)src_clipped->bottom / (float)src->bottom;
 
-    vertices[1].tu = 1.f;
-    vertices[1].tv = .0f;
+    vertices[0].tu = left;
+    vertices[0].tv = top;
 
-    vertices[2].tu = 1.f;
-    vertices[2].tv = 1.f;
+    vertices[1].tu = right;
+    vertices[1].tv = top;
 
-    vertices[3].tu = .0f;
-    vertices[3].tv = 1.f;
+    vertices[2].tu = right;
+    vertices[2].tv = bottom;
+
+    vertices[3].tu = left;
+    vertices[3].tv = bottom;
 
     for (int i = 0; i < 4; i++) {
         /* -0.5f is a "feature" of DirectX and it seems to apply to Direct3d also */
@@ -1456,7 +1463,14 @@ static int Direct3DImportPicture(vout_display_t *vd,
 
     /* Copy picture surface into texture surface
      * color space conversion happen here */
-    hr = IDirect3DDevice9_StretchRect(sys->d3ddev, source, &vd->sys->rect_src_clipped, destination, NULL, D3DTEXF_LINEAR);
+    RECT copy_rect = vd->sys->rect_src_clipped;
+    // On nVidia & AMD, StretchRect will fail if the visible size isn't even.
+    // When copying the entire buffer, the margin end up being blended in the actual picture
+    // on nVidia (regardless of even/odd dimensions)
+    if ( copy_rect.right & 1 ) copy_rect.right++;
+    if ( copy_rect.bottom & 1 ) copy_rect.bottom++;
+    hr = IDirect3DDevice9_StretchRect(sys->d3ddev, source, &copy_rect, destination,
+                                      &copy_rect, D3DTEXF_NONE);
     IDirect3DSurface9_Release(destination);
     if (FAILED(hr)) {
         msg_Dbg(vd, "%s:%d (hr=0x%0lX)", __FUNCTION__, __LINE__, hr);
@@ -1465,7 +1479,8 @@ static int Direct3DImportPicture(vout_display_t *vd,
 
     /* */
     region->texture = sys->d3dtex;
-    Direct3DSetupVertices(region->vertex, vd->sys->rect_dest_clipped, 255, vd->fmt.orientation);
+    Direct3DSetupVertices(region->vertex, &vd->sys->rect_src, &vd->sys->rect_src_clipped,
+                          vd->sys->rect_dest_clipped, 255, vd->fmt.orientation);
     return VLC_SUCCESS;
 }
 
@@ -1505,8 +1520,8 @@ static void Direct3DImportSubpicture(vout_display_t *vd,
             d3d_region_t *cache = &sys->d3dregion[j];
             if (cache->texture &&
                 cache->format == sys->d3dregion_format &&
-                cache->width  == r->fmt.i_visible_width &&
-                cache->height == r->fmt.i_visible_height) {
+                cache->width  == r->fmt.i_width &&
+                cache->height == r->fmt.i_height) {
 #ifndef NDEBUG
                 msg_Dbg(vd, "Reusing %dx%d texture for OSD",
                         cache->width, cache->height);
@@ -1518,8 +1533,8 @@ static void Direct3DImportSubpicture(vout_display_t *vd,
         }
         if (!d3dr->texture) {
             d3dr->format = sys->d3dregion_format;
-            d3dr->width  = r->fmt.i_visible_width;
-            d3dr->height = r->fmt.i_visible_height;
+            d3dr->width  = r->fmt.i_width;
+            d3dr->height = r->fmt.i_height;
             hr = IDirect3DDevice9_CreateTexture(sys->d3ddev,
                                                 d3dr->width, d3dr->height,
                                                 1,
@@ -1536,7 +1551,7 @@ static void Direct3DImportSubpicture(vout_display_t *vd,
             }
 #ifndef NDEBUG
             msg_Dbg(vd, "Created %dx%d texture for OSD",
-                    r->fmt.i_visible_width, r->fmt.i_visible_height);
+                    r->fmt.i_width, r->fmt.i_height);
 #endif
         }
 
@@ -1545,12 +1560,10 @@ static void Direct3DImportSubpicture(vout_display_t *vd,
         if (SUCCEEDED(hr)) {
             uint8_t  *dst_data   = lock.pBits;
             int       dst_pitch  = lock.Pitch;
-            const int src_offset = r->fmt.i_y_offset * r->p_picture->p->i_pitch +
-                                   r->fmt.i_x_offset * r->p_picture->p->i_pixel_pitch;
-            uint8_t  *src_data   = &r->p_picture->p->p_pixels[src_offset];
+            uint8_t  *src_data   = r->p_picture->p->p_pixels;
             int       src_pitch  = r->p_picture->p->i_pitch;
-            for (unsigned y = 0; y < r->fmt.i_visible_height; y++) {
-                int copy_pitch = __MIN(dst_pitch, r->p_picture->p->i_visible_pitch);
+            for (unsigned y = 0; y < r->fmt.i_height; y++) {
+                int copy_pitch = __MIN(dst_pitch, r->p_picture->p->i_pitch);
                 if (d3dr->format == D3DFMT_A8B8G8R8) {
                     memcpy(&dst_data[y * dst_pitch], &src_data[y * src_pitch],
                            copy_pitch);
@@ -1579,10 +1592,22 @@ static void Direct3DImportSubpicture(vout_display_t *vd,
         dst.left   = video.left + scale_w * r->i_x,
         dst.right  = dst.left + scale_w * r->fmt.i_visible_width,
         dst.top    = video.top  + scale_h * r->i_y,
-        dst.bottom = dst.top  + scale_h * r->fmt.i_visible_height,
-        Direct3DSetupVertices(d3dr->vertex,
-                              dst,
-                              subpicture->i_alpha * r->i_alpha / 255, ORIENT_NORMAL);
+        dst.bottom = dst.top  + scale_h * r->fmt.i_visible_height;
+
+        RECT src;
+        src.left = 0;
+        src.right = r->fmt.i_width;
+        src.top = 0;
+        src.bottom = r->fmt.i_height;
+
+        RECT src_clipped;
+        src_clipped.left = r->fmt.i_x_offset;
+        src_clipped.right = r->fmt.i_x_offset + r->fmt.i_visible_width;
+        src_clipped.top = r->fmt.i_y_offset;
+        src_clipped.bottom = r->fmt.i_y_offset + r->fmt.i_visible_height;
+
+        Direct3DSetupVertices(d3dr->vertex, &src, &src_clipped,
+                              dst, subpicture->i_alpha * r->i_alpha / 255, ORIENT_NORMAL);
     }
 }
 

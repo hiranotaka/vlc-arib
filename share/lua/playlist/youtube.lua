@@ -78,13 +78,10 @@ function buf_iter( s )
 end
 
 -- Helper to search and extract code from javascript stream
-function js_extract( js, pattern, alt )
+function js_extract( js, pattern )
     js.i = 0 -- Reset to beginning
     for line in buf_iter, js do
         local ex = string.match( line, pattern )
-        if not ex and alt then
-            ex = string.match( line, alt )
-        end
         if ex then
             return ex
         end
@@ -105,31 +102,33 @@ function js_descramble( sig, js_url )
 
     -- Look for the descrambler function's name
     -- c&&a.set("signature",br(c));
-    local descrambler = js_extract( js, "%.set%(\"signature\",(.-)%(", nil )
+    local descrambler = js_extract( js, "%.set%(\"signature\",([^)]-)%(" )
     if not descrambler then
+        vlc.msg.dbg( "Couldn't extract youtube video URL signature descrambling function name" )
         return sig
     end
 
     -- Fetch the code of the descrambler function
-    -- var Go=function(a){a=a.split("");Fo.sH(a,2);Fo.TU(a,28);Fo.TU(a,44);Fo.TU(a,26);Fo.TU(a,40);Fo.TU(a,64);Fo.TR(a,26);Fo.sH(a,1);return a.join("")};
-    local rules = js_extract( js, "[ ,]"..descrambler.."=function%([^)]*%){(.-)};",
-                                  -- Legacy/alternate format
-                                  "function "..descrambler.."%([^)]*%){(.-)}" )
+    -- Go=function(a){a=a.split("");Fo.sH(a,2);Fo.TU(a,28);Fo.TU(a,44);Fo.TU(a,26);Fo.TU(a,40);Fo.TU(a,64);Fo.TR(a,26);Fo.sH(a,1);return a.join("")};
+    local rules = js_extract( js, "^"..descrambler.."=function%([^)]*%){(.-)};" )
     if not rules then
+        vlc.msg.dbg( "Couldn't extract youtube video URL signature descrambling rules" )
         return sig
     end
 
     -- Get the name of the helper object providing transformation definitions
     local helper = string.match( rules, ";(..)%...%(" )
     if not helper then
+        vlc.msg.dbg( "Couldn't extract youtube video URL signature transformation helper name" )
         vlc.msg.err( "Couldn't process youtube video URL, please check for updates to this script" )
         return sig
     end
 
     -- Fetch the helper object code
     -- var Fo={TR:function(a){a.reverse()},TU:function(a,b){var c=a[0];a[0]=a[b%a.length];a[b]=c},sH:function(a,b){a.splice(0,b)}};
-    local transformations = js_extract( js, "[ ,]"..helper.."={(.-)};", nil )
+    local transformations = js_extract( js, "[ ,]"..helper.."={(.-)};" )
     if not transformations then
+        vlc.msg.dbg( "Couldn't extract youtube video URL signature transformation code" )
         return sig
     end
 
@@ -257,9 +256,11 @@ function parse()
                 name = vlc.strings.resolve_xml_special_chars( name )
             end
 
-            if string.match( line, "<p id=\"eow[-]description\" >" ) then
-                _,_,description = string.find( line, "<p id=\"eow[-]description\" >(.-)<[/]p>" )
-                description = vlc.strings.resolve_xml_special_chars( description )
+            if not description then
+                description = string.match( line, "<p id=\"eow%-description\"[^>]*>(.-)</p>" )
+                if description then
+                    description = vlc.strings.resolve_xml_special_chars( description )
+                end
             end
 
 
@@ -279,6 +280,11 @@ function parse()
                 local js_url = string.match( line, "\"js\": *\"(.-)\"" )
                 if js_url then
                     js_url = string.gsub( js_url, "\\/", "/" )
+                    -- Resolve URL
+                    if string.match( js_url, "^/[^/]" ) then
+                        local authority = string.match( vlc.path, "^([^/]*)/" )
+                        js_url = "//"..authority..js_url
+                    end
                     js_url = string.gsub( js_url, "^//", vlc.access.."://" )
                 end
 
@@ -320,10 +326,11 @@ function parse()
                 else
                     format = ""
                 end
-                -- Without "el=detailpage", /get_video_info fails for many
-                -- music videos with errors about copyrighted content being
-                -- "restricted from playback on certain sites"
-                path = vlc.access.."://www.youtube.com/get_video_info?video_id="..video_id..format.."&el=detailpage"
+                -- Passing no "el" parameter to /get_video_info seems to
+                -- let it default to "embedded", and both known values
+                -- of "embedded" and "detailpage" are wrong and fail for
+                -- various restricted videos, so we pass a different value
+                path = vlc.access.."://www.youtube.com/get_video_info?video_id="..video_id..format.."&el=detail"
                 vlc.msg.warn( "Couldn't extract video URL, falling back to alternate youtube API" )
             end
         end

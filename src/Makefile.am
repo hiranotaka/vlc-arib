@@ -190,8 +190,7 @@ libvlccore_la_LIBADD = $(LIBS_libvlccore) \
 libvlccore_la_DEPENDENCIES = libvlccore.sym
 if HAVE_WIN32
 libvlccore_la_DEPENDENCIES += libvlc_win32_rc.$(OBJEXT)
-libvlccore_la_LDFLAGS += -Wl,libvlc_win32_rc.$(OBJEXT) -avoid-version \
-						 -Wc,--static -Wc,-static-libgcc
+libvlccore_la_LDFLAGS += -Wl,libvlc_win32_rc.$(OBJEXT) -avoid-version -Wc,-static
 endif
 if HAVE_OS2
 libvlccore_la_LDFLAGS += -avoid-version
@@ -200,7 +199,7 @@ if HAVE_DBUS
 libvlccore_la_LIBADD += $(DBUS_LIBS)
 endif
 
-libvlc_win32_rc.$(OBJEXT): libvlc_win32_rc.rc
+libvlc_win32_rc.$(OBJEXT): libvlc_win32_rc.rc $(top_srcdir)/extras/package/win32/libvlc.dll.manifest
 	$(WINDRES) --include-dir $(top_srcdir)/share --include-dir $(top_srcdir)/extras/package/win32 -i $< -o $@
 
 EXTRA_libvlccore_la_SOURCES = \
