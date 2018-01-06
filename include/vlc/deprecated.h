@@ -128,6 +128,15 @@ LIBVLC_DEPRECATED LIBVLC_API libvlc_track_description_t *
 LIBVLC_DEPRECATED LIBVLC_API int
 libvlc_video_set_subtitle_file( libvlc_media_player_t *p_mi, const char *psz_subtitle );
 
+/**
+ * Toggle teletext transparent status on video output.
+ * \deprecated use libvlc_video_set_teletext() instead.
+ *
+ * \param p_mi the media player
+ */
+LIBVLC_DEPRECATED LIBVLC_API void
+libvlc_toggle_teletext( libvlc_media_player_t *p_mi );
+
 /** @}*/
 
 /**
@@ -141,7 +150,7 @@ libvlc_video_set_subtitle_file( libvlc_media_player_t *p_mi, const char *psz_sub
  * \return always 0.
  */
 LIBVLC_DEPRECATED LIBVLC_API
-int libvlc_audio_output_device_count( libvlc_instance_t *, const char * );
+int libvlc_audio_output_device_count( libvlc_instance_t *p_instance, const char *psz_audio_output );
 
 /**
  * Backward compatibility stub. Do not use in new code.
@@ -149,8 +158,8 @@ int libvlc_audio_output_device_count( libvlc_instance_t *, const char * );
  * \return always NULL.
  */
 LIBVLC_DEPRECATED LIBVLC_API
-char *libvlc_audio_output_device_longname( libvlc_instance_t *, const char *,
-                                           int );
+char *libvlc_audio_output_device_longname( libvlc_instance_t *p_instance, const char *psz_output,
+                                           int i_device );
 
 /**
  * Backward compatibility stub. Do not use in new code.
@@ -158,7 +167,7 @@ char *libvlc_audio_output_device_longname( libvlc_instance_t *, const char *,
  * \return always NULL.
  */
 LIBVLC_DEPRECATED LIBVLC_API
-char *libvlc_audio_output_device_id( libvlc_instance_t *, const char *, int );
+char *libvlc_audio_output_device_id( libvlc_instance_t *p_instance, const char *psz_audio_output, int i_device );
 
 /**
  * Stub for backward compatibility.
@@ -171,8 +180,8 @@ LIBVLC_API int libvlc_audio_output_get_device_type( libvlc_media_player_t *p_mi 
  * Stub for backward compatibility.
  */
 LIBVLC_DEPRECATED
-LIBVLC_API void libvlc_audio_output_set_device_type( libvlc_media_player_t *,
-                                                     int );
+LIBVLC_API void libvlc_audio_output_set_device_type( libvlc_media_player_t *p_mp,
+                                                     int device_type );
 
 /** @}*/
 
@@ -180,6 +189,24 @@ LIBVLC_API void libvlc_audio_output_set_device_type( libvlc_media_player_t *,
  * \ingroup libvlc libvlc_media
  * @{
  */
+
+/**
+ * Parse a media.
+ *
+ * This fetches (local) art, meta data and tracks information.
+ * The method is synchronous.
+ *
+ * \deprecated This function could block indefinitely.
+ *             Use libvlc_media_parse_with_options() instead
+ *
+ * \see libvlc_media_parse_with_options
+ * \see libvlc_media_get_meta
+ * \see libvlc_media_get_tracks_info
+ *
+ * \param p_md media descriptor object
+ */
+LIBVLC_DEPRECATED LIBVLC_API void
+libvlc_media_parse( libvlc_media_t *p_md );
 
 /**
  * Parse a media.

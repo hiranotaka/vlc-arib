@@ -40,17 +40,9 @@
 @property (nonatomic, readwrite) BOOL hasActiveVideo;
 @property (nonatomic, readwrite) BOOL fullscreen;
 
-/* animate mode is only supported in >=10.4 */
-- (void)orderFront: (id)sender animate: (BOOL)animate;
-
-/* animate mode is only supported in >=10.4 */
-- (void)orderOut: (id)sender animate: (BOOL)animate;
-
-/* animate mode is only supported in >=10.4 */
-- (void)orderOut: (id)sender animate: (BOOL)animate callback:(NSInvocation *)callback;
-
-/* animate mode is only supported in >=10.4 */
-- (void)closeAndAnimate: (BOOL)animate;
+- (void)closeAndAnimate:(BOOL)animate;
+- (void)orderFront:(id)sender animate:(BOOL)animate;
+- (void)orderOut:(id)sender animate:(BOOL)animate;
 
 - (VLCVoutView *)videoView;
 
@@ -71,6 +63,9 @@ static const float f_min_video_height = 70.0;
 @interface VLCVideoWindowCommon : VLCWindow <NSWindowDelegate, NSAnimationDelegate>
 
 @property (nonatomic, weak) IBOutlet VLCMainWindowTitleView *titlebarView; // only set in main or detached window
+@property (weak) IBOutlet NSLayoutConstraint *videoViewTopConstraint;
+@property (weak) IBOutlet NSLayoutConstraint *videoViewBottomConstraint;
+
 @property (nonatomic, weak) IBOutlet VLCVoutView* videoView;
 @property (nonatomic, weak) IBOutlet VLCControlsBarCommon* controlsBar;
 @property (readonly) BOOL inFullscreenTransition;
@@ -91,6 +86,9 @@ static const float f_min_video_height = 70.0;
 - (void)leaveFullscreenWithAnimation:(BOOL)b_animation;
 
 /* lion fullscreen handling */
+- (void)hideControlsBar;
+- (void)showControlsBar;
+
 - (void)windowWillEnterFullScreen:(NSNotification *)notification;
 - (void)windowDidEnterFullScreen:(NSNotification *)notification;
 - (void)windowWillExitFullScreen:(NSNotification *)notification;

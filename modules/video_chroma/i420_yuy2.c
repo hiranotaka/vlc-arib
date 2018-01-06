@@ -33,6 +33,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 #include <vlc_cpu.h>
 
 #if defined (MODULE_NAME_IS_i420_yuy2_altivec) && defined(HAVE_ALTIVEC_H)
@@ -77,32 +78,26 @@ static void I420_Y211           ( filter_t *, picture_t *, picture_t * );
 static picture_t *I420_Y211_Filter    ( filter_t *, picture_t * );
 #endif
 
-#ifdef MODULE_NAME_IS_i420_yuy2_mmx
-/* Initialize MMX-specific constants */
-static const uint64_t i_00ffw = 0x00ff00ff00ff00ffULL;
-static const uint64_t i_80w   = 0x0000000080808080ULL;
-#endif
-
 /*****************************************************************************
  * Module descriptor.
  *****************************************************************************/
 vlc_module_begin ()
 #if defined (MODULE_NAME_IS_i420_yuy2)
     set_description( N_("Conversions from " SRC_FOURCC " to " DEST_FOURCC) )
-    set_capability( "video filter2", 80 )
+    set_capability( "video converter", 80 )
 # define vlc_CPU_capable() (true)
 #elif defined (MODULE_NAME_IS_i420_yuy2_mmx)
     set_description( N_("MMX conversions from " SRC_FOURCC " to " DEST_FOURCC) )
-    set_capability( "video filter2", 160 )
+    set_capability( "video converter", 160 )
 # define vlc_CPU_capable() vlc_CPU_MMX()
 #elif defined (MODULE_NAME_IS_i420_yuy2_sse2)
     set_description( N_("SSE2 conversions from " SRC_FOURCC " to " DEST_FOURCC) )
-    set_capability( "video filter2", 250 )
+    set_capability( "video converter", 250 )
 # define vlc_CPU_capable() vlc_CPU_SSE2()
 #elif defined (MODULE_NAME_IS_i420_yuy2_altivec)
     set_description(
             _("AltiVec conversions from " SRC_FOURCC " to " DEST_FOURCC) );
-    set_capability( "video filter2", 250 )
+    set_capability( "video converter", 250 )
 # define vlc_CPU_capable() vlc_CPU_ALTIVEC()
 #endif
     set_callbacks( Activate, NULL )

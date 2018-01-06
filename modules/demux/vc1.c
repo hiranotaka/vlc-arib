@@ -81,7 +81,7 @@ static int Open( vlc_object_t * p_this )
     const uint8_t *p_peek;
     es_format_t fmt;
 
-    if( stream_Peek( p_demux->s, &p_peek, 4 ) < 4 ) return VLC_EGENERIC;
+    if( vlc_stream_Peek( p_demux->s, &p_peek, 4 ) < 4 ) return VLC_EGENERIC;
 
     if( p_peek[0] != 0x00 || p_peek[1] != 0x00 ||
         p_peek[2] != 0x01 || p_peek[3] != 0x0f ) /* Sequence header */
@@ -141,15 +141,22 @@ static int Demux( demux_t *p_demux)
 {
     demux_sys_t *p_sys = p_demux->p_sys;
     block_t *p_block_in, *p_block_out;
+    bool b_eof = false;
 
-    if( ( p_block_in = stream_Block( p_demux->s, VC1_PACKET_SIZE ) ) == NULL )
-        return 0;
+    p_block_in = vlc_stream_Block( p_demux->s, VC1_PACKET_SIZE );
+    if( p_block_in == NULL )
+    {
+        b_eof = true;
+    }
+    else
+    {
+        /*  */
+        p_block_in->i_dts = VLC_TS_0;
+        p_block_in->i_pts = VLC_TS_0;
+    }
 
-    /*  */
-    p_block_in->i_dts = VLC_TS_0;
-    p_block_in->i_pts = VLC_TS_0;
-
-    while( (p_block_out = p_sys->p_packetizer->pf_packetize( p_sys->p_packetizer, &p_block_in )) )
+    while( (p_block_out = p_sys->p_packetizer->pf_packetize( p_sys->p_packetizer,
+                                                             p_block_in ? &p_block_in : NULL )) )
     {
         while( p_block_out )
         {
@@ -163,7 +170,7 @@ static int Demux( demux_t *p_demux)
                 p_sys->p_es = es_out_Add( p_demux->out, &p_sys->p_packetizer->fmt_out);
             }
 
-            es_out_Control( p_demux->out, ES_OUT_SET_PCR, VLC_TS_0 + p_sys->i_dts );
+            es_out_SetPCR( p_demux->out, VLC_TS_0 + p_sys->i_dts );
             p_block_out->i_dts = VLC_TS_0 + p_sys->i_dts;
             p_block_out->i_pts = VLC_TS_0 + p_sys->i_dts;
 
@@ -182,7 +189,8 @@ static int Demux( demux_t *p_demux)
                 p_sys->i_dts += CLOCK_FREQ / 25;
         }
     }
-    return 1;
+
+    return b_eof ? VLC_DEMUXER_EOF : VLC_DEMUXER_SUCCESS;
 }
 
 /*****************************************************************************

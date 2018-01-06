@@ -23,7 +23,6 @@
 
 #include <vlc_common.h>
 #include <vlc_block.h>
-#include <vlc_fourcc.h>
 #include <vlc_es.h>
 
 # include <dvbpsi/dvbpsi.h>
@@ -41,6 +40,11 @@
 #include "tsutil.h"
 #include "tables.h"
 #include "bits.h"
+#include "pes.h"
+
+#include "../../codec/jpeg2000.h"
+
+#include <assert.h>
 
 block_t *WritePSISection( dvbpsi_psi_section_t* p_section )
 {
@@ -80,8 +84,8 @@ error:
 void BuildPAT( dvbpsi_t *p_dvbpsi,
                void *p_opaque, PEStoTSCallback pf_callback,
                int i_tsid, int i_pat_version_number,
-               ts_stream_t *p_pat,
-               unsigned i_programs, ts_stream_t *p_pmt, const int *pi_programs_number )
+               tsmux_stream_t *p_pat,
+               unsigned i_programs, tsmux_stream_t *p_pmt, const int *pi_programs_number )
 {
     dvbpsi_pat_t         patpsi;
     dvbpsi_psi_section_t *p_section;
@@ -115,6 +119,57 @@ static uint32_t GetDescriptorLength24b( int i_length )
     i_l3 = ( i_length >> 14 )&0x7f;
 
     return( 0x808000 | ( i_l3 << 16 ) | ( i_l2 << 8 ) | i_l1 );
+}
+
+static void Mpeg4SUBTDecoderSpecific_55( bits_buffer_t *b )
+{
+    bits_write( b, 8, 0x10 ); /* textFormat, 0x10 for 3GPP TS 26.245 */
+    bits_write( b, 8, 0x00 ); /* flags: 1b: associated video info flag
+                                        3b: reserved
+                                        1b: duration flag
+                                        3b: reserved */
+    bits_write( b, 8, 52 );   /* remaining size */
+
+    bits_write( b, 32, 0x00 ); /* display flags */
+
+    bits_write( b, 8, 0x00 ); /* horizontal justification (-1: left, 0 center, 1 right) */
+    bits_write( b, 8, 0x01 );  /* vertical   justification (-1: top, 0 center, 1 bottom) */
+
+    bits_write( b, 24, 0x00 ); /* background rgb */
+    bits_write( b, 8,  0xff ); /* background a */
+
+    bits_write( b, 16,  0x00 ); /* text box top */
+    bits_write( b, 16,  0x00 ); /* text box left */
+    bits_write( b, 16,  0x00 ); /* text box bottom */
+    bits_write( b, 16,  0x00 ); /* text box right */
+
+    bits_write( b, 16,  0x00 ); /* start char */
+    bits_write( b, 16,  0x00 ); /* end char */
+    bits_write( b, 16,  0x00 ); /* default font id */
+
+
+    bits_write( b, 8, 0x00 );   /* font style flags */
+    bits_write( b, 8,   12 );   /* font size */
+
+    bits_write( b, 24, 0x00 );  /* foreground rgb */
+    bits_write( b,  8, 0x00 );  /* foreground a */
+
+    bits_write( b, 24, 0x00 );
+    bits_write( b,  8,   22 );  /* atom size */
+
+    bits_write( b,  8,   'f' ); /* atom id */
+    bits_write( b,  8,   't' );
+    bits_write( b,  8,   'a' );
+    bits_write( b,  8,   'b' );
+
+    bits_write( b,  8,  0x00 );
+    bits_write( b,  8,  0x01 ); /* entry count */
+
+    bits_write( b, 16,  0x00 ); /* font id */
+    bits_write( b,  8,     9 ); /* font name length */
+    const char fontname[] = "Helvetica";
+    for(int i=0; i<9; i++)
+        bits_write( b,  8, fontname[i] ); /* font name */
 }
 
 static void GetPMTmpeg4( vlc_object_t *p_object, dvbpsi_pmt_t *p_dvbpmt,
@@ -174,24 +229,24 @@ static void GetPMTmpeg4( vlc_object_t *p_object, dvbpsi_pmt_t *p_dvbpmt,
         bits_write( &bits, 8,   0x04 ); /* DecoderConfigDescrTag */
         bits_fix_Decoder = bits;
         bits_write( &bits, 24,  GetDescriptorLength24b( 0 ) );
-        if( p_stream->pes->i_stream_type == 0x10 )
+        if( p_stream->ts->i_stream_type == 0x10 )
         {
             bits_write( &bits, 8, 0x20 );   /* Visual 14496-2 */
             bits_write( &bits, 6, 0x04 );   /* VisualStream */
         }
-        else if( p_stream->pes->i_stream_type == 0x1b )
+        else if( p_stream->ts->i_stream_type == 0x1b )
         {
             bits_write( &bits, 8, 0x21 );   /* Visual 14496-2 */
             bits_write( &bits, 6, 0x04 );   /* VisualStream */
         }
-        else if( p_stream->pes->i_stream_type == 0x11 ||
-                 p_stream->pes->i_stream_type == 0x0f )
+        else if( p_stream->ts->i_stream_type == 0x11 ||
+                 p_stream->ts->i_stream_type == 0x0f )
         {
             bits_write( &bits, 8, 0x40 );   /* Audio 14496-3 */
             bits_write( &bits, 6, 0x05 );   /* AudioStream */
         }
-        else if( p_stream->pes->i_stream_type == 0x12 &&
-                 p_stream->pes->i_codec == VLC_CODEC_SUBT )
+        else if( p_stream->ts->i_stream_type == 0x12 &&
+                 p_stream->fmt->i_codec == VLC_CODEC_SUBT )
         {
             bits_write( &bits, 8, 0x0B );   /* Text Stream */
             bits_write( &bits, 6, 0x04 );   /* VisualStream */
@@ -209,19 +264,29 @@ static void GetPMTmpeg4( vlc_object_t *p_object, dvbpsi_pmt_t *p_dvbpmt,
         bits_write( &bits, 32,  0x7fffffff );   /* maxBitrate */
         bits_write( &bits, 32,  0 );            /* avgBitrate */
 
-        if( p_stream->pes->i_extra > 0 )
+        /* DecoderSpecificInfo */
+        if( p_stream->fmt->i_codec == VLC_CODEC_SUBT )
+        {
+            bits_align( &bits );
+            bits_write( &bits, 8,   0x05 ); /* tag */
+            bits_write( &bits, 24,  55 );
+            /* Create decoder specific info for subt */
+            Mpeg4SUBTDecoderSpecific_55( &bits );
+        }
+        else if( p_stream->fmt->i_extra > 0 )
         {
             /* DecoderSpecificInfo */
             bits_align( &bits );
             bits_write( &bits, 8,   0x05 ); /* tag */
             bits_write( &bits, 24, GetDescriptorLength24b(
-                        p_stream->pes->i_extra ) );
-            for (int j = 0; j < p_stream->pes->i_extra; j++ )
+                        p_stream->fmt->i_extra ) );
+            for (int j = 0; j < p_stream->fmt->i_extra; j++ )
             {
                 bits_write( &bits, 8,
-                    ((uint8_t*)p_stream->pes->p_extra)[j] );
+                    ((uint8_t*)p_stream->fmt->p_extra)[j] );
             }
         }
+
         /* fix Decoder length */
         bits_write( &bits_fix_Decoder, 24,
                     GetDescriptorLength24b( bits.i_data -
@@ -251,11 +316,12 @@ static void GetPMTmpeg4( vlc_object_t *p_object, dvbpsi_pmt_t *p_dvbpmt,
     dvbpsi_pmt_descriptor_add(&p_dvbpmt[0], 0x1d, bits.i_data, bits.p_data);
 }
 
-static void UpdateServiceType( uint8_t *pi_service_cat, uint8_t *pi_service_type, const pes_stream_t *p_pes )
+static void UpdateServiceType( uint8_t *pi_service_cat, uint8_t *pi_service_type,
+                               const tsmux_stream_t *p_ts, const es_format_t *fmt )
 {
     uint8_t i_type = 0x00;
 
-    switch( p_pes->i_stream_type )
+    switch( p_ts->i_stream_type )
     {
         case 0x01: /* MPEG1 */
         case 0x02: /* MPEG2 */
@@ -275,11 +341,13 @@ static void UpdateServiceType( uint8_t *pi_service_cat, uint8_t *pi_service_type
             break;
     }
 
-    if( i_type == 0x01 && p_pes->i_height > 468 && p_pes->i_width > 720 ) /* MPEG2 SD -> HD */
+    if( i_type == 0x01 && fmt->video.i_visible_height > 468 &&
+                          fmt->video.i_visible_width > 720 ) /* MPEG2 SD -> HD */
     {
          i_type = 0x11;
     }
-    else if( i_type == 0x16 && p_pes->i_height > 468 && p_pes->i_width > 720 ) /* Advanced codec SD -> HD */
+    else if( i_type == 0x16 && fmt->video.i_visible_height > 468 &&
+                               fmt->video.i_visible_width > 720 ) /* Advanced codec SD -> HD */
     {
          i_type = 0x19;
     }
@@ -297,7 +365,7 @@ static void UpdateServiceType( uint8_t *pi_service_cat, uint8_t *pi_service_type
     if( *pi_service_cat != VIDEO_ES ) /* Don't overwrite video */
     {
         /* Not video, try audio */
-        switch( p_pes->i_stream_type )
+        switch( p_ts->i_stream_type )
         {
             case 0x03: /* MPEG1 audio */
             case 0x04: /* MPEG2 audio */
@@ -351,24 +419,26 @@ static inline size_t Write_AnnexA_String( uint8_t *p_dest, const char *p_src )
 }
 
 void BuildPMT( dvbpsi_t *p_dvbpsi, vlc_object_t *p_object,
+               ts_mux_standard standard,
                void *p_opaque, PEStoTSCallback pf_callback,
                int i_tsid, int i_pmt_version_number,
                int i_pcr_pid,
                sdt_psi_t *p_sdt,
-               unsigned i_programs, ts_stream_t *p_pmt, const int *pi_programs_number,
+               unsigned i_programs, tsmux_stream_t *p_pmt, const int *pi_programs_number,
                unsigned i_mapped_streams, const pes_mapped_stream_t *p_mapped_streams )
 {
-    dvbpsi_pmt_t *dvbpmt = malloc( i_programs * sizeof(dvbpsi_pmt_t) );
+    dvbpsi_pmt_t *dvbpmt = vlc_alloc( i_programs, sizeof(dvbpsi_pmt_t) );
     if( !dvbpmt )
             return;
 
+    VLC_UNUSED(standard);
     dvbpsi_sdt_t sdtpsi;
     uint8_t *pi_service_types = NULL;
     uint8_t *pi_service_cats = NULL;
     if( p_sdt )
     {
         dvbpsi_sdt_init( &sdtpsi, 0x42, i_tsid, 1, true, p_sdt->i_netid );
-        pi_service_types = calloc( i_programs * 2, sizeof(uint8_t *) );
+        pi_service_types = calloc( i_programs * 2, sizeof *pi_service_types );
         if( !pi_service_types )
         {
             free( dvbpmt );
@@ -404,7 +474,7 @@ void BuildPMT( dvbpsi_t *p_dvbpsi, vlc_object_t *p_object,
         const pes_mapped_stream_t *p_stream = &p_mapped_streams[i];
 
         dvbpsi_pmt_es_t *p_es = dvbpsi_pmt_es_add( &dvbpmt[p_stream->i_mapped_prog],
-                    p_stream->pes->i_stream_type, p_stream->ts->i_pid );
+                    p_stream->ts->i_stream_type, p_stream->ts->i_pid );
 
         if( p_stream->pes->i_stream_id == 0xfa || p_stream->pes->i_stream_id == 0xfb )
         {
@@ -415,55 +485,118 @@ void BuildPMT( dvbpsi_t *p_dvbpsi, vlc_object_t *p_object,
             es_id[1] = (p_stream->pes->i_es_id)&0xff;
             dvbpsi_pmt_es_descriptor_add( p_es, 0x1f, 2, es_id );
         }
-        else if( p_stream->pes->i_stream_type == 0xa0 )
+        else if( p_stream->ts->i_stream_type == 0xa0 )
         {
             uint8_t data[512];
-            int i_extra = __MIN( p_stream->pes->i_extra, 502 );
+            size_t i_extra = __MIN( p_stream->fmt->i_extra, 502 );
 
             /* private DIV3 descripor */
-            memcpy( &data[0], &p_stream->pes->i_codec, 4 );
-            data[4] = ( p_stream->pes->i_width >> 8 )&0xff;
-            data[5] = ( p_stream->pes->i_width      )&0xff;
-            data[6] = ( p_stream->pes->i_height>> 8 )&0xff;
-            data[7] = ( p_stream->pes->i_height     )&0xff;
+            memcpy( &data[0], &p_stream->fmt->i_codec, 4 );
+            data[4] = ( p_stream->fmt->video.i_visible_width >> 8 )&0xff;
+            data[5] = ( p_stream->fmt->video.i_visible_width      )&0xff;
+            data[6] = ( p_stream->fmt->video.i_visible_height>> 8 )&0xff;
+            data[7] = ( p_stream->fmt->video.i_visible_height     )&0xff;
             data[8] = ( i_extra >> 8 )&0xff;
             data[9] = ( i_extra      )&0xff;
             if( i_extra > 0 )
             {
-                memcpy( &data[10], p_stream->pes->p_extra, i_extra );
+                memcpy( &data[10], p_stream->fmt->p_extra, i_extra );
             }
 
             /* 0xa0 is private */
             dvbpsi_pmt_es_descriptor_add( p_es, 0xa0, i_extra + 10, data );
         }
-        else if( p_stream->pes->i_stream_type == 0x81 )
+        else if( p_stream->fmt->i_codec == VLC_CODEC_JPEG2000 )
         {
-            uint8_t format[4] = { 'A', 'C', '-', '3'};
-
-            /* "registration" descriptor : "AC-3" */
-            dvbpsi_pmt_es_descriptor_add( p_es, 0x05, 4, format );
+            uint8_t *p_data = calloc( 1, 24 + p_stream->fmt->i_extra );
+            if( p_data )
+            {
+                const int profile = j2k_get_profile( p_stream->fmt->video.i_visible_width,
+                                                     p_stream->fmt->video.i_visible_height,
+                                                     p_stream->fmt->video.i_frame_rate,
+                                                     p_stream->fmt->video.i_frame_rate_base, true );
+                p_data[0] = 0x01;
+                if( profile < J2K_PROFILE_HD )
+                    p_data[1] = 0x01; /* 0x0101 */
+                else if( profile < J2K_PROFILE_3G )
+                    p_data[1] = 0x02; /* 0x0102 */
+                else
+                    p_data[1] = 0x04; /* 0x0104 */
+                SetDWBE( &p_data[2], p_stream->fmt->video.i_visible_width );
+                SetDWBE( &p_data[6], p_stream->fmt->video.i_visible_height );
+                SetWBE( &p_data[18], p_stream->fmt->video.i_frame_rate_base );
+                SetWBE( &p_data[20], p_stream->fmt->video.i_frame_rate );
+                p_data[21] = j2k_get_color_spec( p_stream->fmt->video.primaries,
+                                                 p_stream->fmt->video.transfer,
+                                                 p_stream->fmt->video.space );
+                memcpy( &p_data[24], p_stream->fmt->p_extra, p_stream->fmt->i_extra );
+                dvbpsi_pmt_es_descriptor_add( p_es, 0x32, 24 + p_stream->fmt->i_extra, p_data );
+                free(p_data);
+            }
         }
-        else if( p_stream->pes->i_codec == VLC_CODEC_DIRAC )
+        else if( p_stream->fmt->i_codec == VLC_CODEC_DIRAC )
         {
             /* Dirac registration descriptor */
 
             uint8_t data[4] = { 'd', 'r', 'a', 'c' };
             dvbpsi_pmt_es_descriptor_add( p_es, 0x05, 4, data );
         }
-        else if( p_stream->pes->i_codec == VLC_CODEC_DTS )
+        else if( p_stream->fmt->i_codec == VLC_CODEC_DTS )
         {
             /* DTS registration descriptor (ETSI TS 101 154 Annex F) */
-
-            /* DTS format identifier, frame size 1024 - FIXME */
-            uint8_t data[4] = { 'D', 'T', 'S', '2' };
-            dvbpsi_pmt_es_descriptor_add( p_es, 0x05, 4, data );
+            if(popcount(p_stream->fmt->audio.i_bytes_per_frame) == 1)
+            {
+                uint8_t i_ver = ctz( p_stream->fmt->audio.i_bytes_per_frame >> 8 );
+                if(i_ver > 0 && i_ver < 4)
+                {
+                    uint8_t data[4] = { 'D', 'T', 'S', '0' + i_ver };
+                    dvbpsi_pmt_es_descriptor_add( p_es, 0x05, 4, data );
+                }
+            }
         }
-        else if( p_stream->pes->i_codec == VLC_CODEC_EAC3 )
+        else if( p_stream->fmt->i_codec == VLC_CODEC_A52 )
         {
-            uint8_t data[1] = { 0x00 };
-            dvbpsi_pmt_es_descriptor_add( p_es, 0x7a, 1, data );
+            uint8_t format[4] = { 'A', 'C', '-', '3'};
+
+            /* "registration" descriptor : "AC-3" */
+            dvbpsi_pmt_es_descriptor_add( p_es, 0x05, 4, format );
+
+            if( standard == TS_MUX_STANDARD_ATSC )
+            {
+                assert(p_stream->ts->i_stream_type == 0x81);
+                /* FIXME: ATSC AC-3 audio_stream_descriptor */
+                uint8_t data[1] = { 0x00 };
+                dvbpsi_pmt_es_descriptor_add( p_es, 0x81, 1, data );
+            }
+            else
+            {
+                /* FIXME: DVB AC-3 descriptor */
+                uint8_t data[1] = { 0x00 };
+                dvbpsi_pmt_es_descriptor_add( p_es, 0x6a, 1, data );
+            }
         }
-        else if( p_stream->pes->i_codec == VLC_CODEC_OPUS )
+        else if( p_stream->fmt->i_codec == VLC_CODEC_EAC3 )
+        {
+            uint8_t format[4] = { 'E', 'A', 'C', '3'};
+
+            /* "registration" descriptor : "EAC3" */
+            dvbpsi_pmt_es_descriptor_add( p_es, 0x05, 4, format );
+
+            if( standard == TS_MUX_STANDARD_ATSC )
+            {
+                assert( p_stream->ts->i_stream_type == 0x87 );
+                /* FIXME: ATSC EAC3 audio_stream_descriptor */
+                uint8_t data[1] = { 0x00 };
+                dvbpsi_pmt_es_descriptor_add( p_es, 0xcc, 1, data );
+                /* FIXME: ATSC A-71 stream_info_details */
+            }
+            else
+            {
+                uint8_t data[1] = { 0x00 };
+                dvbpsi_pmt_es_descriptor_add( p_es, 0x7a, 1, data );
+            }
+        }
+        else if( p_stream->fmt->i_codec == VLC_CODEC_OPUS )
         {
             uint8_t data[2] = {
                 0x80, /* tag extension */
@@ -474,25 +607,25 @@ void BuildPMT( dvbpsi_t *p_dvbpsi, vlc_object_t *p_object,
             /* "registration" descriptor : "Opus" */
             dvbpsi_pmt_es_descriptor_add( p_es, 0x05, 4, format );
         }
-        else if( p_stream->pes->i_codec == VLC_CODEC_TELETEXT )
+        else if( p_stream->fmt->i_codec == VLC_CODEC_TELETEXT )
         {
-            if( p_stream->pes->i_extra )
+            if( p_stream->fmt->i_extra )
             {
                 dvbpsi_pmt_es_descriptor_add( p_es, 0x56,
-                                           p_stream->pes->i_extra,
-                                           p_stream->pes->p_extra );
+                                           p_stream->fmt->i_extra,
+                                           p_stream->fmt->p_extra );
             }
             continue;
         }
-        else if( p_stream->pes->i_codec == VLC_CODEC_DVBS )
+        else if( p_stream->fmt->i_codec == VLC_CODEC_DVBS )
         {
             /* DVB subtitles */
-            if( p_stream->pes->i_extra )
+            if( p_stream->fmt->i_extra )
             {
                 /* pass-through from the TS demux */
                 dvbpsi_pmt_es_descriptor_add( p_es, 0x59,
-                                           p_stream->pes->i_extra,
-                                           p_stream->pes->p_extra );
+                                           p_stream->fmt->i_extra,
+                                           p_stream->fmt->p_extra );
             }
             else
             {
@@ -527,7 +660,7 @@ void BuildPMT( dvbpsi_t *p_dvbpsi, vlc_object_t *p_object,
         {
             UpdateServiceType( &pi_service_cats[p_stream->i_mapped_prog],
                                &pi_service_types[p_stream->i_mapped_prog],
-                               p_stream->pes );
+                               p_stream->ts, p_stream->fmt );
         }
     }
 
@@ -593,5 +726,146 @@ void BuildPMT( dvbpsi_t *p_dvbpsi, vlc_object_t *p_object,
     }
 }
 
+int FillPMTESParams( ts_mux_standard standard, const es_format_t *fmt,
+                     tsmux_stream_t *ts, pesmux_stream_t *pes )
+{
+    switch( fmt->i_codec )
+    {
+    /* VIDEO */
+
+    case VLC_CODEC_MPGV:
+    case VLC_CODEC_MP2V:
+    case VLC_CODEC_MP1V:
+        /* TODO: do we need to check MPEG-I/II ? */
+        ts->i_stream_type = 0x02;
+        pes->i_stream_id = 0xe0;
+        break;
+    case VLC_CODEC_MP4V:
+        ts->i_stream_type = 0x10;
+        pes->i_stream_id = 0xe0;
+        pes->i_es_id = ts->i_pid;
+        break;
+    case VLC_CODEC_HEVC:
+        ts->i_stream_type = 0x24;
+        pes->i_stream_id = 0xe0;
+        break;
+    case VLC_CODEC_H264:
+        ts->i_stream_type = 0x1b;
+        pes->i_stream_id = 0xe0;
+        break;
+    /* XXX dirty dirty but somebody want crapy MS-codec XXX */
+    case VLC_CODEC_H263I:
+    case VLC_CODEC_H263:
+    case VLC_CODEC_WMV3:
+    case VLC_CODEC_WMV2:
+    case VLC_CODEC_WMV1:
+    case VLC_CODEC_DIV3:
+    case VLC_CODEC_DIV2:
+    case VLC_CODEC_DIV1:
+    case VLC_CODEC_MJPG:
+        ts->i_stream_type = 0xa0; /* private */
+        pes->i_stream_id = 0xa0;   /* beurk */
+        break;
+    case VLC_CODEC_DIRAC:
+        /* stream_id makes use of stream_id_extension */
+        pes->i_stream_id = (PES_EXTENDED_STREAM_ID << 8) | 0x60;
+        ts->i_stream_type = 0xd1;
+        break;
+    case VLC_CODEC_JPEG2000:
+        if( !j2k_is_valid_framerate( fmt->video.i_frame_rate,
+                                     fmt->video.i_frame_rate_base ) )
+            return VLC_EGENERIC;
+        ts->i_stream_type = 0x21;
+        pes->i_stream_id = 0xbd;
+    break;
+
+    /* AUDIO */
+
+    case VLC_CODEC_MPGA:
+    case VLC_CODEC_MP2:
+    case VLC_CODEC_MP3:
+        ts->i_stream_type = fmt->audio.i_rate >= 32000 ? 0x03 : 0x04;
+        pes->i_stream_id = 0xc0;
+        break;
+    case VLC_CODEC_A52:
+        pes->i_stream_id = 0xbd;
+        if( standard == TS_MUX_STANDARD_ATSC )
+        {
+            ts->i_stream_type = 0x81;
+        }
+        else
+        {
+            ts->i_stream_type = 0x06;
+        }
+        break;
+    case VLC_CODEC_DVD_LPCM:
+        ts->i_stream_type = 0x83;
+        pes->i_stream_id = 0xbd;
+        break;
+    case VLC_CODEC_OPUS:
+        if (fmt->audio.i_channels > 8)
+            return VLC_EGENERIC;
+        pes->i_stream_id = 0xbd;
+        pes->i_stream_id = 0x06;
+        break;
+    case VLC_CODEC_EAC3:
+        pes->i_stream_id = 0xbd;
+        if( standard == TS_MUX_STANDARD_ATSC )
+        {
+            /* FIXME: Mandatory EAC3 audio_descriptor */
+            ts->i_stream_type = 0x87;
+        }
+        else
+        {
+            ts->i_stream_type = 0x06;
+        }
+        break;
+    case VLC_CODEC_DTS:
+        if( standard == TS_MUX_STANDARD_ATSC )
+        {
+            return VLC_EGENERIC;
+        }
+        else
+        {
+            ts->i_stream_type = 0x06;
+            pes->i_stream_id = 0xbd;
+        }
+        break;
+    case VLC_CODEC_MP4A:
+        /* XXX: make that configurable in some way when LOAS
+         * is implemented for AAC in TS */
+        //ts->i_stream_type = 0x11; /* LOAS/LATM */
+        ts->i_stream_type = 0x0f; /* ADTS */
+        pes->i_stream_id = 0xc0;
+        pes->i_es_id = ts->i_pid;
+        break;
+
+    /* TEXT */
+
+    case VLC_CODEC_SPU:
+        ts->i_stream_type = 0x82;
+        pes->i_stream_id = 0xbd;
+        break;
+    case VLC_CODEC_SUBT:
+        ts->i_stream_type = 0x12;
+        pes->i_stream_id = 0xfa;
+        pes->i_es_id = ts->i_pid;
+        break;
+    case VLC_CODEC_DVBS:
+        ts->i_stream_type = 0x06;
+        pes->i_es_id = fmt->subs.dvb.i_id;
+        pes->i_stream_id = 0xbd;
+        break;
+    case VLC_CODEC_TELETEXT:
+        ts->i_stream_type = 0x06;
+        pes->i_stream_id = 0xbd; /* FIXME */
+        break;
+
+    default:
+        return VLC_EGENERIC;
+    }
+
+    return VLC_SUCCESS;
+}
 
 #endif

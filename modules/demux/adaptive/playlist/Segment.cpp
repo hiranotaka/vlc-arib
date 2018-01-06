@@ -27,6 +27,7 @@
 #endif
 
 #include "Segment.h"
+#include "BaseAdaptationSet.h"
 #include "BaseRepresentation.h"
 #include "AbstractPlaylist.hpp"
 #include "SegmentChunk.hpp"
@@ -66,10 +67,11 @@ void ISegment::onChunkDownload(block_t **, SegmentChunk *, BaseRepresentation *)
 
 }
 
-SegmentChunk* ISegment::toChunk(size_t index, BaseRepresentation *rep, HTTPConnectionManager *connManager)
+SegmentChunk* ISegment::toChunk(size_t index, BaseRepresentation *rep, AbstractConnectionManager *connManager)
 {
     const std::string url = getUrlSegment().toString(index, rep);
-    HTTPChunkBufferedSource *source = new (std::nothrow) HTTPChunkBufferedSource(url, connManager);
+    HTTPChunkBufferedSource *source = new (std::nothrow) HTTPChunkBufferedSource(url, connManager,
+                                                                                 rep->getAdaptationSet()->getID());
     if( source )
     {
         if(startByte != endByte)
@@ -78,7 +80,7 @@ SegmentChunk* ISegment::toChunk(size_t index, BaseRepresentation *rep, HTTPConne
         SegmentChunk *chunk = new (std::nothrow) SegmentChunk(this, source, rep);
         if( chunk )
         {
-            connManager->downloader->schedule(source);
+            connManager->start(source);
             return chunk;
         }
         else
@@ -141,18 +143,21 @@ int ISegment::compare(ISegment *other) const
 {
     if(duration.Get())
     {
-        stime_t diff = startTime.Get() - other->startTime.Get();
-        if(diff)
-            return diff / diff;
+        if(startTime.Get() > other->startTime.Get())
+            return 1;
+        else if(startTime.Get() < other->startTime.Get())
+            return -1;
     }
 
-    size_t diff = startByte - other->startByte;
-    if(diff)
-        return diff / diff;
+    if(startByte > other->startByte)
+        return 1;
+    else if(startByte < other->startByte)
+        return -1;
 
-    diff = endByte - other->endByte;
-    if(diff)
-        return diff / diff;
+    if(endByte > other->endByte)
+        return 1;
+    else if(endByte < other->endByte)
+        return -1;
 
     return 0;
 }
@@ -257,7 +262,7 @@ IndexSegment::IndexSegment(ICanonicalUrl *parent) :
 }
 
 SubSegment::SubSegment(ISegment *main, size_t start, size_t end) :
-    ISegment(main), parent(main)
+    ISegment(main)
 {
     setByteRange(start, end);
     debugName = "SubSegment";

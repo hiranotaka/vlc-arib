@@ -39,23 +39,20 @@
 #include <vlc_modules.h>
 
 int playlist_Export( playlist_t * p_playlist, const char *psz_filename,
-                     playlist_item_t *p_export_root, const char *psz_type )
+                     bool b_playlist, const char *psz_type )
 {
-    if( p_export_root == NULL ) return VLC_EGENERIC;
-
     playlist_export_t *p_export =
         vlc_custom_create( p_playlist, sizeof( *p_export ), "playlist export" );
     if( unlikely(p_export == NULL) )
         return VLC_ENOMEM;
 
     msg_Dbg( p_export, "saving %s to file %s",
-             p_export_root->p_input->psz_name, psz_filename );
+             b_playlist ? "playlist" : "media library", psz_filename );
 
     int ret = VLC_EGENERIC;
 
     /* Prepare the playlist_export_t structure */
-    p_export->p_root = p_export_root;
-    p_export->psz_filename = psz_filename;
+    p_export->base_url = vlc_path2uri( psz_filename, NULL );
     p_export->p_file = vlc_fopen( psz_filename, "wt" );
     if( p_export->p_file == NULL )
     {
@@ -68,6 +65,9 @@ int playlist_Export( playlist_t * p_playlist, const char *psz_filename,
 
     /* And call the module ! All work is done now */
     playlist_Lock( p_playlist );
+    p_export->p_root = b_playlist ? p_playlist->p_playing
+                                  : p_playlist->p_media_library;
+
     p_module = module_need( p_export, "playlist export", psz_type, true );
     playlist_Unlock( p_playlist );
 
@@ -84,6 +84,7 @@ int playlist_Export( playlist_t * p_playlist, const char *psz_filename,
         msg_Err( p_playlist, "could not export playlist" );
    fclose( p_export->p_file );
 out:
+   free( p_export->base_url );
    vlc_object_release( p_export );
    return ret;
 }
@@ -99,8 +100,7 @@ int playlist_Import( playlist_t *p_playlist, const char *psz_file )
     p_input = input_item_New( psz_uri, psz_file );
     free( psz_uri );
 
-    playlist_AddInput( p_playlist, p_input, PLAYLIST_APPEND, PLAYLIST_END,
-                       true, false );
+    playlist_AddInput( p_playlist, p_input, false, true );
 
     vlc_object_t *dummy = vlc_object_create( p_playlist, sizeof (*dummy) );
     var_Create( dummy, "meta-file", VLC_VAR_VOID );
@@ -129,8 +129,6 @@ static void input_item_subitem_tree_added( const vlc_event_t * p_event,
 
 int playlist_MLLoad( playlist_t *p_playlist )
 {
-    input_item_t *p_input;
-
     char *psz_datadir = config_GetUserDir( VLC_DATA_DIR );
     if( !psz_datadir ) /* XXX: This should never happen */
     {
@@ -153,25 +151,18 @@ int playlist_MLLoad( playlist_t *p_playlist )
         return VLC_EGENERIC;
     }
 
-    char *psz_uri = vlc_path2uri( psz_file, "file/xspf-open" );
+    char *psz_uri = vlc_path2uri( psz_file, "file/directory" );
     free( psz_file );
     if( psz_uri == NULL )
         return VLC_ENOMEM;
 
-    p_input = input_item_New( psz_uri, _("Media Library") );
+    input_item_t *p_input = input_item_New( psz_uri, _("Media Library") );
     free( psz_uri );
     if( p_input == NULL )
         return VLC_EGENERIC;
 
-    PL_LOCK;
-    if( p_playlist->p_media_library->p_input )
-        vlc_gc_decref( p_playlist->p_media_library->p_input );
-
-    p_playlist->p_media_library->p_input = p_input;
-
     vlc_event_attach( &p_input->event_manager, vlc_InputItemSubItemTreeAdded,
                         input_item_subitem_tree_added, p_playlist );
-    PL_UNLOCK;
 
     vlc_object_t *dummy = vlc_object_create( p_playlist, sizeof (*dummy) );
     var_Create( dummy, "meta-file", VLC_VAR_VOID );
@@ -180,6 +171,7 @@ int playlist_MLLoad( playlist_t *p_playlist )
 
     vlc_event_detach( &p_input->event_manager, vlc_InputItemSubItemTreeAdded,
                         input_item_subitem_tree_added, p_playlist );
+    input_item_Release( p_input );
 
     return VLC_SUCCESS;
 }
@@ -209,8 +201,7 @@ int playlist_MLDump( playlist_t *p_playlist )
     if ( asprintf( &psz_temp, "%s.tmp%"PRIu32, psz_dirname, (uint32_t)getpid() ) < 1 )
         return VLC_EGENERIC;
 
-    int i_ret = playlist_Export( p_playlist, psz_temp, p_playlist->p_media_library,
-                     "export-xspf" );
+    int i_ret = playlist_Export( p_playlist, psz_temp, false, "export-xspf" );
     if ( i_ret != VLC_SUCCESS )
     {
         vlc_unlink( psz_temp );

@@ -149,6 +149,7 @@ dvb_device_t *dvb_open (vlc_object_t *obj)
 
 void dvb_close (dvb_device_t *d)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     delete d->module;
     delete d;
 }
@@ -174,27 +175,32 @@ bool dvb_get_pid_state (const dvb_device_t *, uint16_t)
 
 unsigned dvb_enum_systems (dvb_device_t *d)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->EnumSystems( );
 }
 
 float dvb_get_signal_strength (dvb_device_t *d)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->GetSignalStrength( );
 }
 
 float dvb_get_snr (dvb_device_t *d)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->GetSignalNoiseRatio( );
 }
 
 int dvb_set_inversion (dvb_device_t *d, int inversion)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     d->inversion = inversion;
     return d->module->SetInversion( d->inversion );
 }
 
 int dvb_tune (dvb_device_t *d)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->SubmitTuneRequest ();
 }
 
@@ -213,12 +219,14 @@ bool dvb_set_ca_pmt (dvb_device_t *, en50221_capmt_info_t *)
 int dvb_set_dvbc (dvb_device_t *d, uint32_t freq, const char *mod,
                   uint32_t srate, uint32_t /*fec*/)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->SetDVBC (freq / 1000, mod, srate);
 }
 
 /* DVB-S */
 int dvb_set_dvbs (dvb_device_t *d, uint64_t freq, uint32_t srate, uint32_t fec)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     d->frequency = freq / 1000;
     d->srate = srate;
     d->fec = fec;
@@ -236,6 +244,7 @@ int dvb_set_dvbs2 (dvb_device_t *, uint64_t /*freq*/, const char * /*mod*/,
 int dvb_set_sec (dvb_device_t *d, uint64_t freq, char pol,
                  uint32_t lowf, uint32_t highf, uint32_t switchf)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     d->frequency = freq / 1000;
     d->pol = pol;
     d->lowf = lowf;
@@ -250,6 +259,7 @@ int dvb_set_dvbt (dvb_device_t *d, uint32_t freq, const char * /*mod*/,
                   uint32_t fec_hp, uint32_t fec_lp, uint32_t bandwidth,
                   int transmission, uint32_t guard, int hierarchy)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->SetDVBT(freq / 1000, fec_hp, fec_lp,
                               bandwidth, transmission, guard, hierarchy);
 }
@@ -259,6 +269,7 @@ int dvb_set_dvbt2 (dvb_device_t *d, uint32_t freq, const char * /*mod*/,
                    uint32_t fec, uint32_t bandwidth, int transmission,
                    uint32_t guard, uint8_t plp)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->SetDVBT2(freq / 1000, fec,
                       bandwidth, transmission, guard, plp);
 }
@@ -287,11 +298,13 @@ int dvb_set_isdbt (dvb_device_t *, uint32_t /*freq*/, uint32_t /*bandwidth*/,
 /* ATSC */
 int dvb_set_atsc (dvb_device_t *d, uint32_t freq, const char * /*mod*/)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->SetATSC(freq / 1000);
 }
 
 int dvb_set_cqam (dvb_device_t *d, uint32_t freq, const char * /*mod*/)
 {
+    ComContext ctx( COINIT_APARTMENTTHREADED );
     return d->module->SetCQAM(freq / 1000);
 }
 
@@ -375,6 +388,7 @@ void BDAOutput::Empty()
 * Constructor
 *****************************************************************************/
 BDAGraph::BDAGraph( vlc_object_t *p_this ):
+    ul_cbrc( 0 ),
     p_access( p_this ),
     guid_network_type(GUID_NULL),
     l_tuner_used(-1),
@@ -392,9 +406,6 @@ BDAGraph::BDAGraph( vlc_object_t *p_this ):
     p_sample_grabber = p_mpeg_demux = p_transport_info = NULL;
     p_scanning_tuner = NULL;
     p_grabber = NULL;
-
-    if( FAILED(CoInitializeEx( NULL, COINIT_APARTMENTTHREADED )) )
-        vlc_assert_unreachable();
 }
 
 /*****************************************************************************
@@ -409,7 +420,6 @@ BDAGraph::~BDAGraph()
     p_tuning_space = NULL;
 
     systems = 0;
-    CoUninitialize();
 }
 
 /*****************************************************************************
@@ -1801,6 +1811,7 @@ HRESULT BDAGraph::SetUpTuner( REFCLSID guid_this_network_type )
             p_tuning_space->Release();
         p_tuning_space = NULL;
         SysFreeString( l.bstr_name );
+        l.bstr_name = NULL;
         msg_Dbg( p_access, "SetUpTuner: need good TS enum" );
         if( !l.p_tuning_space_enum ) break;
         msg_Dbg( p_access, "SetUpTuner: next tuning space" );
@@ -2556,7 +2567,6 @@ HRESULT BDAGraph::FindFilter( REFCLSID this_clsid, long* i_moniker_used,
         IBindCtx*      p_bind_context;
         IPropertyBag*  p_property_bag;
         char*          psz_upstream;
-        int            i_upstream_len;
 
         char*          psz_downstream;
         VARIANT        var_bstr;

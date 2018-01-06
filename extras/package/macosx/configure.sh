@@ -27,15 +27,15 @@ OPTIONS="
         --enable-twolame
         --enable-realrtsp
         --enable-libass
-        --enable-macosx-eyetv
         --enable-macosx-qtkit
         --enable-macosx-avfoundation
         --disable-skins2
         --disable-xcb
         --disable-caca
-        --disable-sdl
+        --disable-pulse
+        --disable-sdl-image
         --disable-vnc
-        --with-macosx-version-min=10.7
+        --with-macosx-version-min=10.10
 "
 
 export CFLAGS

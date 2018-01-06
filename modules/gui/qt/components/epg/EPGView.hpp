@@ -26,21 +26,19 @@
 
 #include "qt.hpp"
 
+#include "EPGProgram.hpp"
+
 #include <vlc_epg.h>
 
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QList>
-#include <QMap>
-#include <QMutex>
+#include <QHash>
 #include <QDateTime>
 
 class EPGItem;
 
 #define TRACKS_HEIGHT 60
-
-typedef QMap<QDateTime, EPGItem *> EPGEventByTimeQMap;
-typedef QMap<QString, EPGEventByTimeQMap* > EPGTimeMapByChannelQMap;
 
 class EPGGraphicsScene : public QGraphicsScene
 {
@@ -61,36 +59,36 @@ public:
 
     void            setScale( double scaleFactor );
 
-    void            updateStartTime();
     const QDateTime& startTime() const;
-    const QDateTime& baseTime() const;
+    QDateTime       epgTime() const;
+    void            setEpgTime(const QDateTime&);
 
-    bool            addEPGEvent( vlc_epg_event_t*, QString, bool );
-    void            removeEPGEvent( vlc_epg_event_t*, QString );
-    void            updateDuration();
+    bool            updateEPG( const vlc_epg_t * const *, size_t );
     void            reset();
     void            cleanup();
     bool            hasValidData() const;
+    void            activateProgram( int );
 
 signals:
-    void            startTimeChanged( const QDateTime& startTime );
-    void            durationChanged( int seconds );
+    void            rangeChanged( const QDateTime&, const QDateTime& );
     void            itemFocused( EPGItem * );
-    void            channelAdded( QString );
-    void            channelRemoved( QString );
-protected:
+    void            programAdded( const EPGProgram * );
+    void            programActivated( int );
 
+protected:
+    void            walkItems( bool );
+    QDateTime       m_epgTime;
     QDateTime       m_startTime;
-    QDateTime       m_baseTime;
+    QDateTime       m_maxTime;
+    QDateTime       m_updtMinTime; /* >= startTime before pruning */
     int             m_scaleFactor;
     int             m_duration;
 
 public slots:
     void            focusItem( EPGItem * );
+
 private:
-    EPGTimeMapByChannelQMap epgitemsByChannel;
-    void updateChannels();
-    QMutex mutex;
+    QHash<uint16_t, EPGProgram*> programs;
 };
 
 #endif // EPGVIEW_H

@@ -35,10 +35,6 @@
 
 #include <new>
 
-extern "C" {
-#include "../../modules/codec/dts_header.h"
-}
-
 #include <vlc_fs.h>
 #include <vlc_url.h>
 
@@ -87,7 +83,7 @@ struct demux_sys_t;
 
 static int  Demux  ( demux_t * );
 static int  Control( demux_t *, int, va_list );
-static void Seek   ( demux_t *, mtime_t i_mk_date, double f_percent, virtual_chapter_c *p_vchapter, bool b_precise = true );
+static int  Seek   ( demux_t *, mtime_t i_mk_date, double f_percent, virtual_chapter_c *p_vchapter, bool b_precise = true );
 
 /*****************************************************************************
  * Open: initializes matroska demux structures
@@ -105,7 +101,7 @@ static int Open( vlc_object_t * p_this )
     bool                b_need_preload = false;
 
     /* peek the begining */
-    if( stream_Peek( p_demux->s, &p_peek, 4 ) < 4 ) return VLC_EGENERIC;
+    if( vlc_stream_Peek( p_demux->s, &p_peek, 4 ) < 4 ) return VLC_EGENERIC;
 
     /* is a valid file */
     if( p_peek[0] != 0x1a || p_peek[1] != 0x45 ||
@@ -115,6 +111,10 @@ static int Open( vlc_object_t * p_this )
     p_demux->pf_demux   = Demux;
     p_demux->pf_control = Control;
     p_demux->p_sys      = p_sys = new demux_sys_t( *p_demux );
+
+    vlc_stream_Control( p_demux->s, STREAM_CAN_SEEK, &p_sys->b_seekable );
+    if ( vlc_stream_Control( p_demux->s, STREAM_CAN_FASTSEEK, &p_sys->b_fastseekable ) )
+        p_sys->b_fastseekable = false;
 
     p_io_callback = new vlc_stream_io_callback( p_demux->s, false );
     p_io_stream = new (std::nothrow) EbmlStream( *p_io_callback );
@@ -131,6 +131,8 @@ static int Open( vlc_object_t * p_this )
     if( p_stream == NULL )
     {
         msg_Err( p_demux, "cannot find KaxSegment or missing mandatory KaxInfo" );
+        delete p_io_stream;
+        delete p_io_callback;
         goto error;
     }
     p_sys->streams.push_back( p_stream );
@@ -159,11 +161,11 @@ static int Open( vlc_object_t * p_this )
     {
         msg_Dbg( p_demux, "Preloading local dir" );
         /* get the files from the same dir from the same family (based on p_demux->psz_path) */
-        if ( p_demux->psz_file && !strcmp( p_demux->psz_access, "file" ) )
+        if ( p_demux->psz_filepath && !strncasecmp( p_demux->psz_url, "file:", 5 ) )
         {
             // assume it's a regular file
             // get the directory path
-            s_path = p_demux->psz_file;
+            s_path = p_demux->psz_filepath;
             if (s_path.at(s_path.length() - 1) == DIR_SEP_CHAR)
             {
                 s_path = s_path.substr(0,s_path.length()-1);
@@ -188,27 +190,27 @@ static int Open( vlc_object_t * p_this )
                         s_filename = s_path + DIR_SEP_CHAR + psz_file;
 
 #if defined(_WIN32) || defined(__OS2__)
-                        if (!strcasecmp(s_filename.c_str(), p_demux->psz_file))
+                        if (!strcasecmp(s_filename.c_str(), p_demux->psz_filepath))
 #else
-                        if (!s_filename.compare(p_demux->psz_file))
+                        if (!s_filename.compare(p_demux->psz_filepath))
 #endif
                         {
                             continue; // don't reuse the original opened file
                         }
 
-                        if (!s_filename.compare(s_filename.length() - 3, 3, "mkv") ||
-                            !s_filename.compare(s_filename.length() - 3, 3, "mka"))
+                        if (!strcasecmp(s_filename.c_str() + s_filename.length() - 4, ".mkv") ||
+                            !strcasecmp(s_filename.c_str() + s_filename.length() - 4, ".mka"))
                         {
                             // test whether this file belongs to our family
                             const uint8_t *p_peek;
                             bool          file_ok = false;
                             char          *psz_url = vlc_path2uri( s_filename.c_str(), "file" );
-                            stream_t      *p_file_stream = stream_UrlNew(
+                            stream_t      *p_file_stream = vlc_stream_NewURL(
                                                             p_demux,
                                                             psz_url );
                             /* peek the begining */
                             if( p_file_stream &&
-                                stream_Peek( p_file_stream, &p_peek, 4 ) >= 4
+                                vlc_stream_Peek( p_file_stream, &p_peek, 4 ) >= 4
                                 && p_peek[0] == 0x1a && p_peek[1] == 0x45 &&
                                 p_peek[2] == 0xdf && p_peek[3] == 0xa3 ) file_ok = true;
 
@@ -235,7 +237,7 @@ static int Open( vlc_object_t * p_this )
                             else
                             {
                                 if( p_file_stream ) {
-                                    stream_Delete( p_file_stream );
+                                    vlc_stream_Delete( p_file_stream );
                                 }
                                 msg_Dbg( p_demux, "the file '%s' cannot be opened", s_filename.c_str() );
                             }
@@ -276,7 +278,7 @@ error:
 static void Close( vlc_object_t *p_this )
 {
     demux_t     *p_demux = reinterpret_cast<demux_t*>( p_this );
-    demux_sys_t *p_sys   = p_demux->p_sys;
+    demux_sys_t *p_sys = (demux_sys_t *)p_demux->p_sys;
     virtual_segment_c *p_vsegment = p_sys->p_current_vsegment;
     if( p_vsegment )
     {
@@ -293,7 +295,7 @@ static void Close( vlc_object_t *p_this )
  *****************************************************************************/
 static int Control( demux_t *p_demux, int i_query, va_list args )
 {
-    demux_sys_t        *p_sys = p_demux->p_sys;
+    demux_sys_t *p_sys = (demux_sys_t *)p_demux->p_sys;
     int64_t     *pi64, i64;
     double      *pf, f;
     int         i_skp;
@@ -307,7 +309,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
     switch( i_query )
     {
         case DEMUX_CAN_SEEK:
-            return stream_vaControl( p_demux->s, i_query, args );
+            return vlc_stream_vaControl( p_demux->s, i_query, args );
 
         case DEMUX_GET_ATTACHMENTS:
             ppp_attach = va_arg( args, input_attachment_t*** );
@@ -317,8 +319,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 return VLC_EGENERIC;
 
             *pi_int = p_sys->stored_attachments.size();
-            *ppp_attach = static_cast<input_attachment_t**>( malloc( sizeof(input_attachment_t*) *
-                                                        p_sys->stored_attachments.size() ) );
+            *ppp_attach = static_cast<input_attachment_t**>( vlc_alloc( p_sys->stored_attachments.size(),
+                                                        sizeof(input_attachment_t*) ) );
             if( !(*ppp_attach) )
                 return VLC_ENOMEM;
             for( size_t i = 0; i < p_sys->stored_attachments.size(); i++ )
@@ -342,11 +344,10 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         case DEMUX_GET_LENGTH:
             pi64 = va_arg( args, int64_t * );
             if( p_sys->f_duration > 0.0 )
-            {
                 *pi64 = static_cast<int64_t>( p_sys->f_duration * 1000 );
-                return VLC_SUCCESS;
-            }
-            return VLC_EGENERIC;
+            else
+                *pi64 = VLC_TS_INVALID;
+            return VLC_SUCCESS;
 
         case DEMUX_GET_POSITION:
             pf = va_arg( args, double * );
@@ -359,8 +360,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             {
                 f = va_arg( args, double );
                 b = va_arg( args, int ); /* precise? */
-                Seek( p_demux, -1, f, NULL, b );
-                return VLC_SUCCESS;
+                return Seek( p_demux, -1, f, NULL, b );
             }
             return VLC_EGENERIC;
 
@@ -376,7 +376,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 int *pi_int = va_arg( args, int* );
 
                 *pi_int = p_sys->titles.size();
-                *ppp_title = static_cast<input_title_t**>( malloc( sizeof( input_title_t* ) * p_sys->titles.size() ) );
+                *ppp_title = static_cast<input_title_t**>( vlc_alloc( p_sys->titles.size(), sizeof( input_title_t* ) ) );
 
                 for( size_t i = 0; i < p_sys->titles.size(); i++ )
                     (*ppp_title)[i] = vlc_input_title_Duplicate( p_sys->titles[i] );
@@ -389,16 +389,23 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             i_idx = va_arg( args, int );
             if(i_idx <  p_sys->titles.size() && p_sys->titles[i_idx]->i_seekpoint)
             {
+                const int i_edition = p_sys->p_current_vsegment->i_current_edition;
+                const int i_title = p_sys->i_current_title;
                 p_sys->p_current_vsegment->i_current_edition = i_idx;
                 p_sys->i_current_title = i_idx;
-                p_sys->p_current_vsegment->p_current_vchapter = p_sys->p_current_vsegment->veditions[p_sys->p_current_vsegment->i_current_edition]->getChapterbyTimecode(0);
-
-                Seek( p_demux, static_cast<int64_t>( p_sys->titles[i_idx]->seekpoint[0]->i_time_offset ), -1, NULL);
-                p_demux->info.i_update |= INPUT_UPDATE_SEEKPOINT|INPUT_UPDATE_TITLE;
-                p_demux->info.i_seekpoint = 0;
-                p_demux->info.i_title = i_idx;
-                p_sys->f_duration = (float) p_sys->titles[i_idx]->i_length / 1000.f;
-                return VLC_SUCCESS;
+                if( VLC_SUCCESS ==
+                    Seek( p_demux, static_cast<int64_t>( p_sys->titles[i_idx]->seekpoint[0]->i_time_offset ), -1, NULL) )
+                {
+                    p_demux->info.i_update |= INPUT_UPDATE_SEEKPOINT|INPUT_UPDATE_TITLE;
+                    p_sys->i_current_seekpoint = 0;
+                    p_sys->f_duration = (float) p_sys->titles[i_idx]->i_length / 1000.f;
+                    return VLC_SUCCESS;
+                }
+                else
+                {
+                    p_sys->p_current_vsegment->i_current_edition = i_edition;
+                    p_sys->i_current_title = i_title;
+                }
             }
             return VLC_EGENERIC;
 
@@ -408,12 +415,23 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             // TODO change the way it works with the << & >> buttons on the UI (+1/-1 instead of a number)
             if( p_sys->titles.size() && i_skp < p_sys->titles[p_sys->i_current_title]->i_seekpoint)
             {
-                Seek( p_demux, static_cast<int64_t>( p_sys->titles[p_sys->i_current_title]->seekpoint[i_skp]->i_time_offset ), -1, NULL);
-                p_demux->info.i_update |= INPUT_UPDATE_SEEKPOINT;
-                p_demux->info.i_seekpoint = i_skp;
-                return VLC_SUCCESS;
+                int i_ret = Seek( p_demux, static_cast<int64_t>( p_sys->titles[p_sys->i_current_title]->seekpoint[i_skp]->i_time_offset ), -1, NULL);
+                if( i_ret == VLC_SUCCESS )
+                {
+                    p_demux->info.i_update |= INPUT_UPDATE_SEEKPOINT;
+                    p_sys->i_current_seekpoint = i_skp;
+                }
+                return i_ret;
             }
             return VLC_EGENERIC;
+
+        case DEMUX_GET_TITLE:
+            *va_arg( args, int * ) = p_sys->i_current_title;
+            return VLC_SUCCESS;
+
+        case DEMUX_GET_SEEKPOINT:
+            *va_arg( args, int * ) = p_sys->i_current_seekpoint;
+            return VLC_SUCCESS;
 
         case DEMUX_GET_FPS:
             pf = va_arg( args, double * );
@@ -425,7 +443,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                 const matroska_segment_c *p_segment = p_sys->p_current_vsegment->CurrentSegment();
                 for( tracks_map_t::const_iterator it = p_segment->tracks.begin(); it != p_segment->tracks.end(); ++it )
                 {
-                    tracks_map_t::mapped_type const& track = it->second;
+                    const mkv_track_t &track = *it->second;
 
                     if( track.fmt.i_cat == VIDEO_ES && track.fmt.video.i_frame_rate_base > 0 )
                     {
@@ -440,17 +458,16 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
             i64 = va_arg( args, int64_t );
             b = va_arg( args, int ); /* precise? */
             msg_Dbg(p_demux,"SET_TIME to %" PRId64, i64 );
-            Seek( p_demux, i64, -1, NULL, b );
-            return VLC_SUCCESS;
+            return Seek( p_demux, i64, -1, NULL, b );
         default:
             return VLC_EGENERIC;
     }
 }
 
 /* Seek */
-static void Seek( demux_t *p_demux, mtime_t i_mk_date, double f_percent, virtual_chapter_c *p_vchapter, bool b_precise )
+static int Seek( demux_t *p_demux, mtime_t i_mk_date, double f_percent, virtual_chapter_c *p_vchapter, bool b_precise )
 {
-    demux_sys_t        *p_sys = p_demux->p_sys;
+    demux_sys_t *p_sys = (demux_sys_t *)p_demux->p_sys;
     virtual_segment_c  *p_vsegment = p_sys->p_current_vsegment;
     matroska_segment_c *p_segment = p_vsegment->CurrentSegment();
 
@@ -460,22 +477,22 @@ static void Seek( demux_t *p_demux, mtime_t i_mk_date, double f_percent, virtual
     if( i_mk_date < 0 && f_percent < 0 )
     {
         msg_Warn( p_demux, "cannot seek nowhere!" );
-        return;
+        return VLC_EGENERIC;
     }
     if( f_percent > 1.0 )
     {
         msg_Warn( p_demux, "cannot seek so far!" );
-        return;
+        return VLC_EGENERIC;
     }
     if( p_sys->f_duration < 0 )
     {
         msg_Warn( p_demux, "cannot seek without duration!");
-        return;
+        return VLC_EGENERIC;
     }
     if( !p_segment )
     {
         msg_Warn( p_demux, "cannot seek without valid segment position");
-        return;
+        return VLC_EGENERIC;
     }
 
     /* seek without index or without date */
@@ -483,7 +500,7 @@ static void Seek( demux_t *p_demux, mtime_t i_mk_date, double f_percent, virtual
     {
         i_mk_date = int64_t( f_percent * p_sys->f_duration * 1000.0 );
     }
-    p_vsegment->Seek( *p_demux, i_mk_date, p_vchapter, b_precise );
+    return p_vsegment->Seek( *p_demux, i_mk_date, p_vchapter, b_precise ) ? VLC_SUCCESS : VLC_EGENERIC;
 }
 
 /* Needed by matroska_segment::Seek() and Seek */
@@ -491,24 +508,21 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
                   mtime_t i_pts, mtime_t i_duration, bool b_key_picture,
                   bool b_discardable_picture )
 {
-    typedef matroska_segment_c::tracks_map_t tracks_map_t;
-
-    demux_sys_t        *p_sys = p_demux->p_sys;
+    demux_sys_t *p_sys = (demux_sys_t *)p_demux->p_sys;
     matroska_segment_c *p_segment = p_sys->p_current_vsegment->CurrentSegment();
 
     if( !p_segment ) return;
 
-    tracks_map_t::iterator track_it;
-
-    if( p_segment->FindTrackByBlock( &track_it, block, simpleblock ) )
+    mkv_track_t *p_track = p_segment->FindTrackByBlock( block, simpleblock );
+    if( p_track == NULL )
     {
         msg_Err( p_demux, "invalid track number" );
         return;
     }
 
-    tracks_map_t::mapped_type& track = track_it->second;
+    mkv_track_t &track = *p_track;
 
-    if( track.fmt.i_cat != NAV_ES && track.p_es == NULL )
+    if( track.fmt.i_cat != DATA_ES && track.p_es == NULL )
     {
         msg_Err( p_demux, "unknown track number" );
         return;
@@ -516,32 +530,18 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
 
     i_pts -= track.i_codec_delay;
 
-    if ( track.fmt.i_cat != NAV_ES )
+    if ( track.fmt.i_cat != DATA_ES )
     {
         bool b;
         es_out_Control( p_demux->out, ES_OUT_GET_ES_STATE, track.p_es, &b );
 
         if( !b )
         {
-            track.b_inited = false;
             if( track.fmt.i_cat == VIDEO_ES || track.fmt.i_cat == AUDIO_ES )
                 track.i_last_dts = VLC_TS_INVALID;
             return;
         }
     }
-
-
-    /* First send init data */
-    if( !track.b_inited && track.i_data_init > 0 )
-    {
-        block_t *p_init;
-
-        msg_Dbg( p_demux, "sending header (%d bytes)", track.i_data_init );
-        p_init = MemToBlock( track.p_data_init, track.i_data_init, 0 );
-        if( p_init ) send_Block( p_demux, &track, p_init, 1, 0 );
-    }
-    track.b_inited = true;
-
 
     size_t frame_size = 0;
     size_t block_size = 0;
@@ -578,7 +578,7 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
             track.i_encoding_scope & MATROSKA_ENCODING_SCOPE_ALL_FRAMES )
             p_block = MemToBlock( data->Buffer(), data->Size(), track.p_compression_data->GetSize() );
         else if( unlikely( track.fmt.i_codec == VLC_CODEC_WAVPACK ) )
-            p_block = packetize_wavpack( &track, data->Buffer(), data->Size() );
+            p_block = packetize_wavpack( track, data->Buffer(), data->Size() );
         else
             p_block = MemToBlock( data->Buffer(), data->Size(), 0 );
 
@@ -619,16 +619,15 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
             continue;
          }
 
-        case VLC_CODEC_DTS:
-            /* Check if packetization is correct and without padding.
-             * example: Test_mkv_div3_DTS_1920x1080_1785Kbps_23,97fps.mkv */
-            if( p_block->i_buffer > 6 )
+         case VLC_CODEC_WEBVTT:
             {
-                unsigned int a, b, c, d;
-                bool e;
-                int i_frame_size = GetSyncInfo( p_block->p_buffer, &e, &a, &b, &c, &d );
-                if( i_frame_size > 0 )
-                    p_block->i_buffer = __MIN(p_block->i_buffer, (size_t)i_frame_size);
+                p_block = block_Realloc( p_block, 16, p_block->i_buffer );
+                if( !p_block )
+                    continue;
+                SetDWBE( p_block->p_buffer, p_block->i_buffer );
+                memcpy( &p_block->p_buffer[4], "vttc", 4 );
+                SetDWBE( &p_block->p_buffer[8], p_block->i_buffer - 8 );
+                memcpy( &p_block->p_buffer[12], "payl", 4 );
             }
             break;
 
@@ -643,7 +642,7 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
 
         if( track.fmt.i_cat != VIDEO_ES )
         {
-            if ( track.fmt.i_cat == NAV_ES )
+            if ( track.fmt.i_cat == DATA_ES )
             {
                 // TODO handle the start/stop times of this packet
                 p_sys->p_ev->SetPci( (const pci_t *)&p_block->p_buffer[1]);
@@ -694,7 +693,7 @@ void BlockDecode( demux_t *p_demux, KaxBlock *block, KaxSimpleBlock *simpleblock
  *****************************************************************************/
 static int Demux( demux_t *p_demux)
 {
-    demux_sys_t        *p_sys = p_demux->p_sys;
+    demux_sys_t *p_sys = (demux_sys_t *)p_demux->p_sys;
 
     vlc_mutex_locker demux_lock ( &p_sys->lock_demuxer );
 
@@ -739,16 +738,16 @@ static int Demux( demux_t *p_demux)
     }
 
     {
-        matroska_segment_c::tracks_map_t::iterator track_it;
+        mkv_track_t *p_track = p_segment->FindTrackByBlock( block, simpleblock );
 
-        if( p_segment->FindTrackByBlock( &track_it, block, simpleblock ) )
+        if( p_track == NULL )
         {
             msg_Err( p_demux, "invalid track number" );
             delete block;
             return 0;
         }
 
-        matroska_segment_c::tracks_map_t::mapped_type& track = track_it->second;
+        mkv_track_t &track = *p_track;
 
 
         if( track.i_skip_until_fpos != std::numeric_limits<uint64_t>::max() ) {
@@ -774,10 +773,10 @@ static int Demux( demux_t *p_demux)
 
         typedef matroska_segment_c::tracks_map_t tracks_map_t;
 
-        for( tracks_map_t::iterator it = p_segment->tracks.begin(); it != p_segment->tracks.end(); ++it )
+        for( tracks_map_t::const_iterator it = p_segment->tracks.begin(); it != p_segment->tracks.end(); ++it )
         {
-            tracks_map_t::mapped_type& track = it->second;
-      
+            mkv_track_t &track = *it->second;
+
             if( track.i_last_dts == VLC_TS_INVALID )
                 continue;
 
@@ -792,7 +791,7 @@ static int Demux( demux_t *p_demux)
 
         if( i_pcr > VLC_TS_INVALID && i_pcr > p_sys->i_pcr )
         {
-            if( es_out_Control( p_demux->out, ES_OUT_SET_PCR, i_pcr ) )
+            if( es_out_SetPCR( p_demux->out, i_pcr ) )
             {
                 msg_Err( p_demux, "ES_OUT_SET_PCR failed, aborting." );
                 return 0;
@@ -824,4 +823,61 @@ static int Demux( demux_t *p_demux)
     delete block;
 
     return 1;
+}
+
+mkv_track_t::mkv_track_t(enum es_format_category_e es_cat) :
+    b_default(true)
+  ,b_enabled(true)
+  ,b_forced(false)
+  ,i_number(0)
+  ,i_extra_data(0)
+  ,p_extra_data(NULL)
+  ,b_dts_only(false)
+  ,b_pts_only(false)
+  ,b_no_duration(false)
+  ,i_default_duration(0)
+  ,f_timecodescale(1.0)
+  ,i_last_dts(0)
+  ,i_skip_until_fpos(-1)
+  ,f_fps(0)
+  ,p_es(NULL)
+  ,i_original_rate(0)
+  ,i_chans_to_reorder(0)
+  ,p_sys(NULL)
+  ,b_discontinuity(false)
+  ,i_compression_type(MATROSKA_COMPRESSION_NONE)
+  ,i_encoding_scope(MATROSKA_ENCODING_SCOPE_ALL_FRAMES)
+  ,p_compression_data(NULL)
+  ,i_seek_preroll(0)
+  ,i_codec_delay(0)
+{
+    std::memset( &pi_chan_table, 0, sizeof( pi_chan_table ) );
+
+    es_format_Init(&fmt, es_cat, 0);
+
+    switch( es_cat )
+    {
+        case AUDIO_ES:
+            fmt.audio.i_channels = 1;
+            fmt.audio.i_rate = 8000;
+            /* fall through */
+        case VIDEO_ES:
+        case SPU_ES:
+            fmt.psz_language = strdup("English");
+            break;
+        default:
+            // no language needed
+            break;
+    }
+}
+
+mkv_track_t::~mkv_track_t()
+{
+    es_format_Clean( &fmt );
+    assert(p_es == NULL); // did we leak an ES ?
+
+    free(p_extra_data);
+
+    delete p_compression_data;
+    delete p_sys;
 }

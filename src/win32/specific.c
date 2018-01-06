@@ -25,7 +25,9 @@
 # include "config.h"
 #endif
 
-#define UNICODE
+#ifndef UNICODE
+# define UNICODE
+#endif
 #include <vlc_common.h>
 #include "libvlc.h"
 #include "../lib/libvlc_internal.h"
@@ -33,8 +35,9 @@
 
 #include <mmsystem.h>
 #include <winsock.h>
-
-DWORD LoadLibraryFlags = 0;
+#if VLC_WINSTORE_APP && !defined(__MINGW32__)
+typedef UINT MMRESULT;
+#endif
 
 static int system_InitWSA(int hi, int lo)
 {
@@ -55,24 +58,8 @@ static int system_InitWSA(int hi, int lo)
  */
 void system_Init(void)
 {
-#if !VLC_WINSTORE_APP
-    timeBeginPeriod(5);
-#endif
-
     if (system_InitWSA(2, 2) && system_InitWSA(1, 1))
         fputs("Error: cannot initialize Winsocks\n", stderr);
-
-#if !VLC_WINSTORE_APP
-    typedef BOOL (WINAPI *SetDefaultDllDirectoriesFunc)( DWORD DirectoryFlags);
-    SetDefaultDllDirectoriesFunc pf_SetDefDllDir = (SetDefaultDllDirectoriesFunc)
-        GetProcAddress( GetModuleHandleW(TEXT("kernel32.dll")), "SetDefaultDllDirectories");
-
-    if( pf_SetDefDllDir ) {
-        pf_SetDefDllDir( LOAD_LIBRARY_SEARCH_SYSTEM32 );
-        LoadLibraryFlags = LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
-                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR;
-    }
-#endif
 }
 
 /*****************************************************************************
@@ -90,23 +77,6 @@ typedef struct
 void system_Configure( libvlc_int_t *p_this, int i_argc, const char *const ppsz_argv[] )
 {
 #if !VLC_WINSTORE_APP
-    /* Raise default priority of the current process */
-#ifndef ABOVE_NORMAL_PRIORITY_CLASS
-#   define ABOVE_NORMAL_PRIORITY_CLASS 0x00008000
-#endif
-    if( var_InheritBool( p_this, "high-priority" ) )
-    {
-        if( SetPriorityClass( GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS )
-             || SetPriorityClass( GetCurrentProcess(), HIGH_PRIORITY_CLASS ) )
-        {
-            msg_Dbg( p_this, "raised process priority" );
-        }
-        else
-        {
-            msg_Dbg( p_this, "could not raise process priority" );
-        }
-    }
-
     if( var_InheritBool( p_this, "one-instance" )
      || ( var_InheritBool( p_this, "one-instance-when-started-from-file" )
        && var_InheritBool( p_this, "started-from-file" ) ) )
@@ -206,10 +176,6 @@ void system_Configure( libvlc_int_t *p_this, int i_argc, const char *const ppsz_
  */
 void system_End(void)
 {
-#if !VLC_WINSTORE_APP
-    timeEndPeriod(5);
-#endif
-
     /* XXX: In theory, we should not call this if WSAStartup() failed. */
     WSACleanup();
 }

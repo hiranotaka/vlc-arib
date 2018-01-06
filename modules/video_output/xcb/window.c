@@ -46,6 +46,8 @@ struct vout_window_sys_t
     key_handler_t *keys;
     vlc_thread_t thread;
 
+    xcb_cursor_t cursor; /* blank cursor */
+
     xcb_window_t root;
     xcb_atom_t wm_state;
     xcb_atom_t wm_state_above;
@@ -64,6 +66,28 @@ static void ProcessEvent (vout_window_t *wnd, xcb_generic_event_t *ev)
 
     switch (ev->response_type & 0x7f)
     {
+        /* Note a direct mapping of buttons from XCB to VLC is assumed. */
+        case XCB_BUTTON_PRESS:
+        {
+            xcb_button_release_event_t *bpe = (void *)ev;
+            vout_window_ReportMousePressed(wnd, bpe->detail - 1);
+            break;
+        }
+
+        case XCB_BUTTON_RELEASE:
+        {
+            xcb_button_release_event_t *bre = (void *)ev;
+            vout_window_ReportMouseReleased(wnd, bre->detail - 1);
+            break;
+        }
+
+        case XCB_MOTION_NOTIFY:
+        {
+            xcb_motion_notify_event_t *mne = (void *)ev;
+            vout_window_ReportMouseMoved(wnd, mne->event_x, mne->event_y);
+            break;
+        }
+
         case XCB_CONFIGURE_NOTIFY:
         {
             xcb_configure_notify_event_t *cne = (void *)ev;
@@ -197,6 +221,14 @@ static int Control (vout_window_t *wnd, int cmd, va_list ap)
             change_wm_state (wnd, fs, p_sys->wm_state_fullscreen);
             break;
         }
+        case VOUT_WINDOW_HIDE_MOUSE:
+        {
+            xcb_cursor_t cursor = (va_arg (ap, int) ? p_sys->cursor
+                                                    : XCB_CURSOR_NONE);
+            xcb_change_window_attributes (p_sys->conn, wnd->handle.xid,
+                                          XCB_CW_CURSOR, &(uint32_t){ cursor });
+            break;
+        }
 
         default:
             msg_Err (wnd, "request %d not implemented", cmd);
@@ -277,6 +309,18 @@ xcb_atom_t get_atom (xcb_connection_t *conn, xcb_intern_atom_cookie_t ck)
     return atom;
 }
 
+static
+xcb_cursor_t CursorCreate(xcb_connection_t *conn,
+                                   const xcb_screen_t *scr)
+{
+    xcb_cursor_t cur = xcb_generate_id (conn);
+    xcb_pixmap_t pix = xcb_generate_id (conn);
+
+    xcb_create_pixmap (conn, 1, pix, scr->root, 1, 1);
+    xcb_create_cursor (conn, cur, pix, pix, 0, 0, 0, 0, 0, 0, 1, 1);
+    return cur;
+}
+
 static void CacheAtoms (vout_window_sys_t *p_sys)
 {
     xcb_connection_t *conn = p_sys->conn;
@@ -344,8 +388,13 @@ static int Open (vout_window_t *wnd, const vout_window_cfg_t *cfg)
         /* XCB_CW_BACK_PIXEL */
         scr->black_pixel,
         /* XCB_CW_EVENT_MASK */
-        XCB_EVENT_MASK_KEY_PRESS | XCB_EVENT_MASK_STRUCTURE_NOTIFY,
+        XCB_EVENT_MASK_KEY_PRESS | XCB_EVENT_MASK_POINTER_MOTION |
+        XCB_EVENT_MASK_STRUCTURE_NOTIFY,
     };
+
+    if (var_InheritBool(wnd, "mouse-events"))
+        values[1] |= XCB_EVENT_MASK_BUTTON_PRESS
+                   | XCB_EVENT_MASK_BUTTON_RELEASE;
 
     xcb_window_t window = xcb_generate_id (conn);
     ck = xcb_create_window_checked (conn, scr->root_depth, window, scr->root,
@@ -447,6 +496,9 @@ static int Open (vout_window_t *wnd, const vout_window_cfg_t *cfg)
         goto error;
     }
 
+    /* Create cursor */
+    p_sys->cursor = CursorCreate(conn, scr);
+
     xcb_flush (conn); /* Make sure map_window is sent (should be useless) */
     return VLC_SUCCESS;
 
@@ -470,6 +522,7 @@ static void Close (vout_window_t *wnd)
     vlc_join (p_sys->thread, NULL);
     if (p_sys->keys != NULL)
         XCB_keyHandler_Destroy (p_sys->keys);
+
     xcb_disconnect (conn);
     free (wnd->display.x11);
     free (p_sys);
@@ -538,12 +591,15 @@ static void ReleaseDrawable (vlc_object_t *obj, xcb_window_t window)
         used[n] = used[n + 1];
     while (used[++n]);
 
-    if (n == 0)
-         var_SetAddress (obj->obj.libvlc, "xid-in-use", NULL);
+    if (!used[0])
+        var_SetAddress (obj->obj.libvlc, "xid-in-use", NULL);
+    else
+        used = NULL;
+
     vlc_mutex_unlock (&serializer);
 
-    if (n == 0)
-        free (used);
+    free( used );
+
     /* Variables are reference-counted... */
     var_Destroy (obj->obj.libvlc, "xid-in-use");
 }
@@ -580,7 +636,9 @@ static int EmOpen (vout_window_t *wnd, const vout_window_cfg_t *cfg)
 
     /* Subscribe to window events (_before_ the geometry is queried) */
     uint32_t mask = XCB_CW_EVENT_MASK;
-    uint32_t value = XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+    const uint32_t ovalue = XCB_EVENT_MASK_POINTER_MOTION
+                          | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+    uint32_t value = ovalue;
 
     xcb_change_window_attributes (conn, window, mask, &value);
 
@@ -595,7 +653,7 @@ static int EmOpen (vout_window_t *wnd, const vout_window_cfg_t *cfg)
     vout_window_ReportSize(wnd, geo->width, geo->height);
     free (geo);
 
-    /* Try to subscribe to keyboard events (only one X11 client can
+    /* Try to subscribe to keyboard and mouse events (only one X11 client can
      * subscribe to input events, so this can fail). */
     if (var_InheritBool (wnd, "keyboard-events"))
     {
@@ -606,7 +664,10 @@ static int EmOpen (vout_window_t *wnd, const vout_window_cfg_t *cfg)
     else
         p_sys->keys = NULL;
 
-    if (value & ~XCB_EVENT_MASK_STRUCTURE_NOTIFY)
+    if (var_InheritBool(wnd, "mouse-events"))
+        value |= XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE;
+
+    if (value != ovalue)
         xcb_change_window_attributes (conn, window, mask, &value);
 
     CacheAtoms (p_sys);

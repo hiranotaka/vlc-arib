@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCStatusBarIcon.m: Mac OS X module for vlc
+ * VLCStatusBarIcon.m: Status bar icon controller/delegate
  *****************************************************************************
  * Copyright (C) 2016 VLC authors and VideoLAN
  * $Id$
@@ -23,14 +23,18 @@
 
 #import "VLCStatusBarIcon.h"
 
-#import "MainMenu.h"
-#import "intf.h"
+#import "VLCMainMenu.h"
+#import "VLCMain.h"
 
 #import <vlc_common.h>
 #import <vlc_playlist.h>
 #import <vlc_input.h>
-#import <CoreInteraction.h>
-#import <StringUtility.h>
+
+#import "CompatibilityFixes.h"
+#import "VLCCoreInteraction.h"
+#import "VLCStringUtility.h"
+
+#import "VLCApplication.h"
 
 @interface VLCStatusBarIcon ()
 {
@@ -70,19 +74,36 @@
 #pragma mark -
 #pragma mark Init
 
+
+- (instancetype)init
+{
+    self = [super init];
+
+    if (self) {
+        msg_Dbg(getIntf(), "Loading VLCStatusBarIcon");
+        [NSBundle loadNibNamed:@"VLCStatusBarIconMainMenu" owner:self];
+    }
+
+    return self;
+}
+
 - (void)awakeFromNib
 {
     [super awakeFromNib];
-    [self enableMenuIcon];
+
+    [_controlsView setAutoresizingMask:NSViewWidthSizable];
+    [_playbackInfoView setAutoresizingMask:NSViewWidthSizable];
+
+    [self configurationChanged:nil];
 
     // Set Accessibility Attributes for Image Buttons
-    [backwardsButton.cell accessibilitySetOverrideValue:_NS("Go to previous track")
+    [backwardsButton.cell accessibilitySetOverrideValue:_NS("Go to previous item")
                                            forAttribute:NSAccessibilityDescriptionAttribute];
 
-    [playPauseButton.cell accessibilitySetOverrideValue:_NS("Play or pause current media")
+    [playPauseButton.cell accessibilitySetOverrideValue:_NS("Toggle Play/Pause")
                                            forAttribute:NSAccessibilityDescriptionAttribute];
 
-    [forwardButton.cell accessibilitySetOverrideValue:_NS("Go to next track")
+    [forwardButton.cell accessibilitySetOverrideValue:_NS("Go to next item")
                                          forAttribute:NSAccessibilityDescriptionAttribute];
 
     [randButton.cell accessibilitySetOverrideValue:_NS("Toggle random order playback")
@@ -105,6 +126,35 @@
                                              selector:@selector(updateNowPlayingInfo)
                                                  name:VLCInputChangedNotification
                                                object:nil];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(configurationChanged:)
+                                                 name:VLCConfigurationChangedNotification
+                                               object:nil];
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary *)change
+                       context:(void *)context
+{
+    if ([keyPath isEqualToString: NSStringFromSelector(@selector(isVisible))]) {
+        bool isVisible = [[change objectForKey:NSKeyValueChangeNewKey] boolValue];
+
+        // Sync status bar visibility with VLC setting
+        msg_Dbg(getIntf(), "Status bar icon visibility changed to %i", isVisible);
+        config_PutInt(getIntf(), "macosx-statusicon", isVisible ? 1 : 0);
+    } else {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+    }
+}
+
+- (void)configurationChanged:(id)obj
+{
+    if (var_InheritBool(getIntf(), "macosx-statusicon"))
+        [self enableMenuIcon];
+    else
+        [self disableStatusItem];
 }
 
 /* Enables the Status Bar Item and initializes it's image
@@ -112,23 +162,58 @@
  */
 - (void)enableMenuIcon
 {
-    // Init the status item
-    _statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
-    [_statusItem setHighlightMode:YES];
-    [_statusItem setEnabled:YES];
-    [_statusItem setTarget:self];
+    if (!self.statusItem) {
+        // Init the status item
+        self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
+        [self.statusItem setHighlightMode:YES];
+        [self.statusItem setEnabled:YES];
 
-    // Set the status item image
-    NSImage *menuIcon = [NSImage imageNamed:@"VLCStatusBarIcon"];
-    [menuIcon setTemplate:YES];
-    [_statusItem setImage:menuIcon];
+        // Set the status item image
+        NSImage *menuIcon = [NSImage imageNamed:@"VLCStatusBarIcon"];
+        [menuIcon setTemplate:YES];
+        [self.statusItem setImage:menuIcon];
 
-    // Attach pull-down menu
-    [_statusItem setMenu:_vlcStatusBarIconMenu];
+        // Attach pull-down menu
+        [self.statusItem setMenu:_vlcStatusBarIconMenu];
+
+        // Visibility is 10.12+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpartial-availability"
+        if (OSX_SIERRA_AND_HIGHER) {
+            [self.statusItem setBehavior:NSStatusItemBehaviorRemovalAllowed];
+            [self.statusItem setAutosaveName:@"statusBarItem"];
+            [self.statusItem addObserver:self forKeyPath:NSStringFromSelector(@selector(isVisible))
+                                 options:NSKeyValueObservingOptionNew context:NULL];
+        }
+    }
+
+    if (OSX_SIERRA_AND_HIGHER) {
+        // Sync VLC setting with status bar visibility setting (10.12 runtime only)
+        [self.statusItem setVisible:YES];
+    }
+}
+
+- (void)disableStatusItem
+{
+    if (!self.statusItem)
+        return;
+
+    // Lets keep alive the object in Sierra, and destroy it in older OS versions
+    if (OSX_SIERRA_AND_HIGHER) {
+        self.statusItem.visible = NO;
+    } else {
+        [[NSStatusBar systemStatusBar] removeStatusItem:self.statusItem];
+        self.statusItem = nil;
+    }
+#pragma clang diagnostic pop
 }
 
 - (void)dealloc
 {
+    if (self.statusItem && [self.statusItem respondsToSelector:@selector(isVisible)]) {
+        [self.statusItem removeObserver:self forKeyPath:NSStringFromSelector(@selector(isVisible)) context:NULL];
+    }
+
     // Cleanup
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
@@ -193,6 +278,8 @@
         vlc_object_release(input);
     } else {
         /* Nothing playing */
+        [progressField setStringValue:@"--:--"];
+        [totalField setStringValue:@"--:--"];
         [self setStoppedStatus:YES];
     }
 }
@@ -260,7 +347,7 @@
         }
 
         // Get Titel
-        tmp_cstr = input_item_GetTitle(item);
+        tmp_cstr = input_item_GetTitleFbName(item);
         if (tmp_cstr) {
             title = toNSStr(tmp_cstr);
             FREENULL(tmp_cstr);

@@ -29,7 +29,7 @@ namespace dash
     class DASHStream : public AbstractStream
     {
         public:
-            DASHStream(demux_t *, const StreamFormat &);
+            DASHStream(demux_t *);
 
         protected:
             virtual block_t *checkBlock(block_t *, bool); /* impl */
@@ -40,7 +40,7 @@ namespace dash
     {
         public:
             virtual AbstractStream *create(demux_t*, const StreamFormat &,
-                                   SegmentTracker *, HTTPConnectionManager *) const;
+                                   SegmentTracker *, AbstractConnectionManager *) const;
     };
 }
 

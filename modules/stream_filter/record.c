@@ -117,21 +117,13 @@ static ssize_t Read( stream_t *s, void *p_read, size_t i_read )
 {
     stream_sys_t *p_sys = s->p_sys;
     void *p_record = p_read;
-
-    /* Allocate a temporary buffer for record when no p_read */
-    if( p_sys->f && !p_record )
-        p_record = malloc( i_read );
-
-    /* */
-    const ssize_t i_record = stream_Read( s->p_source, p_record, i_read );
+    const ssize_t i_record = vlc_stream_Read( s->s, p_record, i_read );
 
     /* Dump read data */
     if( p_sys->f )
     {
         if( p_record && i_record > 0 )
             Write( s, p_record, i_record );
-        if( !p_read )
-            free( p_record );
     }
 
     return i_record;
@@ -139,20 +131,21 @@ static ssize_t Read( stream_t *s, void *p_read, size_t i_read )
 
 static int Seek( stream_t *s, uint64_t offset )
 {
-    return stream_Seek( s->p_source, offset );
+    return vlc_stream_Seek( s->s, offset );
 }
 
 static int Control( stream_t *s, int i_query, va_list args )
 {
     if( i_query != STREAM_SET_RECORD_STATE )
-        return stream_vaControl( s->p_source, i_query, args );
+        return vlc_stream_vaControl( s->s, i_query, args );
 
+    stream_sys_t *sys = s->p_sys;
     bool b_active = (bool)va_arg( args, int );
     const char *psz_extension = NULL;
     if( b_active )
-        psz_extension = (const char*)va_arg( args, const char* );
+        psz_extension = va_arg( args, const char* );
 
-    if( !s->p_sys->f == !b_active )
+    if( !sys->f == !b_active )
         return VLC_SUCCESS;
 
     if( b_active )

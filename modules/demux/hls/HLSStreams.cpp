@@ -23,34 +23,48 @@
 
 #include "HLSStreams.hpp"
 #include <vlc_demux.h>
+#include <vlc_meta.h>
+
+extern "C"
+{
+    #include "../meta_engine/ID3Tag.h"
+    #include "../meta_engine/ID3Meta.h"
+}
 
 using namespace hls;
 
-HLSStream::HLSStream(demux_t *demux, const StreamFormat &format)
-    :AbstractStream(demux, format)
+HLSStream::HLSStream(demux_t *demux)
+    : AbstractStream(demux)
 {
-    b_timestamps_offset_set = false;
-    i_aac_offset = 0;
+    b_id3_timestamps_offset_set = false;
+    p_meta = vlc_meta_New();
+    b_meta_updated = false;
 }
 
-bool HLSStream::setPosition(mtime_t time, bool tryonly)
+HLSStream::~HLSStream()
 {
-    bool b_ret = AbstractStream::setPosition(time, tryonly);
-    if(!tryonly && b_ret)
+    if(p_meta)
+        vlc_meta_Delete(p_meta);
+}
+
+void HLSStream::setTimeOffset(mtime_t i_offset)
+{
+    if(i_offset >= 0)
     {
-        /* Should be correct, has a restarted demux shouldn't have been fed with data yet */
-        fakeesout->setTimestampOffset( VLC_TS_INVALID );
-        b_timestamps_offset_set = false;
+        if((unsigned)format == StreamFormat::PACKEDAAC)
+        {
+            if(!b_id3_timestamps_offset_set)
+            {
+                fakeesout->setTimestampOffset(i_offset);
+            }
+            return;
+        }
     }
-    return b_ret;
-}
-
-bool HLSStream::restartDemux()
-{
-    bool b_ret = AbstractStream::restartDemux();
-    if(b_ret)
-        b_timestamps_offset_set = false;
-    return b_ret;
+    else
+    {
+        b_id3_timestamps_offset_set = false;
+    }
+    AbstractStream::setTimeOffset(i_offset);
 }
 
 AbstractDemuxer * HLSStream::createDemux(const StreamFormat &format)
@@ -58,16 +72,25 @@ AbstractDemuxer * HLSStream::createDemux(const StreamFormat &format)
     AbstractDemuxer *ret = NULL;
     switch((unsigned)format)
     {
-        case StreamFormat::UNKNOWN:
-            ret = new Demuxer(p_realdemux, "any", fakeesout->getEsOut(), demuxersource);
-            break;
 
         case StreamFormat::PACKEDAAC:
-            ret = new Demuxer(p_realdemux, "avformat", fakeesout->getEsOut(), demuxersource);
+            ret = new Demuxer(p_realdemux, "aac", fakeesout->getEsOut(), demuxersource);
             break;
 
         case StreamFormat::MPEG2TS:
             ret = new Demuxer(p_realdemux, "ts", fakeesout->getEsOut(), demuxersource);
+            if(ret)
+                ret->setCanDetectSwitches(false); /* HLS and unique PAT/PMT versions */
+            break;
+
+        case StreamFormat::MP4:
+            ret = new Demuxer(p_realdemux, "mp4", fakeesout->getEsOut(), demuxersource);
+            break;
+
+        case StreamFormat::WEBVTT:
+            ret = new Demuxer(p_realdemux, "webvttstream", fakeesout->getEsOut(), demuxersource);
+            if(ret)
+                ret->setRestartsOnEachSegment(true);
             break;
 
         default:
@@ -80,91 +103,74 @@ AbstractDemuxer * HLSStream::createDemux(const StreamFormat &format)
         delete ret;
         ret = NULL;
     }
-    else fakeesout->commandsqueue.Commit();
+    else commandsqueue->Commit();
 
     return ret;
 }
 
-void HLSStream::prepareFormatChange()
+int HLSStream::ParseID3PrivTag(const uint8_t *p_payload, size_t i_payload)
 {
-    AbstractStream::prepareFormatChange();
-    if((unsigned)format == StreamFormat::PACKEDAAC)
+    if(i_payload == 53 &&
+       !memcmp( p_payload, "com.apple.streaming.transportStreamTimestamp", 45))
     {
-        fakeesout->setTimestampOffset( i_aac_offset );
+        if(!b_id3_timestamps_offset_set)
+        {
+            const mtime_t i_aac_offset = GetQWBE(&p_payload[45]) * 100 / 9;
+            setTimeOffset(i_aac_offset);
+            b_id3_timestamps_offset_set = true;
+        }
     }
-    else
-    {
-        fakeesout->setTimestampOffset( 0 );
-    }
+    return VLC_SUCCESS;
 }
 
-static uint32_t ReadID3Size(const uint8_t *p_buffer)
+int HLSStream::ParseID3Tag(uint32_t i_tag, const uint8_t *p_payload, size_t i_payload)
 {
-    return ( (uint32_t)p_buffer[3] & 0x7F ) |
-          (( (uint32_t)p_buffer[2] & 0x7F ) << 7) |
-          (( (uint32_t)p_buffer[1] & 0x7F ) << 14) |
-          (( (uint32_t)p_buffer[0] & 0x7F ) << 21);
+    (void) ID3HandleTag(p_payload, i_payload, i_tag, p_meta, &b_meta_updated);
+    return VLC_SUCCESS;
 }
 
-static bool IsID3Tag(const uint8_t *p_buffer, bool b_footer)
+int HLSStream::ID3TAG_Parse_Handler(uint32_t i_tag, const uint8_t *p_payload, size_t i_payload, void *p_priv)
 {
-    return( memcmp(p_buffer, (b_footer) ? "3DI" : "ID3", 3) == 0 &&
-            p_buffer[3] < 0xFF &&
-            p_buffer[4] < 0xFF &&
-           ((GetDWBE(&p_buffer[6]) & 0x80808080) == 0) );
+    HLSStream *hlsstream = static_cast<HLSStream *>(p_priv);
+    return hlsstream->ParseID3Tag(i_tag, p_payload, i_payload);
 }
 
 block_t * HLSStream::checkBlock(block_t *p_block, bool b_first)
 {
     if(b_first && p_block &&
-       p_block->i_buffer >= 10 && IsID3Tag(p_block->p_buffer, false))
+       p_block->i_buffer >= 10 && ID3TAG_IsTag(p_block->p_buffer, false))
     {
-        uint32_t size = ReadID3Size(&p_block->p_buffer[6]);
-        size = __MIN(p_block->i_buffer, size + 10);
-        const uint8_t *p_frame = &p_block->p_buffer[10];
-        uint32_t i_left = (size >= 10) ? size - 10 : 0;
-        while(i_left >= 10 && !b_timestamps_offset_set)
+        while( p_block->i_buffer )
         {
-            uint32_t i_framesize = ReadID3Size(&p_frame[4]) + 10;
-            if( i_framesize > i_left )
+            size_t i_size = ID3TAG_Parse( p_block->p_buffer, p_block->i_buffer,
+                                          ID3TAG_Parse_Handler, static_cast<void *>(this) );
+            /* Skip ID3 for demuxer */
+            p_block->p_buffer += i_size;
+            p_block->i_buffer -= i_size;
+            if( i_size == 0 )
                 break;
-            if(i_framesize == 63 && !memcmp(p_frame, "PRIV", 4))
-            {
-                if(!memcmp(&p_frame[10], "com.apple.streaming.transportStreamTimestamp", 45))
-                {
-                    i_aac_offset = GetQWBE(&p_frame[55]) * 100 / 9;
-                    b_timestamps_offset_set = true;
-                }
-            }
-            i_left -= i_framesize;
-            p_frame += i_framesize;
         }
+    }
 
-        /* Skip ID3 for demuxer */
-        p_block->p_buffer += size;
-        p_block->i_buffer -= size;
-
-        /* Skip ID3 footer */
-        if(p_block->i_buffer >= 10 && IsID3Tag(p_block->p_buffer, true))
-        {
-            p_block->p_buffer += 10;
-            p_block->i_buffer -= 10;
-        }
+    if( b_meta_updated )
+    {
+        b_meta_updated = false;
+        AbstractCommand *command = commandsqueue->factory()->createEsOutMetaCommand( -1, p_meta );
+        if( command )
+            commandsqueue->Schedule( command );
     }
 
     return p_block;
 }
 
 AbstractStream * HLSStreamFactory::create(demux_t *realdemux, const StreamFormat &,
-                               SegmentTracker *tracker, HTTPConnectionManager *manager) const
+                               SegmentTracker *tracker, AbstractConnectionManager *manager) const
 {
-    HLSStream *stream;
-    try
+    HLSStream *stream = new (std::nothrow) HLSStream(realdemux);
+    if(stream && !stream->init(StreamFormat(StreamFormat::UNKNOWN), tracker, manager))
     {
-        stream = new HLSStream(realdemux, StreamFormat(StreamFormat::UNKNOWN));
-    } catch (int) {
+        delete stream;
         return NULL;
     }
-    stream->bind(tracker, manager);
     return stream;
 }

@@ -28,12 +28,11 @@
 
 #include <deque>
 
-typedef struct VLCMediaSample
+struct VLCMediaSample
 {
-    IMediaSample *p_sample;
+    ComPtr<IMediaSample> p_sample;
     mtime_t i_timestamp;
-
-} VLCMediaSample;
+};
 
 /* */
 void WINAPI FreeMediaType( AM_MEDIA_TYPE& mt );
@@ -52,9 +51,12 @@ class CapturePin: public IPin, public IMemInputPin
 
     vlc_object_t *p_input;
     access_sys_t *p_sys;
-    CaptureFilter  *p_filter;
+    // Don't store this filter as a ComPtr to avoid a circular reference.
+    // p_filter is the parent filter, and already has a refcounter pointer to this CapturePin
+    // instance
+    CaptureFilter* p_filter;
 
-    IPin *p_connected_pin;
+    ComPtr<IPin> p_connected_pin;
 
     AM_MEDIA_TYPE *media_types;
     size_t media_type_count;
@@ -67,9 +69,8 @@ class CapturePin: public IPin, public IMemInputPin
 
   public:
     CapturePin( vlc_object_t *_p_input, access_sys_t *p_sys,
-                CaptureFilter *_p_filter,
+                CaptureFilter* _p_filter,
                 AM_MEDIA_TYPE *mt, size_t mt_count );
-    virtual ~CapturePin();
 
     /* IUnknown methods */
     STDMETHODIMP QueryInterface(REFIID riid, void **ppv);
@@ -110,6 +111,9 @@ class CapturePin: public IPin, public IMemInputPin
     HRESULT CustomGetSamples( std::deque<VLCMediaSample> &external_queue );
 
     AM_MEDIA_TYPE &CustomGetMediaType();
+
+private:
+    virtual ~CapturePin();
 };
 
 /****************************************************************************
@@ -120,8 +124,8 @@ class CaptureFilter : public IBaseFilter
     friend class CapturePin;
 
     vlc_object_t   *p_input;
-    CapturePin     *p_pin;
-    IFilterGraph   *p_graph;
+    ComPtr<CapturePin>   p_pin;
+    ComPtr<IFilterGraph> p_graph;
     //AM_MEDIA_TYPE  media_type;
     FILTER_STATE   state;
 
@@ -130,7 +134,6 @@ class CaptureFilter : public IBaseFilter
   public:
     CaptureFilter( vlc_object_t *_p_input, access_sys_t *p_sys,
                    AM_MEDIA_TYPE *mt, size_t mt_count );
-    virtual ~CaptureFilter();
 
     /* IUnknown methods */
     STDMETHODIMP QueryInterface(REFIID riid, void **ppv);
@@ -156,7 +159,10 @@ class CaptureFilter : public IBaseFilter
     STDMETHODIMP QueryVendorInfo( LPWSTR* pVendorInfo );
 
     /* Custom methods */
-    CapturePin *CustomGetPin();
+    ComPtr<CapturePin>& CustomGetPin();
+
+private:
+    virtual ~CaptureFilter();
 };
 
 /****************************************************************************
@@ -165,15 +171,14 @@ class CaptureFilter : public IBaseFilter
 class CaptureEnumPins : public IEnumPins
 {
     vlc_object_t *p_input;
-    CaptureFilter  *p_filter;
+    ComPtr<CaptureFilter> p_filter;
 
     int i_position;
     long i_ref;
 
 public:
-    CaptureEnumPins( vlc_object_t *_p_input, CaptureFilter *_p_filter,
-                     CaptureEnumPins *pEnumPins );
-    virtual ~CaptureEnumPins();
+    CaptureEnumPins( vlc_object_t *_p_input, ComPtr<CaptureFilter> _p_filter,
+                     ComPtr<CaptureEnumPins> pEnumPins );
 
     // IUnknown
     STDMETHODIMP QueryInterface( REFIID riid, void **ppv );
@@ -185,6 +190,9 @@ public:
     STDMETHODIMP Skip( ULONG cPins );
     STDMETHODIMP Reset();
     STDMETHODIMP Clone( IEnumPins **ppEnum );
+
+private:
+    virtual ~CaptureEnumPins();
 };
 
 /****************************************************************************
@@ -193,17 +201,15 @@ public:
 class CaptureEnumMediaTypes : public IEnumMediaTypes
 {
     vlc_object_t *p_input;
-    CapturePin     *p_pin;
+    ComPtr<CapturePin> p_pin;
     AM_MEDIA_TYPE cx_media_type;
 
     size_t i_position;
     long i_ref;
 
 public:
-    CaptureEnumMediaTypes( vlc_object_t *_p_input, CapturePin *_p_pin,
+    CaptureEnumMediaTypes( vlc_object_t *_p_input, ComPtr<CapturePin> _p_pin,
                            CaptureEnumMediaTypes *pEnumMediaTypes );
-
-    virtual ~CaptureEnumMediaTypes();
 
     // IUnknown
     STDMETHODIMP QueryInterface( REFIID riid, void **ppv );
@@ -216,4 +222,7 @@ public:
     STDMETHODIMP Skip( ULONG cMediaTypes );
     STDMETHODIMP Reset();
     STDMETHODIMP Clone( IEnumMediaTypes **ppEnum );
+
+private:
+    virtual ~CaptureEnumMediaTypes();
 };

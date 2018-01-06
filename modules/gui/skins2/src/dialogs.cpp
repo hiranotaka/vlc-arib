@@ -22,6 +22,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+#include <sstream>
 #include "dialogs.hpp"
 #include "../commands/async_queue.hpp"
 #include "../commands/cmd_change_skin.hpp"
@@ -164,7 +165,6 @@ bool Dialogs::init()
     m_pModule = module_need( m_pProvider, "dialogs provider", NULL, false );
     if( m_pModule == NULL )
     {
-        msg_Err( getIntf(), "no suitable dialogs provider found (hint: compile the qt plugin, and make sure it is loaded properly)" );
         vlc_object_release( m_pProvider );
         m_pProvider = NULL;
         return false;
@@ -211,18 +211,19 @@ void Dialogs::showChangeSkin()
 
 void Dialogs::showPlaylistLoad()
 {
+    std::stringstream fileTypes;
+    fileTypes << _("Playlist Files |") << EXTENSIONS_PLAYLIST  << _("|All Files |*");
     showFileGeneric( _("Open playlist"),
-                     _("Playlist Files|" EXTENSIONS_PLAYLIST "|"
-                       "All Files|*"),
+                     fileTypes.str(),
                      showPlaylistLoadCB, kOPEN );
 }
 
 
 void Dialogs::showPlaylistSave()
 {
-    showFileGeneric( _("Save playlist"), _("XSPF playlist|*.xspf|"
-                                           "M3U file|*.m3u|"
-                                           "HTML playlist|*.html"),
+    showFileGeneric( _("Save playlist"), _("XSPF playlist |*.xspf|"
+                                           "M3U file |*.m3u|"
+                                           "HTML playlist |*.html"),
                      showPlaylistSaveCB, kSAVE );
 }
 

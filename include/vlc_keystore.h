@@ -117,7 +117,7 @@ vlc_keystore_store(vlc_keystore *p_keystore,
 
 /**
  * Find all entries that match a set of key/values
- * 
+ *
  * @param ppsz_values set of key/values, see vlc_keystore_key, any values can
  * be NULL
  * @param pp_entries list of found entries. To be released with
@@ -163,9 +163,11 @@ struct vlc_credential
 {
     /** url to store or to search */
     const vlc_url_t *p_url;
-    /** http realm or smb domain */
+    /** http realm or smb domain to search, can be overridden after a call to
+     * vlc_credential_get() */
     const char *psz_realm;
-    /** http authtype */
+    /** http authtype to search, can be overridden after a call to
+     * vlc_credential_get() */
     const char *psz_authtype;
     /** valid only if vlc_credential_get() returned true */
     const char *psz_username;
@@ -185,7 +187,7 @@ struct vlc_credential
     vlc_keystore_entry *p_entries;
     unsigned int i_entries_count;
 
-    char *psz_split_username;
+    char *psz_split_domain;
     char *psz_var_username;
     char *psz_var_password;
 
@@ -291,7 +293,7 @@ vlc_keystore_release_entry(vlc_keystore_entry *p_entry)
 typedef struct vlc_keystore_sys vlc_keystore_sys;
 struct vlc_keystore
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
     module_t            *p_module;
     vlc_keystore_sys    *p_sys;
 

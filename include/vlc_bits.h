@@ -96,8 +96,14 @@ static inline uint32_t bs_read( bs_t *s, int i_count )
         0x1fffff,  0x3fffff,  0x7fffff,  0xffffff,
         0x1ffffff, 0x3ffffff, 0x7ffffff, 0xfffffff,
         0x1fffffff,0x3fffffff,0x7fffffff,0xffffffff};
-    int      i_shr;
+    int      i_shr, i_drop = 0;
     uint32_t i_result = 0;
+
+    if( i_count > 32 )
+    {
+        i_drop = i_count - 32;
+        i_count = 32;
+    }
 
     while( i_count > 0 )
     {
@@ -116,17 +122,23 @@ static inline uint32_t bs_read( bs_t *s, int i_count )
                 bs_forward( s, 1 );
                 s->i_left = 8;
             }
-            return( i_result );
+            break;
         }
         else
         {
             /* less in the buffer than requested */
-           i_result |= (*s->p&i_mask[s->i_left]) << -i_shr;
+           if( -i_shr == 32 )
+               i_result = 0;
+           else
+               i_result |= (*s->p&i_mask[s->i_left]) << -i_shr;
            i_count  -= s->i_left;
            bs_forward( s, 1);
            s->i_left = 8;
         }
     }
+
+    if( i_drop )
+        bs_forward( s, i_drop );
 
     return( i_result );
 }
@@ -162,10 +174,12 @@ static inline void bs_skip( bs_t *s, ssize_t i_count )
 
     if( s->i_left <= 0 )
     {
-        const int i_bytes = ( -s->i_left + 8 ) / 8;
-
+        const size_t i_bytes = 1 + s->i_left / -8;
         bs_forward( s, i_bytes );
-        s->i_left += 8 * i_bytes;
+        if( i_bytes * 8 < i_bytes /* ofw */ )
+            s->i_left = i_bytes;
+        else
+            s->i_left += 8 * i_bytes;
     }
 }
 
@@ -231,22 +245,23 @@ static inline void bs_align_1( bs_t *s )
 }
 
 /* Read unsigned Exp-Golomb code */
-static inline uint32_t bs_read_ue( bs_t * bs )
+static inline uint_fast32_t bs_read_ue( bs_t * bs )
 {
-    int32_t i = 0;
+    unsigned i = 0;
 
     while( bs_read1( bs ) == 0 && bs->p < bs->p_end && i < 31 )
         i++;
 
-    return (1 << i) - 1 + bs_read( bs, i );
+    return (1U << i) - 1 + bs_read( bs, i );
 }
 
 /* Read signed Exp-Golomb code */
-static inline int32_t bs_read_se( bs_t *s )
+static inline int_fast32_t bs_read_se( bs_t *s )
 {
-    int val = bs_read_ue( s );
+    uint_fast32_t val = bs_read_ue( s );
 
-    return val&0x01 ? (val+1)/2 : -(val/2);
+    return (val & 0x01) ? (int_fast32_t)((val + 1) / 2)
+                        : -(int_fast32_t)(val / 2);
 }
 
 #undef bs_forward

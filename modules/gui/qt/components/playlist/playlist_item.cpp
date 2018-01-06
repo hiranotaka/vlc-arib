@@ -61,7 +61,7 @@ void PLItem::init( playlist_item_t *_playlist_item, PLItem *parent )
     i_playlist_id = _playlist_item->i_id;           /* Playlist item specific id */
     p_input = _playlist_item->p_input;
     i_flags = _playlist_item->i_flags;
-    vlc_gc_incref( p_input );
+    input_item_Hold( p_input );
 }
 
 /*
@@ -80,24 +80,14 @@ PLItem::PLItem( playlist_item_t * p_item )
 
 PLItem::~PLItem()
 {
-    vlc_gc_decref( p_input );
+    input_item_Release( p_input );
     qDeleteAll( children );
     children.clear();
 }
 
-int PLItem::id( int type ) const
+int PLItem::id() const
 {
-    switch( type )
-    {
-    case INPUTITEM_ID:
-        return p_input->i_id;
-    case PLAYLIST_ID:
-        return i_playlist_id;
-    default:
-    case MLMEDIA_ID:
-        vlc_assert_unreachable();
-        return -1;
-    }
+    return i_playlist_id;
 }
 
 void PLItem::takeChildAt( int index )
@@ -135,13 +125,13 @@ bool PLItem::operator< ( AbstractPLItem& other )
     return false;
 }
 
-QUrl PLItem::getURI() const
+QString PLItem::getURI() const
 {
     QString uri;
     vlc_mutex_lock( &p_input->lock );
     uri = QString( p_input->psz_uri );
     vlc_mutex_unlock( &p_input->lock );
-    return QUrl( uri );
+    return uri;
 }
 
 QString PLItem::getTitle() const

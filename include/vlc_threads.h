@@ -42,7 +42,7 @@
  * This has no effects if thread cancellation is disabled.
  * This can be called when there is a rather slow non-sleeping operation.
  * This is also used to force a cancellation point in a function that would
- * otherwise <em>not always</em> be a one (block_FifoGet() is an example).
+ * otherwise <em>not always</em> be one (block_FifoGet() is an example).
  */
 VLC_API void vlc_testcancel(void);
 
@@ -249,7 +249,10 @@ typedef struct vlc_timer *vlc_timer_t;
 /**
  * Thread handle.
  */
-typedef pthread_t       vlc_thread_t;
+typedef struct
+{
+    pthread_t handle;
+} vlc_thread_t;
 
 /**
  * Return value of a canceled thread.
@@ -380,7 +383,7 @@ VLC_API void vlc_mutex_destroy(vlc_mutex_t *);
  * \warning Beware of deadlocks when locking multiple mutexes at the same time,
  * or when using mutexes from callbacks.
  *
- * \note This function is not a cancellation-point.
+ * \note This function is not a cancellation point.
  */
 VLC_API void vlc_mutex_lock(vlc_mutex_t *);
 
@@ -391,7 +394,7 @@ VLC_API void vlc_mutex_lock(vlc_mutex_t *);
  * another thread. This function never sleeps and can be used in delay-critical
  * code paths.
  *
- * \note This function is not a cancellation-point.
+ * \note This function is not a cancellation point.
  *
  * \warning If this function fails, then the mutex is held... by another
  * thread. The calling thread must deal with the error appropriately. That
@@ -407,6 +410,8 @@ VLC_API int vlc_mutex_trylock( vlc_mutex_t * ) VLC_USED;
  * Releases a mutex.
  *
  * If the mutex is not held by the calling thread, the behaviour is undefined.
+ *
+ * \note This function is not a cancellation point.
  */
 VLC_API void vlc_mutex_unlock(vlc_mutex_t *);
 
@@ -439,11 +444,15 @@ VLC_API void vlc_cond_destroy(vlc_cond_t *);
  *
  * If any thread is currently waiting on the condition variable, at least one
  * of those threads will be woken up. Otherwise, this function has no effects.
+ *
+ * \note This function is not a cancellation point.
  */
 VLC_API void vlc_cond_signal(vlc_cond_t *);
 
 /**
  * Wakes up all threads waiting on a condition variable.
+ *
+ * \note This function is not a cancellation point.
  */
 VLC_API void vlc_cond_broadcast(vlc_cond_t *);
 
@@ -490,6 +499,9 @@ VLC_API void vlc_cond_wait(vlc_cond_t *cond, vlc_mutex_t *mutex);
  * The time-out is expressed as an absolute timestamp using the same arbitrary
  * time reference as the mdate() and mwait() functions.
  *
+ * \note This function is a cancellation point. In case of thread cancellation,
+ * the mutex is always locked before cancellation proceeds.
+ *
  * \param cond condition variable to wait on
  * \param mutex mutex which is unlocked while waiting,
  *              then locked again when waking up
@@ -521,7 +533,10 @@ VLC_API void vlc_sem_destroy(vlc_sem_t *);
 
 /**
  * Increments the value of a semaphore.
- * @return 0 on success, EOVERFLOW in case of integer overflow.
+ *
+ * \note This function is not a cancellation point.
+ *
+ * \return 0 on success, EOVERFLOW in case of integer overflow.
  */
 VLC_API int vlc_sem_post(vlc_sem_t *);
 
@@ -564,6 +579,8 @@ VLC_API void vlc_rwlock_wrlock(vlc_rwlock_t *);
  * Releases a read/write lock.
  *
  * The calling thread must hold the lock. Otherwise behaviour is undefined.
+ *
+ * \note This function is not a cancellation point.
  */
 VLC_API void vlc_rwlock_unlock(vlc_rwlock_t *);
 
@@ -607,8 +624,10 @@ VLC_API void *vlc_threadvar_get(vlc_threadvar_t);
  * Waits on an address.
  *
  * Puts the calling thread to sleep if a specific value is stored at a
- * specified address. If the value does not match, do nothing and return
- * immediately.
+ * specified address. The thread will sleep until it is woken up by a call to
+ * vlc_addr_signal() or vlc_addr_broadcast() in another thread, or spuriously.
+ *
+ * If the value does not match, do nothing and return immediately.
  *
  * \param addr address to check for
  * \param val value to match at the address
@@ -660,12 +679,13 @@ void vlc_addr_broadcast(void *addr);
  * The thread must be <i>joined</i> with vlc_join() to reclaim resources
  * when it is not needed anymore.
  *
- * @param th [OUT] pointer to write the handle of the created thread to
- *                 (mandatory, must be non-NULL)
+ * @param th storage space for the handle of the new thread (cannot be NULL)
+ *           [OUT]
  * @param entry entry point for the thread
  * @param data data parameter given to the entry point
  * @param priority thread priority value
  * @return 0 on success, a standard error code on error.
+ * @note In case of error, the value of *th is undefined.
  */
 VLC_API int vlc_clone(vlc_thread_t *th, void *(*entry)(void *), void *data,
                       int priority) VLC_USED;
@@ -788,20 +808,24 @@ VLC_API mtime_t mdate(void);
  * \param deadline timestamp to wait for (\ref mdate())
  *
  * \note The deadline may be exceeded due to OS scheduling.
+ * \note This function is a cancellation point.
  */
 VLC_API void mwait(mtime_t deadline);
 
 /**
  * Waits for an interval of time.
  *
- * @param delay how long to wait (in microseconds)
+ * \param delay how long to wait (in microseconds)
+ *
+ * \note The delay may be exceeded due to OS scheduling.
+ * \note This function is a cancellation point.
  */
 VLC_API void msleep(mtime_t delay);
 
 #define VLC_HARD_MIN_SLEEP   10000 /* 10 milliseconds = 1 tick at 100Hz */
 #define VLC_SOFT_MIN_SLEEP 9000000 /* 9 seconds */
 
-#if VLC_GCC_VERSION(4,3)
+#if defined (__GNUC__) && !defined (__clang__)
 /* Linux has 100, 250, 300 or 1000Hz
  *
  * HZ=100 by default on FreeBSD, but some architectures use a 1000Hz timer
@@ -1029,6 +1053,9 @@ enum
    VLC_XLIB_MUTEX,
    VLC_MOSAIC_MUTEX,
    VLC_HIGHLIGHT_MUTEX,
+#ifdef _WIN32
+   VLC_MTA_MUTEX,
+#endif
    /* Insert new entry HERE */
    VLC_MAX_MUTEX
 };

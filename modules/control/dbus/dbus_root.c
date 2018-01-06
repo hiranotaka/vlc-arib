@@ -272,9 +272,9 @@ DBUS_METHOD( Raise )
     REPLY_SEND;
 }
 
-#define PROPERTY_MAPPING_BEGIN if( 0 ) {}
+#define PROPERTY_MAPPING_BEGIN
 #define PROPERTY_GET_FUNC( prop, signature ) \
-    else if( !strcmp( psz_property_name,  #prop ) ) { \
+    if( !strcmp( psz_property_name,  #prop ) ) { \
         if( !dbus_message_iter_open_container( &args, DBUS_TYPE_VARIANT, signature, &v ) ) \
             return DBUS_HANDLER_RESULT_NEED_MEMORY; \
         if( VLC_SUCCESS != Marshal##prop( p_this, &v ) ) { \
@@ -283,12 +283,12 @@ DBUS_METHOD( Raise )
         } \
         if( !dbus_message_iter_close_container( &args, &v ) ) \
             return DBUS_HANDLER_RESULT_NEED_MEMORY; \
-    }
+    } else
 #define PROPERTY_SET_FUNC( prop ) \
-    else if( !strcmp( psz_property_name,  #prop ) ) { \
+    if( !strcmp( psz_property_name,  #prop ) ) \
         return prop##Set( p_conn, p_from, p_this ); \
-    }
-#define PROPERTY_MAPPING_END else { return DBUS_HANDLER_RESULT_NOT_YET_HANDLED; }
+    else
+#define PROPERTY_MAPPING_END return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
 DBUS_METHOD( GetProperty )
 {
@@ -453,8 +453,6 @@ PropertiesChangedSignal( intf_thread_t    *p_intf,
     DBusConnection  *p_conn = p_intf->p_sys->p_conn;
     DBusMessageIter changed_properties, invalidated_properties;
     const char *psz_interface_name = DBUS_MPRIS_ROOT_INTERFACE;
-    char **ppsz_properties = NULL;
-    int i_properties = 0;
 
     SIGNAL_INIT( DBUS_INTERFACE_PROPERTIES,
                  DBUS_MPRIS_OBJECT_PATH,
@@ -467,23 +465,15 @@ PropertiesChangedSignal( intf_thread_t    *p_intf,
                                            &changed_properties ) )
         return DBUS_HANDLER_RESULT_NEED_MEMORY;
 
-    i_properties = vlc_dictionary_keys_count( p_changed_properties );
-    ppsz_properties = vlc_dictionary_all_keys( p_changed_properties );
-
-    if( unlikely(!ppsz_properties) )
+    if( vlc_dictionary_has_key( p_changed_properties, "Fullscreen" ) )
     {
-        dbus_message_iter_abandon_container( &args, &changed_properties );
-        return DBUS_HANDLER_RESULT_NEED_MEMORY;
+        if( AddProperty( p_intf, &changed_properties, "Fullscreen", "b",
+                     MarshalFullscreen ) != VLC_SUCCESS )
+        {
+            dbus_message_iter_abandon_container( &args, &changed_properties );
+            return DBUS_HANDLER_RESULT_NEED_MEMORY;
+        }
     }
-
-    for( int i = 0; i < i_properties; i++ )
-    {
-        if( !strcmp( ppsz_properties[i], "Fullscreen" ) )
-             AddProperty( p_intf, &changed_properties, "Fullscreen", "b",
-                          MarshalFullscreen );
-        free( ppsz_properties[i] );
-    }
-    free( ppsz_properties );
 
     if( !dbus_message_iter_close_container( &args, &changed_properties ) )
         return DBUS_HANDLER_RESULT_NEED_MEMORY;

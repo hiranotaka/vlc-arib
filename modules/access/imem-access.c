@@ -37,7 +37,7 @@ struct access_sys_t
     uint64_t size;
 };
 
-static ssize_t Read(access_t *access, uint8_t *buf, size_t len)
+static ssize_t Read(stream_t *access, void *buf, size_t len)
 {
     access_sys_t *sys = access->p_sys;
 
@@ -48,13 +48,10 @@ static ssize_t Read(access_t *access, uint8_t *buf, size_t len)
         val = 0;
     }
 
-    if (val <= 0)
-        access->info.b_eof = true;
-
     return val;
 }
 
-static int Seek(access_t *access, uint64_t offset)
+static int Seek(stream_t *access, uint64_t offset)
 {
     access_sys_t *sys = access->p_sys;
 
@@ -62,41 +59,39 @@ static int Seek(access_t *access, uint64_t offset)
 
     if (sys->seek_cb(sys->opaque, offset) != 0)
         return VLC_EGENERIC;
-
-   access->info.b_eof = false;
    return VLC_SUCCESS;
 }
 
-static int Control(access_t *access, int query, va_list args)
+static int Control(stream_t *access, int query, va_list args)
 {
     access_sys_t *sys = access->p_sys;
 
     switch (query)
     {
-        case ACCESS_CAN_SEEK:
+        case STREAM_CAN_SEEK:
             *va_arg(args, bool *) = sys->seek_cb != NULL;
             break;
 
-        case ACCESS_CAN_FASTSEEK:
+        case STREAM_CAN_FASTSEEK:
             *va_arg(args, bool *) = false;
             break;
 
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg(args, bool *) = sys->seek_cb != NULL;
             break;
 
-        case ACCESS_GET_SIZE:
+        case STREAM_GET_SIZE:
             if (sys->size == UINT64_MAX)
                 return VLC_EGENERIC;
             *va_arg(args, uint64_t *) = sys->size;
             break;
 
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
             *va_arg(args, int64_t *) = DEFAULT_PTS_DELAY;
             break;
 
-        case ACCESS_SET_PAUSE_STATE:
+        case STREAM_SET_PAUSE_STATE:
             break;
 
         default:
@@ -106,7 +101,7 @@ static int Control(access_t *access, int query, va_list args)
     return VLC_SUCCESS;
 }
 
-static int open_cb_default(void *opaque, void **datap, size_t *sizep)
+static int open_cb_default(void *opaque, void **datap, uint64_t *sizep)
 {
     *datap = opaque;
     (void) sizep;
@@ -115,9 +110,9 @@ static int open_cb_default(void *opaque, void **datap, size_t *sizep)
 
 static int Open(vlc_object_t *object)
 {
-    access_t *access = (access_t *)object;
+    stream_t *access = (stream_t *)object;
 
-    access_sys_t *sys = malloc(sizeof (*sys));
+    access_sys_t *sys = vlc_obj_malloc(object, sizeof (*sys));
     if (unlikely(sys == NULL))
         return VLC_ENOMEM;
 
@@ -135,11 +130,11 @@ static int Open(vlc_object_t *object)
     if (open_cb == NULL)
         open_cb = open_cb_default;
     if (sys->read_cb == NULL)
-        goto error;
+        return VLC_EGENERIC;
 
     if (open_cb(opaque, &sys->opaque, &sys->size)) {
         msg_Err(access, "open error");
-        goto error;
+        return VLC_EGENERIC;
     }
 
     access->pf_read = Read;
@@ -148,25 +143,20 @@ static int Open(vlc_object_t *object)
     access->pf_control = Control;
 
     access->p_sys = sys;
-    access_InitFields(access);
     return VLC_SUCCESS;
-error:
-    free(sys);
-    return VLC_EGENERIC;
 }
 
 static void Close(vlc_object_t *object)
 {
-    access_t *access = (access_t *)object;
+    stream_t *access = (stream_t *)object;
     access_sys_t *sys = access->p_sys;
 
     if (sys->close_cb != NULL)
         sys->close_cb(sys->opaque);
-    free(sys);
 }
 
 vlc_module_begin()
-    set_shortname(N_("Nemory stream"))
+    set_shortname(N_("Memory stream"))
     set_description(N_("In-memory stream input"))
     set_category(CAT_INPUT)
     set_subcategory(SUBCAT_INPUT_ACCESS)

@@ -97,7 +97,7 @@ vlc_module_end ()
 
 static void* Run( void* );
 
-static void input_item_subitem_added( const vlc_event_t*, void* );
+static void input_subnode_added( const vlc_event_t*, void* );
 static int onNewFileAdded( vlc_object_t*, char const *,
                            vlc_value_t, vlc_value_t, void *);
 
@@ -120,6 +120,7 @@ static int Open( vlc_object_t *p_this, enum type_e i_type )
 {
     services_discovery_t *p_sd = ( services_discovery_t* )p_this;
     services_discovery_sys_t *p_sys;
+    const char *desc;
 
     p_sd->p_sys = p_sys = calloc( 1, sizeof( *p_sys) );
     if( !p_sys )
@@ -129,6 +130,7 @@ static int Open( vlc_object_t *p_this, enum type_e i_type )
 
     if( p_sys->i_type == Video )
     {
+        desc = N_("My Videos");
         p_sys->psz_dir[0] = config_GetUserDir( VLC_VIDEOS_DIR );
         p_sys->psz_dir[1] = var_CreateGetString( p_sd, "input-record-path" );
 
@@ -136,6 +138,7 @@ static int Open( vlc_object_t *p_this, enum type_e i_type )
     }
     else if( p_sys->i_type == Audio )
     {
+        desc = N_("My Music");
         p_sys->psz_dir[0] = config_GetUserDir( VLC_MUSIC_DIR );
         p_sys->psz_dir[1] = var_CreateGetString( p_sd, "input-record-path" );
 
@@ -143,6 +146,7 @@ static int Open( vlc_object_t *p_this, enum type_e i_type )
     }
     else if( p_sys->i_type == Picture )
     {
+        desc = N_("My Pictures");
         p_sys->psz_dir[0] = config_GetUserDir( VLC_PICTURES_DIR );
         p_sys->psz_dir[1] = var_CreateGetString( p_sd, "snapshot-path" );
 
@@ -153,6 +157,8 @@ static int Open( vlc_object_t *p_this, enum type_e i_type )
         free( p_sys );
         return VLC_EGENERIC;
     }
+
+    p_sd->description = vlc_gettext(desc);
 
     var_AddCallback( p_sd->obj.libvlc, p_sys->psz_var, onNewFileAdded, p_sd );
 
@@ -176,8 +182,6 @@ static void *Run( void *data )
     services_discovery_t *p_sd = data;
     services_discovery_sys_t *p_sys = p_sd->p_sys;
 
-    int canc = vlc_savecancel();
-
     int num_dir = sizeof( p_sys->psz_dir ) / sizeof( p_sys->psz_dir[0] );
     for( int i = 0; i < num_dir; i++ )
     {
@@ -195,26 +199,25 @@ static void *Run( void *data )
         input_item_t* p_root = input_item_New( psz_uri, NULL );
         if( p_sys->i_type == Picture )
             input_item_AddOption( p_root, "ignore-filetypes=ini,db,lnk,txt",
-                                  VLC_INPUT_OPTION_TRUSTED );
+                                  VLC_INPUT_OPTION_TRUSTED|VLC_INPUT_OPTION_UNIQUE );
 
         input_item_AddOption( p_root, "recursive=collapse",
-                              VLC_INPUT_OPTION_TRUSTED );
+                              VLC_INPUT_OPTION_TRUSTED|VLC_INPUT_OPTION_UNIQUE );
 
 
         vlc_event_manager_t *p_em = &p_root->event_manager;
-        vlc_event_attach( p_em, vlc_InputItemSubItemAdded,
-                          input_item_subitem_added, p_sd );
+        vlc_event_attach( p_em, vlc_InputItemSubItemTreeAdded,
+                          input_subnode_added, p_sd );
 
         input_Read( p_sd, p_root );
 
-        vlc_event_detach( p_em, vlc_InputItemSubItemAdded,
-                          input_item_subitem_added, p_sd );
+        vlc_event_detach( p_em, vlc_InputItemSubItemTreeAdded,
+                          input_subnode_added, p_sd );
 
-        vlc_gc_decref( p_root );
+        input_item_Release( p_root );
         free( psz_uri );
     }
 
-    vlc_restorecancel(canc);
     return NULL;
 }
 
@@ -226,7 +229,6 @@ static void Close( vlc_object_t *p_this )
     services_discovery_t *p_sd = (services_discovery_t *)p_this;
     services_discovery_sys_t *p_sys = p_sd->p_sys;
 
-    vlc_cancel( p_sys->thread );
     vlc_join( p_sys->thread, NULL );
 
     var_DelCallback( p_sd->obj.libvlc, p_sys->psz_var, onNewFileAdded, p_sd );
@@ -240,19 +242,22 @@ static void Close( vlc_object_t *p_this )
 /*****************************************************************************
  * Callbacks and helper functions
  *****************************************************************************/
-static void input_item_subitem_added( const vlc_event_t * p_event,
-                                      void * user_data )
+static void input_subnode_added( const vlc_event_t *p_event, void *user_data )
 {
     services_discovery_t *p_sd = user_data;
     services_discovery_sys_t *p_sys = p_sd->p_sys;
+    input_item_node_t *root = p_event->u.input_item_subitem_tree_added.p_root;
 
-    /* retrieve new item */
-    input_item_t *p_item = p_event->u.input_item_subitem_added.p_new_child;
+    for( int i = 0; i < root->i_children; i++ )
+    {
+        input_item_node_t *child = root->pp_children[i];
+        input_item_t *item = child->p_item;
 
-    if( p_sys->i_type == Picture )
-        formatSnapshotItem( p_item );
+        if( p_sys->i_type == Picture )
+            formatSnapshotItem( item );
 
-    services_discovery_AddItem( p_sd, p_item, NULL );
+        services_discovery_AddItem( p_sd, item );
+    }
 }
 
 static int onNewFileAdded( vlc_object_t *p_this, char const *psz_var,
@@ -276,7 +281,7 @@ static int onNewFileAdded( vlc_object_t *p_this, char const *psz_var,
         if( fileType( p_sd, psz_file ) == Picture )
         {
             formatSnapshotItem( p_item );
-            services_discovery_AddItem( p_sd, p_item, NULL );
+            services_discovery_AddItem( p_sd, p_item );
 
             msg_Dbg( p_sd, "New snapshot added : %s", psz_file );
         }
@@ -285,7 +290,7 @@ static int onNewFileAdded( vlc_object_t *p_this, char const *psz_var,
     {
         if( fileType( p_sd, psz_file ) == Audio )
         {
-            services_discovery_AddItem( p_sd, p_item, NULL );
+            services_discovery_AddItem( p_sd, p_item );
 
             msg_Dbg( p_sd, "New recorded audio added : %s", psz_file );
         }
@@ -295,13 +300,13 @@ static int onNewFileAdded( vlc_object_t *p_this, char const *psz_var,
         if( fileType( p_sd, psz_file ) == Video ||
             fileType( p_sd, psz_file ) == Unknown )
         {
-            services_discovery_AddItem( p_sd, p_item, NULL );
+            services_discovery_AddItem( p_sd, p_item );
 
             msg_Dbg( p_sd, "New recorded video added : %s", psz_file );
         }
     }
 
-    vlc_gc_decref( p_item );
+    input_item_Release( p_item );
     free( psz_uri );
 
     return VLC_SUCCESS;
@@ -349,11 +354,9 @@ static int vlc_sd_probe_Open( vlc_object_t *obj )
 {
     vlc_probe_t *probe = (vlc_probe_t *)obj;
 
-    vlc_sd_probe_Add( probe, "video_dir{longname=\"My Videos\"}",
-                      N_("My Videos"), SD_CAT_MYCOMPUTER );
-    vlc_sd_probe_Add( probe, "audio_dir{longname=\"My Music\"}",
-                      N_("My Music"), SD_CAT_MYCOMPUTER );
-    vlc_sd_probe_Add( probe, "picture_dir{longname=\"My Pictures\"}",
-                      N_("My Pictures"), SD_CAT_MYCOMPUTER );
+    vlc_sd_probe_Add( probe, "video_dir", N_("My Videos"), SD_CAT_MYCOMPUTER );
+    vlc_sd_probe_Add( probe, "audio_dir", N_("My Music"), SD_CAT_MYCOMPUTER );
+    vlc_sd_probe_Add( probe, "picture_dir", N_("My Pictures"),
+                      SD_CAT_MYCOMPUTER );
     return VLC_PROBE_CONTINUE;
 }

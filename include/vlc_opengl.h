@@ -39,7 +39,7 @@ typedef struct vlc_gl_t vlc_gl_t;
 
 struct vlc_gl_t
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
 
     struct vout_window_t *surface;
     module_t *module;
@@ -49,21 +49,42 @@ struct vlc_gl_t
     void (*releaseCurrent)(vlc_gl_t *);
     void (*resize)(vlc_gl_t *, unsigned, unsigned);
     void (*swap)(vlc_gl_t *);
-#ifdef __APPLE__
-    int  (*lock)(vlc_gl_t *);
-    void (*unlock)(vlc_gl_t *);
-#endif
     void*(*getProcAddress)(vlc_gl_t *, const char *);
+
+    enum {
+        VLC_GL_EXT_DEFAULT,
+        VLC_GL_EXT_EGL,
+        VLC_GL_EXT_WGL,
+    } ext;
+
+    union {
+        /* if ext == VLC_GL_EXT_EGL */
+        struct {
+            /* call eglQueryString() with current display */
+            const char *(*queryString)(vlc_gl_t *, int32_t name);
+            /* call eglCreateImageKHR() with current display and context, can
+             * be NULL */
+            void *(*createImageKHR)(vlc_gl_t *, unsigned target, void *buffer,
+                                    const int32_t *attrib_list);
+            /* call eglDestroyImageKHR() with current display, can be NULL */
+            bool (*destroyImageKHR)(vlc_gl_t *, void *image);
+        } egl;
+        /* if ext == VLC_GL_EXT_WGL */
+        struct
+        {
+            const char *(*getExtensionsString)(vlc_gl_t *);
+        } wgl;
+    };
 };
 
 enum {
     VLC_OPENGL,
-    VLC_OPENGL_ES,
     VLC_OPENGL_ES2,
 };
 
 VLC_API vlc_gl_t *vlc_gl_Create(struct vout_window_t *, unsigned, const char *) VLC_USED;
-VLC_API void vlc_gl_Destroy(vlc_gl_t *);
+VLC_API void vlc_gl_Release(vlc_gl_t *);
+VLC_API void vlc_gl_Hold(vlc_gl_t *);
 
 static inline int vlc_gl_MakeCurrent(vlc_gl_t *gl)
 {
@@ -73,25 +94,6 @@ static inline int vlc_gl_MakeCurrent(vlc_gl_t *gl)
 static inline void vlc_gl_ReleaseCurrent(vlc_gl_t *gl)
 {
     gl->releaseCurrent(gl);
-}
-
-static inline int vlc_gl_Lock(vlc_gl_t *gl)
-{
-#ifdef __APPLE__
-    return (gl->lock != NULL) ? gl->lock(gl) : VLC_SUCCESS;
-#else
-    (void) gl; return VLC_SUCCESS;
-#endif
-}
-
-static inline void vlc_gl_Unlock(vlc_gl_t *gl)
-{
-#ifdef __APPLE__
-    if (gl->unlock != NULL)
-        gl->unlock(gl);
-#else
-    (void) gl;
-#endif
 }
 
 static inline void vlc_gl_Resize(vlc_gl_t *gl, unsigned w, unsigned h)

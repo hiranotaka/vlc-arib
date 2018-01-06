@@ -27,12 +27,14 @@
 #include <assert.h>
 
 typedef ANativeWindow* (*ptr_ANativeWindow_fromSurface)(JNIEnv*, jobject);
+typedef ANativeWindow* (*ptr_ANativeWindow_fromSurfaceTexture)(JNIEnv*, jobject);
 typedef void (*ptr_ANativeWindow_release)(ANativeWindow*);
 
 struct AWindowHandler
 {
     JavaVM *p_jvm;
     jobject jobj;
+    vout_window_t *wnd;
 
     struct {
         jobject jsurface;
@@ -45,29 +47,48 @@ struct AWindowHandler
     native_window_api_t anw_api;
     native_window_priv_api_t anwpriv_api;
 
-    vlc_mutex_t lock;
     struct {
-        bool b_registered;
-        struct {
-            int i_action, i_button, i_x, i_y;
-        } mouse;
-        struct {
-            int i_width, i_height;
-        } window;
+        awh_events_t cb;
     } event;
+    bool b_has_video_layout_listener;
+
+    struct {
+        jfloatArray jtransform_mtx_array;
+        jfloat *jtransform_mtx;
+    } stex;
+};
+
+struct SurfaceTexture
+{
+    JavaVM *p_jvm;
+
+    void *p_anw_dl;
+    ptr_ANativeWindow_fromSurface pf_winFromSurface;
+    ptr_ANativeWindow_release pf_winRelease;
+
+    jobject thiz;
+    jobject jsurface;
+    ANativeWindow *p_anw;
+
 };
 
 static struct
 {
     struct {
+        jclass clazz;
         jmethodID getVideoSurface;
         jmethodID getSubtitlesSurface;
-        jmethodID setCallback;
+        jmethodID registerNative;
+        jmethodID unregisterNative;
         jmethodID setBuffersGeometry;
-        jmethodID setWindowLayout;
-        /* TODO: temporary, to remove when VLC has decoder fallback */
-        jmethodID sendHardwareAccelerationError;
+        jmethodID setVideoLayout;
     } AndroidNativeWindow;
+    struct {
+        jmethodID attachToGLContext;
+        jmethodID detachFromGLContext;
+        jmethodID waitAndUpdateTexImage;
+        jmethodID getSurface;
+    } SurfaceTexture;
 } jfields;
 
 /*
@@ -120,7 +141,7 @@ NativeSurface_getHandle(JNIEnv *p_env, jobject jsurf)
 {
     jclass clz;
     jfieldID fid;
-    intptr_t p_surface_handle = NULL;
+    intptr_t p_surface_handle = 0;
 
     clz = (*p_env)->GetObjectClass(p_env, jsurf);
     if ((*p_env)->ExceptionCheck(p_env))
@@ -257,16 +278,11 @@ LoadNativeWindowAPI(AWindowHandler *p_awh)
         return;
     }
 
-    p_awh->pf_winFromSurface =
-        (ptr_ANativeWindow_fromSurface)(dlsym(p_library, "ANativeWindow_fromSurface"));
-    p_awh->pf_winRelease =
-        (ptr_ANativeWindow_release)(dlsym(p_library, "ANativeWindow_release"));
-    p_awh->anw_api.winLock =
-        (ptr_ANativeWindow_lock)(dlsym(p_library, "ANativeWindow_lock"));
-    p_awh->anw_api.unlockAndPost =
-        (ptr_ANativeWindow_unlockAndPost)(dlsym(p_library, "ANativeWindow_unlockAndPost"));
-    p_awh->anw_api.setBuffersGeometry =
-        (ptr_ANativeWindow_setBuffersGeometry)(dlsym(p_library, "ANativeWindow_setBuffersGeometry"));
+    p_awh->pf_winFromSurface = dlsym(p_library, "ANativeWindow_fromSurface");
+    p_awh->pf_winRelease = dlsym(p_library, "ANativeWindow_release");
+    p_awh->anw_api.winLock = dlsym(p_library, "ANativeWindow_lock");
+    p_awh->anw_api.unlockAndPost = dlsym(p_library, "ANativeWindow_unlockAndPost");
+    p_awh->anw_api.setBuffersGeometry = dlsym(p_library, "ANativeWindow_setBuffersGeometry");
 
     if (p_awh->pf_winFromSurface && p_awh->pf_winRelease
      && p_awh->anw_api.winLock && p_awh->anw_api.unlockAndPost
@@ -285,30 +301,30 @@ LoadNativeWindowAPI(AWindowHandler *p_awh)
  * Android private NativeWindow (post android 2.3)
  */
 
-static int
-LoadNativeWindowPrivAPI(native_window_priv_api_t *native)
+int
+android_loadNativeWindowPrivApi(native_window_priv_api_t *native)
 {
-    native->connect = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_connect");
-    native->disconnect = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_disconnect");
-    native->setUsage = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_setUsage");
-    native->setBuffersGeometry = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_setBuffersGeometry");
-    native->getMinUndequeued = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_getMinUndequeued");
-    native->getMaxBufferCount = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_getMaxBufferCount");
-    native->setBufferCount = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_setBufferCount");
-    native->setCrop = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_setCrop");
-    native->dequeue = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_dequeue");
-    native->lock = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_lock");
-    native->lockData = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_lockData");
-    native->unlockData = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_unlockData");
-    native->queue = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_queue");
-    native->cancel = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_cancel");
-    native->setOrientation = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_setOrientation");
-
-    return native->connect && native->disconnect && native->setUsage &&
-        native->setBuffersGeometry && native->getMinUndequeued &&
-        native->getMaxBufferCount && native->setBufferCount && native->setCrop &&
-        native->dequeue && native->lock && native->lockData && native->unlockData &&
-        native->queue && native->cancel && native->setOrientation ? 0 : -1;
+#define LOAD(symbol) do { \
+if ((native->symbol = dlsym(RTLD_DEFAULT, "ANativeWindowPriv_" #symbol)) == NULL) \
+    return -1; \
+} while(0)
+    LOAD(connect);
+    LOAD(disconnect);
+    LOAD(setUsage);
+    LOAD(setBuffersGeometry);
+    LOAD(getMinUndequeued);
+    LOAD(getMaxBufferCount);
+    LOAD(setBufferCount);
+    LOAD(setCrop);
+    LOAD(dequeue);
+    LOAD(lock);
+    LOAD(lockData);
+    LOAD(unlockData);
+    LOAD(queue);
+    LOAD(cancel);
+    LOAD(setOrientation);
+    return 0;
+#undef LOAD
 }
 
 /*
@@ -401,7 +417,7 @@ const JNINativeMethod jni_callbacks[] = {
 };
 
 static int
-InitJNIFields(JNIEnv *env, vlc_object_t *p_obj, AWindowHandler *p_awh)
+InitJNIFields(JNIEnv *env, vlc_object_t *p_obj, jobject *jobj)
 {
     static vlc_mutex_t lock = VLC_STATIC_MUTEX;
     static int i_init_state = -1;
@@ -413,30 +429,46 @@ InitJNIFields(JNIEnv *env, vlc_object_t *p_obj, AWindowHandler *p_awh)
     if (i_init_state != -1)
         goto end;
 
-#define CHECK_EXCEPTION(what) do { \
+#define CHECK_EXCEPTION(what, critical) do { \
     if( (*env)->ExceptionCheck(env) ) \
     { \
         msg_Err(p_obj, "%s failed", what); \
         (*env)->ExceptionClear(env); \
-        i_init_state = 0; \
-        goto end; \
+        if (critical) { \
+            i_init_state = 0; \
+            goto end; \
+        } \
     } \
 } while( 0 )
-#define GET_METHOD(id, str, args) do { \
-    jfields.AndroidNativeWindow.id = (*env)->GetMethodID(env, clazz, (str), (args)); \
-    CHECK_EXCEPTION("GetMethodID("str")"); \
+#define GET_METHOD(id, str, args, critical) do { \
+    jfields.id = (*env)->GetMethodID(env, clazz, (str), (args)); \
+    CHECK_EXCEPTION("GetMethodID("str")", critical); \
 } while( 0 )
 
-    clazz = (*env)->GetObjectClass(env, p_awh);
-    CHECK_EXCEPTION("AndroidNativeWindow clazz");
-    GET_METHOD(getVideoSurface, "getVideoSurface", "()Landroid/view/Surface;");
-    GET_METHOD(getSubtitlesSurface, "getSubtitlesSurface", "()Landroid/view/Surface;");
-    GET_METHOD(setCallback, "setCallback", "(J)Z");
-    GET_METHOD(setBuffersGeometry, "setBuffersGeometry", "(Landroid/view/Surface;III)Z");
-    GET_METHOD(setWindowLayout, "setWindowLayout", "(IIIIII)V");
-    GET_METHOD(sendHardwareAccelerationError, "sendHardwareAccelerationError", "()V");
-#undef CHECK_EXCEPTION
-#undef GET_METHOD
+    clazz = (*env)->GetObjectClass(env, jobj);
+    CHECK_EXCEPTION("AndroidNativeWindow clazz", true);
+    GET_METHOD(AndroidNativeWindow.getVideoSurface,
+               "getVideoSurface", "()Landroid/view/Surface;", true);
+    GET_METHOD(AndroidNativeWindow.getSubtitlesSurface,
+               "getSubtitlesSurface", "()Landroid/view/Surface;", true);
+    GET_METHOD(AndroidNativeWindow.registerNative,
+               "registerNative", "(J)I", true);
+    GET_METHOD(AndroidNativeWindow.unregisterNative,
+               "unregisterNative", "()V", true);
+    GET_METHOD(AndroidNativeWindow.setBuffersGeometry,
+               "setBuffersGeometry", "(Landroid/view/Surface;III)Z", true);
+    GET_METHOD(AndroidNativeWindow.setVideoLayout,
+               "setVideoLayout", "(IIIIII)V", true);
+
+    GET_METHOD(SurfaceTexture.attachToGLContext,
+               "SurfaceTexture_attachToGLContext", "(I)Z", true);
+    GET_METHOD(SurfaceTexture.detachFromGLContext,
+               "SurfaceTexture_detachFromGLContext", "()V", true);
+    GET_METHOD(SurfaceTexture.waitAndUpdateTexImage,
+               "SurfaceTexture_waitAndUpdateTexImage", "([F)Z",
+               true);
+    GET_METHOD(SurfaceTexture.getSurface,
+               "SurfaceTexture_getSurface", "()Landroid/view/Surface;", true);
 
     if ((*env)->RegisterNatives(env, clazz, jni_callbacks, 2) < 0)
     {
@@ -444,10 +476,13 @@ InitJNIFields(JNIEnv *env, vlc_object_t *p_obj, AWindowHandler *p_awh)
         i_init_state = 0;
         goto end;
     }
+    jfields.AndroidNativeWindow.clazz = (*env)->NewGlobalRef(env, clazz);
     (*env)->DeleteLocalRef(env, clazz);
 
+#undef GET_METHOD
+#undef CHECK_EXCEPTION
+
     i_init_state = 1;
-    msg_Dbg(p_obj, "InitJNIFields success");
 end:
     ret = i_init_state == 1 ? VLC_SUCCESS : VLC_EGENERIC;
     if (ret)
@@ -456,8 +491,12 @@ end:
     return ret;
 }
 
-#define JNI_CALL(what, method, ...) \
+#define JNI_CALL(what, obj, method, ...) \
+    (*p_env)->what(p_env, obj, jfields.method, ##__VA_ARGS__)
+#define JNI_ANWCALL(what, method, ...) \
     (*p_env)->what(p_env, p_awh->jobj, jfields.AndroidNativeWindow.method, ##__VA_ARGS__)
+#define JNI_STEXCALL(what, method, ...) \
+    (*p_env)->what(p_env, p_awh->jobj, jfields.SurfaceTexture.method, ##__VA_ARGS__)
 
 static JNIEnv*
 AWindowHandler_getEnv(AWindowHandler *p_awh)
@@ -466,50 +505,87 @@ AWindowHandler_getEnv(AWindowHandler *p_awh)
 }
 
 AWindowHandler *
-AWindowHandler_new(vlc_object_t *p_obj)
+AWindowHandler_new(vout_window_t *wnd, awh_events_t *p_events)
 {
+#define AWINDOW_REGISTER_FLAGS_SUCCESS 0x1
+#define AWINDOW_REGISTER_FLAGS_HAS_VIDEO_LAYOUT_LISTENER 0x2
+
     AWindowHandler *p_awh;
     JNIEnv *p_env;
-    JavaVM *p_jvm = var_InheritAddress(p_obj, "android-jvm");
-    jobject jobj = var_InheritAddress(p_obj, "drawable-androidwindow");
+    JavaVM *p_jvm = var_InheritAddress(wnd, "android-jvm");
+    jobject jobj = var_InheritAddress(wnd, "drawable-androidwindow");
 
     if (!p_jvm || !jobj)
     {
-        msg_Err(p_obj, "libvlc_media_player options not set");
+        msg_Err(wnd, "libvlc_media_player options not set");
         return NULL;
     }
 
     p_env = android_getEnvCommon(NULL, p_jvm, "AWindowHandler");
     if (!p_env)
     {
-        msg_Err(p_obj, "can't get JNIEnv");
+        msg_Err(wnd, "can't get JNIEnv");
         return NULL;
     }
 
-    if (InitJNIFields(p_env, p_obj, jobj) != VLC_SUCCESS)
+    if (InitJNIFields(p_env, VLC_OBJECT(wnd), jobj) != VLC_SUCCESS)
     {
-        msg_Err(p_obj, "InitJNIFields failed");
+        msg_Err(wnd, "InitJNIFields failed");
         return NULL;
     }
+    msg_Dbg(wnd, "InitJNIFields success");
+
     p_awh = calloc(1, sizeof(AWindowHandler));
     if (!p_awh)
         return NULL;
+
     p_awh->p_jvm = p_jvm;
     p_awh->jobj = (*p_env)->NewGlobalRef(p_env, jobj);
+
+    p_awh->wnd = wnd;
+    p_awh->event.cb = *p_events;
+
+    jfloatArray jarray = (*p_env)->NewFloatArray(p_env, 16);
+    if ((*p_env)->ExceptionCheck(p_env))
+    {
+        (*p_env)->ExceptionClear(p_env);
+        free(p_awh);
+        return NULL;
+    }
+    p_awh->stex.jtransform_mtx_array = (*p_env)->NewGlobalRef(p_env, jarray);
+    (*p_env)->DeleteLocalRef(p_env, jarray);
+    p_awh->stex.jtransform_mtx = NULL;
+
+    const jint flags = JNI_ANWCALL(CallIntMethod, registerNative,
+                                   (jlong)(intptr_t)p_awh);
+    if ((flags & AWINDOW_REGISTER_FLAGS_SUCCESS) == 0)
+    {
+        msg_Err(wnd, "AWindow already registered");
+        (*p_env)->DeleteGlobalRef(p_env, p_awh->jobj);
+        (*p_env)->DeleteGlobalRef(p_env, p_awh->stex.jtransform_mtx_array);
+        free(p_awh);
+        return NULL;
+    }
     LoadNativeWindowAPI(p_awh);
-    vlc_mutex_init(&p_awh->lock);
-    p_awh->event.mouse.i_action = p_awh->event.mouse.i_button =
-    p_awh->event.mouse.i_x = p_awh->event.mouse.i_y = -1;
-    p_awh->event.window.i_width = p_awh->event.window.i_height = -1;
+
+    p_awh->b_has_video_layout_listener =
+        flags & AWINDOW_REGISTER_FLAGS_HAS_VIDEO_LAYOUT_LISTENER;
 
     return p_awh;
 }
 
 static void
-AWindowHandler_releaseSurfaceEnv(AWindowHandler *p_awh, JNIEnv *p_env,
-                                 enum AWindow_ID id)
+AWindowHandler_releaseANativeWindowEnv(AWindowHandler *p_awh, JNIEnv *p_env,
+                                       enum AWindow_ID id)
 {
-    AWindowHandler_releaseANativeWindow(p_awh, id);
+    assert(id < AWindow_Max);
+
+    if (p_awh->views[id].p_anw)
+    {
+        p_awh->pf_winRelease(p_awh->views[id].p_anw);
+        p_awh->views[id].p_anw = NULL;
+    }
+
     if (p_awh->views[id].jsurface)
     {
         (*p_env)->DeleteGlobalRef(p_env, p_awh->views[id].jsurface);
@@ -524,18 +600,16 @@ AWindowHandler_destroy(AWindowHandler *p_awh)
 
     if (p_env)
     {
-        if (p_awh->event.b_registered)
-            JNI_CALL(CallBooleanMethod, setCallback, (jlong)0LL);
-        AWindowHandler_releaseSurfaceEnv(p_awh, p_env, AWindow_Video);
-        AWindowHandler_releaseSurfaceEnv(p_awh, p_env, AWindow_Subtitles);
+        JNI_ANWCALL(CallVoidMethod, unregisterNative);
+        AWindowHandler_releaseANativeWindowEnv(p_awh, p_env, AWindow_Video);
+        AWindowHandler_releaseANativeWindowEnv(p_awh, p_env, AWindow_Subtitles);
         (*p_env)->DeleteGlobalRef(p_env, p_awh->jobj);
     }
-
-    vlc_mutex_destroy(&p_awh->lock);
 
     if (p_awh->p_anw_dl)
         dlclose(p_awh->p_anw_dl);
 
+    (*p_env)->DeleteGlobalRef(p_env, p_awh->stex.jtransform_mtx_array);
     free(p_awh);
 }
 
@@ -545,50 +619,30 @@ AWindowHandler_getANativeWindowAPI(AWindowHandler *p_awh)
     return &p_awh->anw_api;
 }
 
-native_window_priv_api_t *
-AWindowHandler_getANativeWindowPrivAPI(AWindowHandler *p_awh)
+static int
+WindowHandler_NewSurfaceEnv(AWindowHandler *p_awh, JNIEnv *p_env,
+                            enum AWindow_ID id)
 {
-    if (LoadNativeWindowPrivAPI(&p_awh->anwpriv_api) != 0)
-        return NULL;
-    else
-        return &p_awh->anwpriv_api;
-}
-
-jobject
-AWindowHandler_getSurface(AWindowHandler *p_awh, enum AWindow_ID id)
-{
-    assert(id < AWindow_Max);
-
     jobject jsurface;
-    JNIEnv *p_env;
 
-    if (p_awh->views[id].jsurface)
-        return p_awh->views[id].jsurface;
-
-    p_env = AWindowHandler_getEnv(p_awh);
-    if (!p_env)
-        return NULL;
-
-    if (id == AWindow_Video)
-        jsurface = JNI_CALL(CallObjectMethod, getVideoSurface);
-    else
-        jsurface = JNI_CALL(CallObjectMethod, getSubtitlesSurface);
+    switch (id)
+    {
+        case AWindow_Video:
+            jsurface = JNI_ANWCALL(CallObjectMethod, getVideoSurface);
+            break;
+        case AWindow_Subtitles:
+            jsurface = JNI_ANWCALL(CallObjectMethod, getSubtitlesSurface);
+            break;
+        case AWindow_SurfaceTexture:
+            jsurface = JNI_STEXCALL(CallObjectMethod, getSurface);
+            break;
+    }
     if (!jsurface)
-        return NULL;
+        return VLC_EGENERIC;
 
     p_awh->views[id].jsurface = (*p_env)->NewGlobalRef(p_env, jsurface);
     (*p_env)->DeleteLocalRef(p_env, jsurface);
-    return p_awh->views[id].jsurface;
-}
-
-void
-AWindowHandler_releaseSurface(AWindowHandler *p_awh, enum AWindow_ID id)
-{
-    assert(id < AWindow_Max);
-
-    JNIEnv *p_env = AWindowHandler_getEnv(p_awh);
-    if (p_env)
-        AWindowHandler_releaseSurfaceEnv(p_awh, p_env, id);
+    return VLC_SUCCESS;
 }
 
 ANativeWindow *
@@ -596,7 +650,6 @@ AWindowHandler_getANativeWindow(AWindowHandler *p_awh, enum AWindow_ID id)
 {
     assert(id < AWindow_Max);
 
-    jobject jsurf;
     JNIEnv *p_env;
 
     if (p_awh->views[id].p_anw)
@@ -606,24 +659,34 @@ AWindowHandler_getANativeWindow(AWindowHandler *p_awh, enum AWindow_ID id)
     if (!p_env)
         return NULL;
 
-    jsurf = AWindowHandler_getSurface(p_awh, id);
-    if (!jsurf)
+    if (WindowHandler_NewSurfaceEnv(p_awh, p_env, id) != VLC_SUCCESS)
         return NULL;
+    assert(p_awh->views[id].jsurface != NULL);
 
-    p_awh->views[id].p_anw = p_awh->pf_winFromSurface(p_env, jsurf);
+    p_awh->views[id].p_anw = p_awh->pf_winFromSurface(p_env,
+                                                      p_awh->views[id].jsurface);
     return p_awh->views[id].p_anw;
 }
+
+jobject
+AWindowHandler_getSurface(AWindowHandler *p_awh, enum AWindow_ID id)
+{
+    assert(id < AWindow_Max);
+
+    if (p_awh->views[id].jsurface)
+        return p_awh->views[id].jsurface;
+
+    AWindowHandler_getANativeWindow(p_awh, id);
+    return p_awh->views[id].jsurface;
+}
+
 
 void AWindowHandler_releaseANativeWindow(AWindowHandler *p_awh,
                                          enum AWindow_ID id)
 {
-    assert(id < AWindow_Max);
-
-    if (p_awh->views[id].p_anw)
-    {
-        p_awh->pf_winRelease(p_awh->views[id].p_anw);
-        p_awh->views[id].p_anw = NULL;
-    }
+    JNIEnv *p_env = AWindowHandler_getEnv(p_awh);
+    if (p_env)
+        AWindowHandler_releaseANativeWindowEnv(p_awh, p_env, id);
 }
 
 static inline AWindowHandler *jlong_AWindowHandler(jlong handle)
@@ -638,12 +701,8 @@ AndroidNativeWindow_onMouseEvent(JNIEnv* env, jobject clazz, jlong handle,
     (void) env; (void) clazz;
     AWindowHandler *p_awh = jlong_AWindowHandler(handle);
 
-    vlc_mutex_lock(&p_awh->lock);
-    p_awh->event.mouse.i_action = action;
-    p_awh->event.mouse.i_button = button;
-    p_awh->event.mouse.i_x = x;
-    p_awh->event.mouse.i_y = y;
-    vlc_mutex_unlock(&p_awh->lock);
+    p_awh->event.cb.on_new_mouse_coords(p_awh->wnd,
+        & (struct awh_mouse_coords) { action, button, x, y });
 }
 
 static void
@@ -653,69 +712,8 @@ AndroidNativeWindow_onWindowSize(JNIEnv* env, jobject clazz, jlong handle,
     (void) env; (void) clazz;
     AWindowHandler *p_awh = jlong_AWindowHandler(handle);
 
-    vlc_mutex_lock(&p_awh->lock);
-    p_awh->event.window.i_width = width;
-    p_awh->event.window.i_height = height;
-    vlc_mutex_unlock(&p_awh->lock);
-}
-
-static bool
-AWindowHandler_registerCallback(AWindowHandler *p_awh)
-{
-    if (!p_awh->event.b_registered)
-    {
-        JNIEnv *p_env = AWindowHandler_getEnv(p_awh);
-        if (!p_env)
-            return false;
-        p_awh->event.b_registered = JNI_CALL(CallBooleanMethod,
-                                             setCallback,
-                                             (jlong)(intptr_t)p_awh);
-    }
-    return p_awh->event.b_registered;
-}
-
-bool
-AWindowHandler_getMouseCoordinates(AWindowHandler *p_awh,
-                                   int *p_action, int *p_button,
-                                   int *p_x, int *p_y)
-{
-    if (!AWindowHandler_registerCallback(p_awh))
-        return false;
-
-    vlc_mutex_lock(&p_awh->lock);
-    if (p_awh->event.mouse.i_action == -1
-     || p_awh->event.mouse.i_button == -1
-     || p_awh->event.mouse.i_x <= 0 || p_awh->event.mouse.i_y <= 0)
-    {
-        vlc_mutex_unlock(&p_awh->lock);
-        return false;
-    }
-    *p_action = p_awh->event.mouse.i_action;
-    *p_button = p_awh->event.mouse.i_button;
-    *p_x = p_awh->event.mouse.i_x;
-    *p_y = p_awh->event.mouse.i_y;
-    vlc_mutex_unlock(&p_awh->lock);
-    return true;
-}
-
-bool
-AWindowHandler_getWindowSize(AWindowHandler *p_awh,
-                             int *p_width, int *p_height)
-{
-    if (!AWindowHandler_registerCallback(p_awh))
-        return false;
-
-    vlc_mutex_lock(&p_awh->lock);
-    if (p_awh->event.window.i_width <= 0
-     || p_awh->event.window.i_height <= 0)
-    {
-        vlc_mutex_unlock(&p_awh->lock);
-        return false;
-    }
-    *p_width = p_awh->event.window.i_width;
-    *p_height = p_awh->event.window.i_height;
-    vlc_mutex_unlock(&p_awh->lock);
-    return true;
+    if (width >= 0 && height >= 0)
+        p_awh->event.cb.on_new_window_size(p_awh->wnd, width, height);
 }
 
 int
@@ -731,51 +729,89 @@ AWindowHandler_setBuffersGeometry(AWindowHandler *p_awh, enum AWindow_ID id,
     if (!jsurf)
         return VLC_EGENERIC;
 
-    return JNI_CALL(CallBooleanMethod, setBuffersGeometry,
-                    jsurf, i_width, i_height, i_format) ? VLC_SUCCESS
-                                                        : VLC_EGENERIC;
+    return JNI_ANWCALL(CallBooleanMethod, setBuffersGeometry,
+                       jsurf, i_width, i_height, i_format) ? VLC_SUCCESS
+                                                           : VLC_EGENERIC;
+}
+
+bool
+AWindowHandler_canSetVideoLayout(AWindowHandler *p_awh)
+{
+    return p_awh->b_has_video_layout_listener;
 }
 
 int
-AWindowHandler_setWindowLayout(AWindowHandler *p_awh,
-                               int i_width, int i_height,
-                               int i_visible_width, int i_visible_height,
-                               int i_sar_num, int i_sar_den)
+AWindowHandler_setVideoLayout(AWindowHandler *p_awh,
+                              int i_width, int i_height,
+                              int i_visible_width, int i_visible_height,
+                              int i_sar_num, int i_sar_den)
 {
+    assert(p_awh->b_has_video_layout_listener);
     JNIEnv *p_env = AWindowHandler_getEnv(p_awh);
     if (!p_env)
         return VLC_EGENERIC;
 
-    JNI_CALL(CallVoidMethod, setWindowLayout, i_width, i_height,
-             i_visible_width,i_visible_height, i_sar_num, i_sar_den);
+    JNI_ANWCALL(CallVoidMethod, setVideoLayout, i_width, i_height,
+                i_visible_width,i_visible_height, i_sar_num, i_sar_den);
     return VLC_SUCCESS;
 }
 
 int
-AWindowHandler_sendHardwareAccelerationError(vlc_object_t *p_obj,
-                                             AWindowHandler *p_awh)
+SurfaceTexture_attachToGLContext(AWindowHandler *p_awh, int tex_name)
 {
-    assert(p_obj || p_awh);
-    JNIEnv *p_env;
+    JNIEnv *p_env = android_getEnvCommon(NULL, p_awh->p_jvm, "SurfaceTexture");
+    if (!p_env)
+        return VLC_EGENERIC;
 
-    if (p_awh)
+    return JNI_STEXCALL(CallBooleanMethod, attachToGLContext, tex_name) ?
+           VLC_SUCCESS : VLC_EGENERIC;
+}
+
+void
+SurfaceTexture_detachFromGLContext(AWindowHandler *p_awh)
+{
+    JNIEnv *p_env = android_getEnvCommon(NULL, p_awh->p_jvm, "SurfaceTexture");
+    if (!p_env)
+        return;
+
+    JNI_STEXCALL(CallVoidMethod, detachFromGLContext);
+
+    AWindowHandler_releaseANativeWindowEnv(p_awh, p_env, AWindow_SurfaceTexture);
+
+    if (p_awh->stex.jtransform_mtx != NULL)
     {
-        p_env = AWindowHandler_getEnv(p_awh);
-        if (!p_env)
-            return VLC_EGENERIC;
-        JNI_CALL(CallVoidMethod, sendHardwareAccelerationError);
+        (*p_env)->ReleaseFloatArrayElements(p_env, p_awh->stex.jtransform_mtx_array,
+                                            p_awh->stex.jtransform_mtx,
+                                            JNI_ABORT);
+        p_awh->stex.jtransform_mtx = NULL;
+    }
+}
+
+int
+SurfaceTexture_waitAndUpdateTexImage(AWindowHandler *p_awh,
+                                     const float **pp_transform_mtx)
+{
+    JNIEnv *p_env = android_getEnvCommon(NULL, p_awh->p_jvm, "SurfaceTexture");
+    if (!p_env)
+        return VLC_EGENERIC;
+
+    if (p_awh->stex.jtransform_mtx != NULL)
+        (*p_env)->ReleaseFloatArrayElements(p_env, p_awh->stex.jtransform_mtx_array,
+                                            p_awh->stex.jtransform_mtx,
+                                            JNI_ABORT);
+
+    bool ret = JNI_STEXCALL(CallBooleanMethod, waitAndUpdateTexImage,
+                            p_awh->stex.jtransform_mtx_array);
+    if (ret)
+    {
+        p_awh->stex.jtransform_mtx = (*p_env)->GetFloatArrayElements(p_env,
+                                            p_awh->stex.jtransform_mtx_array, NULL);
+        *pp_transform_mtx = p_awh->stex.jtransform_mtx;
+        return VLC_SUCCESS;
     }
     else
     {
-        p_awh = AWindowHandler_new(p_obj);
-        if (!p_awh)
-            return VLC_EGENERIC;
-        p_env = AWindowHandler_getEnv(p_awh);
-        if (!p_env)
-            return VLC_EGENERIC;
-        JNI_CALL(CallVoidMethod, sendHardwareAccelerationError);
-        AWindowHandler_destroy(p_awh);
+        p_awh->stex.jtransform_mtx = NULL;
+        return VLC_EGENERIC;
     }
-
-    return VLC_SUCCESS;
 }

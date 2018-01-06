@@ -38,10 +38,10 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-
-#include "vlc_filter.h"
+#include <vlc_picture.h>
+#include <vlc_filter.h>
 #include "filter_picture.h"
-#include "vlc_image.h"
+#include <vlc_image.h>
 
 enum { RED, GREEN, BLUE, WHITE };
 
@@ -123,7 +123,7 @@ vlc_module_begin ()
     set_description( N_("Ball video filter") )
     set_shortname( N_( "Ball" ))
     set_help(BALL_HELP)
-    set_capability( "video filter2", 0 )
+    set_capability( "video filter", 0 )
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
@@ -576,20 +576,20 @@ static void FilterBall( filter_t *p_filter, picture_t *p_inpic,
 
     if( !p_filter->p_sys->p_smooth )
         p_filter->p_sys->p_smooth =
-                (uint32_t *)malloc( i_numLines * i_numCols
-                                    * sizeof(uint32_t));
+                (uint32_t *)vlc_alloc( i_numLines * i_numCols,
+                                       sizeof(uint32_t));
     p_smooth = p_filter->p_sys->p_smooth;
 
     if( !p_filter->p_sys->p_grad_x )
         p_filter->p_sys->p_grad_x =
-                (int32_t *)malloc( i_numLines * i_numCols
-                                   * sizeof(int32_t));
+                (int32_t *)vlc_alloc( i_numLines * i_numCols,
+                                      sizeof(int32_t));
     p_grad_x = p_filter->p_sys->p_grad_x;
 
     if( !p_filter->p_sys->p_grad_y )
         p_filter->p_sys->p_grad_y =
-                (int32_t *)malloc( i_numLines * i_numCols
-                                   * sizeof(int32_t));
+                (int32_t *)vlc_alloc( i_numLines * i_numCols,
+                                      sizeof(int32_t));
     p_grad_y = p_filter->p_sys->p_grad_y;
 
     if( !p_smooth || !p_grad_x || !p_grad_y ) return;

@@ -118,6 +118,7 @@ static int Open( vlc_object_t *p_this )
     }
 
     p_filter->fmt_in.audio.i_format = VLC_CODEC_FL32;
+    aout_FormatPrepare(&p_filter->fmt_in.audio);
     p_filter->fmt_out.audio = p_filter->fmt_in.audio;
     p_filter->pf_audio_filter = DoWork;
 
@@ -145,7 +146,7 @@ static block_t *DoWork( filter_t *p_filter, block_t *p_in_buf )
     if( !pf_sum )
         goto out;
 
-    pf_gain = malloc( sizeof(float) * i_channels );
+    pf_gain = vlc_alloc( i_channels, sizeof(float) );
     if( !pf_gain )
     {
         free( pf_sum );

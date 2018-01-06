@@ -23,6 +23,7 @@
 #endif
 #include <vlc/vlc.h>
 
+#include "../../libvlc/test.h"
 #include "../../../lib/libvlc_internal.h"
 
 #include <vlc_common.h>
@@ -33,14 +34,20 @@
 #include <vlc_url.h>
 #include <vlc_fs.h>
 
-#undef NDEBUG
 #include <assert.h>
-
 
 struct cred
 {
     const char *psz_user;
     const char *psz_pwd;
+};
+
+struct cred_res
+{
+    const char *psz_user;
+    const char *psz_pwd;
+    const char *psz_realm;
+    const char *psz_authtype;
 };
 
 static const struct testcase
@@ -49,7 +56,7 @@ static const struct testcase
     const char *psz_url;
     const char *psz_realm;
     const char *psz_authtype;
-    struct cred result;
+    struct cred_res result;
     struct cred opt;
     struct cred dialog;
     bool        b_dialog_store;
@@ -64,28 +71,28 @@ static const struct testcase
     /* First tests use sftp protocol: no realm and results doesn't depend on
      * path */
     { true, SFTP("user1:pwd1@ex.com/testing/deprecated_url"),
-      { "user1", "pwd1" }, {} , {}, false, false },
+      { "user1", "pwd1", NULL, NULL }, {} , {}, false },
 
     { true, SFTP("ex.com/testing/opt"),
-      { "user1", "pwd1" }, { "user1", "pwd1" }, {}, false },
+      { "user1", "pwd1", NULL, NULL }, { "user1", "pwd1" }, {}, false },
 
     { true, SFTP("ex.com/testing/dial"),
-      { "user1", "pwd1" }, {}, { "user1", "pwd1" }, false },
+      { "user1", "pwd1", NULL, NULL }, {}, { "user1", "pwd1" }, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     { true, SFTP("user1@ex.com/testing/url_dial"),
-      { "user1", "pwd1" }, { NULL, NULL }, { NULL, "pwd1" }, false },
+      { "user1", "pwd1", NULL, NULL }, { NULL, NULL }, { NULL, "pwd1" }, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     { true, SFTP("ex.com/testing/opt_dial"),
-      { "user1", "pwd1" }, { "user1", NULL }, { NULL, "pwd1" }, false },
+      { "user1", "pwd1", NULL, NULL }, { "user1", NULL }, { NULL, "pwd1" }, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     { true, SFTP("WRONG_USER@ex.com/testing/url_opt_dial"),
-      { "user1", "pwd1" }, { "user1", NULL }, { NULL, "pwd1" }, false },
+      { "user1", "pwd1", NULL, NULL }, { "user1", NULL }, { NULL, "pwd1" }, false },
 
     WIPE_MEMORY_KEYSTORE,
 
@@ -93,111 +100,122 @@ static const struct testcase
      * found by future tests */
 
     { true, SFTP("ex.com/testing/mem_ks_store"),
-      { "user1", "pwd1" }, {}, { "user1", "pwd1" }, false },
+      { "user1", "pwd1", NULL, NULL }, {}, { "user1", "pwd1" }, false },
 
     { true, SFTP("ex.com/testing/mem_ks_find"),
-      { "user1", "pwd1" }, {}, {}, false },
+      { "user1", "pwd1", NULL, NULL }, {}, {}, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     { false, SFTP("ex.com/testing/mem_ks_find"),
-      { "user1", "pwd1" }, {}, {}, false },
+      { "user1", "pwd1", NULL, NULL }, {}, {}, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     /* Testing permanent keystore */
 
     { true, SFTP("ex.com/testing/ks_store"),
-      { "user1", "pwd1" }, {}, { "user1", "pwd1" }, true },
+      { "user1", "pwd1", NULL, NULL }, {}, { "user1", "pwd1" }, true },
 
     WIPE_MEMORY_KEYSTORE,
 
     { true, SFTP("ex.com/testing/ks_find"),
-      { "user1", "pwd1" }, {}, {}, false },
+      { "user1", "pwd1", NULL, NULL }, {}, {}, false },
 
     { true, SFTP("ex.com:2022/testing/ks_store"),
-      { "user2", "pwd2" }, {}, { "user2", "pwd2" }, true },
+      { "user2", "pwd2", NULL, NULL }, {}, { "user2", "pwd2" }, true },
 
     WIPE_MEMORY_KEYSTORE,
 
     { true, SFTP("user1@ex.com/testing/ks_find"),
-      { "user1", "pwd1" }, {}, {}, false },
+      { "user1", "pwd1", NULL, NULL }, {}, {}, false },
 
     { true, SFTP("user2@ex.com:2022/testing/ks_find"),
-      { "user2", "pwd2" }, {}, {}, false },
+      { "user2", "pwd2", NULL, NULL }, {}, {}, false },
 
     { false, SFTP("user2@wrong_host.com:2022/testing/ks_find"),
-      { "user2", "pwd2" }, {}, {}, false },
+      { "user2", "pwd2", NULL, NULL }, {}, {}, false },
 
     { false, SFTP("user2@ex.com/testing/ks_find"),
-      { "user2", "pwd2" }, {}, {}, false },
+      { "user2", "pwd2", NULL, NULL }, {}, {}, false },
 
     { false, SMB("user2@ex.com:2022/testing/ks_find"),
-      { "user2", "pwd2" }, {}, {}, false },
+      { "user2", "pwd2", NULL, NULL }, {}, {}, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     { true, SFTP("ex.com/testing/opt_not_storing_ks"),
-      { "user3", "pwd3" }, { "user3", "pwd3" }, {}, true },
+      { "user3", "pwd3", NULL, NULL }, { "user3", "pwd3" }, {}, true },
 
     WIPE_MEMORY_KEYSTORE,
 
     { false, SFTP("ex.com/testing/opt_not_storing_ks"),
-      { "user3", "pwd3" }, {}, {}, false },
+      { "user3", "pwd3", NULL, NULL }, {}, {}, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     /* Testing reusing http credentials rfc7617#2.2 */
 
     { true, HTTP("ex.com/testing/good_path/ks_store_realm", "Realm"),
-      { "user4", "pwd4" }, {}, { "user4", "pwd4" }, true },
+      { "user4", "pwd4", "Realm", "Basic" }, {}, { "user4", "pwd4" }, true },
 
     { false, HTTP("ex.com/testing/good_path/ks_find_realm", "Wrong realm"),
-      { "user4", "pwd4" }, {}, {}, false },
+      { "user4", "pwd4", "Wrong realm", "Basic" }, {}, {}, false },
 
     { true, HTTP("ex.com/testing/good_path/ks_find_realm", "Realm"),
-      { "user4", "pwd4" }, {}, {}, false },
+      { "user4", "pwd4", "Realm", "Basic" }, {}, {}, false },
 
     { true, HTTP("ex.com/testing/good_path/another_path/ks_find_realm", "Realm"),
-      { "user4", "pwd4" }, {}, {}, false },
+      { "user4", "pwd4", "Realm", "Basic" }, {}, {}, false },
 
     { false, HTTP("ex.com/testing/wrong_path/ks_find_realm", "Realm"),
-      { "user4", "pwd4" }, {}, {}, false },
+      { "user4", "pwd4", "Realm", "Basic" }, {}, {}, false },
 
     /* Testing reusing smb credentials */
 
     { true, SMB("host/share/path1/path2/path3/ks_store"),
-      { "user5", "pwd5" }, {}, { "user5", "pwd5" }, false },
+      { "user5", "pwd5", NULL, NULL }, {}, { "user5", "pwd5" }, false },
 
     { true, SMB("host/share/path4/ks_find"),
-      { "user5", "pwd5" }, {}, {}, false },
+      { "user5", "pwd5", NULL, NULL }, {}, {}, false },
 
     { false, SMB("wrong_host/share/path4/ks_find"),
-      { "user5", "pwd5" }, {}, {}, false },
+      { "user5", "pwd5", NULL, NULL }, {}, {}, false },
 
     { false, SMB("host/wrong_share/path4/ks_find"),
-      { "user5", "pwd5" }, {}, {}, false },
+      { "user5", "pwd5", NULL, NULL }, {}, {}, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     /* Testing smb realm split */
 
     { true, SMB("host/share/path1/ks_store"),
-      { "user6", "pwd6" }, {}, { "user6;domain", "pwd6" }, false },
+      { "user6", "pwd6", "domain", NULL }, {}, { "domain;user6", "pwd6" }, true },
 
-    { true, SMB("user6;domain@host/share/path1/ks_find"),
-      { "user6", "pwd6" }, {}, {}, false },
+    WIPE_MEMORY_KEYSTORE,
 
-    { false, SMB("user6;wrong_domain@host/share/path1/ks_find"),
-      { "user6", "pwd6" }, {}, {}, false },
+    { true, SMB("host/share/path1/ks_store"),
+      { "user6", "pwd6", "domain", NULL }, {}, {}, false },
+
+    { true, SMB("domain;user6@host/share/path1/ks_find"),
+      { "user6", "pwd6", "domain", NULL }, {}, {}, false },
+
+    { false, SMB("wrong_domain;user6@host/share/path1/ks_find"),
+      { "user6", "pwd6", "wrong_domain", NULL }, {}, {}, false },
 
     WIPE_MEMORY_KEYSTORE,
 
     { false, "://invalid_url", NULL, NULL,
-      { "user1", "pwd1" }, {}, { "user1", "pwd1" }, false },
+      { "user1", "pwd1", NULL, NULL }, {}, { "user1", "pwd1" }, false },
 
     { false, "/invalid_path", NULL, NULL,
-      { "user1", "pwd1" }, {}, { "user1", "pwd1" }, false },
+      { "user1", "pwd1", NULL, NULL }, {}, { "user1", "pwd1" }, false },
+};
+
+struct dialog_ctx
+{
+    bool b_abort;
+    const struct testcase *p_test;
 };
 
 static void
@@ -209,13 +227,18 @@ display_login_cb(void *p_data, vlc_dialog_id *p_id, const char *psz_title,
     (void) psz_text;
     (void) psz_default_username;
     (void) b_ask_store;
-    struct testcase *p_testcase = p_data;
+    struct dialog_ctx *p_dialog_ctx = p_data;
+    const struct testcase *p_testcase = p_dialog_ctx->p_test;
 
     const char *psz_user = p_testcase->dialog.psz_user != NULL ?
                            p_testcase->dialog.psz_user : psz_default_username;
-    if (psz_user != NULL && p_testcase->dialog.psz_pwd != NULL)
+    if (!p_dialog_ctx->b_abort && psz_user != NULL
+     && p_testcase->dialog.psz_pwd != NULL)
+    {
         vlc_dialog_id_post_login(p_id, psz_user, p_testcase->dialog.psz_pwd,
                                  p_testcase->b_dialog_store);
+        p_dialog_ctx->b_abort = true;
+    }
     else
         vlc_dialog_id_dismiss(p_id);
 }
@@ -241,7 +264,11 @@ test(vlc_object_t *p_obj, unsigned int i_id, const struct testcase *p_test)
         .pf_display_login = display_login_cb,
         .pf_cancel = cancel_cb,
     };
-    vlc_dialog_provider_set_callbacks(p_obj, &cbs, (void *)p_test);
+    struct dialog_ctx dialog_ctx = {
+        .b_abort = false,
+        .p_test = p_test,
+    };
+    vlc_dialog_provider_set_callbacks(p_obj, &cbs, &dialog_ctx);
 
     const char *psz_opt_user = NULL, *psz_opt_pwd = NULL;
     if (p_test->opt.psz_user != NULL)
@@ -267,7 +294,15 @@ test(vlc_object_t *p_obj, unsigned int i_id, const struct testcase *p_test)
     while (vlc_credential_get(&credential, p_obj, psz_opt_user, psz_opt_pwd,
                               "test authentication", "this a test"))
     {
-        if (strcmp(credential.psz_username, p_test->result.psz_user) == 0
+        bool realm_match = !p_test->result.psz_realm
+            || (credential.psz_realm
+            && strcmp(credential.psz_realm, p_test->result.psz_realm) == 0);
+        bool authtype_match = !p_test->result.psz_authtype
+            || (credential.psz_authtype
+            && strcmp(credential.psz_authtype, p_test->result.psz_authtype) == 0);
+
+        if (realm_match && authtype_match
+         && strcmp(credential.psz_username, p_test->result.psz_user) == 0
          && strcmp(credential.psz_password, p_test->result.psz_pwd) == 0)
         {
             b_found = true;
@@ -301,7 +336,7 @@ create_libvlc(int i_vlc_argc, const char *const *ppsz_vlc_argv)
 int
 main(void)
 {
-    setenv("VLC_PLUGIN_PATH", "../modules", 1);
+    test_init();
 
     printf("creating tmp plaintext keystore file\n");
     char psz_tmp_path[] = "/tmp/libvlc_XXXXXX";

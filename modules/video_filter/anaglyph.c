@@ -27,8 +27,8 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 #include "filter_picture.h"
 
 static int Create(vlc_object_t *);
@@ -72,7 +72,7 @@ vlc_module_begin()
     set_shortname(N_("Anaglyph"))
     set_category(CAT_VIDEO)
     set_subcategory(SUBCAT_VIDEO_VFILTER)
-    set_capability("video filter2", 0)
+    set_capability("video filter", 0)
     add_string(FILTER_PREFIX "scheme", "red-cyan", SCHEME_TEXT, SCHEME_LONGTEXT, false)
         change_string_list(ppsz_scheme_values, ppsz_scheme_descriptions)
     set_callbacks(Create, Destroy)

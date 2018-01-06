@@ -163,37 +163,6 @@ static void vlclua_fd_unmap_safe( lua_State *L, unsigned idx )
 }
 
 /*****************************************************************************
- *
- *****************************************************************************/
-static int vlclua_url_parse( lua_State *L )
-{
-    const char *psz_url = luaL_checkstring( L, 1 );
-    vlc_url_t url;
-
-    vlc_UrlParse( &url, psz_url );
-
-    lua_newtable( L );
-    lua_pushstring( L, url.psz_protocol );
-    lua_setfield( L, -2, "protocol" );
-    lua_pushstring( L, url.psz_username );
-    lua_setfield( L, -2, "username" );
-    lua_pushstring( L, url.psz_password );
-    lua_setfield( L, -2, "password" );
-    lua_pushstring( L, url.psz_host );
-    lua_setfield( L, -2, "host" );
-    lua_pushinteger( L, url.i_port );
-    lua_setfield( L, -2, "port" );
-    lua_pushstring( L, url.psz_path );
-    lua_setfield( L, -2, "path" );
-    lua_pushstring( L, url.psz_option );
-    lua_setfield( L, -2, "option" );
-
-    vlc_UrlClean( &url );
-
-    return 1;
-}
-
-/*****************************************************************************
  * Net listen
  *****************************************************************************/
 static int vlclua_net_listen_close( lua_State * );
@@ -210,7 +179,7 @@ static int vlclua_net_listen_tcp( lua_State *L )
 {
     vlc_object_t *p_this = vlclua_get_this( L );
     const char *psz_host = luaL_checkstring( L, 1 );
-    int i_port = (int)luaL_checkinteger( L, 2 );
+    int i_port = luaL_checkint( L, 2 );
     int *pi_fd = net_ListenTCP( p_this, psz_host, i_port );
     if( pi_fd == NULL )
         return luaL_error( L, "Cannot listen on %s:%d", psz_host, i_port );
@@ -282,22 +251,22 @@ static int vlclua_net_connect_tcp( lua_State *L )
 {
     vlc_object_t *p_this = vlclua_get_this( L );
     const char *psz_host = luaL_checkstring( L, 1 );
-    int i_port = (int)luaL_checkinteger( L, 2 );
-    int i_fd = net_Connect( p_this, psz_host, i_port, SOCK_STREAM, IPPROTO_TCP );
+    int i_port = luaL_checkint( L, 2 );
+    int i_fd = net_ConnectTCP( p_this, psz_host, i_port );
     lua_pushinteger( L, vlclua_fd_map_safe( L, i_fd ) );
     return 1;
 }
 
 static int vlclua_net_close( lua_State *L )
 {
-    int i_fd = (int)luaL_checkinteger( L, 1 );
+    int i_fd = luaL_checkint( L, 1 );
     vlclua_fd_unmap_safe( L, i_fd );
     return 0;
 }
 
 static int vlclua_net_send( lua_State *L )
 {
-    int fd = vlclua_fd_get( L, (unsigned)luaL_checkinteger( L, 1 ) );
+    int fd = vlclua_fd_get( L, luaL_checkint( L, 1 ) );
     size_t i_len;
     const char *psz_buffer = luaL_checklstring( L, 2, &i_len );
 
@@ -309,7 +278,7 @@ static int vlclua_net_send( lua_State *L )
 
 static int vlclua_net_recv( lua_State *L )
 {
-    int fd = vlclua_fd_get( L, (unsigned)luaL_checkinteger( L, 1 ) );
+    int fd = vlclua_fd_get( L, luaL_checkint( L, 1 ) );
     size_t i_len = (size_t)luaL_optinteger( L, 2, 1 );
     char psz_buffer[i_len];
 
@@ -343,7 +312,7 @@ static int vlclua_net_poll( lua_State *L )
     lua_pushnil( L );
     for( int i = 0; lua_next( L, 1 ); i++ )
     {
-        luafds[i] = luaL_checkinteger( L, -2 );
+        luafds[i] = luaL_checkint( L, -2 );
         p_fds[i].fd = vlclua_fd_get( L, luafds[i] );
         p_fds[i].events = luaL_checkinteger( L, -1 );
         p_fds[i].events &= POLLIN | POLLOUT | POLLPRI;
@@ -391,7 +360,7 @@ static int vlclua_fd_open( lua_State *L )
 #ifndef _WIN32
 static int vlclua_fd_write( lua_State *L )
 {
-    int fd = vlclua_fd_get( L, (unsigned)luaL_checkinteger( L, 1 ) );
+    int fd = vlclua_fd_get( L, luaL_checkint( L, 1 ) );
     size_t i_len;
     const char *psz_buffer = luaL_checklstring( L, 2, &i_len );
 
@@ -402,7 +371,7 @@ static int vlclua_fd_write( lua_State *L )
 
 static int vlclua_fd_read( lua_State *L )
 {
-    int fd = vlclua_fd_get( L, (unsigned)luaL_checkinteger( L, 1 ) );
+    int fd = vlclua_fd_get( L, luaL_checkint( L, 1 ) );
     size_t i_len = (size_t)luaL_optinteger( L, 2, 1 );
     char psz_buffer[i_len];
 
@@ -508,7 +477,7 @@ static const luaL_Reg vlclua_net_intf_reg[] = {
 #endif
     /* The following functions do not depend on intf_thread_t and do not really
      * belong in net.* but are left here for backward compatibility: */
-    { "url_parse", vlclua_url_parse },
+    { "url_parse", vlclua_url_parse /* deprecated since 3.0.0 */ },
     { "stat", vlclua_stat }, /* Not really "net" */
     { "opendir", vlclua_opendir }, /* Not really "net" */
     { NULL, NULL }

@@ -31,6 +31,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -72,7 +73,7 @@ vlc_module_begin ()
     set_help( EDGE_DETECTION_LONGTEXT )
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
-    set_capability( "video filter2", 0 )
+    set_capability( "video filter", 0 )
     set_callbacks( Open, Close )
 
 vlc_module_end ()
@@ -93,7 +94,6 @@ struct filter_sys_t
 static int Open( vlc_object_t *p_this )
 {
     int i_ret;
-    es_format_t fmt;
     filter_t *p_filter = (filter_t *)p_this;
     filter_owner_t owner = {
         .sys = p_filter,
@@ -110,9 +110,8 @@ static int Open( vlc_object_t *p_this )
         free( p_filter->p_sys );
         return VLC_EGENERIC;
     }
-    es_format_Copy( &fmt, &p_filter->fmt_in );
     /* Clear filter chain */
-    filter_chain_Reset( (filter_chain_t *)p_filter->p_sys, &p_filter->fmt_in, &fmt);
+    filter_chain_Reset( (filter_chain_t *)p_filter->p_sys, &p_filter->fmt_in, &p_filter->fmt_in);
     /* Add adjust filter to turn frame black-and-white */
     i_ret = filter_chain_AppendFromString( (filter_chain_t *)p_filter->p_sys,
                                            "adjust{saturation=0}" );

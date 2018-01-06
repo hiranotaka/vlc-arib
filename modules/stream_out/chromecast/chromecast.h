@@ -36,7 +36,11 @@
 
 #include <atomic>
 #include <sstream>
+#include <queue>
 
+#ifndef PROTOBUF_INLINE_NOT_IN_HEADERS
+# define PROTOBUF_INLINE_NOT_IN_HEADERS 0
+#endif
 #include "cast_channel.pb.h"
 #include "chromecast_common.h"
 
@@ -46,219 +50,149 @@
 static const std::string DEFAULT_CHOMECAST_RECEIVER = "receiver-0";
 /* see https://developers.google.com/cast/docs/reference/messages */
 static const std::string NAMESPACE_MEDIA            = "urn:x-cast:com.google.cast.media";
+static const std::string NAMESPACE_DEVICEAUTH       = "urn:x-cast:com.google.cast.tp.deviceauth";
+static const std::string NAMESPACE_CONNECTION       = "urn:x-cast:com.google.cast.tp.connection";
+static const std::string NAMESPACE_HEARTBEAT        = "urn:x-cast:com.google.cast.tp.heartbeat";
+static const std::string NAMESPACE_RECEIVER         = "urn:x-cast:com.google.cast.receiver";
+
 
 #define CHROMECAST_CONTROL_PORT 8009
 #define HTTP_PORT               8010
 
-// Status
-enum connection_status
+#define PACKET_MAX_LEN 10 * 1024
+
+// Media player Chromecast app id
+#define APP_ID "CC1AD845" // Default media player aka DEFAULT_MEDIA_RECEIVER_APPLICATION_ID
+
+enum States
 {
-    CHROMECAST_DISCONNECTED,
-    CHROMECAST_TLS_CONNECTED,
-    CHROMECAST_AUTHENTICATED,
-    CHROMECAST_APP_STARTED,
-    CHROMECAST_CONNECTION_DEAD,
+    // An authentication request has been sent
+    Authenticating,
+    // We are sending a connection request
+    Connecting,
+    // We are connected to the chromecast but the receiver app is not running.
+    Connected,
+    // We are launching the media receiver app
+    Launching,
+    // The application is ready, but idle
+    Ready,
+    // A media session is being initiated
+    Loading,
+    Buffering,
+    Playing,
+    Paused,
+    Seeking,
+    // Something went wrong and the connection is dead.
+    Dead,
 };
 
-enum command_status {
-    NO_CMD_PENDING,
-    CMD_LOAD_SENT,
-    CMD_PLAYBACK_SENT,
-    CMD_SEEK_SENT,
-};
-
-enum receiver_state {
-    RECEIVER_IDLE,
-    RECEIVER_PLAYING,
-    RECEIVER_BUFFERING,
-    RECEIVER_PAUSED,
-};
-
-
-/*****************************************************************************
- * intf_sys_t: description and status of interface
- *****************************************************************************/
-struct intf_sys_t
+class ChromecastCommunication
 {
-    intf_sys_t(vlc_object_t * const p_this, int local_port, std::string device_addr, int device_port, vlc_interrupt_t *);
-    ~intf_sys_t();
-
-    bool isFinishedPlaying() {
-        vlc_mutex_locker locker(&lock);
-        return conn_status == CHROMECAST_CONNECTION_DEAD || (receiverState == RECEIVER_BUFFERING && cmd_status != CMD_SEEK_SENT);
-    }
-
-    void setHasInput( bool has_input, const std::string mime_type = "");
-
-    void requestPlayerSeek(mtime_t pos);
-    void requestPlayerStop();
-
-private:
-    vlc_object_t  * const p_module;
-    const int      i_port;
-    std::string    serverIP;
-    const int      i_target_port;
-    std::string    targetIP;
-    std::string    mime;
-
-    std::string appTransportId;
-    std::string mediaSessionId;
-    receiver_state receiverState;
-
-    int i_sock_fd;
-    vlc_tls_creds_t *p_creds;
-    vlc_tls_t *p_tls;
-
-    vlc_mutex_t  lock;
-    vlc_cond_t   loadCommandCond;
-    vlc_thread_t chromecastThread;
-
-    void msgAuth();
-    void msgReceiverClose(std::string destinationId);
-
-    bool handleMessages();
-
-    void setConnectionStatus(connection_status status)
-    {
-        if (conn_status != status)
-        {
-#ifndef NDEBUG
-            msg_Dbg(p_module, "change Chromecast connection status from %d to %d", conn_status, status);
-#endif
-            conn_status = status;
-            vlc_cond_broadcast(&loadCommandCond);
-            vlc_cond_signal(&seekCommandCond);
-        }
-    }
-
-    void waitAppStarted();
-    void waitSeekDone();
-
-    int connectChromecast();
-    void disconnectChromecast();
+public:
+    ChromecastCommunication( vlc_object_t* module, const char* targetIP, unsigned int devicePort );
+    ~ChromecastCommunication();
+    /**
+     * @brief disconnect close the connection with the chromecast
+     */
+    void disconnect();
 
     void msgPing();
     void msgPong();
-    void msgConnect(const std::string & destinationId = DEFAULT_CHOMECAST_RECEIVER);
+    void msgConnect( const std::string& destinationId );
 
     void msgReceiverLaunchApp();
     void msgReceiverGetStatus();
-
-    void msgPlayerLoad();
-    void msgPlayerPlay();
-    void msgPlayerStop();
-    void msgPlayerPause();
-    void msgPlayerGetStatus();
-    void msgPlayerSeek(const std::string & currentTime);
-    void msgPlayerSetVolume(float volume);
-    void msgPlayerSetMute(bool mute);
-
-    void processMessage(const castchannel::CastMessage &msg);
-
-    void notifySendRequest();
-    std::atomic_bool requested_stop;
-    std::atomic_bool requested_seek;
-
-    void setPauseState(bool paused);
-
-    void setTitle( const char *psz_title )
-    {
-        if ( psz_title )
-            title = psz_title;
-        else
-            title = "";
-    }
-
-    void setArtwork( const char *psz_artwork )
-    {
-        if ( psz_artwork )
-            artwork = psz_artwork;
-        else
-            artwork = "";
-    }
-
+    void msgReceiverClose(const std::string& destinationId);
+    void msgAuth();
+    void msgPlayerLoad( const std::string& destinationId, unsigned int i_port, const std::string& title,
+                        const std::string& artwork, const std::string& mime );
+    void msgPlayerPlay( const std::string& destinationId, const std::string& mediaSessionId );
+    void msgPlayerStop( const std::string& destinationId, const std::string& mediaSessionId );
+    void msgPlayerPause( const std::string& destinationId, const std::string& mediaSessionId );
+    void msgPlayerGetStatus( const std::string& destinationId );
+    void msgPlayerSeek( const std::string& destinationId, const std::string& mediaSessionId,
+                        const std::string & currentTime );
+    void msgPlayerSetVolume( const std::string& destinationId, const std::string& mediaSessionId,
+                             float volume, bool mute);
+    ssize_t receive( uint8_t *p_data, size_t i_size, int i_timeout, bool *pb_timeout );
+private:
     int sendMessage(const castchannel::CastMessage &msg);
 
     void buildMessage(const std::string & namespace_,
                       const std::string & payload,
                       const std::string & destinationId = DEFAULT_CHOMECAST_RECEIVER,
                       castchannel::CastMessage_PayloadType payloadType = castchannel::CastMessage_PayloadType_STRING);
+    void pushMediaPlayerMessage( const std::string& destinationId, const std::stringstream & payload );
+    std::string GetMedia( unsigned int i_port, const std::string& title,
+                          const std::string& artwork, const std::string& mime );
 
-    void pushMediaPlayerMessage(const std::stringstream & payload);
+private:
+    vlc_object_t* m_module;
+    vlc_tls_creds_t *m_creds;
+    vlc_tls_t *m_tls;
+    unsigned m_receiver_requestId;
+    std::atomic_uint m_requestId;
+    std::string m_serverIp;
+};
 
-    void setPlayerStatus(enum command_status status) {
-        if (cmd_status != status)
-        {
-            msg_Dbg(p_module, "change Chromecast command status from %d to %d", cmd_status, status);
-            cmd_status = status;
-        }
-    }
+/*****************************************************************************
+ * intf_sys_t: description and status of interface
+ *****************************************************************************/
+struct intf_sys_t
+{
+    enum QueueableMessages
+    {
+        Stop,
+        Seek
+    };
+    intf_sys_t(vlc_object_t * const p_this, int local_port, std::string device_addr, int device_port, vlc_interrupt_t *);
+    ~intf_sys_t();
 
-    enum connection_status conn_status;
-    enum command_status    cmd_status;
+    bool isFinishedPlaying();
 
-    unsigned i_receiver_requestId;
-    unsigned i_requestId;
+    void setHasInput(const std::string mime_type = "");
 
-    bool           has_input;
+    void requestPlayerSeek(mtime_t pos);
+    void requestPlayerStop();
 
-    std::string GetMedia();
-    std::string artwork;
-    std::string title;
+private:
+    bool handleMessages();
 
+    void waitAppStarted();
+    void waitSeekDone();
+
+    void processMessage(const castchannel::CastMessage &msg);
+    void queueMessage( QueueableMessages msg );
+
+    void setPauseState(bool paused);
+
+    void setTitle( const char *psz_title );
+
+    void setArtwork( const char *psz_artwork );
+
+    mtime_t getPlaybackTimestamp() const;
+
+    double getPlaybackPosition() const;
+
+    void setInitialTime( mtime_t time );
+    // Sets the current state and signal the associated wait cond.
+    // This must be called with the lock held
+    void setState( States state );
+
+    void mainLoop();
+    void processAuthMessage( const castchannel::CastMessage& msg );
+    void processHeartBeatMessage( const castchannel::CastMessage& msg );
+    void processReceiverMessage( const castchannel::CastMessage& msg );
+    void processMediaMessage( const castchannel::CastMessage& msg );
+    void processConnectionMessage( const castchannel::CastMessage& msg );
+
+private:
     static void* ChromecastThread(void* p_data);
-    vlc_interrupt_t *p_ctl_thread_interrupt;
-
-    mtime_t getPlaybackTimestamp() const
-    {
-        switch( receiverState )
-        {
-        case RECEIVER_PLAYING:
-            return ( mdate() - m_time_playback_started ) + i_ts_local_start;
-
-        case RECEIVER_IDLE:
-            msg_Dbg(p_module, "receiver idle using buffering time %" PRId64, i_ts_local_start);
-            break;
-        case RECEIVER_BUFFERING:
-            msg_Dbg(p_module, "receiver buffering using buffering time %" PRId64, i_ts_local_start);
-            break;
-        case RECEIVER_PAUSED:
-            msg_Dbg(p_module, "receiver paused using buffering time %" PRId64, i_ts_local_start);
-            break;
-        }
-        return i_ts_local_start;
-    }
-
-    double getPlaybackPosition( mtime_t i_length ) const
-    {
-        if( i_length > 0 && m_time_playback_started != VLC_TS_INVALID)
-            return (double) getPlaybackTimestamp() / (double)( i_length );
-        return 0.0;
-    }
-
-    /* local date when playback started/resumed, used by monotone clock */
-    mtime_t           m_time_playback_started;
-    /* local playback time of the input when playback started/resumed */
-    mtime_t           i_ts_local_start;
-    mtime_t           i_length;
-
-    /* playback time reported by the receiver, used to wait for seeking point */
-    mtime_t           m_chromecast_start_time;
-    /* seek time with Chromecast relative timestamp */
-    mtime_t           m_seek_request_time;
-
-    vlc_cond_t   seekCommandCond;
-
-    int recvPacket(bool &b_msgReceived, uint32_t &i_payloadSize,
-                   unsigned *pi_received, uint8_t *p_data, bool *pb_pingTimeout,
-                   int *pi_wait_delay, int *pi_wait_retries);
-
-    /* shared structure with the demux-filter */
-    chromecast_common      common;
 
     static void set_length(void*, mtime_t length);
     static mtime_t get_time(void*);
     static double get_position(void*);
+    static void set_initial_time( void*, mtime_t time );
 
     static void wait_app_started(void*);
 
@@ -269,6 +203,40 @@ private:
 
     static void set_title(void*, const char *psz_title);
     static void set_artwork(void*, const char *psz_artwork);
+
+
+private:
+    vlc_object_t  * const m_module;
+    const int      m_streaming_port;
+    std::string    m_mime;
+
+    std::string m_appTransportId;
+    std::string m_mediaSessionId;
+
+    vlc_mutex_t  m_lock;
+    vlc_cond_t   m_stateChangedCond;
+    vlc_thread_t m_chromecastThread;
+
+    ChromecastCommunication m_communication;
+    std::queue<QueueableMessages> m_msgQueue;
+    States m_state;
+
+    std::string m_artwork;
+    std::string m_title;
+
+    vlc_interrupt_t *m_ctl_thread_interrupt;
+
+    /* local date when playback started/resumed, used by monotone clock */
+    mtime_t           m_time_playback_started;
+    /* local playback time of the input when playback started/resumed */
+    mtime_t           m_ts_local_start;
+    mtime_t           m_length;
+
+    /* shared structure with the demux-filter */
+    chromecast_common      m_common;
+
+    /* Heartbeat */
+    uint8_t m_pingRetriesLeft;
 };
 
 #endif /* VLC_CHROMECAST_H */

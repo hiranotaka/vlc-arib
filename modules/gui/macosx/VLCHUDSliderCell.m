@@ -1,30 +1,41 @@
-/*****************************************************************************
- * VLCHUDSliderCell.m: Custom slider cell UI for dark HUD Panels
- *****************************************************************************
- * Copyright (C) 2016 VLC authors and VideoLAN
- * $Id$
- *
- * Authors: Marvin Scholz <epirat07 -at- gmail -dot- com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
- *****************************************************************************/
+//
+//  VLCHUDSliderCell.m
+//  BGHUDAppKit
+//
+//  Created by BinaryGod on 5/30/08.
+//
+//  Copyright (c) 2008, Tim Davis (BinaryMethod.com, binary.god@gmail.com)
+//  All rights reserved.
+//
+//  Redistribution and use in source and binary forms, with or without modification,
+//  are permitted provided that the following conditions are met:
+//
+//		Redistributions of source code must retain the above copyright notice, this
+//	list of conditions and the following disclaimer.
+//
+//		Redistributions in binary form must reproduce the above copyright notice,
+//	this list of conditions and the following disclaimer in the documentation and/or
+//	other materials provided with the distribution.
+//
+//		Neither the name of the BinaryMethod.com nor the names of its contributors
+//	may be used to endorse or promote products derived from this software without
+//	specific prior written permission.
+//
+//	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND
+//	ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+//	WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+//	IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+//	INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+//	BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+//	OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+//	WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+//	ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+//	POSSIBILITY OF SUCH DAMAGE.
 
 #import "VLCHUDSliderCell.h"
+#import "CompatibilityFixes.h"
 
 @implementation VLCHUDSliderCell
-
 
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
@@ -35,7 +46,6 @@
         _disabledSliderColor    = [NSColor colorWithCalibratedRed:0.318 green:0.318 blue:0.318 alpha:0.2];
         _strokeColor            = [NSColor colorWithCalibratedRed:0.749 green:0.761 blue:0.788 alpha:1.0];
         _disabledStrokeColor    = [NSColor colorWithCalibratedRed:0.749 green:0.761 blue:0.788 alpha:0.2];
-
 
         // Custom knob gradients
         _knobGradient           = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithDeviceRed:0.251 green:0.251 blue:0.255 alpha:1.0]
@@ -55,11 +65,16 @@ NSAffineTransform* RotationTransform(const CGFloat angle, const NSPoint point)
     return transform;
 }
 
-- (void) drawKnob:(NSRect)smallRect
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpartial-availability"
+- (void)drawKnob:(NSRect)smallRect
 {
+    if (OSX_YOSEMITE_AND_HIGHER) {
+        return [super drawKnob:smallRect];
+    }
     NSBezierPath *path = [NSBezierPath bezierPath];
     // Inset rect to have enough room for the stroke
-    smallRect = NSInsetRect(smallRect, 0.5, 0.5);
+    smallRect = NSInsetRect(smallRect, 1.0, 1.0);
 
     // Get min/max/mid coords for shape calculations
     CGFloat minX = NSMinX(smallRect);
@@ -142,11 +157,186 @@ NSAffineTransform* RotationTransform(const CGFloat angle, const NSPoint point)
     [path stroke];
 }
 
-/*
-- (void) drawFocusRingMaskWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
+- (void)drawBarInside:(NSRect)fullRect flipped:(BOOL)flipped
 {
-
+    if (OSX_YOSEMITE_AND_HIGHER) {
+        return [super drawBarInside:fullRect flipped:flipped];
+    }
+    if (self.isVertical) {
+        return [self drawVerticalBarInFrame:fullRect];
+    } else {
+        return [self drawHorizontalBarInFrame:fullRect];
+    }
 }
-*/
+#pragma clang diagnostic pop
+
+- (void)drawVerticalBarInFrame:(NSRect)frame
+{
+    // Adjust frame based on ControlSize
+    switch ([self controlSize]) {
+
+        case NSRegularControlSize:
+
+            if ([self numberOfTickMarks] != 0) {
+                if ([self tickMarkPosition] == NSTickMarkRight) {
+                    frame.origin.x += 4;
+                } else {
+                    frame.origin.x += frame.size.width - 9;
+                }
+            } else {
+                frame.origin.x = frame.origin.x + (((frame.origin.x + frame.size.width) /2) - 2.5f);
+            }
+            frame.origin.x += 0.5f;
+            frame.origin.y += 2.5f;
+            frame.size.height -= 6;
+            frame.size.width = 5;
+            break;
+
+        case NSSmallControlSize:
+
+            if ([self numberOfTickMarks] != 0) {
+                if ([self tickMarkPosition] == NSTickMarkRight) {
+                    frame.origin.x += 3;
+                } else {
+                    frame.origin.x += frame.size.width - 8;
+                }
+            } else {
+                frame.origin.x = frame.origin.x + (((frame.origin.x + frame.size.width) /2) - 2.5f);
+            }
+            frame.origin.y += 0.5f;
+            frame.size.height -= 1;
+            frame.origin.x += 0.5f;
+            frame.size.width = 5;
+            break;
+
+        case NSMiniControlSize:
+
+            if ([self numberOfTickMarks] != 0) {
+                if ([self tickMarkPosition] == NSTickMarkRight) {
+                    frame.origin.x += 2.5f;
+                } else {
+                    frame.origin.x += frame.size.width - 6.5f;
+                }
+            } else {
+                frame.origin.x = frame.origin.x + (((frame.origin.x + frame.size.width) /2) - 2);
+            }
+            frame.origin.x += 1;
+            frame.origin.y += 0.5f;
+            frame.size.height -= 1;
+            frame.size.width = 3;
+            break;
+    }
+    
+    // Draw Bar
+    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect: frame xRadius: 2 yRadius: 2];
+    
+    if ([self isEnabled]) {
+        [_sliderColor set];
+        [path fill];
+
+        [_strokeColor set];
+        [path stroke];
+    } else {
+        [_disabledSliderColor set];
+        [path fill];
+
+        [_disabledStrokeColor set];
+        [path stroke];
+    }
+}
+
+- (void)drawHorizontalBarInFrame:(NSRect)frame
+{
+    // Adjust frame based on ControlSize
+    switch ([self controlSize]) {
+
+        case NSRegularControlSize:
+
+            if ([self numberOfTickMarks] != 0) {
+                if ([self tickMarkPosition] == NSTickMarkBelow) {
+                    frame.origin.y += 4;
+                } else {
+                    frame.origin.y += frame.size.height - 10;
+                }
+            } else {
+                frame.origin.y = frame.origin.y + (((frame.origin.y + frame.size.height) /2) - 2.5f);
+            }
+            frame.origin.x += 2.5f;
+            frame.origin.y += 0.5f;
+            frame.size.width -= 5;
+            frame.size.height = 5;
+            break;
+
+        case NSSmallControlSize:
+
+            if ([self numberOfTickMarks] != 0) {
+                if ([self tickMarkPosition] == NSTickMarkBelow) {
+                    frame.origin.y += 2;
+                } else {
+                    frame.origin.y += frame.size.height - 8;
+                }
+            } else {
+                frame.origin.y = frame.origin.y + (((frame.origin.y + frame.size.height) /2) - 2.5f);
+            }
+            frame.origin.x += 0.5f;
+            frame.origin.y += 0.5f;
+            frame.size.width -= 1;
+            frame.size.height = 5;
+            break;
+
+        case NSMiniControlSize:
+
+            if ([self numberOfTickMarks] != 0) {
+                if ([self tickMarkPosition] == NSTickMarkBelow) {
+                    frame.origin.y += 2;
+                } else {
+                    frame.origin.y += frame.size.height - 6;
+                }
+            } else {
+                frame.origin.y = frame.origin.y + (((frame.origin.y + frame.size.height) /2) - 2);
+            }
+            frame.origin.x += 0.5f;
+            frame.origin.y += 0.5f;
+            frame.size.width -= 1;
+            frame.size.height = 3;
+            break;
+    }
+    
+    // Draw Bar
+    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:frame xRadius:2 yRadius:2];
+    
+    if ([self isEnabled]) {
+        [_sliderColor set];
+        [path fill];
+        
+        [_strokeColor set];
+        [path stroke];
+    } else {
+        [_disabledSliderColor set];
+        [path fill];
+        
+        [_disabledStrokeColor set];
+        [path stroke];
+    }
+}
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpartial-availability"
+- (void)drawTickMarks
+{
+    if (OSX_YOSEMITE_AND_HIGHER) {
+        return [super drawTickMarks];
+    }
+    for (int i = 0; i < self.numberOfTickMarks; i++) {
+        NSRect tickMarkRect = [self rectOfTickMarkAtIndex:i];
+        if (self.isEnabled) {
+            [_strokeColor setFill];
+        } else {
+            [_disabledStrokeColor setFill];
+        }
+        NSRectFill(tickMarkRect);
+    }
+}
+#pragma clang diagnostic pop
 
 @end

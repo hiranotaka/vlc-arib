@@ -49,7 +49,7 @@
 static int  Open ( vlc_object_t * );
 static void Close( vlc_object_t * );
 
-VLC_SD_PROBE_HELPER("avahi", "Zeroconf network services", SD_CAT_LAN)
+VLC_SD_PROBE_HELPER("avahi", N_("Zeroconf network services"), SD_CAT_LAN)
 
 vlc_module_begin ()
     set_shortname( "Avahi" )
@@ -142,8 +142,8 @@ static void resolve_callback(
         AvahiStringList *asl = NULL;
         input_item_t *p_input = NULL;
 
-        msg_Err( p_sd, "service '%s' of type '%s' in domain '%s' port %i",
-                 name, type, domain, port );
+        msg_Info( p_sd, "service '%s' of type '%s' in domain '%s' port %i",
+                  name, type, domain, port );
 
         avahi_address_snprint(a, (sizeof(a)/sizeof(a[0]))-1, address);
         if( protocol == AVAHI_PROTO_INET6 )
@@ -205,8 +205,8 @@ static void resolve_callback(
         {
             vlc_dictionary_insert( &p_sys->services_name_to_input_item,
                 name, p_input );
-            services_discovery_AddItem( p_sd, p_input, NULL /* no category */ );
-            vlc_gc_decref( p_input );
+            services_discovery_AddItem( p_sd, p_input );
+            input_item_Release( p_input );
        }
     }
 
@@ -273,6 +273,8 @@ static int Open( vlc_object_t *p_this )
     p_sd->p_sys = p_sys = calloc( 1, sizeof( services_discovery_sys_t ) );
     if( !p_sys )
         return VLC_ENOMEM;
+
+    p_sd->description = _("Zeroconf network services");
 
     vlc_dictionary_init( &p_sys->services_name_to_input_item, 1 );
 

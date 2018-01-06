@@ -31,6 +31,7 @@
 
 #include <vlc_common.h>
 #include <vlc_http.h>
+#include "resource.h"
 #include "file.h"
 #include "message.h"
 
@@ -50,7 +51,7 @@ static vlc_http_cookie_jar_t *jar;
 
 int main(void)
 {
-    struct vlc_http_file *f;
+    struct vlc_http_resource *f;
     char *str;
 
     jar = vlc_http_cookies_new();
@@ -58,6 +59,11 @@ int main(void)
     /* Request failure test */
     f = vlc_http_file_create(NULL, url, ua, NULL);
     assert(f != NULL);
+    vlc_http_res_set_login(f, NULL, NULL);
+    vlc_http_res_set_login(f, "john", NULL);
+    vlc_http_res_set_login(f, NULL, NULL);
+    vlc_http_res_set_login(f, "john", "secret");
+    vlc_http_res_set_login(f, NULL, NULL);
     vlc_http_file_seek(f, 0);
     assert(vlc_http_file_get_status(f) < 0);
     assert(vlc_http_file_get_redirect(f) == NULL);
@@ -65,7 +71,7 @@ int main(void)
     assert(!vlc_http_file_can_seek(f));
     assert(vlc_http_file_get_type(f) == NULL);
     assert(vlc_http_file_read(f) == NULL);
-    vlc_http_file_destroy(f);
+    vlc_http_res_destroy(f);
 
     /* Non-seekable stream test */
     replies[0] = "HTTP/1.1 200 OK\r\n"
@@ -138,8 +144,8 @@ int main(void)
     assert(!vlc_http_file_can_seek(f));
     assert(vlc_http_file_get_size(f) == (uintmax_t)-1);
     str = vlc_http_file_get_redirect(f);
-    assert(str != NULL
-        && !strcmp(str, "https://www.example.com:8443/somewhere/else/"));
+    assert(str != NULL);
+    assert(!strcmp(str, "https://www.example.com:8443/somewhere/else/"));
     free(str);
     vlc_http_file_destroy(f);
 

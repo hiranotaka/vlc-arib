@@ -33,6 +33,7 @@
 #include "util/timetooltip.hpp"
 #include "adapters/seekpoints.hpp"
 #include "input_manager.hpp"
+#include "imagehelper.hpp"
 
 #include <QPaintEvent>
 #include <QPainter>
@@ -49,6 +50,7 @@
 #include <QPropertyAnimation>
 #include <QApplication>
 #include <QDebug>
+#include <QScreen>
 #include <QSequentialAnimationGroup>
 
 namespace {
@@ -121,8 +123,7 @@ SeekSlider::SeekSlider( Qt::Orientation q, QWidget *_parent, bool _static )
     setFocusPolicy( Qt::NoFocus );
 
     /* Use the new/classic style */
-    qreal scalingFactorY = static_cast<qreal>(logicalDpiY()) / DPI_REF_VALUE;
-    setMinimumHeight( 18.0 * scalingFactorY );
+    setMinimumHeight( 18 );
     if( !b_classic )
     {
         alternativeStyle = new SeekStyle;
@@ -476,17 +477,24 @@ bool SeekSlider::eventFilter( QObject *obj, QEvent *event )
 {
     if( obj == mTimeTooltip )
     {
+        if( event->type() == QEvent::MouseMove )
+        {
+            QMouseEvent* mev = static_cast<QMouseEvent*>( event );
+
+            if( rect().contains( mapFromGlobal( mev->globalPos() ) ) )
+                return false;
+        }
+
         if( event->type() == QEvent::Leave ||
             event->type() == QEvent::MouseMove )
         {
-            QMouseEvent *e = static_cast<QMouseEvent*>( event );
-            if( !rect().contains( mapFromGlobal( e->globalPos() ) ) )
-                mTimeTooltip->hide();
+            mTimeTooltip->hide();
         }
+
         return false;
     }
-    else
-        return QSlider::eventFilter( obj, event );
+
+    return QSlider::eventFilter( obj, event );
 }
 
 QSize SeekSlider::sizeHint() const
@@ -567,20 +575,16 @@ void SeekSlider::startAnimLoading()
     - Mark Kretschmann
     - Gábor Lehel
    */
-#define WLENGTH_BASE   80 // px
-#define WHEIGHT_BASE   22  // px
+#define WLENGTH   85  // px
+#define WHEIGHT   26  // px
+#define PADDINGL  6   // px
+#define PADDINGR  6   // px
 #define SOUNDMIN  0   // %
 
 SoundSlider::SoundSlider( QWidget *_parent, float _i_step,
                           char *psz_colors, int max )
                         : QAbstractSlider( _parent )
 {
-    qreal scalingFactorX = static_cast<qreal>(logicalDpiX()) / DPI_REF_VALUE;
-    qreal scalingFactorY = static_cast<qreal>(logicalDpiY()) / DPI_REF_VALUE;
-
-    wlength = WLENGTH_BASE * scalingFactorX;
-    wheight = WHEIGHT_BASE * scalingFactorY;
-
     f_step = (float)(_i_step * 10000)
            / (float)((max - SOUNDMIN) * AOUT_VOLUME_DEFAULT);
     setRange( SOUNDMIN, max);
@@ -589,30 +593,23 @@ SoundSlider::SoundSlider( QWidget *_parent, float _i_step,
     b_mouseOutside = true;
     b_isMuted = false;
 
-    const QPixmap pixOutsideRaw( ":/toolbar/volslide-outside" );
-    const QSize pixOutsideSize(
-                static_cast<qreal>(pixOutsideRaw.width()) * scalingFactorX,
-                static_cast<qreal>(pixOutsideRaw.height()) * scalingFactorY
-            );
-    pixOutside = pixOutsideRaw.scaled(pixOutsideSize);
+    setFixedSize( WLENGTH, WHEIGHT );
 
-    const QPixmap tempRaw( ":/toolbar/volslide-inside" );
-    const QSize tempSize(
-                    static_cast<qreal>(tempRaw.width()) * scalingFactorX,
-                    static_cast<qreal>(tempRaw.height()) * scalingFactorY
-            );
-    const QPixmap temp = tempRaw.scaled(tempSize);
+    pixOutside = ImageHelper::loadSvgToPixmap(":/toolbar/volslide-outside.svg", width(), height() );
 
+    const QPixmap temp = ImageHelper::loadSvgToPixmap(":/toolbar/volslide-inside.svg", width(), height() );
     const QBitmap mask( temp.createHeuristicMask() );
 
-    setFixedSize( pixOutside.size() );
-
-    pixGradient = QPixmap( mask.size() );
-    pixGradient2 = QPixmap( mask.size() );
+    pixGradient = QPixmap( pixOutside.size() );
+    pixGradient2 = QPixmap( pixOutside.size() );
+#if HAS_QT56
+    pixGradient.setDevicePixelRatio(QApplication::primaryScreen()->devicePixelRatio());
+    pixGradient2.setDevicePixelRatio(QApplication::primaryScreen()->devicePixelRatio());
+#endif
 
     /* Gradient building from the preferences */
-    QLinearGradient gradient( paddingL, 2, wlength + paddingL , 2 );
-    QLinearGradient gradient2( paddingL, 2, wlength + paddingL , 2 );
+    QLinearGradient gradient( PADDINGL, 2, width() - PADDINGR, 2 );
+    QLinearGradient gradient2( PADDINGL, 2, width()- PADDINGR, 2 );
 
     QStringList colorList = qfu( psz_colors ).split( ";" );
     free( psz_colors );
@@ -629,7 +626,7 @@ SoundSlider::SoundSlider( QWidget *_parent, float _i_step,
                     ( background.value() + foreground.value() ) / 2 );
 
     textfont.setPointSize( 7 );
-    textrect.setRect( 0, 0, 34.0*scalingFactorX, 15.0*scalingFactorY );
+    textrect.setRect( 0, 0, 34, 15 );
 
     /* Regular colors */
 #define c(i) colorList.at(i).toInt()
@@ -688,7 +685,7 @@ void SoundSlider::mousePressEvent( QMouseEvent *event )
         isSliding = true;
         i_oldvalue = value();
         emit sliderPressed();
-        changeValue( event->x() - paddingL );
+        changeValue( event->x() );
         emit sliderMoved( value() );
     }
 }
@@ -719,8 +716,8 @@ void SoundSlider::mouseMoveEvent( QMouseEvent *event )
 
     if( isSliding )
     {
-        QRect rect( paddingL - 15,    -1,
-                    wlength + 15 * 2 , wheight + 5 );
+        QRect rect( PADDINGL - 15,    -1,
+                    width() - PADDINGR + 15 * 2 , width() + 5 );
         if( !rect.contains( event->pos() ) )
         { /* We are outside */
             if ( !b_mouseOutside )
@@ -730,13 +727,13 @@ void SoundSlider::mouseMoveEvent( QMouseEvent *event )
         else
         { /* We are inside */
             b_mouseOutside = false;
-            changeValue( event->x() - paddingL );
+            changeValue( event->x() );
             emit sliderMoved( value() );
         }
     }
     else
     {
-        int i = ( ( event->x() - paddingL ) * maximum() + 40 ) / wlength;
+        int i = ( ( event->x() - PADDINGL ) * maximum() ) / ( width() - ( PADDINGR + PADDINGL ) );
         i = __MIN( __MAX( 0, i ), maximum() );
         setToolTip( QString("%1  %" ).arg( i ) );
     }
@@ -744,7 +741,7 @@ void SoundSlider::mouseMoveEvent( QMouseEvent *event )
 
 void SoundSlider::changeValue( int x )
 {
-    setValue( (x * maximum() + 40 ) / wlength );
+    setValue( ( ( x - PADDINGL ) * maximum() ) / ( width() - ( PADDINGR + PADDINGL ) ) );
 }
 
 void SoundSlider::setMuted( bool m )
@@ -763,13 +760,12 @@ void SoundSlider::paintEvent( QPaintEvent *e )
 
     painter.begin( this );
 
-    const int offset = int( ( wlength * value() + 100 ) / maximum() ) + paddingL;
+    float f_scale = paintGradient->width() / float( width() );
+    const int offsetDst = int( ( ( width() - ( PADDINGR + PADDINGL ) ) * value() + 100 ) / maximum() ) + PADDINGL;
+    const int offsetSrc = int( ( ( paintGradient->width() - ( PADDINGR + PADDINGL ) * f_scale ) * value() + 100 ) / maximum() + PADDINGL * f_scale );
 
-    const QRectF boundsG( 0, 0, offset , paintGradient->height() );
-    painter.drawPixmap( boundsG, *paintGradient, boundsG );
-
-    const QRectF boundsO( 0, 0, pixOutside.width(), pixOutside.height() );
-    painter.drawPixmap( boundsO, pixOutside, boundsO );
+    painter.drawPixmap( 0, 0, offsetDst, height(), *paintGradient, 0, 0, offsetSrc, paintGradient->height() );
+    painter.drawPixmap( 0, 0, width(), height(), pixOutside, 0, 0,  pixOutside.width(), pixOutside.height() );
 
     painter.setPen( foreground );
     painter.setFont( textfont );

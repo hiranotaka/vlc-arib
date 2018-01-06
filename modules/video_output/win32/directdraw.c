@@ -129,6 +129,39 @@ struct picture_sys_t {
     picture_t            *fallback;
 };
 
+struct vout_display_sys_t
+{
+    vout_display_sys_win32_t sys;
+    /* Multi-monitor support */
+    HMONITOR             hmonitor;          /* handle of the current monitor */
+    GUID                 *display_driver;
+
+    bool   use_wallpaper;   /* show as desktop wallpaper ? */
+
+    bool   restore_overlay;
+
+    /* DDraw capabilities */
+    bool            can_blit_fourcc;
+
+    uint32_t        i_rgb_colorkey;      /* colorkey in RGB used by the overlay */
+    uint32_t        i_colorkey;                 /* colorkey used by the overlay */
+
+    COLORREF        color_bkg;
+    COLORREF        color_bkgtxt;
+
+    LPDIRECTDRAW2        ddobject;                    /* DirectDraw object */
+    LPDIRECTDRAWSURFACE2 display;                        /* Display device */
+    LPDIRECTDRAWCLIPPER  clipper;             /* clipper used for blitting */
+    HINSTANCE            hddraw_dll;       /* handle of the opened ddraw dll */
+
+    picture_sys_t        *picsys;
+
+    /* It protects the following variables */
+    vlc_mutex_t    lock;
+    bool           ch_wallpaper;
+    bool           wallpaper_requested;
+};
+
 /*****************************************************************************
  * DirectDraw GUIDs.
  * Defining them here allows us to get rid of the dxguid library during
@@ -166,6 +199,9 @@ static int Open(vlc_object_t *object)
     vout_display_t *vd = (vout_display_t *)object;
     vout_display_sys_t *sys;
 
+    if ( !vd->obj.force && vd->source.projection_mode != PROJECTION_MODE_RECTANGULAR)
+        return VLC_EGENERIC; /* let a module who can handle it do it */
+
     /* Allocate structure */
     vd->sys = sys = calloc(1, sizeof(*sys));
     if (!sys)
@@ -182,7 +218,7 @@ static int Open(vlc_object_t *object)
     /* */
     sys->use_wallpaper = var_CreateGetBool(vd, "video-wallpaper");
     /* FIXME */
-    sys->use_overlay = false;//var_CreateGetBool(vd, "overlay"); /* FIXME */
+    sys->sys.use_overlay = false;//var_CreateGetBool(vd, "overlay"); /* FIXME */
     sys->restore_overlay = false;
     var_Create(vd, "directx-device", VLC_VAR_STRING | VLC_VAR_DOINHERIT);
 
@@ -200,9 +236,7 @@ static int Open(vlc_object_t *object)
     vout_display_info_t info = vd->info;
     info.is_slow = true;
     info.has_double_click = true;
-    info.has_hide_mouse = false;
     info.has_pictures_invalid = true;
-    info.has_event_thread = true;
 
     /* Interaction TODO support starting with wallpaper mode */
     vlc_mutex_init(&sys->lock);
@@ -261,7 +295,7 @@ static void Close(vlc_object_t *object)
 static picture_pool_t *Pool(vout_display_t *vd, unsigned count)
 {
     VLC_UNUSED(count);
-    return vd->sys->pool;
+    return vd->sys->sys.pool;
 }
 static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpicture)
 {
@@ -273,7 +307,7 @@ static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpic
      * and restore it if need be */
     if (IDirectDrawSurface2_IsLost(sys->display) == DDERR_SURFACELOST) {
         if (IDirectDrawSurface2_Restore(sys->display) == DD_OK) {
-            if (sys->use_overlay)
+            if (sys->sys.use_overlay)
                 DirectXUpdateOverlay(vd, NULL);
         }
     }
@@ -283,7 +317,7 @@ static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpic
     /* */
     DirectXUnlock(picture);
 
-    if (sys->use_overlay) {
+    if (sys->sys.use_overlay) {
         /* Flip the overlay buffers if we are using back buffers */
         if (picture->p_sys->surface != picture->p_sys->front_surface) {
             HRESULT hr = IDirectDrawSurface2_Flip(picture->p_sys->front_surface,
@@ -299,22 +333,22 @@ static void Display(vout_display_t *vd, picture_t *picture, subpicture_t *subpic
         ddbltfx.dwDDFX = DDBLTFX_NOTEARING;
 
         HRESULT hr = IDirectDrawSurface2_Blt(sys->display,
-                                             &sys->rect_dest_clipped,
+                                             &sys->sys.rect_dest_clipped,
                                              picture->p_sys->surface,
-                                             &sys->rect_src_clipped,
+                                             &sys->sys.rect_src_clipped,
                                              DDBLT_ASYNC, &ddbltfx);
         if (hr != DD_OK)
             msg_Warn(vd, "could not blit surface (error %li)", hr);
     }
     DirectXLock(picture);
 
-    if (sys->is_first_display) {
+    if (sys->sys.is_first_display) {
         IDirectDraw_WaitForVerticalBlank(sys->ddobject,
                                          DDWAITVB_BLOCKBEGIN, NULL);
-        if (sys->use_overlay) {
+        if (sys->sys.use_overlay) {
             HBRUSH brush = CreateSolidBrush(sys->i_rgb_colorkey);
             /* set the colorkey as the backgound brush for the video window */
-            SetClassLongPtr(sys->hvideownd, GCLP_HBRBACKGROUND, (LONG_PTR)brush);
+            SetClassLongPtr(sys->sys.hvideownd, GCLP_HBRBACKGROUND, (LONG_PTR)brush);
         }
     }
     CommonDisplay(vd);
@@ -351,18 +385,18 @@ static void Manage(vout_display_t *vd)
 
     CommonManage(vd);
 
-    if (sys->changes & DX_POSITION_CHANGE) {
+    if (sys->sys.changes & DX_POSITION_CHANGE) {
         /* Update overlay */
-        if (sys->use_overlay)
+        if (sys->sys.use_overlay)
             DirectXUpdateOverlay(vd, NULL);
 
         /* Check if we are still on the same monitor */
-        HMONITOR hmon = MonitorFromWindow(sys->hwnd, MONITOR_DEFAULTTONEAREST);
+        HMONITOR hmon = MonitorFromWindow(sys->sys.hwnd, MONITOR_DEFAULTTONEAREST);
         if (sys->hmonitor != hmon) {
             vout_display_SendEventPicturesInvalid(vd);
         }
         /* */
-        sys->changes &= ~DX_POSITION_CHANGE;
+        sys->sys.changes &= ~DX_POSITION_CHANGE;
     }
 
     /* Wallpaper mode change */
@@ -409,28 +443,28 @@ static int DirectXOpen(vout_display_t *vd, video_format_t *fmt)
         msg_Err(vd, "cannot initialize DirectX DirectDraw");
         return VLC_EGENERIC;
     }
-    UpdateRects(vd, NULL, NULL, true);
+    UpdateRects(vd, NULL, true);
 
     /* Create the picture pool */
-    if (DirectXCreatePool(vd, &sys->use_overlay, fmt)) {
+    if (DirectXCreatePool(vd, &sys->sys.use_overlay, fmt)) {
         msg_Err(vd, "cannot create any DirectX surface");
         return VLC_EGENERIC;
     }
 
     /* */
-    if (sys->use_overlay)
+    if (sys->sys.use_overlay)
         DirectXUpdateOverlay(vd, NULL);
-    EventThreadUseOverlay(sys->event, sys->use_overlay);
+    EventThreadUseOverlay(sys->sys.event, sys->sys.use_overlay);
 
     /* Change the window title bar text */
     const char *fallback;
-    if (sys->use_overlay)
+    if (sys->sys.use_overlay)
         fallback = VOUT_TITLE " (hardware YUV overlay DirectX output)";
     else if (vlc_fourcc_IsYUV(fmt->i_chroma))
         fallback = VOUT_TITLE " (hardware YUV DirectX output)";
     else
         fallback = VOUT_TITLE " (software RGB DirectX output)";
-    EventThreadUpdateTitle(sys->event, fallback);
+    EventThreadUpdateTitle(sys->sys.event, fallback);
 
     return VLC_SUCCESS;
 }
@@ -473,13 +507,13 @@ static BOOL WINAPI DirectXOpenDDrawCallback(GUID *guid, LPSTR desc,
             RECT rect;
 
             /* Move window to the right screen */
-            GetWindowRect(sys->hwnd, &rect);
+            GetWindowRect(sys->sys.hwnd, &rect);
             if (!IntersectRect(&rect, &rect, &monitor_info.rcWork)) {
                 rect.left = monitor_info.rcWork.left;
                 rect.top = monitor_info.rcWork.top;
                 msg_Dbg(vd, "DirectXEnumCallback: setting window "
                             "position to %ld,%ld", rect.left, rect.top);
-                SetWindowPos(sys->hwnd, NULL,
+                SetWindowPos(sys->sys.hwnd, NULL,
                              rect.left, rect.top, 0, 0,
                              SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
@@ -549,21 +583,21 @@ static void DirectXGetDDrawCaps(vout_display_t *vd)
 
     if (align_boundary_src || align_boundary_dest || align_size_src || align_size_dest) {
         if (align_boundary_src)
-            vd->sys->i_align_src_boundary = ddcaps.dwAlignBoundarySrc;
+            vd->sys->sys.i_align_src_boundary = ddcaps.dwAlignBoundarySrc;
         if (align_boundary_dest)
-            vd->sys->i_align_dest_boundary = ddcaps.dwAlignBoundaryDest;
+            vd->sys->sys.i_align_dest_boundary = ddcaps.dwAlignBoundaryDest;
         if (align_size_src)
-            vd->sys->i_align_src_size = ddcaps.dwAlignSizeSrc;
+            vd->sys->sys.i_align_src_size = ddcaps.dwAlignSizeSrc;
         if (align_size_dest)
-            vd->sys->i_align_dest_size = ddcaps.dwAlignSizeDest;
+            vd->sys->sys.i_align_dest_size = ddcaps.dwAlignSizeDest;
 
         msg_Dbg(vd,
                 "align_boundary_src=%i,%i align_boundary_dest=%i,%i "
                 "align_size_src=%i,%i align_size_dest=%i,%i",
-                align_boundary_src,  vd->sys->i_align_src_boundary,
-                align_boundary_dest, vd->sys->i_align_dest_boundary,
-                align_size_src,  vd->sys->i_align_src_size,
-                align_size_dest, vd->sys->i_align_dest_size);
+                align_boundary_src,  vd->sys->sys.i_align_src_boundary,
+                align_boundary_dest, vd->sys->sys.i_align_dest_boundary,
+                align_size_src,  vd->sys->sys.i_align_src_size,
+                align_size_dest, vd->sys->sys.i_align_dest_size);
     }
 }
 
@@ -596,7 +630,7 @@ static int DirectXOpenDDraw(vout_display_t *vd)
             free(device);
         }
 
-        sys->hmonitor = MonitorFromWindow(sys->hwnd, MONITOR_DEFAULTTONEAREST);
+        sys->hmonitor = MonitorFromWindow(sys->sys.hwnd, MONITOR_DEFAULTTONEAREST);
 
         /* Enumerate displays */
         OurDirectDrawEnumerateEx(DirectXOpenDDrawCallback,
@@ -638,19 +672,19 @@ static int DirectXOpenDDraw(vout_display_t *vd)
         MONITORINFO monitor_info;
         monitor_info.cbSize = sizeof(MONITORINFO);
         GetMonitorInfoA(vd->sys->hmonitor, &monitor_info);
-        sys->rect_display = monitor_info.rcMonitor;
+        sys->sys.rect_display = monitor_info.rcMonitor;
     } else {
-        sys->rect_display.left   = 0;
-        sys->rect_display.top    = 0;
-        sys->rect_display.right  = GetSystemMetrics(SM_CXSCREEN);
-        sys->rect_display.bottom = GetSystemMetrics(SM_CYSCREEN);
+        sys->sys.rect_display.left   = 0;
+        sys->sys.rect_display.top    = 0;
+        sys->sys.rect_display.right  = GetSystemMetrics(SM_CXSCREEN);
+        sys->sys.rect_display.bottom = GetSystemMetrics(SM_CYSCREEN);
     }
 
     msg_Dbg(vd, "screen dimensions (%lix%li,%lix%li)",
-            sys->rect_display.left,
-            sys->rect_display.top,
-            sys->rect_display.right,
-            sys->rect_display.bottom);
+            sys->sys.rect_display.left,
+            sys->sys.rect_display.top,
+            sys->sys.rect_display.right,
+            sys->sys.rect_display.bottom);
 
     /* Probe the capabilities of the hardware */
     DirectXGetDDrawCaps(vd);
@@ -692,7 +726,7 @@ static void DirectXCreateClipper(vout_display_t *vd)
     }
 
     /* Associate the clipper to the window */
-    hr = IDirectDrawClipper_SetHWnd(sys->clipper, 0, sys->hvideownd);
+    hr = IDirectDrawClipper_SetHWnd(sys->clipper, 0, sys->sys.hvideownd);
     if (hr != DD_OK) {
         msg_Warn(vd, "cannot attach clipper to window (error %li)", hr);
         goto error;
@@ -1281,8 +1315,8 @@ static int DirectXCreatePool(vout_display_t *vd,
     cfg.lock          = DirectXLock;
     cfg.unlock        = DirectXUnlock;
 
-    sys->pool = picture_pool_NewExtended(&cfg);
-    if (!sys->pool) {
+    sys->sys.pool = picture_pool_NewExtended(&cfg);
+    if (!sys->sys.pool) {
         picture_Release(picture);
         DirectXDestroyPictureResource(vd);
         return VLC_ENOMEM;
@@ -1293,11 +1327,11 @@ static void DirectXDestroyPool(vout_display_t *vd)
 {
     vout_display_sys_t *sys = vd->sys;
 
-    if (sys->pool) {
+    if (sys->sys.pool) {
         DirectXDestroyPictureResource(vd);
-        picture_pool_Release(sys->pool);
+        picture_pool_Release(sys->sys.pool);
     }
-    sys->pool = NULL;
+    sys->sys.pool = NULL;
 }
 
 /**
@@ -1311,32 +1345,32 @@ static int DirectXUpdateOverlay(vout_display_t *vd, LPDIRECTDRAWSURFACE2 surface
 {
     vout_display_sys_t *sys = vd->sys;
 
-    RECT src = sys->rect_src_clipped;
-    RECT dst = sys->rect_dest_clipped;
+    RECT src = sys->sys.rect_src_clipped;
+    RECT dst = sys->sys.rect_dest_clipped;
 
     if (sys->use_wallpaper) {
         src.left   = vd->source.i_x_offset;
         src.top    = vd->source.i_y_offset;
         src.right  = vd->source.i_x_offset + vd->source.i_visible_width;
         src.bottom = vd->source.i_y_offset + vd->source.i_visible_height;
-        AlignRect(&src, sys->i_align_src_boundary, sys->i_align_src_size);
+        AlignRect(&src, sys->sys.i_align_src_boundary, sys->sys.i_align_src_size);
 
         vout_display_cfg_t cfg = *vd->cfg;
-        cfg.display.width  = sys->rect_display.right;
-        cfg.display.height = sys->rect_display.bottom;
+        cfg.display.width  = sys->sys.rect_display.right;
+        cfg.display.height = sys->sys.rect_display.bottom;
 
         vout_display_place_t place;
         vout_display_PlacePicture(&place, &vd->source, &cfg, true);
 
-        dst.left   = sys->rect_display.left + place.x;
-        dst.top    = sys->rect_display.top  + place.y;
+        dst.left   = sys->sys.rect_display.left + place.x;
+        dst.top    = sys->sys.rect_display.top  + place.y;
         dst.right  = dst.left + place.width;
         dst.bottom = dst.top  + place.height;
-        AlignRect(&dst, sys->i_align_dest_boundary, sys->i_align_dest_size);
+        AlignRect(&dst, sys->sys.i_align_dest_boundary, sys->sys.i_align_dest_size);
     }
 
     if (!surface) {
-        if (!sys->pool)
+        if (!sys->sys.pool)
             return VLC_EGENERIC;
         surface = sys->picsys->front_surface;
     }
@@ -1401,7 +1435,7 @@ static void WallpaperChange(vout_display_t *vd, bool use_wallpaper)
     InvalidateRect(hwnd, NULL, TRUE);
     UpdateWindow(hwnd);
 
-    if (sys->use_overlay)
+    if (sys->sys.use_overlay)
       DirectXUpdateOverlay(vd, NULL);
 }
 

@@ -25,6 +25,7 @@ static const staticentry_t p_list_video[] = {
 
     B(VLC_CODEC_MP1V, "MPEG-1 Video"),
         A("mp1v"),
+        A("m1v "),
         A("mpg1"),
         A("BW10"),
         E("XMPG", "Xing MPEG-1 Intra"),
@@ -230,7 +231,10 @@ static const staticentry_t p_list_video[] = {
         A("H265"),
         A("x265"),
         A("hev1"),
+        A("hvc1"),
         A("HM10"),
+        E("dvhe", "Dolby Vision HEVC (H.265)"),
+        /* E("dvh1", "Dolby Vision HEVC (H.265)"), Collides with DV */
 
     /* h264 */
     B(VLC_CODEC_H264, "H264 - MPEG-4 AVC (part 10)"),
@@ -256,6 +260,8 @@ static const staticentry_t p_list_video[] = {
         E("ai13", "AVC-Intra 100M 1080p24/30/60"),
         E("ai15", "AVC-Intra 100M 1080i50"),
         E("ai16", "AVC-Intra 100M 1080i60"),
+        E("dvav", "Dolby Vision H264"),
+        E("dva1", "Dolby Vision H264"),
         E("VSSH", "Vanguard VSS H264"),
         E("VSSW", "Vanguard VSS H264"),
         E("vssh", "Vanguard VSS H264"),
@@ -264,6 +270,7 @@ static const staticentry_t p_list_video[] = {
         E("x3eV", "DreX H.264"),
         E("GAVC", "GeoVision MPEG-4 AVC"),
         E("Q264", "QNAP H.264/MPEG-4 AVC"),
+        E("q264", "QNAP H.264/MPEG-4 AVC"),
         A("UMSV"),
         A("SMV2"),
         A("tshd"),
@@ -505,6 +512,8 @@ static const staticentry_t p_list_video[] = {
     B(VLC_CODEC_VP9, "Google/On2's VP9 Video"),
         A("VP90"),
 
+    B(VLC_CODEC_AV1, "AOMedia's AV1 Video"),
+        A("av10"),
 
     /* Xiph.org theora */
     B(VLC_CODEC_THEORA, "Xiph.org's Theora Video"),
@@ -583,6 +592,10 @@ static const staticentry_t p_list_video[] = {
 
     B(VLC_CODEC_VMNC, "VMware Video"),
         A("VMnc"),
+
+    B(VLC_CODEC_FMVC, "FM Screen Capture Codec"),
+        A("FMVC"),
+
     B(VLC_CODEC_FRAPS, "FRAPS: Realtime Video Capture"),
         A("FPS1"),
         A("fps1"),
@@ -663,6 +676,7 @@ static const staticentry_t p_list_video[] = {
     /* */
     B(VLC_CODEC_DNXHD, "DNxHD"),
         A("AVdn"),
+        E("AVdh", "DNxHR"),
     B(VLC_CODEC_8BPS, "8BPS"),
         A("8BPS"),
     B(VLC_CODEC_MIMIC, "Mimic"),
@@ -701,6 +715,7 @@ static const staticentry_t p_list_video[] = {
 
     B(VLC_CODEC_G2M4, "GoTo Meeting Codec 4"),
         A("G2M4"),
+        A("G2M5"),
 
     B(VLC_CODEC_FIC, "Mirillis FIC video"),
         A("FICV"),
@@ -859,6 +874,23 @@ static const staticentry_t p_list_video[] = {
     B(VLC_CODEC_I444_10B, "Planar 4:4:4 YUV 10-bit BE"),
         A("I4AB"),
 
+    B(VLC_CODEC_I420_12L, "Planar 4:2:0 YUV 12-bit LE"),
+        A("I0CL"),
+    B(VLC_CODEC_I420_12B, "Planar 4:2:0 YUV 12-bit BE"),
+        A("I0CB"),
+    B(VLC_CODEC_I422_12L, "Planar 4:2:2 YUV 12-bit LE"),
+        A("I2CL"),
+    B(VLC_CODEC_I422_12B, "Planar 4:2:2 YUV 12-bit BE"),
+        A("I2CB"),
+    B(VLC_CODEC_I444_12L, "Planar 4:4:4 YUV 12-bit LE"),
+        A("I4CL"),
+    B(VLC_CODEC_I444_12B, "Planar 4:4:4 YUV 12-bit BE"),
+        A("I4CB"),
+
+    B(VLC_CODEC_I420_16L, "Planar 4:2:0 YUV 16-bit LE"),
+        A("I0FL"),
+    B(VLC_CODEC_I420_16B, "Planar 4:2:0 YUV 16-bit BE"),
+        A("I0FB"),
     B(VLC_CODEC_I444_16L, "Planar 4:4:4 YUV 16-bit LE"),
         A("I4FL"),
     B(VLC_CODEC_I444_16B, "Planar 4:4:4 YUV 16-bit BE"),
@@ -1080,6 +1112,19 @@ static const staticentry_t p_list_video[] = {
     B(VLC_CODEC_HNM4_VIDEO, "Cryo Interactive Entertainment HNM4"),
 
     B(VLC_CODEC_CINEFORM, "CineForm" ),
+
+    B(VLC_CODEC_SPEEDHQ, "NewTek SpeedHQ" ),
+        A("SHQ0"),
+        A("SHQ1"),
+        A("SHQ2"),
+        A("SHQ3"),
+        A("SHQ4"),
+        A("SHQ5"),
+        A("SHQ7"),
+        A("SHQ9"),
+
+    B(VLC_CODEC_PIXLET, "Apple Pixlet" ),
+        A("pxlt"),
 };
 
 static const staticentry_t p_list_audio[] = {
@@ -1268,6 +1313,9 @@ static const staticentry_t p_list_audio[] = {
 
     B(VLC_CODEC_ADPCM_THP, "GameCube THP ADPCM"),
 
+    B(VLC_CODEC_ADPCM_XA_EA, "EA-XA ADPCM"),
+        A("XAJ\x00"),
+
     /* AMR */
     B(VLC_CODEC_AMR_NB, "AMR narrow band"),
         A("samr"),
@@ -1286,6 +1334,10 @@ static const staticentry_t p_list_audio[] = {
     /* QDM2 */
     B(VLC_CODEC_QDM2, "QDM2 Audio"),
         A("QDM2"),
+
+    /* QDMC */
+    B(VLC_CODEC_QDMC, "QDMC Audio"),
+        A("QDMC"),
 
     /* COOK */
     B(VLC_CODEC_COOK, "Cook Audio"),
@@ -1538,8 +1590,11 @@ static const staticentry_t p_list_spu[] = {
     B(VLC_CODEC_ARIB_C, "ARIB subtitles (C-profile)"),
         A("arbc"),
 
-    B(VLC_CODEC_BD_PG, "BD subtitles"),
+    B(VLC_CODEC_BD_PG, "BD PGS subtitles"),
         A("bdpg"),
+
+    B(VLC_CODEC_BD_TEXT, "BD Text subtitles"),
+        A("bdtx"),
 
     B(VLC_CODEC_EBU_STL, "EBU STL subtitles"),
         A("STL "),
@@ -1547,12 +1602,10 @@ static const staticentry_t p_list_spu[] = {
     B(VLC_CODEC_SCTE_27, "SCTE-27 subtitles"),
         A("SC27"),
 
-    B(VLC_CODEC_EIA608_1, "EIA-608 subtitles"),
-        A("cc1 "),
-        A("cc2 "),
-        A("cc3 "),
-        A("cc4 "),
+    B(VLC_CODEC_CEA608,  "EIA-608 subtitles"),
 
     B(VLC_CODEC_TTML, "TTML subtitles"),
         A("ttml"),
+
+    B(VLC_CODEC_WEBVTT, "WEBVTT subtitles"),
 };

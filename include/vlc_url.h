@@ -100,7 +100,47 @@ VLC_API char *vlc_uri_decode_duplicate(const char *str) VLC_MALLOC;
  */
 VLC_API char *vlc_uri_encode(const char *str) VLC_MALLOC;
 
-/** @} */
+/**
+ * Composes an URI.
+ *
+ * Converts a decomposed/parsed URI structure (\ref vlc_url_t) into a
+ * nul-terminated URI literal string.
+ *
+ * See also IETF RFC3986 section 5.3 for details.
+ *
+ * \bug URI fragments (i.e. HTML anchors) are not handled
+ *
+ * \return a heap-allocated nul-terminated string or NULL if out of memory
+ */
+VLC_API char *vlc_uri_compose(const vlc_url_t *) VLC_MALLOC;
+
+/**
+ * Resolves an URI reference.
+ *
+ * Resolves an URI reference relative to a base URI.
+ * If the reference is an absolute URI, then this function simply returns a
+ * copy of the URI reference.
+ *
+ * \param base base URI (as a nul-terminated string)
+ * \param ref URI reference (also as a nul-terminated string)
+ *
+ * \return a heap-allocated nul-terminated string representing the resolved
+ * absolute URI, or NULL if out of memory.
+ */
+VLC_API char *vlc_uri_resolve(const char *base, const char *ref) VLC_MALLOC;
+
+/**
+ * Fixes up a URI string.
+ *
+ * Attempts to convert a nul-terminated string into a syntactically valid URI.
+ * If the string is, or may be, a syntactically valid URI, an exact copy is
+ * returned. In any case, the result will only contain URI-safe and URI
+ * delimiter characters (generic delimiters or sub-delimiters) and all percent
+ * signs will be followed by two hexadecimal characters.
+ *
+ * @return a heap-allocated string, or NULL if on out of memory.
+ */
+VLC_API char *vlc_uri_fixup(const char *) VLC_MALLOC;
 
 struct vlc_url_t
 {
@@ -113,9 +153,58 @@ struct vlc_url_t
     char *psz_option;
 
     char *psz_buffer; /* to be freed */
+    char *psz_pathbuffer; /* to be freed */
 };
 
-VLC_API void vlc_UrlParse (vlc_url_t *, const char *);
-VLC_API void vlc_UrlClean (vlc_url_t *);
+/**
+ * Parses an URI or IRI.
+ *
+ * Extracts the following parts from an URI string:
+ *  - scheme (i.e. protocol),
+ *  - user (deprecated),
+ *  - password (also deprecated),
+ *  - host name or IP address literal,
+ *  - port number,
+ *  - path (including the filename preceded by any and all directories)
+ *  - request parameters (excluding the leading question mark '?').
+ *
+ * The function accepts URIs, as well as UTF-8-encoded IRIs. For IRIs, the hier
+ * part (specifically, the host name) is assumed to be an IDN and is decoded to
+ * ASCII according, so it can be used for DNS resolution. If the host is an
+ * IPv6 address literal, brackets are stripped.
+ *
+ * Any missing part is set to nul. For historical reasons, the target structure
+ * is always initialized, even if parsing the URI string fails.
+ *
+ * On error, errno is set to one of the following value:
+ *  - ENOMEM in case of memory allocation failure,
+ *  - EINVAL in case of syntax error in the input string.
+ *
+ * \bug The URI fragment is discarded if present.
+ *
+ * \note This function allocates memory. vlc_UrlClean() must be used free
+ * associated the allocations, even if the function fails.
+ *
+ * \param url structure of URL parts [OUT]
+ * \param str nul-terminated URL string to split
+ * \retval 0 success
+ * \retval -1 failure
+ */
+VLC_API int vlc_UrlParse(vlc_url_t *url, const char *str);
+
+/**
+ * Parses an URI or IRI and fix up the path part.
+ *
+ * \see vlc_UrlParse
+ * \see vlc_uri_fixup
+ */
+VLC_API int vlc_UrlParseFixup(vlc_url_t *url, const char *str);
+
+/**
+ * Releases resources allocated by vlc_UrlParse().
+ */
+VLC_API void vlc_UrlClean(vlc_url_t *);
+
+/** @} */
 
 #endif

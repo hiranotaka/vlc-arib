@@ -29,13 +29,13 @@
 typedef enum
 {
     TYPE_FREE = 0,
+    TYPE_CAT,
     TYPE_PAT,
     TYPE_PMT,
-    TYPE_PES,
+    TYPE_STREAM,
     TYPE_SI,
     TYPE_PSIP,
 #ifdef HAVE_ARIB
-    TYPE_CAT,
     TYPE_EMM,
     TYPE_ECM,
 #endif
@@ -58,6 +58,7 @@ struct ts_pid_t
 
     uint8_t     i_flags;
     uint8_t     i_cc;   /* countinuity counter */
+    uint8_t     i_dup;  /* duplicate counter */
     uint8_t     type;
 
     uint16_t    i_refcount;
@@ -67,7 +68,7 @@ struct ts_pid_t
     {
         ts_pat_t    *p_pat;
         ts_pmt_t    *p_pmt;
-        ts_pes_t    *p_pes;
+        ts_stream_t    *p_stream;
         ts_si_t     *p_si;
         ts_psip_t   *p_psip;
 #ifdef HAVE_ARIB
@@ -80,8 +81,9 @@ struct ts_pid_t
     struct
     {
         vlc_fourcc_t i_fourcc;
-        int i_type;
+        int i_cat;
         int i_pcr_count;
+        uint8_t i_stream_id;
     } probed;
 
 };

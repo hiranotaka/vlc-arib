@@ -20,16 +20,18 @@
 #ifndef SEGMENTTRACKER_HPP
 #define SEGMENTTRACKER_HPP
 
-#include <StreamFormat.hpp>
+#include "StreamFormat.hpp"
 
 #include <vlc_common.h>
 #include <list>
 
 namespace adaptive
 {
+    class ID;
+
     namespace http
     {
-        class HTTPConnectionManager;
+        class AbstractConnectionManager;
     }
 
     namespace logic
@@ -54,11 +56,17 @@ namespace adaptive
             SegmentTrackerEvent(SegmentChunk *);
             SegmentTrackerEvent(BaseRepresentation *, BaseRepresentation *);
             SegmentTrackerEvent(const StreamFormat *);
+            SegmentTrackerEvent(const ID &, bool);
+            SegmentTrackerEvent(const ID &, mtime_t, mtime_t, mtime_t);
+            SegmentTrackerEvent(const ID &, mtime_t);
             enum
             {
                 DISCONTINUITY,
                 SWITCHING,
                 FORMATCHANGE,
+                BUFFERING_STATE,
+                BUFFERING_LEVEL_CHANGE,
+                SEGMENT_CHANGE,
             } type;
             union
             {
@@ -75,6 +83,23 @@ namespace adaptive
                {
                     const StreamFormat *f;
                } format;
+               struct
+               {
+                   const ID *id;
+                   bool enabled;
+               } buffering;
+               struct
+               {
+                   const ID *id;
+                   mtime_t minimum;
+                   mtime_t current;
+                   mtime_t target;
+               } buffering_level;
+               struct
+               {
+                    const ID *id;
+                   mtime_t duration;
+               } segment;
             } u;
     };
 
@@ -90,20 +115,22 @@ namespace adaptive
             SegmentTracker(AbstractAdaptationLogic *, BaseAdaptationSet *);
             ~SegmentTracker();
 
-            void setAdaptationLogic(AbstractAdaptationLogic *);
-            StreamFormat initialFormat() const;
+            StreamFormat getCurrentFormat() const;
             bool segmentsListReady() const;
             void reset();
-            SegmentChunk* getNextChunk(bool, HTTPConnectionManager *);
+            SegmentChunk* getNextChunk(bool, AbstractConnectionManager *);
             bool setPositionByTime(mtime_t, bool, bool);
             void setPositionByNumber(uint64_t, bool);
             mtime_t getPlaybackTime() const; /* Current segment start time if selected */
             mtime_t getMinAheadTime() const;
+            void notifyBufferingState(bool) const;
+            void notifyBufferingLevel(mtime_t, mtime_t, mtime_t) const;
             void registerListener(SegmentTrackerListenerInterface *);
             void updateSelected();
 
         private:
-            void notify(const SegmentTrackerEvent &);
+            void setAdaptationLogic(AbstractAdaptationLogic *);
+            void notify(const SegmentTrackerEvent &) const;
             bool first;
             bool initializing;
             bool index_sent;

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCRendererItem.m: Wrapper class for vlc_renderer_item
+ * VLCRendererItem.m: Wrapper class for vlc_renderer_item_t
  *****************************************************************************
  * Copyright (C) 2016 VLC authors and VideoLAN
  * $Id$
@@ -22,14 +22,14 @@
  *****************************************************************************/
 
 #import "VLCRendererItem.h"
-#import "StringUtility.h"
+#import "VLCStringUtility.h"
 
 #include <vlc_common.h>
 #include <vlc_renderer_discovery.h>
 
 @implementation VLCRendererItem
 
-- (instancetype)initWithRendererItem:(vlc_renderer_item*)item
+- (instancetype)initWithRendererItem:(vlc_renderer_item_t*)item
 {
     self = [super init];
     if (self) {
@@ -44,6 +44,7 @@
 - (void)dealloc
 {
     vlc_renderer_item_release(_rendererItem);
+    _rendererItem = nil;
 }
 
 - (NSString*)name
@@ -67,29 +68,18 @@
     return vlc_renderer_item_flags(_rendererItem);
 }
 
-- (bool)isSoutEqualTo:(const char*)sout asOutput:(bool)output
+- (void)setRendererForPlaylist:(playlist_t*)playlist
 {
-    NSString *temp_sout;
-    NSString *prefix;
-    NSString *self_sout;
-
-    prefix = (output) ? @"#" : @"";
-    self_sout = [prefix stringByAppendingString:toNSStr(vlc_renderer_item_sout(_rendererItem))];
-    temp_sout = toNSStr(sout);
-
-    return [temp_sout isEqualToString:self_sout];
+    playlist_SetRenderer(playlist, _rendererItem);
 }
 
-- (void)setSoutForPlaylist:(playlist_t*)playlist
+- (BOOL)isEqual:(id)object
 {
-    NSString *sout;
-    const char *item_sout = vlc_renderer_item_sout(_rendererItem);
-
-    if (!playlist || !item_sout)
-        return;
-
-    sout = [[NSString alloc] initWithFormat:@"#%s", item_sout];
-    var_SetString(playlist , "sout", sout.UTF8String);
+    if (![object isKindOfClass:[VLCRendererItem class]]) {
+        return NO;
+    }
+    VLCRendererItem *other = object;
+    return (other.rendererItem == self.rendererItem);
 }
 
 @end

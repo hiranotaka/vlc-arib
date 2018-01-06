@@ -37,6 +37,9 @@ void vlc_global_mutex (unsigned n, bool acquire)
         VLC_STATIC_MUTEX,
         VLC_STATIC_MUTEX,
         VLC_STATIC_MUTEX,
+#ifdef _WIN32
+        VLC_STATIC_MUTEX, // For MTA holder
+#endif
     };
     static_assert (VLC_MAX_MUTEX == (sizeof (locks) / sizeof (locks[0])),
                    "Wrong number of global mutexes");
@@ -56,7 +59,7 @@ void vlc_global_mutex (unsigned n, bool acquire)
 #endif
 
 #if defined(LIBVLC_NEED_SLEEP) || defined(LIBVLC_NEED_CONDVAR)
-#include <vlc_atomic.h>
+#include <stdatomic.h>
 
 static void vlc_cancel_addr_prepare(void *addr)
 {
@@ -85,7 +88,10 @@ void (mwait)(mtime_t deadline)
     vlc_cancel_addr_prepare(&value);
 
     while ((delay = (deadline - mdate())) > 0)
+    {
         vlc_addr_timedwait(&value, 0, delay);
+        vlc_testcancel();
+    }
 
     vlc_cancel_addr_finish(&value);
 }
@@ -101,7 +107,7 @@ void (msleep)(mtime_t delay)
 
 static inline atomic_uint *vlc_cond_value(vlc_cond_t *cond)
 {
-    /* XXX: ugly but avoids including vlc_atomic.h in vlc_threads.h */
+    /* XXX: ugly but avoids including stdatomic.h in vlc_threads.h */
     static_assert (sizeof (cond->value) <= sizeof (atomic_uint),
                    "Size mismatch!");
     static_assert ((alignof (cond->value) % alignof (atomic_uint)) == 0,

@@ -30,7 +30,7 @@
 #include "input_manager.hpp"
 #include "recents.hpp"
 
-#include <vlc_keys.h>           /* ACTION_ID */
+#include <vlc_actions.h>           /* ACTION_ID */
 #include <vlc_url.h>            /* vlc_uri_decode */
 #include <vlc_strings.h>        /* vlc_strfinput */
 #include <vlc_aout.h>           /* audio_output_t */
@@ -250,9 +250,6 @@ void InputManager::customEvent( QEvent *event )
     case IMEvent::ItemStateChanged:
         UpdateStatus();
         break;
-    case IMEvent::NameChanged:
-        UpdateName();
-        break;
     case IMEvent::MetaChanged:
         UpdateMeta();
         UpdateName(); /* Needed for NowPlaying */
@@ -318,24 +315,20 @@ inline void InputManager::delCallbacks()
 }
 
 /* Static callbacks for IM */
-int MainInputManager::ItemChanged( vlc_object_t *p_this, const char *psz_var,
-                        vlc_value_t oldval, vlc_value_t newval, void *param )
+int MainInputManager::ItemChanged( vlc_object_t *, const char *,
+                                   vlc_value_t, vlc_value_t val, void *param )
 {
-    VLC_UNUSED( p_this ); VLC_UNUSED( psz_var ); VLC_UNUSED( oldval );
-
     InputManager *im = (InputManager*)param;
-    input_item_t *p_item = static_cast<input_item_t *>(newval.p_address);
+    input_item_t *p_item = static_cast<input_item_t *>(val.p_address);
 
     IMEvent *event = new IMEvent( IMEvent::ItemChanged, p_item );
     QApplication::postEvent( im, event );
     return VLC_SUCCESS;
 }
 
-static int InputEvent( vlc_object_t *p_this, const char *,
+static int InputEvent( vlc_object_t *, const char *,
                        vlc_value_t, vlc_value_t newval, void *param )
 {
-    VLC_UNUSED( p_this );
-
     InputManager *im = (InputManager*)param;
     IMEvent *event;
 
@@ -380,9 +373,6 @@ static int InputEvent( vlc_object_t *p_this, const char *,
         break;
     case INPUT_EVENT_ITEM_INFO: /* Codec Info */
         event = new IMEvent( IMEvent::InfoChanged );
-        break;
-    case INPUT_EVENT_ITEM_NAME:
-        event = new IMEvent( IMEvent::NameChanged );
         break;
 
     case INPUT_EVENT_AUDIO_DELAY:
@@ -835,6 +825,14 @@ void InputManager::sectionMenu()
  *  Teletext Functions
  */
 
+void InputManager::changeProgram( int program )
+{
+    if( hasInput() )
+    {
+        var_SetInteger( p_input, "program", program );
+    }
+}
+
 /* Set a new Teletext Page */
 void InputManager::telexSetPage( int page )
 {
@@ -1036,6 +1034,28 @@ vout_thread_t* MainInputManager::getVout()
     return p_input ? input_GetVout( p_input ) : NULL;
 }
 
+QVector<vout_thread_t*> MainInputManager::getVouts() const
+{
+    vout_thread_t **pp_vout;
+    size_t i_vout;
+
+    if( p_input == NULL
+     || input_Control( p_input, INPUT_GET_VOUTS, &pp_vout, &i_vout ) != VLC_SUCCESS
+     || i_vout == 0 )
+        return QVector<vout_thread_t*>();
+
+    QVector<vout_thread_t*> vector = QVector<vout_thread_t*>();
+    vector.reserve( i_vout );
+    for( size_t i = 0; i < i_vout; i++ )
+    {
+        assert( pp_vout[i] );
+        vector.append( pp_vout[i] );
+    }
+    free( pp_vout );
+
+    return vector;
+}
+
 audio_output_t * MainInputManager::getAout()
 {
     return playlist_GetAout( THEPL );
@@ -1189,12 +1209,9 @@ bool MainInputManager::hasEmptyPlaylist()
 /****************************
  * Static callbacks for MIM *
  ****************************/
-int MainInputManager::PLItemChanged( vlc_object_t *p_this, const char *psz_var,
-                        vlc_value_t oldval, vlc_value_t val, void *param )
+int MainInputManager::PLItemChanged( vlc_object_t *, const char *,
+                                     vlc_value_t, vlc_value_t, void *param )
 {
-    VLC_UNUSED( p_this ); VLC_UNUSED( psz_var ); VLC_UNUSED( oldval );
-    VLC_UNUSED( val );
-
     MainInputManager *mim = (MainInputManager*)param;
 
     IMEvent *event = new IMEvent( IMEvent::ItemChanged );
@@ -1202,13 +1219,12 @@ int MainInputManager::PLItemChanged( vlc_object_t *p_this, const char *psz_var,
     return VLC_SUCCESS;
 }
 
-int MainInputManager::LeafToParent( vlc_object_t *p_this, const char *psz_var,
-                        vlc_value_t oldval, vlc_value_t newval, void *param )
+int MainInputManager::LeafToParent( vlc_object_t *, const char *,
+                                    vlc_value_t, vlc_value_t val, void *param )
 {
-    VLC_UNUSED( p_this ); VLC_UNUSED( psz_var ); VLC_UNUSED( oldval );
     MainInputManager *mim = (MainInputManager*)param;
 
-    PLEvent *event = new PLEvent( PLEvent::LeafToParent, newval.i_int );
+    PLEvent *event = new PLEvent( PLEvent::LeafToParent, val.i_int );
 
     QApplication::postEvent( mim, event );
     return VLC_SUCCESS;
@@ -1235,29 +1251,30 @@ void MainInputManager::menusUpdateAudio( const QString& data )
     }
 }
 
-int MainInputManager::PLItemAppended
-( vlc_object_t * obj, const char *var, vlc_value_t old, vlc_value_t cur, void *data )
+int MainInputManager::PLItemAppended( vlc_object_t *, const char *,
+                                      vlc_value_t, vlc_value_t cur,
+                                      void *data )
 {
-    VLC_UNUSED( obj ); VLC_UNUSED( var ); VLC_UNUSED( old );
     MainInputManager *mim = static_cast<MainInputManager*>(data);
-    playlist_add_t *p_add = static_cast<playlist_add_t*>( cur.p_address );
+    playlist_item_t *item = static_cast<playlist_item_t *>( cur.p_address );
 
-    PLEvent *event = new PLEvent( PLEvent::PLItemAppended, p_add->i_item, p_add->i_node  );
+    PLEvent *event = new PLEvent( PLEvent::PLItemAppended, item->i_id,
+        (item->p_parent != NULL) ? item->p_parent->i_id : -1  );
     QApplication::postEvent( mim, event );
-    event = new PLEvent( PLEvent::PLEmpty, p_add->i_item, 0  );
+
+    event = new PLEvent( PLEvent::PLEmpty, item->i_id, 0  );
     QApplication::postEvent( mim, event );
     return VLC_SUCCESS;
 }
 
-int MainInputManager::PLItemRemoved
-( vlc_object_t * obj, const char *var, vlc_value_t old, vlc_value_t cur, void *data )
+int MainInputManager::PLItemRemoved( vlc_object_t *obj, const char *,
+                                     vlc_value_t, vlc_value_t cur, void *data )
 {
-    VLC_UNUSED( var ); VLC_UNUSED( old );
-
     playlist_t *pl = (playlist_t *) obj;
     MainInputManager *mim = static_cast<MainInputManager*>(data);
+    playlist_item_t *item = static_cast<playlist_item_t *>( cur.p_address );
 
-    PLEvent *event = new PLEvent( PLEvent::PLItemRemoved, cur.i_int, 0  );
+    PLEvent *event = new PLEvent( PLEvent::PLItemRemoved, item->i_id, 0  );
     QApplication::postEvent( mim, event );
     // can't use playlist_IsEmpty(  ) as it isn't true yet
     if ( pl->items.i_size == 1 ) // lock is held

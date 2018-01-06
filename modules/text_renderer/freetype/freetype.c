@@ -39,6 +39,7 @@
 #include <vlc_plugin.h>
 #include <vlc_input.h>                             /* vlc_input_attachment_* */
 #include <vlc_filter.h>                                      /* filter_sys_t */
+#include <vlc_subpicture.h>
 #include <vlc_text_style.h>                                   /* text_style_t*/
 #include <vlc_charset.h>
 
@@ -51,9 +52,7 @@
 /* Win32 */
 #ifdef _WIN32
 # undef HAVE_FONTCONFIG
-# if !VLC_WINSTORE_APP
-#  define HAVE_GET_FONT_BY_FAMILY_NAME
-# endif
+# define HAVE_GET_FONT_BY_FAMILY_NAME
 #endif
 
 /* FontConfig */
@@ -84,24 +83,16 @@ static void Destroy( vlc_object_t * );
 #define FAMILY_LONGTEXT N_("Font family for the font you want to use")
 #define FONT_LONGTEXT N_("Font file for the font you want to use")
 
-#define FONTSIZE_TEXT N_("Font size in pixels")
-#define FONTSIZE_LONGTEXT N_("This is the default size of the fonts " \
-    "that will be rendered on the video. " \
-    "If set to something different than 0 this option will override the " \
-    "relative font size." )
 #define OPACITY_TEXT N_("Text opacity")
 #define OPACITY_LONGTEXT N_("The opacity (inverse of transparency) of the " \
     "text that will be rendered on the video. 0 = transparent, " \
-    "255 = totally opaque. " )
+    "255 = totally opaque." )
 #define COLOR_TEXT N_("Text default color")
 #define COLOR_LONGTEXT N_("The color of the text that will be rendered on "\
     "the video. This must be an hexadecimal (like HTML colors). The first two "\
     "chars are for red, then green, then blue. #000000 = black, #FF0000 = red,"\
     " #00FF00 = green, #FFFF00 = yellow (red + green), #FFFFFF = white" )
-#define FONTSIZER_TEXT N_("Relative font size")
-#define FONTSIZER_LONGTEXT N_("This is the relative default size of the " \
-    "fonts that will be rendered on the video. If absolute font size is set, "\
-    "relative size will be overridden." )
+
 #define BOLD_TEXT N_("Force bold")
 
 #define BG_OPACITY_TEXT N_("Background opacity")
@@ -167,18 +158,6 @@ vlc_module_begin ()
     add_loadfile( "freetype-monofont", DEFAULT_MONOSPACE_FONT_FILE, MONOSPACE_FONT_TEXT, FONT_LONGTEXT, false )
 #endif
 
-#define FREETYPE_DEFAULT_FONT_SIZE 12
-
-    add_integer( "freetype-fontsize", 0, FONTSIZE_TEXT,
-                 FONTSIZE_LONGTEXT, true )
-        change_integer_range( 0, 4096)
-        change_safe()
-
-    add_integer( "freetype-rel-fontsize", 16, FONTSIZER_TEXT,
-                 FONTSIZER_LONGTEXT, false )
-        change_integer_list( pi_sizes, ppsz_sizes_text )
-        change_safe()
-
     /* opacity valid on 0..255, with default 255 = fully opaque */
     add_integer_with_range( "freetype-opacity", 255, 0, 255,
         OPACITY_TEXT, OPACITY_LONGTEXT, false )
@@ -188,6 +167,7 @@ vlc_module_begin ()
     add_rgb( "freetype-color", 0x00FFFFFF, COLOR_TEXT,
                  COLOR_LONGTEXT, false )
         change_integer_list( pi_color_values, ppsz_color_descriptions )
+        change_integer_range( 0x000000, 0xFFFFFF )
         change_safe()
 
     add_bool( "freetype-bold", false, BOLD_TEXT, NULL, false )
@@ -199,6 +179,7 @@ vlc_module_begin ()
     add_rgb( "freetype-background-color", 0x00000000, BG_COLOR_TEXT,
              NULL, false )
         change_integer_list( pi_color_values, ppsz_color_descriptions )
+        change_integer_range( 0x000000, 0xFFFFFF )
         change_safe()
 
     add_integer_with_range( "freetype-outline-opacity", 255, 0, 255,
@@ -207,6 +188,7 @@ vlc_module_begin ()
     add_rgb( "freetype-outline-color", 0x00000000, OUTLINE_COLOR_TEXT,
              NULL, false )
         change_integer_list( pi_color_values, ppsz_color_descriptions )
+        change_integer_range( 0x000000, 0xFFFFFF )
         change_safe()
     add_integer_with_range( "freetype-outline-thickness", 4, 0, 50, OUTLINE_THICKNESS_TEXT,
              NULL, false )
@@ -219,6 +201,7 @@ vlc_module_begin ()
     add_rgb( "freetype-shadow-color", 0x00000000, SHADOW_COLOR_TEXT,
              NULL, false )
         change_integer_list( pi_color_values, ppsz_color_descriptions )
+        change_integer_range( 0x000000, 0xFFFFFF )
         change_safe()
     add_float_with_range( "freetype-shadow-angle", -45, -360, 360,
                           SHADOW_ANGLE_TEXT, NULL, false )
@@ -227,6 +210,8 @@ vlc_module_begin ()
                           SHADOW_DISTANCE_TEXT, NULL, false )
         change_safe()
 
+    add_obsolete_integer( "freetype-fontsize" );
+    add_obsolete_integer( "freetype-rel-fontsize" );
     add_obsolete_integer( "freetype-effect" );
 
     add_bool( "freetype-yuvp", false, YUVP_TEXT,
@@ -267,6 +252,28 @@ static void RGBFromRGB( uint32_t i_argb,
     *pi_b = ( i_argb & 0x000000ff );
 }
 
+static FT_Vector GetAlignedOffset( const line_desc_t *p_line,
+                                   const FT_BBox *p_textbbox,
+                                   int i_align )
+{
+    FT_Vector offsets = { 0, 0 };
+    const int i_text_width = p_textbbox->xMax - p_textbbox->xMin;
+    if ( p_line->i_width < i_text_width &&
+        (i_align & SUBPICTURE_ALIGN_LEFT) == 0 )
+    {
+        /* Left offset to take into account alignment */
+        if( i_align & SUBPICTURE_ALIGN_RIGHT )
+            offsets.x = ( i_text_width - p_line->i_width );
+        else /* center */
+            offsets.x = ( i_text_width - p_line->i_width ) / 2;
+    }
+    else
+    {
+        offsets.x = p_textbbox->xMin - p_line->bbox.xMin;
+    }
+    return offsets;
+}
+
 /*****************************************************************************
  * Make any TTF/OTF fonts present in the attachments of the media file
  * and store them for later use by the FreeType Engine
@@ -283,7 +290,7 @@ static int LoadFontsFromAttachments( filter_t *p_filter )
         return VLC_EGENERIC;
 
     p_sys->i_font_attachments = 0;
-    p_sys->pp_font_attachments = malloc( i_attachments_cnt * sizeof(*p_sys->pp_font_attachments));
+    p_sys->pp_font_attachments = vlc_alloc( i_attachments_cnt, sizeof(*p_sys->pp_font_attachments));
     if( !p_sys->pp_font_attachments )
     {
         for( int i = 0; i < i_attachments_cnt; ++i )
@@ -318,7 +325,7 @@ static int LoadFontsFromAttachments( filter_t *p_filter )
                 if( p_face->family_name )
                     psz_lc = ToLower( p_face->family_name );
                 else
-                    if( asprintf( &psz_lc, FB_NAME"-%02d",
+                    if( asprintf( &psz_lc, FB_NAME"-%04d",
                                   p_sys->i_fallback_counter++ ) < 0 )
                         psz_lc = NULL;
 
@@ -404,9 +411,11 @@ error:
  *****************************************************************************/
 static int RenderYUVP( filter_t *p_filter, subpicture_region_t *p_region,
                        line_desc_t *p_line,
+                       FT_BBox *p_regionbbox, FT_BBox *p_paddedbbox,
                        FT_BBox *p_bbox )
 {
     VLC_UNUSED(p_filter);
+    VLC_UNUSED(p_paddedbbox);
     static const uint8_t pi_gamma[16] =
         {0x00, 0x52, 0x84, 0x96, 0xb8, 0xca, 0xdc, 0xee, 0xff,
           0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
@@ -420,9 +429,12 @@ static int RenderYUVP( filter_t *p_filter, subpicture_region_t *p_region,
     /* Create a new subpicture region */
     video_format_Init( &fmt, VLC_CODEC_YUVP );
     fmt.i_width          =
-    fmt.i_visible_width  = p_bbox->xMax - p_bbox->xMin + 4;
+    fmt.i_visible_width  = p_regionbbox->xMax - p_regionbbox->xMin + 4;
     fmt.i_height         =
-    fmt.i_visible_height = p_bbox->yMax - p_bbox->yMin + 4;
+    fmt.i_visible_height = p_regionbbox->yMax - p_regionbbox->yMin + 4;
+    const unsigned regionnum = p_region->fmt.i_sar_num;
+    const unsigned regionden = p_region->fmt.i_sar_den;
+    fmt.i_sar_num = fmt.i_sar_den = 1;
 
     assert( !p_region->p_picture );
     p_region->p_picture = picture_NewFromFormat( &fmt );
@@ -430,6 +442,8 @@ static int RenderYUVP( filter_t *p_filter, subpicture_region_t *p_region,
         return VLC_EGENERIC;
     fmt.p_palette = p_region->fmt.p_palette ? p_region->fmt.p_palette : malloc(sizeof(*fmt.p_palette));
     p_region->fmt = fmt;
+    fmt.i_sar_num = regionnum;
+    fmt.i_sar_den = regionden;
 
     /* Calculate text color components
      * Only use the first color */
@@ -465,23 +479,15 @@ static int RenderYUVP( filter_t *p_filter, subpicture_region_t *p_region,
 
     for( ; p_line != NULL; p_line = p_line->p_next )
     {
-        int i_align_left = 0;
-        if( p_line->i_width < (int)fmt.i_visible_width )
-        {
-            if( (p_region->i_align & 0x3) == SUBPICTURE_ALIGN_RIGHT )
-                i_align_left = ( fmt.i_visible_width - p_line->i_width );
-            else if( (p_region->i_align & 0x3) != SUBPICTURE_ALIGN_LEFT )
-                i_align_left = ( fmt.i_visible_width - p_line->i_width ) / 2;
-        }
-        int i_align_top = 0;
+        FT_Vector offset = GetAlignedOffset( p_line, p_bbox, p_region->i_align );
 
         for( i = 0; i < p_line->i_character_count; i++ )
         {
             const line_character_t *ch = &p_line->p_character[i];
             FT_BitmapGlyph p_glyph = ch->p_glyph;
 
-            int i_glyph_y = i_align_top  - p_glyph->top  + p_bbox->yMax + p_line->i_base_line;
-            int i_glyph_x = i_align_left + p_glyph->left - p_bbox->xMin;
+            int i_glyph_y = offset.y + p_regionbbox->yMax - p_glyph->top + p_line->i_base_line;
+            int i_glyph_x = offset.x + p_glyph->left - p_regionbbox->xMin;
 
             for( y = 0; y < p_glyph->bitmap.rows; y++ )
             {
@@ -498,7 +504,7 @@ static int RenderYUVP( filter_t *p_filter, subpicture_region_t *p_region,
     /* Outlining (find something better than nearest neighbour filtering ?) */
     if( 1 )
     {
-        uint8_t *p_dst = p_region->p_picture->Y_PIXELS;
+        p_dst = p_region->p_picture->Y_PIXELS;
         uint8_t *p_top = p_dst; /* Use 1st line as a cache */
         uint8_t left, current;
 
@@ -704,76 +710,66 @@ static inline void BlendAXYZLine( picture_t *p_picture,
 
 static inline void RenderBackground( subpicture_region_t *p_region,
                                      line_desc_t *p_line_head,
-                                     FT_BBox *p_bbox,
-                                     int i_margin,
+                                     FT_BBox *p_regionbbox,
+                                     FT_BBox *p_paddedbbox,
+                                     FT_BBox *p_textbbox,
                                      picture_t *p_picture,
-                                     int i_text_width,
                                      void (*ExtractComponents)( uint32_t, uint8_t *, uint8_t *, uint8_t * ),
                                      void (*BlendPixel)(picture_t *, int, int, int, int, int, int, int) )
 {
-    for( line_desc_t *p_line = p_line_head; p_line != NULL; p_line = p_line->p_next )
+    FT_BBox prevbox;
+
+    for( const line_desc_t *p_line = p_line_head; p_line != NULL; p_line = p_line->p_next )
     {
-        int i_align_left = i_margin;
-        int i_align_top = i_margin;
-        unsigned line_top = 0;
-        int line_bottom = 0;
-        int max_height = 0;
+        FT_Vector offset = GetAlignedOffset( p_line, p_textbbox, p_region->i_text_align );
 
-        if( p_line->i_width < i_text_width )
-        {
-            /* Left offset to take into account alignment */
-            if( (p_region->i_align & 0x3) == SUBPICTURE_ALIGN_RIGHT )
-                i_align_left += ( i_text_width - p_line->i_width );
-            else if( (p_region->i_align & 0x10) == SUBPICTURE_ALIGN_LEAVETEXT)
-                i_align_left = i_margin; /* Keep it the way it is */
-            else if( (p_region->i_align & 0x3) != SUBPICTURE_ALIGN_LEFT )
-                i_align_left += ( i_text_width - p_line->i_width ) / 2;
-        }
-
-        /* Find the tallest character in the line */
-        for( int i = 0; i < p_line->i_character_count; i++ ) {
-            const line_character_t *ch = &p_line->p_character[i];
-            FT_BitmapGlyph p_glyph = ch->p_outline ? ch->p_outline : ch->p_glyph;
-            if (p_glyph->top > max_height)
-                max_height = p_glyph->top;
-        }
+        FT_BBox linebgbox = p_line->bbox;
+        linebgbox.xMin += offset.x;
+        linebgbox.xMax += offset.x;
+        linebgbox.yMax += offset.y;
+        linebgbox.yMin += offset.y;
 
         if( p_line->i_first_visible_char_index < 0 )
             continue; /* only spaces */
 
-        /* Compute the upper boundary for the background */
-        line_top = __MAX(0, i_align_top - max_height  + p_bbox->yMax + p_line->i_base_line);
+        /* add padding */
+        linebgbox.yMax += (p_paddedbbox->xMax - p_textbbox->xMax);
+        linebgbox.yMin -= (p_textbbox->xMin - p_paddedbbox->xMin);
+        linebgbox.xMin -= (p_textbbox->xMin - p_paddedbbox->xMin);
+        linebgbox.xMax += (p_paddedbbox->xMax - p_textbbox->xMax);
 
-        /* Compute lower boundary for the background */
-        line_bottom =  __MIN(line_top + p_line->i_height, p_region->fmt.i_visible_height);
-
-        /* Compute the background for the line (identify leading/trailing space) */
-        int line_start = p_line->p_character[p_line->i_first_visible_char_index].p_glyph->left +
-                         i_align_left - p_bbox->xMin;
-
-        /* Fudge factor to make sure caption background edges are left aligned
-           despite variable font width */
-        if (line_start < 12)
-            line_start = 0;
+        /* Compute lower boundary for the background
+           continue down to next line top */
+        if( p_line->p_next && p_line->p_next->i_first_visible_char_index >= 0 )
+            linebgbox.yMin = __MIN(linebgbox.yMin, p_line->bbox.yMin - (p_line->bbox.yMin - p_line->p_next->bbox.yMax));
 
         /* Setup color for the background */
         const text_style_t *p_prev_style = p_line->p_character[p_line->i_first_visible_char_index].p_style;
 
+        FT_BBox segmentbgbox = linebgbox;
         int i_char_index = p_line->i_first_visible_char_index;
+        /* Compute the background for the line (identify leading/trailing space) */
+        if( i_char_index > 0 )
+        {
+            segmentbgbox.xMin = offset.x +
+                                p_line->p_character[p_line->i_first_visible_char_index].bbox.xMin -
+                                /* padding offset */ (p_textbbox->xMin - p_paddedbbox->xMin);
+        }
+
         while( i_char_index <= p_line->i_last_visible_char_index )
         {
             /* find last char having the same style */
             int i_seg_end = i_char_index;
-            while( i_seg_end < p_line->i_last_visible_char_index &&
-                   p_prev_style == p_line->p_character[i_seg_end].p_style )
+            while( i_seg_end + 1 <= p_line->i_last_visible_char_index &&
+                   p_prev_style == p_line->p_character[i_seg_end + 1].p_style )
             {
                 i_seg_end++;
             }
 
             /* Find right boundary for bounding box for background */
-            int line_end = p_line->p_character[i_seg_end].p_glyph->left +
-                           p_line->p_character[i_seg_end].p_glyph->bitmap.width +
-                           i_align_left - p_bbox->xMin;
+            segmentbgbox.xMax = offset.x + p_line->p_character[i_seg_end].bbox.xMax;
+            if( i_seg_end == p_line->i_last_visible_char_index ) /* add padding on last */
+                segmentbgbox.xMax += (p_paddedbbox->xMax - p_textbbox->xMax);
 
             const line_character_t *p_char = &p_line->p_character[i_char_index];
             if( p_char->p_style->i_style_flags & STYLE_BACKGROUND )
@@ -788,15 +784,26 @@ static inline void RenderBackground( subpicture_region_t *p_region,
                 /* Render the actual background */
                 if( i_alpha != STYLE_ALPHA_TRANSPARENT )
                 {
-                    for( int dy = line_top; dy < line_bottom; dy++ )
+                    /* rebase and clip to SCREEN coordinates */
+                    FT_BBox absbox =
                     {
-                        for( int dx = line_start; dx < line_end; dx++ )
+                        .xMin = __MAX(0, segmentbgbox.xMin - p_regionbbox->xMin),
+                        .xMax = VLC_CLIP(segmentbgbox.xMax - p_regionbbox->xMin,
+                                         0, p_region->fmt.i_visible_width),
+                        .yMin = VLC_CLIP(p_regionbbox->yMax - segmentbgbox.yMin,
+                                         0, p_region->fmt.i_visible_height),
+                        .yMax = __MAX(0, p_regionbbox->yMax - segmentbgbox.yMax),
+                    };
+
+                    for( int dy = absbox.yMax; dy < absbox.yMin; dy++ )
+                    {
+                        for( int dx = absbox.xMin; dx < absbox.xMax; dx++ )
                             BlendPixel( p_picture, dx, dy, i_alpha, i_x, i_y, i_z, 0xff );
                     }
                 }
             }
 
-            line_start = line_end;
+            segmentbgbox.xMin = segmentbgbox.xMax;
             i_char_index = i_seg_end + 1;
             p_prev_style = p_line->p_character->p_style;
         }
@@ -807,31 +814,35 @@ static inline void RenderBackground( subpicture_region_t *p_region,
 static inline int RenderAXYZ( filter_t *p_filter,
                               subpicture_region_t *p_region,
                               line_desc_t *p_line_head,
-                              FT_BBox *p_bbox,
-                              int i_margin,
+                              FT_BBox *p_regionbbox,
+                              FT_BBox *p_paddedtextbbox,
+                              FT_BBox *p_textbbox,
                               vlc_fourcc_t i_chroma,
                               void (*ExtractComponents)( uint32_t, uint8_t *, uint8_t *, uint8_t * ),
                               void (*FillPicture)( picture_t *p_picture, int, int, int, int ),
                               void (*BlendPixel)(picture_t *, int, int, int, int, int, int, int) )
 {
     /* Create a new subpicture region */
-    const int i_text_width  = p_bbox->xMax - p_bbox->xMin;
-    const int i_text_height = p_bbox->yMax - p_bbox->yMin;
     video_format_t fmt;
     video_format_Init( &fmt, i_chroma );
     fmt.i_width          =
-    fmt.i_visible_width  = i_text_width  + 2 * i_margin;
+    fmt.i_visible_width  = p_regionbbox->xMax - p_regionbbox->xMin;
     fmt.i_height         =
-    fmt.i_visible_height = i_text_height + 2 * i_margin;
+    fmt.i_visible_height = p_regionbbox->yMax - p_regionbbox->yMin;
+    const unsigned regionnum = p_region->fmt.i_sar_num;
+    const unsigned regionden = p_region->fmt.i_sar_den;
+    fmt.i_sar_num = fmt.i_sar_den = 1;
 
     picture_t *p_picture = p_region->p_picture = picture_NewFromFormat( &fmt );
     if( !p_region->p_picture )
         return VLC_EGENERIC;
+
     p_region->fmt = fmt;
+    p_region->fmt.i_sar_num = regionnum;
+    p_region->fmt.i_sar_den = regionden;
 
     /* Initialize the picture background */
-    uint8_t i_a = var_InheritInteger( p_filter, "freetype-background-opacity" );
-    i_a = VLC_CLIP( i_a, 0, 255 );
+    const text_style_t *p_style = p_filter->p_sys->p_default_style;
     uint8_t i_x, i_y, i_z;
 
     if (p_region->b_noregionbg) {
@@ -839,14 +850,14 @@ static inline int RenderAXYZ( filter_t *p_filter,
         FillPicture( p_picture, STYLE_ALPHA_TRANSPARENT, 0x00, 0x00, 0x00 );
     } else {
         /* Render background under entire subpicture block */
-        int i_background_color = var_InheritInteger( p_filter, "freetype-background-color" );
-        i_background_color = VLC_CLIP( i_background_color, 0, 0xFFFFFF );
-        ExtractComponents( i_background_color, &i_x, &i_y, &i_z );
-        FillPicture( p_picture, i_a, i_x, i_y, i_z );
+        ExtractComponents( p_style->i_background_color, &i_x, &i_y, &i_z );
+        FillPicture( p_picture, p_style->i_background_alpha, i_x, i_y, i_z );
     }
+
     /* Render text's background (from decoder) if any */
-    RenderBackground(p_region, p_line_head, p_bbox, i_margin, p_picture, i_text_width,
-                     ExtractComponents, BlendPixel);
+    RenderBackground(p_region, p_line_head,
+                     p_regionbbox, p_paddedtextbbox, p_textbbox,
+                     p_picture, ExtractComponents, BlendPixel);
 
     /* Render shadow then outline and then normal glyphs */
     for( int g = 0; g < 3; g++ )
@@ -854,18 +865,7 @@ static inline int RenderAXYZ( filter_t *p_filter,
         /* Render all lines */
         for( line_desc_t *p_line = p_line_head; p_line != NULL; p_line = p_line->p_next )
         {
-            int i_align_left = i_margin;
-            if( p_line->i_width < i_text_width )
-            {
-                /* Left offset to take into account alignment */
-                if( (p_region->i_align & 0x3) == SUBPICTURE_ALIGN_RIGHT )
-                    i_align_left += ( i_text_width - p_line->i_width );
-                else if( (p_region->i_align & 0x10) == SUBPICTURE_ALIGN_LEAVETEXT)
-                    i_align_left = i_margin; /* Keep it the way it is */
-                else if( (p_region->i_align & 0x3) != SUBPICTURE_ALIGN_LEFT )
-                    i_align_left += ( i_text_width - p_line->i_width ) / 2;
-            }
-            int i_align_top = i_margin;
+            FT_Vector offset = GetAlignedOffset( p_line, p_textbbox, p_region->i_text_align );
 
             /* Render all glyphs and underline/strikethrough */
             for( int i = p_line->i_first_visible_char_index; i <= p_line->i_last_visible_char_index; i++ )
@@ -875,7 +875,7 @@ static inline int RenderAXYZ( filter_t *p_filter,
                 if( !p_glyph )
                     continue;
 
-                i_a = ch->p_style->i_font_alpha;
+                uint8_t i_a = ch->p_style->i_font_alpha;
 
                 uint32_t i_color;
                 switch (g) {/* Apply font alpha ratio to shadow/outline alpha */
@@ -901,8 +901,8 @@ static inline int RenderAXYZ( filter_t *p_filter,
 
                 ExtractComponents( i_color, &i_x, &i_y, &i_z );
 
-                int i_glyph_y = i_align_top  - p_glyph->top  + p_bbox->yMax + p_line->i_base_line;
-                int i_glyph_x = i_align_left + p_glyph->left - p_bbox->xMin;
+                int i_glyph_y = offset.y + p_regionbbox->yMax - p_glyph->top + p_line->i_base_line;
+                int i_glyph_x = offset.x + p_glyph->left - p_regionbbox->xMin;
 
                 BlendAXYZGlyph( p_picture,
                                 i_glyph_x, i_glyph_y,
@@ -925,34 +925,57 @@ static inline int RenderAXYZ( filter_t *p_filter,
     return VLC_SUCCESS;
 }
 
+static void UpdateDefaultLiveStyles( filter_t *p_filter )
+{
+    text_style_t *p_style = p_filter->p_sys->p_default_style;
+
+    p_style->i_font_color = var_InheritInteger( p_filter, "freetype-color" );
+
+    p_style->i_background_alpha = var_InheritInteger( p_filter, "freetype-background-opacity" );
+    p_style->i_background_color = var_InheritInteger( p_filter, "freetype-background-color" );
+}
+
 static void FillDefaultStyles( filter_t *p_filter )
 {
     filter_sys_t *p_sys = p_filter->p_sys;
 
     p_sys->p_default_style->psz_fontname = var_InheritString( p_filter, "freetype-font" );
-    p_sys->p_default_style->psz_monofontname = var_InheritString( p_filter, "freetype-monofont" );
+    /* Set default psz_fontname */
+    if( !p_sys->p_default_style->psz_fontname || !*p_sys->p_default_style->psz_fontname )
+    {
+        free( p_sys->p_default_style->psz_fontname );
+#ifdef HAVE_GET_FONT_BY_FAMILY_NAME
+        p_sys->p_default_style->psz_fontname = strdup( DEFAULT_FAMILY );
+#else
+        p_sys->p_default_style->psz_fontname = File_Select( DEFAULT_FONT_FILE );
+#endif
+    }
 
-    p_sys->p_default_style->i_font_alpha = var_InheritInteger( p_filter,"freetype-opacity" );
-    p_sys->p_default_style->i_font_alpha = VLC_CLIP( p_sys->p_default_style->i_font_alpha, 0, 255 );
+    p_sys->p_default_style->psz_monofontname = var_InheritString( p_filter, "freetype-monofont" );
+    /* set default psz_monofontname */
+    if( !p_sys->p_default_style->psz_monofontname || !*p_sys->p_default_style->psz_monofontname )
+    {
+        free( p_sys->p_default_style->psz_monofontname );
+#ifdef HAVE_GET_FONT_BY_FAMILY_NAME
+        p_sys->p_default_style->psz_monofontname = strdup( DEFAULT_MONOSPACE_FAMILY );
+#else
+        p_sys->p_default_style->psz_monofontname = File_Select( DEFAULT_MONOSPACE_FONT_FILE );
+#endif
+    }
+
+    UpdateDefaultLiveStyles( p_filter );
+
+    p_sys->p_default_style->i_font_alpha = var_InheritInteger( p_filter, "freetype-opacity" );
 
     p_sys->p_default_style->i_outline_alpha = var_InheritInteger( p_filter, "freetype-outline-opacity" );
-    p_sys->p_default_style->i_outline_alpha = VLC_CLIP( p_sys->p_default_style->i_outline_alpha, 0, 255 );
     p_sys->p_default_style->i_outline_color = var_InheritInteger( p_filter, "freetype-outline-color" );
-    p_sys->p_default_style->i_outline_color = VLC_CLIP( p_sys->p_default_style->i_outline_color, 0, 0xFFFFFF );
 
     p_sys->p_default_style->i_shadow_alpha = var_InheritInteger( p_filter, "freetype-shadow-opacity" );
-    p_sys->p_default_style->i_shadow_alpha = VLC_CLIP( p_sys->p_default_style->i_shadow_alpha, 0, 255 );
     p_sys->p_default_style->i_shadow_color = var_InheritInteger( p_filter, "freetype-shadow-color" );
-    p_sys->p_default_style->i_shadow_color = VLC_CLIP( p_sys->p_default_style->i_shadow_color, 0, 0xFFFFFF );
 
     p_sys->p_default_style->i_font_size = 0;
     p_sys->p_default_style->i_style_flags |= STYLE_SHADOW;
     p_sys->p_default_style->i_features |= STYLE_HAS_FLAGS;
-
-    p_sys->p_forced_style->i_font_size = var_InheritInteger( p_filter, "freetype-fontsize" );
-    p_sys->p_forced_style->f_font_relsize = var_InheritInteger( p_filter, "freetype-rel-fontsize" );
-    if( p_sys->p_forced_style->f_font_relsize )
-        p_sys->p_forced_style->f_font_relsize = 1.0 / p_sys->p_forced_style->f_font_relsize;
 
     if( var_InheritBool( p_filter, "freetype-bold" ) )
     {
@@ -1066,6 +1089,8 @@ static int Render( filter_t *p_filter, subpicture_region_t *p_region_out,
     bool b_grid = p_region_in->b_gridmode;
     p_sys->i_scale = ( b_grid ) ? 100 : var_InheritInteger( p_filter, "sub-text-scale");
 
+    UpdateDefaultLiveStyles( p_filter );
+
     /*
      * Update the default face to reflect changes in video size or text scaling
      */
@@ -1093,13 +1118,29 @@ static int Render( filter_t *p_filter, subpicture_region_t *p_region_out,
     line_desc_t *p_lines = NULL;
 
     uint32_t *pi_k_durations   = NULL;
+    unsigned i_max_width = p_filter->fmt_out.video.i_visible_width;
+    if( p_region_in->i_max_width > 0 && (unsigned) p_region_in->i_max_width < i_max_width )
+        i_max_width = p_region_in->i_max_width;
+    else if( p_region_in->i_x > 0 && (unsigned)p_region_in->i_x < i_max_width )
+        i_max_width -= p_region_in->i_x;
+
+    unsigned i_max_height = p_filter->fmt_out.video.i_visible_height;
+    if( p_region_in->i_max_height > 0 && (unsigned) p_region_in->i_max_height < i_max_height )
+        i_max_height = p_region_in->i_max_height;
+    else if( p_region_in->i_y > 0 && (unsigned)p_region_in->i_y < i_max_height )
+        i_max_height -= p_region_in->i_y;
+
+    uint8_t i_background_opacity = var_InheritInteger( p_filter, "freetype-background-opacity" );
+    i_background_opacity = VLC_CLIP( i_background_opacity, 0, 255 );
+    int i_margin = (i_background_opacity > 0 && !p_region_in->b_gridmode) ? i_max_face_height / 4 : 0;
+
+    if( (unsigned)i_margin * 2 >= i_max_width || (unsigned)i_margin * 2 >= i_max_height )
+        i_margin = 0;
 
     rv = LayoutText( p_filter,
-                     &p_lines, &bbox, &i_max_face_height,
-                     psz_text, pp_styles, pi_k_durations, i_text_length, p_region_in->b_gridmode );
-
-    p_region_out->i_x = p_region_in->i_x;
-    p_region_out->i_y = p_region_in->i_y;
+                     psz_text, pp_styles, pi_k_durations, i_text_length,
+                     p_region_in->b_gridmode, p_region_in->b_balanced_text,
+                     i_max_width, i_max_height, &p_lines, &bbox, &i_max_face_height );
 
     /* Don't attempt to render text that couldn't be layed out
      * properly. */
@@ -1113,28 +1154,100 @@ static int Render( filter_t *p_filter, subpicture_region_t *p_region_out,
         else if( !p_chroma_list || *p_chroma_list == 0 )
             p_chroma_list = p_chroma_list_rgba;
 
-        uint8_t i_background_opacity = var_InheritInteger( p_filter, "freetype-background-opacity" );
-        i_background_opacity = VLC_CLIP( i_background_opacity, 0, 255 );
-        const int i_margin = (i_background_opacity > 0 && !p_region_in->b_gridmode) ? i_max_face_height / 4 : 0;
+        FT_BBox paddedbbox = bbox;
+        paddedbbox.xMin -= i_margin;
+        paddedbbox.xMax += i_margin;
+        paddedbbox.yMin -= i_margin;
+        paddedbbox.yMax += i_margin;
+
+        FT_BBox regionbbox = paddedbbox;
+
+        /* _______regionbbox_______________
+         * |                               |
+         * |                               |
+         * |                               |
+         * |     _bbox(<paddedbbox)___     |
+         * |    |         rightaligned|    |
+         * |    |            textlines|    |
+         * |    |_____________________|    |
+         * |_______________________________|
+         *
+         * we need at least 3 bounding boxes.
+         * regionbbox containing the whole, including region background pixels
+         * paddedbox an enlarged text box when for drawing text background
+         * bbox the lines bounding box for all glyphs
+         * For simple unstyled subs, bbox == paddedbox == regionbbox
+         */
+
+        unsigned outertext_w = (regionbbox.xMax - regionbbox.xMin);
+        if( outertext_w < (unsigned) p_region_in->i_max_width )
+        {
+            if( p_region_in->i_text_align & SUBPICTURE_ALIGN_RIGHT )
+                regionbbox.xMin -= (p_region_in->i_max_width - outertext_w);
+            else if( p_region_in->i_text_align & SUBPICTURE_ALIGN_LEFT )
+                regionbbox.xMax += (p_region_in->i_max_width - outertext_w);
+            else
+            {
+                regionbbox.xMin -= (p_region_in->i_max_width - outertext_w) / 2;
+                regionbbox.xMax += (p_region_in->i_max_width - outertext_w + 1) / 2;
+            }
+        }
+
+        unsigned outertext_h = (regionbbox.yMax - regionbbox.yMin);
+        if( outertext_h < (unsigned) p_region_in->i_max_height )
+        {
+            if( p_region_in->i_text_align & SUBPICTURE_ALIGN_TOP )
+                regionbbox.yMin -= (p_region_in->i_max_height - outertext_h);
+            else if( p_region_in->i_text_align & SUBPICTURE_ALIGN_BOTTOM )
+                regionbbox.yMax += (p_region_in->i_max_height - outertext_h);
+            else
+            {
+                regionbbox.yMin -= (p_region_in->i_max_height - outertext_h + 1) / 2;
+                regionbbox.yMax += (p_region_in->i_max_height - outertext_h) / 2;
+            }
+        }
+
+//        unsigned bboxcolor = 0xFF000000;
+        /* TODO 4.0. No region self BG color for VLC 3.0 API*/
+
+        /* Avoid useless pixels:
+         *        reshrink/trim Region Box to padded text one,
+         *        but update offsets to keep position and have same rendering */
+//        if( (bboxcolor & 0xFF) == 0 )
+        {
+            p_region_out->i_x = (paddedbbox.xMin - regionbbox.xMin) + p_region_in->i_x;
+            p_region_out->i_y = (regionbbox.yMax - paddedbbox.yMax) + p_region_in->i_y;
+            regionbbox = paddedbbox;
+        }
+//        else /* case where the bounding box is larger and visible */
+//        {
+//            p_region_out->i_x = p_region_in->i_x;
+//            p_region_out->i_y = p_region_in->i_y;
+//        }
+
         for( const vlc_fourcc_t *p_chroma = p_chroma_list; *p_chroma != 0; p_chroma++ )
         {
             rv = VLC_EGENERIC;
             if( *p_chroma == VLC_CODEC_YUVP )
-                rv = RenderYUVP( p_filter, p_region_out, p_lines, &bbox );
+                rv = RenderYUVP( p_filter, p_region_out, p_lines,
+                                 &regionbbox, &paddedbbox, &bbox );
             else if( *p_chroma == VLC_CODEC_YUVA )
-                rv = RenderAXYZ( p_filter, p_region_out, p_lines, &bbox, i_margin,
+                rv = RenderAXYZ( p_filter, p_region_out, p_lines,
+                                 &regionbbox, &paddedbbox, &bbox,
                                  VLC_CODEC_YUVA,
                                  YUVFromRGB,
                                  FillYUVAPicture,
                                  BlendYUVAPixel );
             else if( *p_chroma == VLC_CODEC_RGBA )
-                rv = RenderAXYZ( p_filter, p_region_out, p_lines, &bbox, i_margin,
+                rv = RenderAXYZ( p_filter, p_region_out, p_lines,
+                                 &regionbbox, &paddedbbox, &bbox,
                                  VLC_CODEC_RGBA,
                                  RGBFromRGB,
                                  FillRGBAPicture,
                                  BlendRGBAPixel );
             else if( *p_chroma == VLC_CODEC_ARGB )
-                rv = RenderAXYZ( p_filter, p_region_out, p_lines, &bbox, i_margin,
+                rv = RenderAXYZ( p_filter, p_region_out, p_lines,
+                                 &regionbbox, &paddedbbox, &bbox,
                                  VLC_CODEC_ARGB,
                                  RGBFromRGB,
                                  FillARGBPicture,
@@ -1223,35 +1336,11 @@ static int Create( vlc_object_t *p_this )
      *
      */
 
-    double f_outline_thickness = var_InheritInteger( p_filter, "freetype-outline-thickness" ) / 100.0;
-    f_outline_thickness        = VLC_CLIP( f_outline_thickness, 0.0, 0.5 );
     float f_shadow_angle       = var_InheritFloat( p_filter, "freetype-shadow-angle" );
     float f_shadow_distance    = var_InheritFloat( p_filter, "freetype-shadow-distance" );
     f_shadow_distance          = VLC_CLIP( f_shadow_distance, 0, 1 );
     p_sys->f_shadow_vector_x   = f_shadow_distance * cosf((float)(2. * M_PI) * f_shadow_angle / 360);
     p_sys->f_shadow_vector_y   = f_shadow_distance * sinf((float)(2. * M_PI) * f_shadow_angle / 360);
-
-    /* Set default psz_fontname */
-    if( !p_sys->p_default_style->psz_fontname || !*p_sys->p_default_style->psz_fontname )
-    {
-        free( p_sys->p_default_style->psz_fontname );
-#ifdef HAVE_GET_FONT_BY_FAMILY_NAME
-        p_sys->p_default_style->psz_fontname = strdup( DEFAULT_FAMILY );
-#else
-        p_sys->p_default_style->psz_fontname = File_Select( DEFAULT_FONT_FILE );
-#endif
-    }
-
-    /* set default psz_monofontname */
-    if( !p_sys->p_default_style->psz_monofontname || !*p_sys->p_default_style->psz_monofontname )
-    {
-        free( p_sys->p_default_style->psz_monofontname );
-#ifdef HAVE_GET_FONT_BY_FAMILY_NAME
-        p_sys->p_default_style->psz_monofontname = strdup( DEFAULT_MONOSPACE_FAMILY );
-#else
-        p_sys->p_default_style->psz_monofontname = File_Select( DEFAULT_MONOSPACE_FONT_FILE );
-#endif
-    }
 
     if( LoadFontsFromAttachments( p_filter ) == VLC_ENOMEM )
         goto error;
@@ -1260,25 +1349,43 @@ static int Create( vlc_object_t *p_this )
     p_sys->pf_select = Generic_Select;
     p_sys->pf_get_family = FontConfig_GetFamily;
     p_sys->pf_get_fallbacks = FontConfig_GetFallbacks;
-    FontConfig_Prepare( p_filter );
+    if( FontConfig_Prepare( p_filter ) )
+        goto error;
+
 #elif defined( __APPLE__ )
     p_sys->pf_select = Generic_Select;
     p_sys->pf_get_family = CoreText_GetFamily;
     p_sys->pf_get_fallbacks = CoreText_GetFallbacks;
-#elif defined( _WIN32 ) && defined( HAVE_GET_FONT_BY_FAMILY_NAME )
-    const char *const ppsz_win32_default[] =
-        { "Tahoma", "FangSong", "SimHei", "KaiTi" };
-    p_sys->pf_get_family = Win32_GetFamily;
-    p_sys->pf_get_fallbacks = Win32_GetFallbacks;
-    p_sys->pf_select = Generic_Select;
-    InitDefaultList( p_filter, ppsz_win32_default,
-                     sizeof( ppsz_win32_default ) / sizeof( *ppsz_win32_default ) );
+#elif defined( _WIN32 )
+    if( InitDWrite( p_filter ) == VLC_SUCCESS )
+    {
+        p_sys->pf_get_family = DWrite_GetFamily;
+        p_sys->pf_get_fallbacks = DWrite_GetFallbacks;
+        p_sys->pf_select = Generic_Select;
+    }
+    else
+    {
+#if VLC_WINSTORE_APP
+        msg_Err( p_filter, "Error initializing DirectWrite" );
+        goto error;
+#else
+        msg_Warn( p_filter, "DirectWrite initialization failed. Falling back to GDI/Uniscribe" );
+        const char *const ppsz_win32_default[] =
+            { "Tahoma", "FangSong", "SimHei", "KaiTi" };
+        p_sys->pf_get_family = Win32_GetFamily;
+        p_sys->pf_get_fallbacks = Win32_GetFallbacks;
+        p_sys->pf_select = Generic_Select;
+        InitDefaultList( p_filter, ppsz_win32_default,
+                         sizeof( ppsz_win32_default ) / sizeof( *ppsz_win32_default ) );
+#endif
+    }
 #elif defined( __ANDROID__ )
     p_sys->pf_get_family = Android_GetFamily;
     p_sys->pf_get_fallbacks = Android_GetFallbacks;
     p_sys->pf_select = Generic_Select;
 
-    Android_Prepare( p_filter );
+    if( Android_Prepare( p_filter ) == VLC_ENOMEM )
+        goto error;
 #else
     p_sys->pf_select = Dummy_Select;
 #endif
@@ -1287,6 +1394,9 @@ static int Create( vlc_object_t *p_this )
     if( !p_sys->p_face )
     {
         msg_Err( p_filter, "Error loading default face" );
+#ifdef HAVE_FONTCONFIG
+        FontConfig_Unprepare();
+#endif
         goto error;
     }
 
@@ -1324,15 +1434,6 @@ static void Destroy( vlc_object_t *p_this )
     DumpDictionary( p_filter, &p_sys->fallback_map, true, -1 );
 #endif
 
-    /* Attachments */
-    if( p_sys->pp_font_attachments )
-    {
-        for( int k = 0; k < p_sys->i_font_attachments; k++ )
-            vlc_input_attachment_Delete( p_sys->pp_font_attachments[k] );
-
-        free( p_sys->pp_font_attachments );
-    }
-
     /* Text styles */
     text_style_Delete( p_sys->p_default_style );
     text_style_Delete( p_sys->p_forced_style );
@@ -1343,6 +1444,24 @@ static void Destroy( vlc_object_t *p_this )
     vlc_dictionary_clear( &p_sys->family_map, NULL, NULL );
     if( p_sys->p_families )
         FreeFamiliesAndFonts( p_sys->p_families );
+
+    /* Attachments */
+    if( p_sys->pp_font_attachments )
+    {
+        for( int k = 0; k < p_sys->i_font_attachments; k++ )
+            vlc_input_attachment_Delete( p_sys->pp_font_attachments[k] );
+
+        free( p_sys->pp_font_attachments );
+    }
+
+#ifdef HAVE_FONTCONFIG
+    if( p_sys->p_face != NULL )
+        FontConfig_Unprepare();
+
+#elif defined( _WIN32 )
+    if( p_sys->pf_get_family == DWrite_GetFamily )
+        ReleaseDWrite( p_filter );
+#endif
 
     /* Freetype */
     if( p_sys->p_stroker )

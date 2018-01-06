@@ -106,6 +106,23 @@ static const libvlc_meta_t vlc_to_libvlc_meta[] =
     [vlc_meta_DiscTotal]    = libvlc_meta_DiscTotal
 };
 
+static_assert(
+    ORIENT_TOP_LEFT     == (int) libvlc_video_orient_top_left &&
+    ORIENT_TOP_RIGHT    == (int) libvlc_video_orient_top_right &&
+    ORIENT_BOTTOM_LEFT  == (int) libvlc_video_orient_bottom_left &&
+    ORIENT_BOTTOM_RIGHT == (int) libvlc_video_orient_bottom_right &&
+    ORIENT_LEFT_TOP     == (int) libvlc_video_orient_left_top &&
+    ORIENT_LEFT_BOTTOM  == (int) libvlc_video_orient_left_bottom &&
+    ORIENT_RIGHT_TOP    == (int) libvlc_video_orient_right_top &&
+    ORIENT_RIGHT_BOTTOM == (int) libvlc_video_orient_right_bottom,
+    "Mismatch between libvlc_video_orient_t and video_orientation_t" );
+
+static_assert(
+    PROJECTION_MODE_RECTANGULAR             == (int) libvlc_video_projection_rectangular &&
+    PROJECTION_MODE_EQUIRECTANGULAR         == (int) libvlc_video_projection_equirectangular &&
+    PROJECTION_MODE_CUBEMAP_LAYOUT_STANDARD == (int) libvlc_video_projection_cubemap_layout_standard,
+    "Mismatch between libvlc_video_projection_t and video_projection_mode_t" );
+
 static libvlc_media_list_t *media_get_subitems( libvlc_media_t * p_md,
                                                 bool b_create )
 {
@@ -126,20 +143,15 @@ static libvlc_media_list_t *media_get_subitems( libvlc_media_t * p_md,
     return p_subitems;
 }
 
-/**************************************************************************
- * input_item_subitem_added (Private) (vlc event Callback)
- **************************************************************************/
-static void input_item_subitem_added( const vlc_event_t *p_event,
-                                       void * user_data )
+static libvlc_media_t *input_item_add_subitem( libvlc_media_t *p_md,
+                                               input_item_t *item )
 {
-    libvlc_media_t * p_md = user_data;
     libvlc_media_t * p_md_child;
     libvlc_media_list_t *p_subitems;
     libvlc_event_t event;
 
-    p_md_child = libvlc_media_new_from_input_item(
-                p_md->p_libvlc_instance,
-                p_event->u.input_item_subitem_added.p_new_child );
+    p_md_child = libvlc_media_new_from_input_item( p_md->p_libvlc_instance,
+                                                   item );
 
     /* Add this to our media list */
     p_subitems = media_get_subitems( p_md, true );
@@ -155,8 +167,24 @@ static void input_item_subitem_added( const vlc_event_t *p_event,
     event.u.media_subitem_added.new_child = p_md_child;
 
     /* Send the event */
-    libvlc_event_send( p_md->p_event_manager, &event );
-    libvlc_media_release( p_md_child );
+    libvlc_event_send( &p_md->event_manager, &event );
+    return p_md_child;
+}
+
+static void input_item_add_subnode( libvlc_media_t *md,
+                                    input_item_node_t *node )
+{
+    for( int i = 0; i < node->i_children; i++ )
+    {
+        input_item_node_t *child = node->pp_children[i];
+        libvlc_media_t *md_child = input_item_add_subitem( md, child->p_item );
+
+        if( md_child != NULL )
+        {
+            input_item_add_subnode( md_child, child );
+            libvlc_media_release( md_child );
+        }
+    }
 }
 
 /**************************************************************************
@@ -165,16 +193,22 @@ static void input_item_subitem_added( const vlc_event_t *p_event,
 static void input_item_subitemtree_added( const vlc_event_t * p_event,
                                           void * user_data )
 {
-    VLC_UNUSED( p_event );
     libvlc_media_t * p_md = user_data;
     libvlc_event_t event;
+    input_item_node_t *node = p_event->u.input_item_subitem_tree_added.p_root;
+
+    /* FIXME FIXME FIXME
+     * Recursive function calls seem much simpler for this. But playlists are
+     * untrusted and can be arbitrarily deep (e.g. with XSPF). So recursion can
+     * potentially lead to plain old stack overflow. */
+    input_item_add_subnode( p_md, node );
 
     /* Construct the event */
     event.type = libvlc_MediaSubItemTreeAdded;
     event.u.media_subitemtree_added.item = p_md;
 
     /* Send the event */
-    libvlc_event_send( p_md->p_event_manager, &event );
+    libvlc_event_send( &p_md->event_manager, &event );
 }
 
 /**************************************************************************
@@ -192,7 +226,7 @@ static void input_item_meta_changed( const vlc_event_t *p_event,
         vlc_to_libvlc_meta[p_event->u.input_item_meta_changed.meta_type];
 
     /* Send the event */
-    libvlc_event_send( p_md->p_event_manager, &event );
+    libvlc_event_send( &p_md->event_manager, &event );
 }
 
 /**************************************************************************
@@ -210,7 +244,7 @@ static void input_item_duration_changed( const vlc_event_t *p_event,
         from_mtime(p_event->u.input_item_duration_changed.new_duration);
 
     /* Send the event */
-    libvlc_event_send( p_md->p_event_manager, &event );
+    libvlc_event_send( &p_md->event_manager, &event );
 }
 
 static void send_parsed_changed( libvlc_media_t *p_md,
@@ -255,7 +289,7 @@ static void send_parsed_changed( libvlc_media_t *p_md,
     event.u.media_parsed_changed.new_status = new_status;
 
     /* Send the event */
-    libvlc_event_send( p_md->p_event_manager, &event );
+    libvlc_event_send( &p_md->event_manager, &event );
 }
 
 /**************************************************************************
@@ -293,10 +327,6 @@ static void input_item_preparse_ended( const vlc_event_t * p_event,
 static void install_input_item_observer( libvlc_media_t *p_md )
 {
     vlc_event_attach( &p_md->p_input_item->event_manager,
-                      vlc_InputItemSubItemAdded,
-                      input_item_subitem_added,
-                      p_md );
-    vlc_event_attach( &p_md->p_input_item->event_manager,
                       vlc_InputItemMetaChanged,
                       input_item_meta_changed,
                       p_md );
@@ -319,10 +349,6 @@ static void install_input_item_observer( libvlc_media_t *p_md )
  **************************************************************************/
 static void uninstall_input_item_observer( libvlc_media_t *p_md )
 {
-    vlc_event_detach( &p_md->p_input_item->event_manager,
-                      vlc_InputItemSubItemAdded,
-                      input_item_subitem_added,
-                      p_md );
     vlc_event_detach( &p_md->p_input_item->event_manager,
                       vlc_InputItemMetaChanged,
                       input_item_meta_changed,
@@ -379,14 +405,9 @@ libvlc_media_t * libvlc_media_new_from_input_item(
      * It can give a bunch of item to read. */
     p_md->p_subitems        = NULL;
 
-    p_md->p_event_manager = libvlc_event_manager_new( p_md );
-    if( unlikely(p_md->p_event_manager == NULL) )
-    {
-        free(p_md);
-        return NULL;
-    }
+    libvlc_event_manager_init( &p_md->event_manager, p_md );
 
-    vlc_gc_incref( p_md->p_input_item );
+    input_item_Hold( p_md->p_input_item );
 
     install_input_item_observer( p_md );
 
@@ -414,7 +435,7 @@ libvlc_media_t *libvlc_media_new_location( libvlc_instance_t *p_instance,
     p_md = libvlc_media_new_from_input_item( p_instance, p_input_item );
 
     /* The p_input_item is retained in libvlc_media_new_from_input_item */
-    vlc_gc_decref( p_input_item );
+    input_item_Release( p_input_item );
 
     return p_md;
 }
@@ -533,13 +554,12 @@ void libvlc_media_release( libvlc_media_t *p_md )
     uninstall_input_item_observer( p_md );
 
     /* Cancel asynchronous parsing (if any) */
-    if( p_md->p_input_item )
-        libvlc_MetadataCancel( p_md->p_libvlc_instance->p_libvlc_int, p_md );
+    libvlc_MetadataCancel( p_md->p_libvlc_instance->p_libvlc_int, p_md );
 
     if( p_md->p_subitems )
         libvlc_media_list_release( p_md->p_subitems );
 
-    vlc_gc_decref( p_md->p_input_item );
+    input_item_Release( p_md->p_input_item );
 
     vlc_cond_destroy( &p_md->parsed_cond );
     vlc_mutex_destroy( &p_md->parsed_lock );
@@ -551,9 +571,9 @@ void libvlc_media_release( libvlc_media_t *p_md )
     event.u.media_freed.md = p_md;
 
     /* Send the event */
-    libvlc_event_send( p_md->p_event_manager, &event );
+    libvlc_event_send( &p_md->event_manager, &event );
 
-    libvlc_event_manager_release( p_md->p_event_manager );
+    libvlc_event_manager_destroy( &p_md->event_manager );
     libvlc_release( p_md->p_libvlc_instance );
     free( p_md );
 }
@@ -657,7 +677,7 @@ libvlc_media_set_state( libvlc_media_t *p_md,
     event.u.media_state_changed.new_state = state;
 
     /* Send the event */
-    libvlc_event_send( p_md->p_event_manager, &event );
+    libvlc_event_send( &p_md->event_manager, &event );
 }
 
 /**************************************************************************
@@ -678,11 +698,20 @@ libvlc_media_subitems( libvlc_media_t * p_md )
 int libvlc_media_get_stats( libvlc_media_t *p_md,
                             libvlc_media_stats_t *p_stats )
 {
+    input_item_t *item = p_md->p_input_item;
+
     if( !p_md->p_input_item )
         return false;
 
+    vlc_mutex_lock( &item->lock );
+
     input_stats_t *p_itm_stats = p_md->p_input_item->p_stats;
-    vlc_mutex_lock( &p_itm_stats->lock );
+    if( p_itm_stats == NULL )
+    {
+        vlc_mutex_unlock( &item->lock );
+        return false;
+    }
+
     p_stats->i_read_bytes = p_itm_stats->i_read_bytes;
     p_stats->f_input_bitrate = p_itm_stats->f_input_bitrate;
 
@@ -700,10 +729,11 @@ int libvlc_media_get_stats( libvlc_media_t *p_md,
     p_stats->i_played_abuffers = p_itm_stats->i_played_abuffers;
     p_stats->i_lost_abuffers = p_itm_stats->i_lost_abuffers;
 
-    p_stats->i_sent_packets = p_itm_stats->i_sent_packets;
-    p_stats->i_sent_bytes = p_itm_stats->i_sent_bytes;
-    p_stats->f_send_bitrate = p_itm_stats->f_send_bitrate;
-    vlc_mutex_unlock( &p_itm_stats->lock );
+    p_stats->i_sent_packets = 0;
+    p_stats->i_sent_bytes = 0;
+    p_stats->f_send_bitrate = 0.;
+
+    vlc_mutex_unlock( &item->lock );
     return true;
 }
 
@@ -715,7 +745,7 @@ libvlc_media_event_manager( libvlc_media_t * p_md )
 {
     assert( p_md );
 
-    return p_md->p_event_manager;
+    return &p_md->event_manager;
 }
 
 /**************************************************************************
@@ -754,16 +784,15 @@ static int media_parse(libvlc_media_t *media, bool b_async,
     {
         libvlc_int_t *libvlc = media->p_libvlc_instance->p_libvlc_int;
         input_item_t *item = media->p_input_item;
-        input_item_meta_request_option_t art_scope = META_REQUEST_OPTION_NONE;
         input_item_meta_request_option_t parse_scope = META_REQUEST_OPTION_SCOPE_LOCAL;
         int ret;
 
-        if (parse_flag & libvlc_media_fetch_local)
-            art_scope |= META_REQUEST_OPTION_SCOPE_LOCAL;
+        /* Ignore libvlc_media_fetch_local flag since local art will be fetched
+         * by libvlc_MetadataRequest */
         if (parse_flag & libvlc_media_fetch_network)
-            art_scope |= META_REQUEST_OPTION_SCOPE_NETWORK;
-        if (art_scope != META_REQUEST_OPTION_NONE) {
-            ret = libvlc_ArtRequest(libvlc, item, art_scope);
+        {
+            ret = libvlc_ArtRequest(libvlc, item,
+                                    META_REQUEST_OPTION_SCOPE_NETWORK);
             if (ret != VLC_SUCCESS)
                 return ret;
         }
@@ -816,6 +845,12 @@ libvlc_media_parse_with_options( libvlc_media_t *media,
                                  int timeout )
 {
     return media_parse( media, true, parse_flag, timeout ) == VLC_SUCCESS ? 0 : -1;
+}
+
+void
+libvlc_media_parse_stop( libvlc_media_t *media )
+{
+    libvlc_MetadataCancel( media->p_libvlc_instance->p_libvlc_int, media );
 }
 
 /**************************************************************************
@@ -879,7 +914,7 @@ libvlc_media_get_tracks_info( libvlc_media_t *p_md, libvlc_media_track_info_t **
     vlc_mutex_lock( &p_input_item->lock );
 
     const int i_es = p_input_item->i_es;
-    *pp_es = (i_es > 0) ? malloc( i_es * sizeof(libvlc_media_track_info_t) ) : NULL;
+    *pp_es = (i_es > 0) ? vlc_alloc( i_es, sizeof(libvlc_media_track_info_t) ) : NULL;
 
     if( !*pp_es ) /* no ES, or OOM */
     {
@@ -989,6 +1024,20 @@ libvlc_media_tracks_get( libvlc_media_t *p_md, libvlc_media_track_t *** pp_es )
             p_mes->video->i_sar_den = p_es->video.i_sar_den;
             p_mes->video->i_frame_rate_num = p_es->video.i_frame_rate;
             p_mes->video->i_frame_rate_den = p_es->video.i_frame_rate_base;
+
+            assert( p_es->video.orientation >= ORIENT_TOP_LEFT &&
+                    p_es->video.orientation <= ORIENT_RIGHT_BOTTOM );
+            p_mes->video->i_orientation = (int) p_es->video.orientation;
+
+            assert( ( p_es->video.projection_mode >= PROJECTION_MODE_RECTANGULAR &&
+                    p_es->video.projection_mode <= PROJECTION_MODE_EQUIRECTANGULAR ) ||
+                    ( p_es->video.projection_mode == PROJECTION_MODE_CUBEMAP_LAYOUT_STANDARD ) );
+            p_mes->video->i_projection = (int) p_es->video.projection_mode;
+
+            p_mes->video->pose.f_yaw = p_es->video.pose.yaw;
+            p_mes->video->pose.f_pitch = p_es->video.pose.pitch;
+            p_mes->video->pose.f_roll = p_es->video.pose.roll;
+            p_mes->video->pose.f_field_of_view = p_es->video.pose.fov;
             break;
         case AUDIO_ES:
             p_mes->i_type = libvlc_track_audio;
@@ -1158,6 +1207,7 @@ unsigned int libvlc_media_slaves_get( libvlc_media_t *p_md,
 {
     assert( p_md && ppp_slaves );
     input_item_t *p_input_item = p_md->p_input_item;
+    *ppp_slaves = NULL;
 
     vlc_mutex_lock( &p_input_item->lock );
 
@@ -1234,6 +1284,6 @@ void libvlc_media_slaves_release( libvlc_media_slave_t **pp_slaves,
         assert( pp_slaves );
         for( unsigned int i = 0; i < i_count; ++i )
             free( pp_slaves[i] );
-        free( pp_slaves );
     }
+    free( pp_slaves );
 }

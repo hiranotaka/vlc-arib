@@ -30,7 +30,6 @@
 #include <vlc_strings.h>            /* b64_decode */
 #include <vlc_xml.h>
 #include <vlc_charset.h>            /* FromCharset */
-#include <vlc_es.h>                 /* UNKNOWN_ES */
 
 typedef struct chunk_s
 {
@@ -133,7 +132,7 @@ struct stream_sys_t
      * the downstream system dies in case of playback */
     uint64_t     chunk_count;
 
-    vlc_array_t  *hds_streams; /* available streams */
+    vlc_array_t  hds_streams; /* available streams */
 
     /* Buffer that holds the very first bytes of the stream: the FLV
      * file header and a possible metadata packet.
@@ -223,8 +222,8 @@ static inline bool isFQUrl( const char* url )
 
 static bool isHDS( stream_t *s )
 {
-    const char *peek;
-    int i_size = stream_Peek( s->p_source, (const uint8_t**) &peek, 200 );
+    const uint8_t *peek;
+    int i_size = vlc_stream_Peek( s->s, &peek, 200 );
     if( i_size < 200 )
         return false;
 
@@ -239,7 +238,7 @@ static bool isHDS( stream_t *s )
         str = FromCharset( "UTF-16BE", peek, i_size );
     }
     else
-        str = strndup( peek, i_size );
+        str = strndup( (const char *)peek, i_size );
 
     if( str == NULL )
         return false;
@@ -256,10 +255,10 @@ static uint64_t get_stream_size( stream_t* s )
     if ( p_sys->live )
         return 0;
 
-    if ( vlc_array_count( p_sys->hds_streams ) == 0 )
+    if ( vlc_array_count( &p_sys->hds_streams ) == 0 )
         return 0;
 
-    hds_stream_t* hds_stream = p_sys->hds_streams->pp_elems[0];
+    hds_stream_t* hds_stream = p_sys->hds_streams.pp_elems[0];
 
     if ( hds_stream->bitrate == 0 )
         return 0;
@@ -799,7 +798,7 @@ static uint8_t* download_chunk( stream_t *s,
 
     msg_Info(s, "Downloading fragment %s",  fragment_url );
 
-    stream_t* download_stream = stream_UrlNew( s, fragment_url );
+    stream_t* download_stream = vlc_stream_NewURL( s, fragment_url );
     if( ! download_stream )
     {
         msg_Err(s, "Failed to download fragment %s", fragment_url );
@@ -825,7 +824,7 @@ static uint8_t* download_chunk( stream_t *s,
         return NULL;
     }
 
-    int read = stream_Read( download_stream, data,
+    int read = vlc_stream_Read( download_stream, data,
                             size );
     if( read < 0 )
         read = 0;
@@ -846,7 +845,7 @@ static uint8_t* download_chunk( stream_t *s,
         chunk->failed = false;
     }
 
-    stream_Delete( download_stream );
+    vlc_stream_Delete( download_stream );
     return data;
 }
 
@@ -856,11 +855,11 @@ static void* download_thread( void* p )
     stream_t* s = (stream_t*) p_this;
     stream_sys_t* sys = s->p_sys;
 
-    if ( vlc_array_count( sys->hds_streams ) == 0 )
+    if ( vlc_array_count( &sys->hds_streams ) == 0 )
         return NULL;
 
     // TODO: Change here for selectable stream
-    hds_stream_t* hds_stream = sys->hds_streams->pp_elems[0];
+    hds_stream_t* hds_stream = sys->hds_streams.pp_elems[0];
 
     int canc = vlc_savecancel();
 
@@ -964,6 +963,7 @@ static chunk_t* generate_new_chunk(
             if( frun_entry == hds_stream->fragment_run_count - 1 )
             {
                 msg_Err( p_this, "Discontinuity but can't find next timestamp!");
+                chunk_free( chunk );
                 return NULL;
             }
 
@@ -1102,11 +1102,11 @@ static void* live_thread( void* p )
     stream_t* s = (stream_t*) p_this;
     stream_sys_t* sys = s->p_sys;
 
-    if ( vlc_array_count( sys->hds_streams ) == 0 )
+    if ( vlc_array_count( &sys->hds_streams ) == 0 )
         return NULL;
 
     // TODO: Change here for selectable stream
-    hds_stream_t* hds_stream = sys->hds_streams->pp_elems[0];
+    hds_stream_t* hds_stream = sys->hds_streams.pp_elems[0];
 
     int canc = vlc_savecancel();
 
@@ -1136,7 +1136,7 @@ static void* live_thread( void* p )
     while( ! sys->closed )
     {
         last_dl_start_time = mdate();
-        stream_t* download_stream = stream_UrlNew( p_this, abst_url );
+        stream_t* download_stream = vlc_stream_NewURL( p_this, abst_url );
         if( ! download_stream )
         {
             msg_Err( p_this, "Failed to download abst %s", abst_url );
@@ -1145,7 +1145,7 @@ static void* live_thread( void* p )
         {
             int64_t size = stream_Size( download_stream );
             uint8_t* data = malloc( size );
-            int read = stream_Read( download_stream, data,
+            int read = vlc_stream_Read( download_stream, data,
                                     size );
             if( read < size )
             {
@@ -1164,7 +1164,7 @@ static void* live_thread( void* p )
 
             free( data );
 
-            stream_Delete( download_stream );
+            vlc_stream_Delete( download_stream );
         }
 
         mwait( last_dl_start_time + ( ((int64_t)hds_stream->fragment_runs[hds_stream->fragment_run_count-1].fragment_duration) * 1000000LL) / ((int64_t)hds_stream->afrt_timescale) );
@@ -1181,7 +1181,7 @@ static void* live_thread( void* p )
 static int init_Manifest( stream_t *s, manifest_t *m )
 {
     memset(m, 0, sizeof(*m));
-    stream_t *st = s->p_source;
+    stream_t *st = s->s;
 
     m->vlc_reader = xml_ReaderCreate( st, st );
     if( !m->vlc_reader )
@@ -1297,7 +1297,7 @@ static void initialize_header_and_metadata( stream_sys_t* p_sys, hds_stream_t *s
 
 static int parse_Manifest( stream_t *s, manifest_t *m )
 {
-    int type = UNKNOWN_ES;
+    int type = 0;
 
     msg_Dbg( s, "Manifest parsing\n" );
 
@@ -1566,7 +1566,7 @@ static int parse_Manifest( stream_t *s, manifest_t *m )
 
                 new_stream->bitrate = medias[i].bitrate;
 
-                vlc_array_append( sys->hds_streams, new_stream );
+                vlc_array_append_or_abort( &sys->hds_streams, new_stream );
 
                 msg_Info( (vlc_object_t*)s, "New track with quality_segment(%s), bitrate(%u), timescale(%u), movie_id(%s), segment_run_count(%d), fragment_run_count(%u)",
                           new_stream->quality_segment_modifier?new_stream->quality_segment_modifier:"", new_stream->bitrate, new_stream->timescale,
@@ -1612,12 +1612,9 @@ static void hds_free( hds_stream_t *p_stream )
 
 static void SysCleanup( stream_sys_t *p_sys )
 {
-    if ( p_sys->hds_streams )
-    {
-        for ( int i=0; i< p_sys->hds_streams->i_count ; i++ )
-            hds_free( p_sys->hds_streams->pp_elems[i] );
-        vlc_array_destroy( p_sys->hds_streams );
-    }
+    for( size_t i = 0; i < p_sys->hds_streams.i_count ; i++ )
+        hds_free( p_sys->hds_streams.pp_elems[i] );
+    vlc_array_clear( &p_sys->hds_streams );
     free( p_sys->base_url );
 }
 
@@ -1645,12 +1642,18 @@ static int Open( vlc_object_t *p_this )
 
     /* remove the last part of the url */
     char *pos = strrchr( uri_without_query, '/');
+    if ( pos == NULL )
+    {
+        free( uri_without_query );
+        free( p_sys );
+        return VLC_EGENERIC;
+    }
     *pos = '\0';
     p_sys->base_url = uri_without_query;
 
     p_sys->flv_header_bytes_sent = 0;
 
-    p_sys->hds_streams = vlc_array_new();
+    vlc_array_init( &p_sys->hds_streams );
 
     manifest_t m;
     if( init_Manifest( s, &m ) || parse_Manifest( s, &m ) )
@@ -1691,8 +1694,8 @@ static void Close( vlc_object_t *p_this )
     stream_sys_t *p_sys = s->p_sys;
 
     // TODO: Change here for selectable stream
-    hds_stream_t *stream = vlc_array_count(p_sys->hds_streams) ?
-        s->p_sys->hds_streams->pp_elems[0] : NULL;
+    hds_stream_t *stream = vlc_array_count(&p_sys->hds_streams) ?
+        p_sys->hds_streams.pp_elems[0] : NULL;
 
     p_sys->closed = true;
     if (stream)
@@ -1833,13 +1836,13 @@ static ssize_t Read( stream_t *s, void *buffer, size_t i_read )
 {
     stream_sys_t *p_sys = s->p_sys;
 
-    if ( vlc_array_count( p_sys->hds_streams ) == 0 )
+    if ( vlc_array_count( &p_sys->hds_streams ) == 0 )
         return 0;
     if( unlikely(i_read == 0) )
         return 0;
 
     // TODO: change here for selectable stream
-    hds_stream_t *stream = s->p_sys->hds_streams->pp_elems[0];
+    hds_stream_t *stream = p_sys->hds_streams.pp_elems[0];
 
     if ( header_unfinished( p_sys ) )
         return send_flv_header( stream, p_sys, buffer, i_read );

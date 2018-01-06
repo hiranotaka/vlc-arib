@@ -25,6 +25,8 @@
  * Preamble
  *****************************************************************************/
 
+#define OS_OBJECT_USE_OBJC 0
+
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
@@ -255,10 +257,6 @@ static int Open(vlc_object_t *p_this)
 
     char                    *psz_uid = NULL;
 
-    /* Only when selected */
-    if ( *p_demux->psz_access == '\0' )
-        return VLC_EGENERIC;
-
     @autoreleasepool {
         if (p_demux->psz_location && *p_demux->psz_location)
             psz_uid = strdup(p_demux->psz_location);
@@ -269,9 +267,6 @@ static int Open(vlc_object_t *p_this)
         /* Set up p_demux */
         p_demux->pf_demux = Demux;
         p_demux->pf_control = Control;
-        p_demux->info.i_update = 0;
-        p_demux->info.i_title = 0;
-        p_demux->info.i_seekpoint = 0;
 
         p_demux->p_sys = p_sys = calloc(1, sizeof(demux_sys_t));
         if ( !p_sys )
@@ -301,7 +296,7 @@ static int Open(vlc_object_t *p_this)
 
         if ( ivideo < [myVideoDevices count] )
         {
-            p_sys->device = CFBridgingRetain(myVideoDevices[ivideo]);
+            p_sys->device = CFBridgingRetain([myVideoDevices objectAtIndex:ivideo]);
         }
         else
         {
@@ -425,7 +420,7 @@ static int Demux(demux_t *p_demux)
             }
         }
         
-        es_out_Control(p_demux->out, ES_OUT_SET_PCR, p_block->i_pts);
+        es_out_SetPCR(p_demux->out, p_block->i_pts);
         es_out_Send(p_demux->out, p_sys->p_es_video, p_block);
         
     }
@@ -447,17 +442,17 @@ static int Control(demux_t *p_demux, int i_query, va_list args)
         case DEMUX_CAN_SEEK:
         case DEMUX_SET_PAUSE_STATE:
         case DEMUX_CAN_CONTROL_PACE:
-           pb = (bool*)va_arg(args, bool *);
+           pb = va_arg(args, bool *);
            *pb = false;
            return VLC_SUCCESS;
 
         case DEMUX_GET_PTS_DELAY:
-           pi64 = (int64_t*)va_arg(args, int64_t *);
+           pi64 = va_arg(args, int64_t *);
            *pi64 = INT64_C(1000) * var_InheritInteger(p_demux, "live-caching");
            return VLC_SUCCESS;
 
         case DEMUX_GET_TIME:
-            pi64 = (int64_t*)va_arg(args, int64_t *);
+            pi64 = va_arg(args, int64_t *);
             *pi64 = mdate();
             return VLC_SUCCESS;
 

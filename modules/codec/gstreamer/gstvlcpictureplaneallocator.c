@@ -159,12 +159,13 @@ void gst_vlc_picture_plane_allocator_release(
 bool gst_vlc_picture_plane_allocator_hold(
     GstVlcPicturePlaneAllocator *p_allocator, GstBuffer *p_buffer )
 {
-    picture_t* p_pic;
+    picture_t* p_pic = NULL;
     decoder_t* p_dec = p_allocator->p_dec;
     GstVlcPicturePlane *p_mem;
     int i_plane;
 
-    p_pic = decoder_NewPicture( p_dec );
+    if( !decoder_UpdateVideoFormat( p_dec ) )
+        p_pic = decoder_NewPicture( p_dec );
     if( !p_pic )
     {
         msg_Err( p_allocator->p_dec, "failed to acquire picture from vout" );
@@ -253,7 +254,7 @@ static bool gst_vlc_video_info_from_vout( GstVideoInfo *p_info,
         picture_t *p_pic_info )
 {
     const GstVideoFormatInfo *p_vinfo = p_info->finfo;
-    picture_t *p_pic;
+    picture_t *p_pic = NULL;
     int i;
 
     /* Ensure the queue is empty */
@@ -269,7 +270,8 @@ static bool gst_vlc_video_info_from_vout( GstVideoInfo *p_info,
     /* Acquire a picture and release it. This is to get the picture
      * stride/offsets info for the Gstreamer decoder looking to use
      * downstream bufferpool directly; Zero-Copy */
-    p_pic = decoder_NewPicture( p_dec );
+    if( !decoder_UpdateVideoFormat( p_dec ) )
+        p_pic = decoder_NewPicture( p_dec );
     if( !p_pic )
     {
         msg_Err( p_dec, "failed to acquire picture from vout; for pic info" );
@@ -325,17 +327,23 @@ bool gst_vlc_picture_plane_allocator_query_format(
     picture_t *p_pic_info = &p_allocator->pic_info;
 
     /* Back up the original format; as this is just a query  */
-    memcpy( &v_fmt, &p_dec->fmt_out.video, sizeof( video_format_t ));
+    v_fmt = p_dec->fmt_out.video;
+    video_format_Init( &p_dec->fmt_out.video, 0 );
 
-    if( !gst_vlc_video_info_from_vout( p_info, p_align, p_caps, p_dec,
-                p_pic_info ))
+    bool b_ret =
+        gst_vlc_video_info_from_vout( p_info, p_align, p_caps, p_dec,
+                p_pic_info );
+
+    video_format_Clean( &p_dec->fmt_out.video );
+
+    /* Restore the original format; as this was just a query  */
+    p_dec->fmt_out.video = v_fmt;
+
+    if( !b_ret )
     {
         msg_Err( p_allocator->p_dec, "failed to get the vout info" );
         return false;
     }
-
-    /* Restore the original format; as this was just a query  */
-    memcpy( &p_dec->fmt_out.video, &v_fmt, sizeof( video_format_t ));
 
     return true;
 }

@@ -173,7 +173,7 @@ static vlc_log_cb Open(vlc_object_t *obj, void **restrict sysp)
     }
     free(path);
 
-    setvbuf(sys->stream, NULL, _IONBF, 0);
+    setvbuf(sys->stream, NULL, _IOLBF, 0);
     fputs(header, sys->stream);
 
     *sysp = sys;
@@ -192,15 +192,28 @@ static void Close(void *opaque)
 static const char *const mode_list[] = { "text", "html" };
 static const char *const mode_list_text[] = { N_("Text"), N_("HTML") };
 
+static const int verbosity_values[] = {
+    -1,
+    VLC_MSG_INFO,
+    VLC_MSG_ERR,
+    VLC_MSG_WARN,
+    VLC_MSG_DBG
+};
+
+static const char *const verbosity_text[] = { N_("Default"), N_("Info"), N_("Error"), N_("Warning"), N_("Debug") };
+
 #define FILE_LOG_TEXT N_("Log to file")
 #define FILE_LOG_LONGTEXT N_("Log all VLC messages to a text file.")
+
+#define LOGFILE_NAME_TEXT N_("Log filename")
+#define LOGFILE_NAME_LONGTEXT N_("Specify the log filename.")
 
 #define LOGMODE_TEXT N_("Log format")
 #define LOGMODE_LONGTEXT N_("Specify the logging format.")
 
 #define LOGVERBOSE_TEXT N_("Verbosity")
-#define LOGVERBOSE_LONGTEXT N_("Select the verbosity to use for log or -1 to " \
-"use the same verbosity given by --verbose.")
+#define LOGVERBOSE_LONGTEXT N_("Select the logging verbosity or " \
+"default to use the same verbosity given by --verbose.")
 
 vlc_module_begin()
     set_shortname(N_("Logger"))
@@ -212,9 +225,9 @@ vlc_module_begin()
 
     add_bool("file-logging", false, FILE_LOG_TEXT, FILE_LOG_LONGTEXT, false)
     add_savefile("logfile", NULL,
-                 N_("Log filename"), N_("Specify the log filename."), false)
+                 LOGFILE_NAME_TEXT, LOGFILE_NAME_LONGTEXT, false)
     add_string("logmode", "text", LOGMODE_TEXT, LOGMODE_LONGTEXT, false)
         change_string_list(mode_list, mode_list_text)
-    add_integer("log-verbose", -1, LOGVERBOSE_TEXT, LOGVERBOSE_LONGTEXT,
-                false)
+    add_integer("log-verbose", -1, LOGVERBOSE_TEXT, LOGVERBOSE_LONGTEXT, false)
+        change_integer_list(verbosity_values, verbosity_text)
 vlc_module_end ()

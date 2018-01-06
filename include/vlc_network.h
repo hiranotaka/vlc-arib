@@ -28,40 +28,91 @@
 # define VLC_NETWORK_H
 
 /**
- * \ingroup file
- * \defgroup sockets Internet sockets
+ * \ingroup os
+ * \defgroup net Networking
  * @{
  * \file
  * Definitions for sockets and low-level networking
+ * \defgroup sockets Internet sockets
+ * @{
  */
+
+#include <sys/types.h>
+#include <unistd.h>
 
 #if defined( _WIN32 )
 #   define _NO_OLDNAMES 1
-#   include <io.h>
 #   include <winsock2.h>
 #   include <ws2tcpip.h>
 #   define net_errno (WSAGetLastError())
+#   define net_Close(fd) ((void)closesocket((SOCKET)fd))
 #   ifndef IPV6_V6ONLY
 #       define IPV6_V6ONLY 27
 #   endif
 #else
-#   include <sys/types.h>
-#   include <unistd.h>
 #   include <sys/socket.h>
 #   include <netinet/in.h>
 #   include <netdb.h>
 #   define net_errno errno
+#   define net_Close(fd) ((void)vlc_close(fd))
 #endif
 
 #ifndef MSG_NOSIGNAL
 # define MSG_NOSIGNAL 0
 #endif
 
-VLC_API int vlc_socket (int, int, int, bool nonblock) VLC_USED;
-VLC_API int vlc_socketpair (int, int, int, int [2], bool nonblock);
+/**
+ * Creates a socket file descriptor.
+ *
+ * This function creates a socket, similar to the standard socket() function.
+ * However, the new file descriptor has the close-on-exec flag set atomically,
+ * so as to avoid leaking the descriptor to child processes.
+ *
+ * The non-blocking flag can also optionally be set.
+ *
+ * @param pf protocol family
+ * @param type socket type
+ * @param proto network protocol
+ * @param nonblock true to create a non-blocking socket
+ * @return a new file descriptor or -1 on error
+ */
+VLC_API int vlc_socket(int pf, int type, int proto, bool nonblock) VLC_USED;
+
+/**
+ * Creates a pair of socket file descriptors.
+ *
+ * This function creates a pair of sockets that are mutually connected,
+ * much like the standard socketpair() function. However, the new file
+ * descriptors have the close-on-exec flag set atomically.
+ * See also vlc_socket().
+ *
+ * @param pf protocol family
+ * @param type socket type
+ * @param proto network protocol
+ * @param nonblock true to create non-blocking sockets
+ * @retval 0 on success
+ * @retval -1 on failure
+ */
+VLC_API int vlc_socketpair(int pf, int type, int proto, int fds[2],
+                           bool nonblock);
 
 struct sockaddr;
-VLC_API int vlc_accept( int, struct sockaddr *, socklen_t *, bool ) VLC_USED;
+
+/**
+ * Accepts an inbound connection request on a listening socket.
+ *
+ * This function creates a connected socket from a listening socket, much like
+ * the standard accept() function. However, the new file descriptor has the
+ * close-on-exec flag set atomically. See also vlc_socket().
+ *
+ * @param lfd listening socket file descriptor
+ * @param addr pointer to the peer address or NULL [OUT]
+ * @param alen pointer to the length of the peer address or NULL [OUT]
+ * @param nonblock whether to put the new socket in non-blocking mode
+ * @return a new file descriptor or -1 on error
+ */
+VLC_API int vlc_accept(int lfd, struct sockaddr *addr, socklen_t *alen,
+                       bool nonblock) VLC_USED;
 
 # ifdef __cplusplus
 extern "C" {
@@ -128,69 +179,13 @@ VLC_API ssize_t net_Printf( vlc_object_t *p_this, int fd, const char *psz_fmt, .
 VLC_API ssize_t net_vaPrintf( vlc_object_t *p_this, int fd, const char *psz_fmt, va_list args );
 #define net_vaPrintf(a,b,c,d) net_vaPrintf(VLC_OBJECT(a),b,c,d)
 
-#ifdef _WIN32
-/* Microsoft: same semantic, same value, different name... go figure */
-# define SHUT_RD SD_RECEIVE
-# define SHUT_WR SD_SEND
-# define SHUT_RDWR SD_BOTH
-# define net_Close( fd ) closesocket ((SOCKET)fd)
-#else
-# ifdef __OS2__
-#  define SHUT_RD    0
-#  define SHUT_WR    1
-#  define SHUT_RDWR  2
-# endif
-
 VLC_API int vlc_close(int);
-# define net_Close( fd ) (void)vlc_close (fd)
-#endif
+
+/** @} */
 
 /* Portable network names/addresses resolution layer */
 
-/* GAI error codes */
-# ifndef EAI_BADFLAGS
-#  define EAI_BADFLAGS -1
-# endif
-# ifndef EAI_NONAME
-#  define EAI_NONAME -2
-# endif
-# ifndef EAI_AGAIN
-#  define EAI_AGAIN -3
-# endif
-# ifndef EAI_FAIL
-#  define EAI_FAIL -4
-# endif
-# ifndef EAI_NODATA
-#  define EAI_NODATA -5
-# endif
-# ifndef EAI_FAMILY
-#  define EAI_FAMILY -6
-# endif
-# ifndef EAI_SOCKTYPE
-#  define EAI_SOCKTYPE -7
-# endif
-# ifndef EAI_SERVICE
-#  define EAI_SERVICE -8
-# endif
-# ifndef EAI_ADDRFAMILY
-#  define EAI_ADDRFAMILY -9
-# endif
-# ifndef EAI_MEMORY
-#  define EAI_MEMORY -10
-# endif
-#ifndef EAI_OVERFLOW
-#  define EAI_OVERFLOW -11
-#endif
-# ifndef EAI_SYSTEM
-#  define EAI_SYSTEM -12
-# endif
-
-
-# ifndef NI_MAXHOST
-#  define NI_MAXHOST 1025
-#  define NI_MAXSERV 32
-# endif
-# define NI_MAXNUMERICHOST 64
+#define NI_MAXNUMERICHOST 64
 
 #ifndef AI_NUMERICSERV
 # define AI_NUMERICSERV 0
@@ -206,55 +201,11 @@ VLC_API int vlc_close(int);
 # endif
 #endif
 
-#ifdef __OS2__
-# ifndef NI_NUMERICHOST
-#  define NI_NUMERICHOST 0x01
-#  define NI_NUMERICSERV 0x02
-#  define NI_NOFQDN      0x04
-#  define NI_NAMEREQD    0x08
-#  define NI_DGRAM       0x10
-# endif
-
-# define AI_PASSIVE     1
-# define AI_CANONNAME   2
-# define AI_NUMERICHOST 4
-
-VLC_API const char *gai_strerror( int errnum );
-
-VLC_API int  getaddrinfo ( const char *, const char *,
-                           const struct addrinfo *, struct addrinfo ** );
-VLC_API void freeaddrinfo( struct addrinfo * );
-VLC_API int  getnameinfo ( const struct sockaddr *, socklen_t,
-                           char *, int, char *, int, int );
-#endif
-
 VLC_API int vlc_getnameinfo( const struct sockaddr *, int, char *, int, int *, int );
 VLC_API int vlc_getaddrinfo (const char *, unsigned,
                              const struct addrinfo *, struct addrinfo **);
-
-
-#ifdef __OS2__
-/* OS/2 does not support IPv6, yet. But declare these only for compilation */
-struct in6_addr
-{
-    uint8_t s6_addr[16];
-};
-
-struct sockaddr_in6
-{
-    uint8_t         sin6_len;
-    uint8_t         sin6_family;
-    uint16_t        sin6_port;
-    uint32_t        sin6_flowinfo;
-    struct in6_addr sin6_addr;
-    uint32_t        sin6_scope_id;
-};
-
-# define IN6_IS_ADDR_MULTICAST(a)   (((__const uint8_t *) (a))[0] == 0xff)
-
-static const struct in6_addr in6addr_any =
-    { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
-#endif
+VLC_API int vlc_getaddrinfo_i11e(const char *, unsigned,
+                                 const struct addrinfo *, struct addrinfo **);
 
 static inline bool
 net_SockAddrIsMulticast (const struct sockaddr *addr, socklen_t len)

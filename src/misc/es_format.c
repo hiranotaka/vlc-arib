@@ -392,7 +392,8 @@ bool video_format_IsSimilar( const video_format_t *f1,
         f1->i_visible_height != f2->i_visible_height ||
         f1->i_x_offset != f2->i_x_offset || f1->i_y_offset != f2->i_y_offset )
         return false;
-    if( f1->i_sar_num * f2->i_sar_den != f2->i_sar_num * f1->i_sar_den )
+    if( (int64_t)f1->i_sar_num * f2->i_sar_den !=
+        (int64_t)f2->i_sar_num * f1->i_sar_den )
         return false;
 
     if( f1->orientation != f2->orientation)
@@ -435,28 +436,21 @@ void video_format_Print( vlc_object_t *p_this,
 void es_format_Init( es_format_t *fmt,
                      int i_cat, vlc_fourcc_t i_codec )
 {
+    memset(fmt, 0, sizeof (*fmt));
     fmt->i_cat                  = i_cat;
     fmt->i_codec                = i_codec;
-    fmt->i_original_fourcc      = 0;
     fmt->i_profile              = -1;
     fmt->i_level                = -1;
     fmt->i_id                   = -1;
-    fmt->i_group                = 0;
     fmt->i_priority             = ES_PRIORITY_SELECTABLE_MIN;
     fmt->psz_language           = NULL;
     fmt->psz_description        = NULL;
-
-    fmt->i_extra_languages      = 0;
     fmt->p_extra_languages      = NULL;
 
-    memset( &fmt->audio, 0, sizeof(audio_format_t) );
-    memset( &fmt->audio_replay_gain, 0, sizeof(audio_replay_gain_t) );
-    memset( &fmt->video, 0, sizeof(video_format_t) );
-    memset( &fmt->subs, 0, sizeof(subs_format_t) );
+    if (fmt->i_cat == VIDEO_ES)
+        video_format_Init(&fmt->video, 0);
 
     fmt->b_packetized           = true;
-    fmt->i_bitrate              = 0;
-    fmt->i_extra                = 0;
     fmt->p_extra                = NULL;
 }
 
@@ -498,23 +492,21 @@ int es_format_Copy(es_format_t *restrict dst, const es_format_t *src)
             ret = VLC_ENOMEM;
         }
     }
+    else
+        dst->p_extra = NULL;
 
-    if (src->subs.psz_encoding != NULL)
-    {
-        dst->subs.psz_encoding = strdup(src->subs.psz_encoding);
-        if (unlikely(dst->subs.psz_encoding == NULL))
-            ret = VLC_ENOMEM;
-    }
-    if (src->subs.p_style != NULL)
-    {
-        dst->subs.p_style = text_style_Duplicate(src->subs.p_style);
-        if (unlikely(dst->subs.p_style == NULL))
-            ret = VLC_ENOMEM;
-    }
+    if (src->i_cat == VIDEO_ES)
+        ret = video_format_Copy( &dst->video, &src->video );
 
-    int err = video_format_Copy( &dst->video, &src->video );
-    if ( err != VLC_SUCCESS )
-        return err;
+    if (src->i_cat == SPU_ES)
+    {
+        if (src->subs.psz_encoding != NULL)
+        {
+            dst->subs.psz_encoding = strdup(src->subs.psz_encoding);
+            if (unlikely(dst->subs.psz_encoding == NULL))
+                ret = VLC_ENOMEM;
+        }
+    }
 
     if (src->i_extra_languages > 0)
     {
@@ -548,11 +540,10 @@ void es_format_Clean(es_format_t *fmt)
     assert(fmt->i_extra == 0 || fmt->p_extra != NULL);
     free(fmt->p_extra);
 
-    video_format_Clean( &fmt->video );
-    free(fmt->subs.psz_encoding);
-
-    if (fmt->subs.p_style != NULL)
-        text_style_Delete(fmt->subs.p_style);
+    if (fmt->i_cat == VIDEO_ES)
+        video_format_Clean( &fmt->video );
+    if (fmt->i_cat == SPU_ES)
+        free(fmt->subs.psz_encoding);
 
     for (unsigned i = 0; i < fmt->i_extra_languages; i++)
     {
@@ -581,9 +572,13 @@ bool es_format_IsSimilar( const es_format_t *p_fmt1, const es_format_t *p_fmt2 )
 
         if( a1.i_format && a2.i_format && a1.i_format != a2.i_format )
             return false;
-        if( a1.i_rate != a2.i_rate ||
+        if( a1.channel_type != a2.channel_type ||
+            a1.i_rate != a2.i_rate ||
+            a1.i_channels != a2.i_channels ||
             a1.i_physical_channels != a2.i_physical_channels ||
-            a1.i_original_channels != a2.i_original_channels )
+            a1.i_chan_mode != a2.i_chan_mode )
+            return false;
+        if( p_fmt1->i_profile != p_fmt2->i_profile )
             return false;
         return true;
     }

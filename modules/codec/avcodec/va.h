@@ -30,19 +30,13 @@ typedef struct vlc_va_t vlc_va_t;
 typedef struct vlc_va_sys_t vlc_va_sys_t;
 
 struct vlc_va_t {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
 
     vlc_va_sys_t *sys;
     module_t *module;
     const char *description;
 
-#ifdef _WIN32
-    VLC_DEPRECATED
-    void (*setup)(vlc_va_t *, vlc_fourcc_t *output);
-#endif
     int  (*get)(vlc_va_t *, picture_t *pic, uint8_t **data);
-    void (*release)(void *pic, uint8_t *surface);
-    int  (*extract)(vlc_va_t *, picture_t *pic, uint8_t *data);
 };
 
 /**
@@ -72,9 +66,7 @@ vlc_va_t *vlc_va_New(vlc_object_t *obj, AVCodecContext *,
  * @param pic pointer to VLC picture being allocated [IN/OUT]
  * @param data pointer to the AVFrame data[0] and data[3] pointers [OUT]
  *
- * @note This function needs not be reentrant. However it may be called
- * concurrently with vlc_va_Extract() and/or vlc_va_Release() from other
- * threads and other frames.
+ * @note This function needs not be reentrant.
  *
  * @return VLC_SUCCESS on success, otherwise an error code.
  */
@@ -84,40 +76,9 @@ static inline int vlc_va_Get(vlc_va_t *va, picture_t *pic, uint8_t **data)
 }
 
 /**
- * Releases a hardware surface from a libavcodec frame.
- * The surface has been previously allocated with vlc_va_Get().
- *
- * @param pic VLC picture being released [IN/OUT]
- * @param data data[0] pointer of the AVFrame set by vlc_va_Get()
- *
- * @note This function needs not be reentrant. However it may be called
- * concurrently with vlc_va_Get() and/or vlc_va_Extract() from other threads
- * and other frames.
- */
-static inline void vlc_va_Release(vlc_va_t *va, picture_t *pic, uint8_t *data)
-{
-    va->release(pic, data);
-}
-
-/**
- * Extracts a hardware surface from a libavcodec frame into a VLC picture.
- * The surface has been previously allocated with vlc_va_Get() and decoded
- * by the libavcodec hardware acceleration.
- * The surface may still be used by libavcodec as a reference frame until it is
- * freed with vlc_va_Release().
- *
- * @note This function needs not be reentrant, but it may run concurrently with
- * vlc_va_Get() or vlc_va_Release() in other threads (with distinct frames).
- */
-static inline int vlc_va_Extract(vlc_va_t *va, picture_t *pic, uint8_t *data)
-{
-    return va->extract(va, pic, data);
-}
-
-/**
  * Destroys a libavcodec hardware acceleration back-end.
  * All allocated surfaces shall have been released beforehand.
  */
-void vlc_va_Delete(vlc_va_t *, AVCodecContext *);
+void vlc_va_Delete(vlc_va_t *, void **);
 
 #endif

@@ -24,6 +24,9 @@
 #endif
 
 #include <errno.h>
+#include <limits.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -32,6 +35,7 @@
 #endif
 
 #include <vlc_common.h>
+#include <vlc_memstream.h>
 #include <vlc_url.h>
 #include <vlc_fs.h>
 #include <ctype.h>
@@ -93,6 +97,8 @@ static bool isurihex(int c)
         || ((unsigned char)(c - 'a') < 6);
 }
 
+static const char urihex[] = "0123456789ABCDEF";
+
 static char *encode_URI_bytes (const char *str, size_t *restrict lenp)
 {
     char *buf = malloc (3 * *lenp + 1);
@@ -102,7 +108,6 @@ static char *encode_URI_bytes (const char *str, size_t *restrict lenp)
     char *out = buf;
     for (size_t i = 0; i < *lenp; i++)
     {
-        static const char hex[] = "0123456789ABCDEF";
         unsigned char c = str[i];
 
         if (isurisafe (c))
@@ -112,8 +117,8 @@ static char *encode_URI_bytes (const char *str, size_t *restrict lenp)
         else
         {
             *(out++) = '%';
-            *(out++) = hex[c >> 4];
-            *(out++) = hex[c & 0xf];
+            *(out++) = urihex[c >> 4];
+            *(out++) = urihex[c & 0xf];
         }
     }
 
@@ -321,10 +326,52 @@ out:
 
 static char *vlc_idna_to_ascii (const char *);
 
+/* RFC3987 §3.1 */
+static char *vlc_iri2uri(const char *iri)
+{
+    size_t a = 0, u = 0;
+
+    for (size_t i = 0; iri[i] != '\0'; i++)
+    {
+        unsigned char c = iri[i];
+
+        if (c < 128)
+            a++;
+        else
+            u++;
+    }
+
+    if (unlikely((a + u) > (SIZE_MAX / 4)))
+    {
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    char *uri = malloc(a + 3 * u + 1), *p;
+    if (unlikely(uri == NULL))
+        return NULL;
+
+    for (p = uri; *iri != '\0'; iri++)
+    {
+        unsigned char c = *iri;
+
+        if (c < 128)
+            *(p++) = c;
+        else
+        {
+            *(p++) = '%';
+            *(p++) = urihex[c >> 4];
+            *(p++) = urihex[c & 0xf];
+        }
+    }
+
+    *p = '\0';
+    return uri;
+}
+
 static bool vlc_uri_component_validate(const char *str, const char *extras)
 {
-    if (str == NULL)
-        return false;
+    assert(str != NULL);
 
     for (size_t i = 0; str[i] != '\0'; i++)
     {
@@ -354,15 +401,7 @@ static bool vlc_uri_path_validate(const char *str)
     return vlc_uri_component_validate(str, "/@:");
 }
 
-/**
- * Splits an URL into parts.
- * \param url structure of URL parts [OUT]
- * \param str nul-terminated URL string to split
- * \note Use vlc_UrlClean() to free associated resources
- * \bug Errors cannot be detected.
- * \return nothing
- */
-void vlc_UrlParse (vlc_url_t *restrict url, const char *str)
+static int vlc_UrlParseInner(vlc_url_t *restrict url, const char *str)
 {
     url->psz_protocol = NULL;
     url->psz_username = NULL;
@@ -372,114 +411,464 @@ void vlc_UrlParse (vlc_url_t *restrict url, const char *str)
     url->psz_path = NULL;
     url->psz_option = NULL;
     url->psz_buffer = NULL;
+    url->psz_pathbuffer = NULL;
 
     if (str == NULL)
-        return;
+    {
+        errno = EINVAL;
+        return -1;
+    }
 
-    char *buf = strdup (str);
+    char *buf = vlc_iri2uri(str);
     if (unlikely(buf == NULL))
-        abort ();
+        return -1;
     url->psz_buffer = buf;
 
     char *cur = buf, *next;
+    int ret = 0;
 
-    /* URL scheme */
+    /* URI scheme */
     next = buf;
     while ((*next >= 'A' && *next <= 'Z') || (*next >= 'a' && *next <= 'z')
         || (*next >= '0' && *next <= '9') || memchr ("+-.", *next, 3) != NULL)
         next++;
-    /* This is not strictly correct. In principles, the scheme is always
-     * present in an absolute URL and followed by a colon. Depending on the
-     * URL scheme, the two subsequent slashes are not required.
-     * VLC uses a different scheme for historical compatibility reasons - the
-     * scheme is often implicit. */
-    if (!strncmp (next, "://", 3))
+
+    if (*next == ':')
     {
-        *next = '\0';
-        next += 3;
+        *(next++) = '\0';
         url->psz_protocol = cur;
         cur = next;
     }
 
-    /* Query parameters */
-    char *query = strchr (cur, '?');
-    if (query != NULL)
-    {
-        *(query++) = '\0';
-        url->psz_option = query;
-    }
-
-    /* Path */
-    next = strchr (cur, '/');
+    /* Fragment */
+    next = strchr(cur, '#');
     if (next != NULL)
     {
-        *next = '\0'; /* temporary nul, reset to slash later */
-        url->psz_path = next;
+#if 0  /* TODO */
+       *(next++) = '\0';
+       url->psz_fragment = next;
+#else
+       *next = '\0';
+#endif
     }
-    /*else
-        url->psz_path = "/";*/
 
-    /* User name */
-    next = strrchr (cur, '@');
+    /* Query parameters */
+    next = strchr(cur, '?');
     if (next != NULL)
     {
         *(next++) = '\0';
-        url->psz_username = cur;
-        cur = next;
+        url->psz_option = next;
+    }
 
-        /* Password (obsolete) */
-        next = strchr (url->psz_username, ':');
+    /* Authority */
+    if (strncmp(cur, "//", 2) == 0)
+    {
+        cur += 2;
+
+        /* Path */
+        next = strchr(cur, '/');
+        if (next != NULL)
+        {
+            *next = '\0'; /* temporary nul, reset to slash later */
+            url->psz_path = next;
+        }
+        /*else
+            url->psz_path = "/";*/
+
+        /* User name */
+        next = strrchr(cur, '@');
         if (next != NULL)
         {
             *(next++) = '\0';
-            url->psz_password = next;
-            vlc_uri_decode (url->psz_password);
+            url->psz_username = cur;
+            cur = next;
+
+            /* Password (obsolete) */
+            next = strchr(url->psz_username, ':');
+            if (next != NULL)
+            {
+                *(next++) = '\0';
+                url->psz_password = next;
+                vlc_uri_decode(url->psz_password);
+            }
+            vlc_uri_decode(url->psz_username);
         }
-        vlc_uri_decode (url->psz_username);
-    }
 
-    /* Host name */
-    if (*cur == '[' && (next = strrchr (cur, ']')) != NULL)
-    {   /* Try IPv6 numeral within brackets */
-        *(next++) = '\0';
-        url->psz_host = strdup (cur + 1);
+        /* Host name */
+        if (*cur == '[' && (next = strrchr(cur, ']')) != NULL)
+        {   /* Try IPv6 numeral within brackets */
+            *(next++) = '\0';
+            url->psz_host = strdup(cur + 1);
 
-        if (*next == ':')
-            next++;
+            if (*next == ':')
+                next++;
+            else
+                next = NULL;
+        }
         else
-            next = NULL;
+        {
+            next = strchr(cur, ':');
+            if (next != NULL)
+                *(next++) = '\0';
+
+            url->psz_host = vlc_idna_to_ascii(vlc_uri_decode(cur));
+        }
+
+        if (url->psz_host == NULL)
+            ret = -1;
+        else
+        if (!vlc_uri_host_validate(url->psz_host))
+        {
+            free(url->psz_host);
+            url->psz_host = NULL;
+            errno = EINVAL;
+            ret = -1;
+        }
+
+        /* Port number */
+        if (next != NULL && *next)
+        {
+            char* end;
+            unsigned long port = strtoul(next, &end, 10);
+
+            if (strchr("0123456789", *next) == NULL || *end || port > UINT_MAX)
+            {
+                errno = EINVAL;
+                ret = -1;
+            }
+
+            url->i_port = port;
+        }
+
+        if (url->psz_path != NULL)
+            *url->psz_path = '/'; /* restore leading slash */
     }
     else
     {
-        next = strchr (cur, ':');
-        if (next != NULL)
-            *(next++) = '\0';
-
-        url->psz_host = vlc_idna_to_ascii (cur);
-    }
-    if (!vlc_uri_host_validate(url->psz_host))
-    {
-        free(url->psz_host);
-        url->psz_host = NULL;
+        url->psz_path = cur;
     }
 
-    /* Port number */
-    if (next != NULL)
-        url->i_port = atoi (next);
-
-    if (url->psz_path != NULL)
-        *url->psz_path = '/'; /* restore leading slash */
-    if (!vlc_uri_path_validate(url->psz_path))
-        url->psz_path = NULL;
+    return ret;
 }
 
-/**
- * Releases resources allocated by vlc_UrlParse().
- */
+int vlc_UrlParse(vlc_url_t *url, const char *str)
+{
+    int ret = vlc_UrlParseInner(url, str);
+
+    if (url->psz_path != NULL && !vlc_uri_path_validate(url->psz_path))
+    {
+        url->psz_path = NULL;
+        errno = EINVAL;
+        ret = -1;
+    }
+    return ret;
+}
+
+static char *vlc_uri_fixup_inner(const char *str, const char *extras);
+
+int vlc_UrlParseFixup(vlc_url_t *url, const char *str)
+{
+    int ret = vlc_UrlParseInner(url, str);
+
+    static const char pathextras[] = "/@:";
+
+    if (url->psz_path != NULL
+     && !vlc_uri_component_validate(url->psz_path, pathextras))
+    {
+        url->psz_pathbuffer = vlc_uri_fixup_inner(url->psz_path, pathextras);
+        if (url->psz_pathbuffer == NULL)
+        {
+            url->psz_path = NULL;
+            errno = ENOMEM;
+            ret = -1;
+        }
+        else
+        {
+            url->psz_path = url->psz_pathbuffer;
+            assert(vlc_uri_path_validate(url->psz_path));
+        }
+    }
+    return ret;
+}
+
 void vlc_UrlClean (vlc_url_t *restrict url)
 {
     free (url->psz_host);
     free (url->psz_buffer);
+    free (url->psz_pathbuffer);
+}
+
+/**
+ * Merge paths
+ *
+ * See IETF RFC3986 section 5.2.3 for details.
+ */
+static char *vlc_uri_merge_paths(const char *base, const char *ref)
+{
+    char *str;
+    int len;
+
+    if (base == NULL)
+        len = asprintf(&str, "/%s", ref);
+    else
+    {
+        const char *end = strrchr(base, '/');
+
+        if (end != NULL)
+            end++;
+        else
+            end = base;
+
+        len = asprintf(&str, "%.*s%s", (int)(end - base), base, ref);
+    }
+
+    if (unlikely(len == -1))
+        str = NULL;
+    return str;
+}
+
+/**
+ * Remove dot segments
+ *
+ * See IETF RFC3986 section 5.2.4 for details.
+ */
+static char *vlc_uri_remove_dot_segments(char *str)
+{
+    char *input = str, *output = str;
+
+    while (input[0] != '\0')
+    {
+        assert(output <= input);
+
+        if (strncmp(input, "../", 3) == 0)
+        {
+            input += 3;
+            continue;
+        }
+        if (strncmp(input, "./", 2) == 0)
+        {
+            input += 2;
+            continue;
+        }
+        if (strncmp(input, "/./", 3) == 0)
+        {
+            input += 2;
+            continue;
+        }
+        if (strcmp(input, "/.") == 0)
+        {
+            input[1] = '\0';
+            continue;
+        }
+        if (strncmp(input, "/../", 4) == 0)
+        {
+            input += 3;
+            output = memrchr(str, '/', output - str);
+            if (output == NULL)
+                output = str;
+            continue;
+        }
+        if (strcmp(input, "/..") == 0)
+        {
+            input[1] = '\0';
+            output = memrchr(str, '/', output - str);
+            if (output == NULL)
+                output = str;
+            continue;
+        }
+        if (strcmp(input, ".") == 0)
+        {
+            input++;
+            continue;
+        }
+        if (strcmp(input, "..") == 0)
+        {
+            input += 2;
+            continue;
+        }
+
+        if (input[0] == '/')
+            *(output++) = *(input++);
+
+        size_t len = strcspn(input, "/");
+
+        if (input != output)
+            memmove(output, input, len);
+
+        input += len;
+        output += len;
+    }
+
+    output[0] = '\0';
+    return str;
+}
+
+char *vlc_uri_compose(const vlc_url_t *uri)
+{
+    struct vlc_memstream stream;
+    char *enc;
+
+    vlc_memstream_open(&stream);
+
+    if (uri->psz_protocol != NULL)
+        vlc_memstream_printf(&stream, "%s:", uri->psz_protocol);
+
+    if (uri->psz_host != NULL)
+    {
+        vlc_memstream_write(&stream, "//", 2);
+
+        if (uri->psz_username != NULL)
+        {
+            enc = vlc_uri_encode(uri->psz_username);
+            if (enc == NULL)
+                goto error;
+
+            vlc_memstream_puts(&stream, enc);
+            free(enc);
+
+            if (uri->psz_password != NULL)
+            {
+                enc = vlc_uri_encode(uri->psz_password);
+                if (unlikely(enc == NULL))
+                    goto error;
+
+                vlc_memstream_printf(&stream, ":%s", enc);
+                free(enc);
+            }
+            vlc_memstream_putc(&stream, '@');
+        }
+
+        const char *fmt;
+
+        if (strchr(uri->psz_host, ':') != NULL)
+            fmt = (uri->i_port != 0) ? "[%s]:%d" : "[%s]";
+        else
+            fmt = (uri->i_port != 0) ? "%s:%d" : "%s";
+        /* No IDNA decoding here. Seems unnecessary, dangerous even. */
+        vlc_memstream_printf(&stream, fmt, uri->psz_host, uri->i_port);
+    }
+
+    if (uri->psz_path != NULL)
+        vlc_memstream_puts(&stream, uri->psz_path);
+    if (uri->psz_option != NULL)
+        vlc_memstream_printf(&stream, "?%s", uri->psz_option);
+    /* NOTE: fragment not handled currently */
+
+    if (vlc_memstream_close(&stream))
+        return NULL;
+    return stream.ptr;
+
+error:
+    if (vlc_memstream_close(&stream) == 0)
+        free(stream.ptr);
+    return NULL;
+}
+
+char *vlc_uri_resolve(const char *base, const char *ref)
+{
+    vlc_url_t base_uri, rel_uri;
+    vlc_url_t tgt_uri;
+    char *pathbuf = NULL, *ret = NULL;
+
+    if (vlc_UrlParse(&rel_uri, ref))
+    {
+        vlc_UrlClean(&rel_uri);
+        return NULL;
+    }
+
+    if (rel_uri.psz_protocol != NULL)
+    {   /* Short circuit in case of absolute URI */
+        vlc_UrlClean(&rel_uri);
+        return strdup(ref);
+    }
+
+    vlc_UrlParse(&base_uri, base);
+
+    /* RFC3986 section 5.2.2 */
+    do
+    {
+        tgt_uri = rel_uri;
+        tgt_uri.psz_protocol = base_uri.psz_protocol;
+
+        if (rel_uri.psz_host != NULL)
+            break;
+
+        tgt_uri.psz_username = base_uri.psz_username;
+        tgt_uri.psz_password = base_uri.psz_password;
+        tgt_uri.psz_host = base_uri.psz_host;
+        tgt_uri.i_port = base_uri.i_port;
+
+        if (rel_uri.psz_path == NULL || rel_uri.psz_path[0] == '\0')
+        {
+            tgt_uri.psz_path = base_uri.psz_path;
+            if (rel_uri.psz_option == NULL)
+                tgt_uri.psz_option = base_uri.psz_option;
+            break;
+        }
+
+        if (rel_uri.psz_path[0] == '/')
+            break;
+
+        pathbuf = vlc_uri_merge_paths(base_uri.psz_path, rel_uri.psz_path);
+        if (unlikely(pathbuf == NULL))
+            goto error;
+
+        tgt_uri.psz_path = pathbuf;
+    }
+    while (0);
+
+    if (tgt_uri.psz_path != NULL)
+        vlc_uri_remove_dot_segments(tgt_uri.psz_path);
+
+    ret = vlc_uri_compose(&tgt_uri);
+error:
+    free(pathbuf);
+    vlc_UrlClean(&base_uri);
+    vlc_UrlClean(&rel_uri);
+    return ret;
+}
+
+static char *vlc_uri_fixup_inner(const char *str, const char *extras)
+{
+    assert(str && extras);
+
+    bool encode_percent = false;
+    for (size_t i = 0; str[i] != '\0'; i++)
+        if (str[i] == '%' && !(isurihex(str[i+1]) && isurihex(str[i+2])))
+        {
+            encode_percent = true;
+            break;
+        }
+
+    struct vlc_memstream stream;
+
+    vlc_memstream_open(&stream);
+
+    for (size_t i = 0; str[i] != '\0'; i++)
+    {
+        unsigned char c = str[i];
+
+        if (isurisafe(c) || isurisubdelim(c) || (strchr(extras, c) != NULL)
+         || (c == '%' && !encode_percent))
+            vlc_memstream_putc(&stream, c);
+        else
+            vlc_memstream_printf(&stream, "%%%02hhX", c);
+    }
+
+    if (vlc_memstream_close(&stream))
+        return NULL;
+    return stream.ptr;
+}
+
+char *vlc_uri_fixup(const char *str)
+{
+    static const char extras[] = ":/?#[]@";
+
+    /* Rule number one is do not change a (potentially) valid URI */
+    if (vlc_uri_component_validate(str, extras))
+        return strdup(str);
+
+    return vlc_uri_fixup_inner(str, extras);
 }
 
 #if defined (HAVE_IDN)
@@ -499,12 +888,26 @@ static char *vlc_idna_to_ascii (const char *idn)
 #if defined (HAVE_IDN)
     char *adn;
 
-    if (idna_to_ascii_8z (idn, &adn, IDNA_ALLOW_UNASSIGNED) != IDNA_SUCCESS)
-        return NULL;
-    return adn;
+    switch (idna_to_ascii_8z(idn, &adn, IDNA_ALLOW_UNASSIGNED))
+    {
+        case IDNA_SUCCESS:
+            return adn;
+        case IDNA_MALLOC_ERROR:
+            errno = ENOMEM;
+            return NULL;
+        case IDNA_DLOPEN_ERROR:
+            errno = ENOSYS;
+            return NULL;
+        default:
+            errno = EINVAL;
+            return NULL;
+    }
 
-#elif defined (_WIN32) && (_WIN32_WINNT >= 0x0601)
+#elif defined (_WIN32)
     char *ret = NULL;
+
+    if (idn[0] == '\0')
+        return strdup("");
 
     wchar_t *wide = ToWide (idn);
     if (wide == NULL)
@@ -512,14 +915,18 @@ static char *vlc_idna_to_ascii (const char *idn)
 
     int len = IdnToAscii (IDN_ALLOW_UNASSIGNED, wide, -1, NULL, 0);
     if (len == 0)
+    {
+        errno = EINVAL;
         goto error;
+    }
 
-    wchar_t *buf = malloc (sizeof (*buf) * len);
+    wchar_t *buf = vlc_alloc (len, sizeof (*buf));
     if (unlikely(buf == NULL))
         goto error;
     if (!IdnToAscii (IDN_ALLOW_UNASSIGNED, wide, -1, buf, len))
     {
         free (buf);
+        errno = EINVAL;
         goto error;
     }
     ret = FromWide (buf);
@@ -532,7 +939,10 @@ error:
     /* No IDN support, filter out non-ASCII domain names */
     for (const char *p = idn; *p; p++)
         if (((unsigned char)*p) >= 0x80)
+        {
+            errno = ENOSYS;
             return NULL;
+        }
 
     return strdup (idn);
 

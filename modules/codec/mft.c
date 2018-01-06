@@ -61,10 +61,15 @@ static void Close(vlc_object_t *);
 vlc_module_begin()
     set_description(N_("Media Foundation Transform decoder"))
     add_shortcut("mft")
-    set_capability("decoder", 1)
+    set_capability("video decoder", 1)
     set_callbacks(Open, Close)
     set_category(CAT_INPUT)
     set_subcategory(SUBCAT_INPUT_VCODEC)
+
+    add_submodule()
+    add_shortcut("mft")
+    set_capability("audio decoder", 1)
+    set_callbacks(Open, Close)
 vlc_module_end()
 
 typedef struct
@@ -413,7 +418,7 @@ static int SetOutputType(decoder_t *p_dec, DWORD stream_id, IMFMediaType **resul
 
     if (p_dec->fmt_in.i_cat == VIDEO_ES)
     {
-        p_dec->fmt_out.video = p_dec->fmt_in.video;
+        video_format_Copy( &p_dec->fmt_out.video, &p_dec->fmt_in.video );
         p_dec->fmt_out.i_codec = vlc_fourcc_GetCodec(p_dec->fmt_in.i_cat, subtype.Data1);
     }
     else
@@ -440,7 +445,6 @@ static int SetOutputType(decoder_t *p_dec, DWORD stream_id, IMFMediaType **resul
         p_dec->fmt_out.i_codec = vlc_fourcc_GetCodecAudio(fourcc, p_dec->fmt_out.audio.i_bitspersample);
 
         p_dec->fmt_out.audio.i_physical_channels = pi_channels_maps[p_dec->fmt_out.audio.i_channels];
-        p_dec->fmt_out.audio.i_original_channels = p_dec->fmt_out.audio.i_physical_channels;
     }
 
     *result = output_media_type;
@@ -640,14 +644,12 @@ static void CopyPackedBufferToPicture(picture_t *p_pic, const uint8_t *p_src)
     }
 }
 
-static int ProcessOutputStream(decoder_t *p_dec, DWORD stream_id, void **result)
+static int ProcessOutputStream(decoder_t *p_dec, DWORD stream_id)
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     HRESULT hr;
     picture_t *picture = NULL;
     block_t *aout_buffer = NULL;
-
-    *result = NULL;
 
     DWORD output_status = 0;
     MFT_OUTPUT_DATA_BUFFER output_buffer = { stream_id, p_sys->output_sample, 0, NULL };
@@ -676,6 +678,8 @@ static int ProcessOutputStream(decoder_t *p_dec, DWORD stream_id, void **result)
 
         if (p_dec->fmt_in.i_cat == VIDEO_ES)
         {
+            if (decoder_UpdateVideoFormat(p_dec))
+                return VLC_SUCCESS;
             picture = decoder_NewPicture(p_dec);
             if (!picture)
                 return VLC_SUCCESS;
@@ -688,6 +692,8 @@ static int ProcessOutputStream(decoder_t *p_dec, DWORD stream_id, void **result)
         }
         else
         {
+            if (decoder_UpdateAudioFormat(p_dec))
+                goto error;
             if (p_dec->fmt_out.audio.i_bitspersample == 0 || p_dec->fmt_out.audio.i_channels == 0)
                 goto error;
             int samples = total_length / (p_dec->fmt_out.audio.i_bitspersample * p_dec->fmt_out.audio.i_channels / 8);
@@ -758,9 +764,9 @@ static int ProcessOutputStream(decoder_t *p_dec, DWORD stream_id, void **result)
     }
 
     if (p_dec->fmt_in.i_cat == VIDEO_ES)
-        *result = picture;
+        decoder_QueueVideo(p_dec, picture);
     else
-        *result = aout_buffer;
+        decoder_QueueAudio(p_dec, aout_buffer);
 
     return VLC_SUCCESS;
 
@@ -773,42 +779,32 @@ error:
     return VLC_EGENERIC;
 }
 
-static void *DecodeSync(decoder_t *p_dec, block_t **pp_block)
+static int DecodeSync(decoder_t *p_dec, block_t *p_block)
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
 
-    if (!pp_block || !*pp_block)
-        return NULL;
+    if (!p_block) /* No Drain */
+        return VLCDEC_SUCCESS;
 
-    block_t *p_block = *pp_block;
     if (p_block->i_flags & (BLOCK_FLAG_CORRUPTED))
     {
         block_Release(p_block);
-        *pp_block = NULL;
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
     /* Drain the output stream before sending the input packet. */
-    void *result = NULL;
-    if (ProcessOutputStream(p_dec, p_sys->output_stream_id, &result))
+    if (ProcessOutputStream(p_dec, p_sys->output_stream_id))
         goto error;
-    if (result)
-        return result;
-
     if (ProcessInputStream(p_dec, p_sys->input_stream_id, p_block))
         goto error;
-
     block_Release(p_block);
-    *pp_block = NULL;
 
-    return NULL;
+    return VLCDEC_SUCCESS;
 
 error:
     msg_Err(p_dec, "Error in DecodeSync()");
-    if (p_block)
-        block_Release(p_block);
-    *pp_block = NULL;
-    return NULL;
+    block_Release(p_block);
+    return VLCDEC_SUCCESS;
 }
 
 static HRESULT DequeueMediaEvent(decoder_t *p_dec)
@@ -836,20 +832,18 @@ static HRESULT DequeueMediaEvent(decoder_t *p_dec)
     return S_OK;
 }
 
-static void *DecodeAsync(decoder_t *p_dec, block_t **pp_block)
+static int DecodeAsync(decoder_t *p_dec, block_t *p_block)
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     HRESULT hr;
 
-    if (!pp_block || !*pp_block)
-        return NULL;
+    if (!p_block) /* No Drain */
+        return VLCDEC_SUCCESS;
 
-    block_t *p_block = *pp_block;
     if (p_block->i_flags & (BLOCK_FLAG_CORRUPTED))
     {
         block_Release(p_block);
-        *pp_block = NULL;
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
     /* Dequeue all pending media events. */
@@ -862,10 +856,8 @@ static void *DecodeAsync(decoder_t *p_dec, block_t **pp_block)
     if (p_sys->pending_output_events > 0)
     {
         p_sys->pending_output_events -= 1;
-        void *result = NULL;
-        if (ProcessOutputStream(p_dec, p_sys->output_stream_id, &result))
+        if (ProcessOutputStream(p_dec, p_sys->output_stream_id))
             goto error;
-        return result;
     }
 
     /* Poll the MFT and return decoded frames until the input stream is ready. */
@@ -884,10 +876,9 @@ static void *DecodeAsync(decoder_t *p_dec, block_t **pp_block)
         if (p_sys->pending_output_events > 0)
         {
             p_sys->pending_output_events -= 1;
-            void *result = NULL;
-            if (ProcessOutputStream(p_dec, p_sys->output_stream_id, &result))
+            if (ProcessOutputStream(p_dec, p_sys->output_stream_id))
                 goto error;
-            return result;
+            break;
         }
     }
 
@@ -896,15 +887,13 @@ static void *DecodeAsync(decoder_t *p_dec, block_t **pp_block)
         goto error;
 
     block_Release(p_block);
-    *pp_block = NULL;
 
-    return NULL;
+    return VLCDEC_SUCCESS;
 
 error:
     msg_Err(p_dec, "Error in DecodeAsync()");
     block_Release(p_block);
-    *pp_block = NULL;
-    return NULL;
+    return VLCDEC_SUCCESS;
 }
 
 static void DestroyMFT(decoder_t *p_dec);
@@ -1101,7 +1090,7 @@ static int FindMFT(decoder_t *p_dec)
 
 static int LoadMFTLibrary(MFHandle *mf)
 {
-#if _WIN32_WINNT < 0x601 || VLC_WINSTORE_APP
+#if _WIN32_WINNT < _WIN32_WINNT_WIN7 || VLC_WINSTORE_APP || __MINGW64_VERSION_MAJOR < 6
     mf->mfplat_dll = LoadLibrary(TEXT("mfplat.dll"));
     if (!mf->mfplat_dll)
         return VLC_EGENERIC;
@@ -1122,13 +1111,10 @@ static int LoadMFTLibrary(MFHandle *mf)
     return VLC_SUCCESS;
 }
 
-int Open(vlc_object_t *p_this)
+static int Open(vlc_object_t *p_this)
 {
     decoder_t *p_dec = (decoder_t *)p_this;
     decoder_sys_t *p_sys;
-
-    if (p_dec->fmt_in.i_cat != VIDEO_ES && p_dec->fmt_in.i_cat != AUDIO_ES)
-        return VLC_EGENERIC;
 
     p_sys = p_dec->p_sys = calloc(1, sizeof(*p_sys));
     if (!p_sys)
@@ -1153,18 +1139,7 @@ int Open(vlc_object_t *p_this)
     if (AllocateOutputSample(p_dec, 0, &p_sys->output_sample))
         goto error;
 
-    if (p_sys->is_async)
-    {
-        p_dec->pf_decode_video = (picture_t *(*)(decoder_t *, block_t **))DecodeAsync;
-        p_dec->pf_decode_audio = (block_t   *(*)(decoder_t *, block_t **))DecodeAsync;
-    }
-    else
-    {
-        p_dec->pf_decode_video = (picture_t *(*)(decoder_t *, block_t **))DecodeSync;
-        p_dec->pf_decode_audio = (block_t   *(*)(decoder_t *, block_t **))DecodeSync;
-    }
-
-    p_dec->fmt_out.i_cat = p_dec->fmt_in.i_cat;
+    p_dec->pf_decode = p_sys->is_async ? DecodeAsync : DecodeSync;
 
     return VLC_SUCCESS;
 
@@ -1173,7 +1148,7 @@ error:
     return VLC_EGENERIC;
 }
 
-void Close(vlc_object_t *p_this)
+static void Close(vlc_object_t *p_this)
 {
     decoder_t *p_dec = (decoder_t *)p_this;
     decoder_sys_t *p_sys = p_dec->p_sys;

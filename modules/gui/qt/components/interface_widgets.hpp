@@ -56,12 +56,12 @@ class VideoWidget : public QFrame
 {
     Q_OBJECT
 public:
-    VideoWidget( intf_thread_t * );
+    VideoWidget( intf_thread_t *, QWidget* p_parent );
     virtual ~VideoWidget();
 
-    WId request( struct vout_window_t *, unsigned int *, unsigned int *, bool );
-    void  release( void );
-    void  sync( void );
+    bool request( struct vout_window_t * );
+    void release( void );
+    void sync( void );
 
 protected:
     QPaintEngine *paintEngine() const Q_DECL_OVERRIDE
@@ -69,14 +69,24 @@ protected:
         return NULL;
     }
 
+    bool nativeEvent(const QByteArray &eventType, void *message, long *result) Q_DECL_OVERRIDE;
     virtual void resizeEvent(QResizeEvent *) Q_DECL_OVERRIDE;
+    void mousePressEvent(QMouseEvent *) Q_DECL_OVERRIDE;
+    void mouseMoveEvent(QMouseEvent *) Q_DECL_OVERRIDE;
+    void mouseReleaseEvent(QMouseEvent *) Q_DECL_OVERRIDE;
+    void mouseDoubleClickEvent(QMouseEvent *) Q_DECL_OVERRIDE;
+    QSize physicalSize() const;
 
 private:
+    int qtMouseButton2VLC( Qt::MouseButton );
     intf_thread_t *p_intf;
     vout_window_t *p_window;
 
     QWidget *stable;
     QLayout *layout;
+
+    void reportSize();
+
 signals:
     void sizeChanged( int, int );
 
@@ -105,7 +115,7 @@ protected:
     static const int MARGIN = 5;
     QString defaultArt;
 public slots:
-    void toggle(){ TOGGLEV( this ); }
+    void toggle(){ isVisible() ? hide() : show(); }
     void updateArt( const QString& );
 };
 
@@ -143,22 +153,6 @@ private:
     bool b_enabled;
     static const int MAX_FLAKES = 1000;
 };
-
-#if 0
-class VisualSelector : public QFrame
-{
-    Q_OBJECT
-public:
-    VisualSelector( intf_thread_t *);
-    virtual ~VisualSelector();
-private:
-    intf_thread_t *p_intf;
-    QLabel *current;
-private slots:
-    void prev();
-    void next();
-};
-#endif
 
 class ClickableQLabel : public QLabel
 {

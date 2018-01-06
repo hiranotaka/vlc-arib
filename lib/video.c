@@ -30,13 +30,17 @@
 #endif
 
 #include <vlc/libvlc.h>
+#include <vlc/libvlc_renderer_discoverer.h>
 #include <vlc/libvlc_media.h>
 #include <vlc/libvlc_media_player.h>
 
 #include <vlc_common.h>
+#include <vlc_modules.h>
 #include <vlc_input.h>
 #include <vlc_vout.h>
+#include <vlc_url.h>
 
+#include "libvlc_internal.h"
 #include "media_player_internal.h"
 #include <math.h>
 #include <assert.h>
@@ -281,6 +285,55 @@ void libvlc_video_set_aspect_ratio( libvlc_media_player_t *p_mi,
     free (pp_vouts);
 }
 
+libvlc_video_viewpoint_t *libvlc_video_new_viewpoint(void)
+{
+    libvlc_video_viewpoint_t *p_vp = malloc(sizeof *p_vp);
+    if (unlikely(p_vp == NULL))
+        return NULL;
+    p_vp->f_yaw = p_vp->f_pitch = p_vp->f_roll = p_vp->f_field_of_view = 0.0f;
+    return p_vp;
+}
+
+int libvlc_video_update_viewpoint( libvlc_media_player_t *p_mi,
+                                   const libvlc_video_viewpoint_t *p_viewpoint,
+                                   bool b_absolute )
+{
+    vlc_viewpoint_t update = {
+        .yaw   = p_viewpoint->f_yaw,
+        .pitch = p_viewpoint->f_pitch,
+        .roll  = p_viewpoint->f_roll,
+        .fov   = p_viewpoint->f_field_of_view,
+    };
+
+    input_thread_t *p_input_thread = libvlc_get_input_thread( p_mi );
+    if( p_input_thread != NULL )
+    {
+        if( input_UpdateViewpoint( p_input_thread, &update,
+                                   b_absolute ) != VLC_SUCCESS )
+        {
+            vlc_object_release( p_input_thread );
+            return -1;
+        }
+        vlc_object_release( p_input_thread );
+        return 0;
+    }
+
+    /* Save the viewpoint in case the input is not created yet */
+    if( !b_absolute )
+    {
+        p_mi->viewpoint.yaw += update.yaw;
+        p_mi->viewpoint.pitch += update.pitch;
+        p_mi->viewpoint.roll += update.roll;
+        p_mi->viewpoint.fov += update.fov;
+    }
+    else
+        p_mi->viewpoint = update;
+
+    vlc_viewpoint_clip( &p_mi->viewpoint );
+
+    return 0;
+}
+
 int libvlc_video_get_spu( libvlc_media_player_t *p_mi )
 {
     input_thread_t *p_input_thread = libvlc_get_input_thread( p_mi );
@@ -350,8 +403,14 @@ int libvlc_video_set_subtitle_file( libvlc_media_player_t *p_mi,
 
     if( p_input_thread )
     {
-        if( !input_AddSubtitle( p_input_thread, psz_subtitle, true ) )
-            b_ret = true;
+        char* psz_mrl = vlc_path2uri( psz_subtitle, NULL );
+        if( psz_mrl )
+        {
+            if( !input_AddSlave( p_input_thread, SLAVE_TYPE_SPU, psz_mrl,
+                                 true, false, false ) )
+                b_ret = true;
+            free( psz_mrl );
+        }
         vlc_object_release( p_input_thread );
     }
     return b_ret;
@@ -429,14 +488,7 @@ void libvlc_video_set_crop_geometry( libvlc_media_player_t *p_mi,
     for (size_t i = 0; i < n; i++)
     {
         vout_thread_t *p_vout = pp_vouts[i];
-        vlc_value_t val;
 
-        /* Make sure the geometry is in the choice list */
-        /* Earlier choices are removed to not grow a long list over time. */
-        /* FIXME: not atomic - lock? */
-        val.psz_string = (char *)psz_geometry;
-        var_Change (p_vout, "crop", VLC_VAR_CLEARCHOICES, NULL, NULL);
-        var_Change (p_vout, "crop", VLC_VAR_ADDCHOICE, &val, &val);
         var_SetString (p_vout, "crop", psz_geometry);
         vlc_object_release (p_vout);
     }
@@ -448,13 +500,55 @@ int libvlc_video_get_teletext( libvlc_media_player_t *p_mi )
     return var_GetInteger (p_mi, "vbi-page");
 }
 
+static void teletext_enable( input_thread_t *p_input_thread, bool b_enable )
+{
+    if( b_enable )
+    {
+        vlc_value_t list;
+        if( !var_Change( p_input_thread, "teletext-es", VLC_VAR_GETCHOICES,
+                         &list, NULL ) )
+        {
+            if( list.p_list->i_count > 0 )
+                var_SetInteger( p_input_thread, "spu-es",
+                                list.p_list->p_values[0].i_int );
+
+            var_FreeList( &list, NULL );
+        }
+    }
+    else
+        var_SetInteger( p_input_thread, "spu-es", -1 );
+}
+
 void libvlc_video_set_teletext( libvlc_media_player_t *p_mi, int i_page )
 {
     input_thread_t *p_input_thread;
     vlc_object_t *p_zvbi = NULL;
     int telx;
+    bool b_key = false;
 
-    var_SetInteger (p_mi, "vbi-page", i_page);
+    if( i_page >= 0 && i_page < 1000 )
+        var_SetInteger( p_mi, "vbi-page", i_page );
+    else if( i_page >= 1000 )
+    {
+        switch (i_page)
+        {
+            case libvlc_teletext_key_red:
+            case libvlc_teletext_key_green:
+            case libvlc_teletext_key_yellow:
+            case libvlc_teletext_key_blue:
+            case libvlc_teletext_key_index:
+                b_key = true;
+                break;
+            default:
+                libvlc_printerr("Invalid key action");
+                return;
+        }
+    }
+    else
+    {
+        libvlc_printerr("Invalid page number");
+        return;
+    }
 
     p_input_thread = libvlc_get_input_thread( p_mi );
     if( !p_input_thread ) return;
@@ -465,12 +559,29 @@ void libvlc_video_set_teletext( libvlc_media_player_t *p_mi, int i_page )
         return;
     }
 
-    telx = var_GetInteger( p_input_thread, "teletext-es" );
-    if( input_GetEsObjects( p_input_thread, telx, &p_zvbi, NULL, NULL )
-        == VLC_SUCCESS )
+    if( i_page == 0 )
     {
-        var_SetInteger( p_zvbi, "vbi-page", i_page );
-        vlc_object_release( p_zvbi );
+        teletext_enable( p_input_thread, false );
+    }
+    else
+    {
+        telx = var_GetInteger( p_input_thread, "teletext-es" );
+        if( telx >= 0 )
+        {
+            if( input_GetEsObjects( p_input_thread, telx, &p_zvbi, NULL, NULL )
+                == VLC_SUCCESS )
+            {
+                var_SetInteger( p_zvbi, "vbi-page", i_page );
+                vlc_object_release( p_zvbi );
+            }
+        }
+        else if (!b_key)
+        {
+            /* the "vbi-page" will be selected on es creation */
+            teletext_enable( p_input_thread, true );
+        }
+        else
+            libvlc_printerr("Key action sent while the teletext is disabled");
     }
     vlc_object_release( p_input_thread );
 }
@@ -488,21 +599,7 @@ void libvlc_toggle_teletext( libvlc_media_player_t *p_mi )
         return;
     }
     const bool b_selected = var_GetInteger( p_input_thread, "teletext-es" ) >= 0;
-    if( b_selected )
-    {
-        var_SetInteger( p_input_thread, "spu-es", -1 );
-    }
-    else
-    {
-        vlc_value_t list;
-        if( !var_Change( p_input_thread, "teletext-es", VLC_VAR_GETCHOICES, &list, NULL ) )
-        {
-            if( list.p_list->i_count > 0 )
-                var_SetInteger( p_input_thread, "spu-es", list.p_list->p_values[0].i_int );
-
-            var_FreeList( &list, NULL );
-        }
-    }
+    teletext_enable( p_input_thread, !b_selected );
     vlc_object_release( p_input_thread );
 }
 
@@ -552,8 +649,6 @@ int libvlc_video_set_track( libvlc_media_player_t *p_mi, int i_track )
     {
         if( i_track == val_list.p_list->p_values[i].i_int )
         {
-            if( var_SetBool( p_input_thread, "video", true ) < 0)
-                break;
             if( var_SetInteger( p_input_thread, "video-es", i_track ) < 0 )
                 break;
             i_ret = 0;
@@ -613,6 +708,88 @@ void libvlc_video_set_deinterlace( libvlc_media_player_t *p_mi,
 /* module helpers */
 /* ************** */
 
+static int get_filter_str( vlc_object_t *p_parent, const char *psz_name,
+                           bool b_add, const char **ppsz_filter_type,
+                           char **ppsz_filter_value)
+{
+    char *psz_parser;
+    char *psz_string;
+    const char *psz_filter_type;
+
+    module_t *p_obj = module_find( psz_name );
+    if( !p_obj )
+    {
+        msg_Err( p_parent, "Unable to find filter module \"%s\".", psz_name );
+        return VLC_EGENERIC;
+    }
+
+    if( module_provides( p_obj, "video filter" ) )
+    {
+        psz_filter_type = "video-filter";
+    }
+    else if( module_provides( p_obj, "sub source" ) )
+    {
+        psz_filter_type = "sub-source";
+    }
+    else if( module_provides( p_obj, "sub filter" ) )
+    {
+        psz_filter_type = "sub-filter";
+    }
+    else
+    {
+        msg_Err( p_parent, "Unknown video filter type." );
+        return VLC_EGENERIC;
+    }
+
+    psz_string = var_GetString( p_parent, psz_filter_type );
+
+    /* Todo : Use some generic chain manipulation functions */
+    if( !psz_string ) psz_string = strdup("");
+
+    psz_parser = strstr( psz_string, psz_name );
+    if( b_add )
+    {
+        if( !psz_parser )
+        {
+            psz_parser = psz_string;
+            if( asprintf( &psz_string, (*psz_string) ? "%s:%s" : "%s%s",
+                          psz_string, psz_name ) == -1 )
+            {
+                free( psz_parser );
+                return VLC_EGENERIC;
+            }
+            free( psz_parser );
+        }
+        else
+        {
+            free( psz_string );
+            return VLC_EGENERIC;
+        }
+    }
+    else
+    {
+        if( psz_parser )
+        {
+            memmove( psz_parser, psz_parser + strlen(psz_name) +
+                            (*(psz_parser + strlen(psz_name)) == ':' ? 1 : 0 ),
+                            strlen(psz_parser + strlen(psz_name)) + 1 );
+
+            /* Remove trailing : : */
+            if( *(psz_string+strlen(psz_string ) -1 ) == ':' )
+                *(psz_string+strlen(psz_string ) -1 ) = '\0';
+        }
+        else
+        {
+            free( psz_string );
+            return VLC_EGENERIC;
+        }
+    }
+
+    *ppsz_filter_type = psz_filter_type;
+    *ppsz_filter_value = psz_string;
+    return VLC_SUCCESS;
+}
+
 static bool find_sub_source_by_name( libvlc_media_player_t *p_mi, const char *restrict name )
 {
     vout_thread_t *vout = GetVout( p_mi, 0 );
@@ -640,34 +817,57 @@ typedef const struct {
 } opt_t;
 
 static void
-set_int( libvlc_media_player_t *p_mi, const char *restrict name,
-         const opt_t *restrict opt, int value )
+set_value( libvlc_media_player_t *p_mi, const char *restrict name,
+           const opt_t *restrict opt, unsigned i_expected_type,
+           const vlc_value_t *val, bool b_sub_source )
 {
     if( !opt ) return;
 
-    switch( opt->type )
+    int i_type = opt->type;
+    vlc_value_t new_val = *val;
+    const char *psz_opt_name = opt->name;
+    switch( i_type )
     {
         case 0: /* the enabler */
         {
-            vout_thread_t *vout = GetVout( p_mi, 0 );
-            if (vout != NULL)
-            {   /* Fill sub-source */
-                vout_EnableFilter( vout, opt->name, value, false );
-                var_TriggerCallback( vout, "sub-source" );
-                vlc_object_release( vout );
-            }
+            int i_ret = get_filter_str( VLC_OBJECT( p_mi ), opt->name, val->i_int,
+                                        &psz_opt_name, &new_val.psz_string );
+            if( i_ret != VLC_SUCCESS )
+                return;
+            i_type = VLC_VAR_STRING;
             break;
         }
         case VLC_VAR_INTEGER:
-            var_SetInteger( p_mi, opt->name, value );
-            break;
         case VLC_VAR_FLOAT:
-            var_SetFloat( p_mi, opt->name, value );
+        case VLC_VAR_STRING:
+            if( i_expected_type != opt->type )
+            {
+                libvlc_printerr( "Invalid argument to %s", name );
+                return;
+            }
             break;
         default:
-            libvlc_printerr( "Invalid argument to %s in %s", name, "set int" );
+            libvlc_printerr( "Invalid argument to %s", name );
             return;
     }
+
+    /* Set the new value to the media player. Next vouts created from this
+     * media player will inherit this new value */
+    var_SetChecked( p_mi, psz_opt_name, i_type, new_val );
+
+    /* Set the new value to every loaded vouts */
+    size_t i_vout_count;
+    vout_thread_t **pp_vouts = GetVouts( p_mi, &i_vout_count );
+    for( size_t i = 0; i < i_vout_count; ++i )
+    {
+        var_SetChecked( pp_vouts[i], psz_opt_name, i_type, new_val );
+        if( b_sub_source )
+            var_TriggerCallback( pp_vouts[i], "sub-source" );
+        vlc_object_release( pp_vouts[i] );
+    }
+
+    if( opt->type == 0 )
+        free( new_val.psz_string );
 }
 
 static int
@@ -693,21 +893,6 @@ get_int( libvlc_media_player_t *p_mi, const char *restrict name,
     }
 }
 
-static void
-set_float( libvlc_media_player_t *p_mi, const char *restrict name,
-            const opt_t *restrict opt, float value )
-{
-    if( !opt ) return;
-
-    if( opt->type != VLC_VAR_FLOAT )
-    {
-        libvlc_printerr( "Invalid argument to %s in %s", name, "set float" );
-        return;
-    }
-
-    var_SetFloat( p_mi, opt->name, value );
-}
-
 static float
 get_float( libvlc_media_player_t *p_mi, const char *restrict name,
             const opt_t *restrict opt )
@@ -721,21 +906,6 @@ get_float( libvlc_media_player_t *p_mi, const char *restrict name,
     }
 
     return var_GetFloat( p_mi, opt->name );
-}
-
-static void
-set_string( libvlc_media_player_t *p_mi, const char *restrict name,
-            const opt_t *restrict opt, const char *restrict psz_value )
-{
-    if( !opt ) return;
-
-    if( opt->type != VLC_VAR_STRING )
-    {
-        libvlc_printerr( "Invalid argument to %s in %s", name, "set string" );
-        return;
-    }
-
-    var_SetString( p_mi, opt->name, psz_value );
 }
 
 static char *
@@ -801,7 +971,8 @@ char * libvlc_video_get_marquee_string( libvlc_media_player_t *p_mi,
 void libvlc_video_set_marquee_int( libvlc_media_player_t *p_mi,
                          unsigned option, int value )
 {
-    set_int( p_mi, "marq", marq_option_bynumber(option), value );
+    set_value( p_mi, "marq", marq_option_bynumber(option), VLC_VAR_INTEGER,
+               &(vlc_value_t) { .i_int = value }, true );
 }
 
 /*****************************************************************************
@@ -810,7 +981,8 @@ void libvlc_video_set_marquee_int( libvlc_media_player_t *p_mi,
 void libvlc_video_set_marquee_string( libvlc_media_player_t *p_mi,
                 unsigned option, const char * value )
 {
-    set_string( p_mi, "marq", marq_option_bynumber(option), value );
+    set_value( p_mi, "marq", marq_option_bynumber(option), VLC_VAR_STRING,
+               &(vlc_value_t){ .psz_string = (char *)value }, true );
 }
 
 
@@ -842,14 +1014,16 @@ logo_option_bynumber( unsigned option )
 void libvlc_video_set_logo_string( libvlc_media_player_t *p_mi,
                                    unsigned option, const char *psz_value )
 {
-    set_string( p_mi,"logo",logo_option_bynumber(option), psz_value );
+    set_value( p_mi,"logo",logo_option_bynumber(option), VLC_VAR_STRING,
+               &(vlc_value_t){ .psz_string = (char *)psz_value }, true );
 }
 
 
 void libvlc_video_set_logo_int( libvlc_media_player_t *p_mi,
                                 unsigned option, int value )
 {
-    set_int( p_mi, "logo", logo_option_bynumber(option), value );
+    set_value( p_mi, "logo", logo_option_bynumber(option), VLC_VAR_INTEGER,
+               &(vlc_value_t) { .i_int = value }, true );
 }
 
 
@@ -887,7 +1061,8 @@ adjust_option_bynumber( unsigned option )
 void libvlc_video_set_adjust_int( libvlc_media_player_t *p_mi,
                                   unsigned option, int value )
 {
-    set_int( p_mi, "adjust", adjust_option_bynumber(option), value );
+    set_value( p_mi, "adjust", adjust_option_bynumber(option), VLC_VAR_INTEGER,
+               &(vlc_value_t) { .i_int = value }, false );
 }
 
 
@@ -901,7 +1076,8 @@ int libvlc_video_get_adjust_int( libvlc_media_player_t *p_mi,
 void libvlc_video_set_adjust_float( libvlc_media_player_t *p_mi,
                                     unsigned option, float value )
 {
-    set_float( p_mi, "adjust", adjust_option_bynumber(option), value );
+    set_value( p_mi, "adjust", adjust_option_bynumber(option), VLC_VAR_FLOAT,
+               &(vlc_value_t) { .f_float = value }, false );
 }
 
 

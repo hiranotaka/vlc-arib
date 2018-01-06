@@ -25,6 +25,8 @@
 #ifndef LIBVLC_VOUT_CONTROL_H
 #define LIBVLC_VOUT_CONTROL_H 1
 
+typedef struct vout_window_mouse_event_t vout_window_mouse_event_t;
+
 /**
  * This function will (un)pause the display of pictures.
  * It is thread safe
@@ -43,15 +45,10 @@ void vout_GetResetStatistic( vout_thread_t *p_vout, unsigned *pi_displayed,
                              unsigned *pi_lost );
 
 /**
- * This function will ensure that all ready/displayed pciture have at most
- * the provided dat
+ * This function will ensure that all ready/displayed pictures have at most
+ * the provided date.
  */
 void vout_Flush( vout_thread_t *p_vout, mtime_t i_date );
-
-/*
- * Reset the states of the vout.
- */
-void vout_Reset( vout_thread_t *p_vout );
 
 /*
  * Cancel the vout, if cancel is true, it won't return any pictures after this
@@ -68,6 +65,9 @@ void vout_NextPicture( vout_thread_t *p_vout, mtime_t *pi_duration );
  * This function will ask the display of the input title
  */
 void vout_DisplayTitle( vout_thread_t *p_vout, const char *psz_title );
+
+void vout_WindowMouseEvent( vout_thread_t *p_vout,
+                            const vout_window_mouse_event_t *mouse );
 
 /**
  * This function will return true if no more pictures are to be displayed.

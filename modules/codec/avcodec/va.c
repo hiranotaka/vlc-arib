@@ -38,18 +38,35 @@ vlc_fourcc_t vlc_va_GetChroma(enum PixelFormat hwfmt, enum PixelFormat swfmt)
     switch (hwfmt)
     {
         case AV_PIX_FMT_VAAPI_VLD:
-            return VLC_CODEC_YV12;
-
+            switch (swfmt)
+            {
+                case AV_PIX_FMT_YUV420P:
+                    return VLC_CODEC_VAAPI_420;
+                case AV_PIX_FMT_YUV420P10LE:
+                    return VLC_CODEC_VAAPI_420_10BPP;
+                default:
+                    return 0;
+            }
         case AV_PIX_FMT_DXVA2_VLD:
-            return VLC_CODEC_D3D9_OPAQUE;
+            switch (swfmt)
+            {
+                case AV_PIX_FMT_YUV420P10LE:
+                    return VLC_CODEC_D3D9_OPAQUE_10B;
+                default:
+                    return VLC_CODEC_D3D9_OPAQUE;
+            }
+            break;
 
 #if LIBAVUTIL_VERSION_CHECK(54, 13, 1, 24, 100)
         case AV_PIX_FMT_D3D11VA_VLD:
-            return VLC_CODEC_D3D11_OPAQUE;
-#endif
-#if (LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(53, 14, 0))
-        case AV_PIX_FMT_VDA:
-            return VLC_CODEC_I420;
+            switch (swfmt)
+            {
+                case AV_PIX_FMT_YUV420P10LE:
+                    return VLC_CODEC_D3D11_OPAQUE_10B;
+                default:
+                    return VLC_CODEC_D3D11_OPAQUE;
+            }
+        break;
 #endif
 #if (LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(52, 4, 0))
         case AV_PIX_FMT_VDPAU:
@@ -90,10 +107,10 @@ static int vlc_va_Start(void *func, va_list ap)
 static void vlc_va_Stop(void *func, va_list ap)
 {
     vlc_va_t *va = va_arg(ap, vlc_va_t *);
-    AVCodecContext *ctx = va_arg(ap, AVCodecContext *);
-    void (*close)(vlc_va_t *, AVCodecContext *) = func;
+    void *hwctx = va_arg(ap, void *);
+    void (*close)(vlc_va_t *, void *) = func;
 
-    close(va, ctx);
+    close(va, hwctx);
 }
 
 vlc_va_t *vlc_va_New(vlc_object_t *obj, AVCodecContext *avctx,
@@ -109,23 +126,13 @@ vlc_va_t *vlc_va_New(vlc_object_t *obj, AVCodecContext *avctx,
     if (va->module == NULL)
     {
         vlc_object_release(va);
-#ifdef _WIN32
-        return NULL;
-    }
-
-    vlc_fourcc_t chroma;
-    va->setup(va, &chroma);
-    if (chroma != vlc_va_GetChroma(pix_fmt, AV_PIX_FMT_YUV420P))
-    {   /* Mismatch, cannot work, fail */
-        vlc_va_Delete(va, avctx);
-#endif
         va = NULL;
     }
     return va;
 }
 
-void vlc_va_Delete(vlc_va_t *va, AVCodecContext *avctx)
+void vlc_va_Delete(vlc_va_t *va, void **hwctx)
 {
-    vlc_module_unload(va->module, vlc_va_Stop, va, avctx);
+    vlc_module_unload(va, va->module, vlc_va_Stop, va, hwctx);
     vlc_object_release(va);
 }

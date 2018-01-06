@@ -21,6 +21,11 @@
 #ifndef VLC_AOUT_MMDEVICE_H
 # define VLC_AOUT_MMDEVICE_H 1
 
+#define MM_PASSTHROUGH_DISABLED 0
+#define MM_PASSTHROUGH_ENABLED 1
+#define MM_PASSTHROUGH_ENABLED_HD 2
+#define MM_PASSTHROUGH_DEFAULT MM_PASSTHROUGH_ENABLED_HD
+
 typedef struct aout_stream aout_stream_t;
 
 /**
@@ -28,7 +33,7 @@ typedef struct aout_stream aout_stream_t;
  */
 struct aout_stream
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
     void *sys;
 
     HRESULT (*time_get)(aout_stream_t *, mtime_t *);
@@ -78,7 +83,8 @@ static inline HRESULT aout_stream_Flush(aout_stream_t *s, bool wait)
     {   /* Loosy drain emulation */
         mtime_t delay;
 
-        if (SUCCEEDED(aout_stream_TimeGet(s, &delay)))
+        if (SUCCEEDED(aout_stream_TimeGet(s, &delay))
+         && delay <= INT64_C(5000000))
             Sleep((delay / (CLOCK_FREQ / 1000)) + 1);
         return S_OK;
     }

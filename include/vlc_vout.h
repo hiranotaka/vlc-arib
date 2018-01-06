@@ -68,7 +68,7 @@ typedef struct vout_thread_sys_t vout_thread_sys_t;
  * structure.
  */
 struct vout_thread_t {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
 
     /* Private vout_thread data */
     vout_thread_sys_t *p;
@@ -133,6 +133,9 @@ static inline void vout_CloseAndRelease( vout_thread_t *p_vout )
  *
  * pp_image will hold an encoded picture in psz_format format.
  *
+ * p_fmt can be NULL otherwise it will be set with the format used for the
+ * picture before encoding.
+ *
  * i_timeout specifies the time the function will wait for a snapshot to be
  * available.
  *
@@ -149,12 +152,14 @@ VLC_API void vout_ChangeAspectRatio( vout_thread_t *p_vout,
 VLC_API picture_t * vout_GetPicture( vout_thread_t * );
 VLC_API void vout_PutPicture( vout_thread_t *, picture_t * );
 
+/* Subpictures channels ID */
+#define VOUT_SPU_CHANNEL_OSD            1 /* OSD channel is automatically cleared */
+#define VOUT_SPU_CHANNEL_AVAIL_FIRST    8 /* Registerable channels from this offset */
+
 /* */
 VLC_API void vout_PutSubpicture( vout_thread_t *, subpicture_t * );
 VLC_API int vout_RegisterSubpictureChannel( vout_thread_t * );
 VLC_API void vout_FlushSubpictureChannel( vout_thread_t *, int );
-
-VLC_API void vout_EnableFilter( vout_thread_t *, const char *,bool , bool  );
 
 /**@}*/
 

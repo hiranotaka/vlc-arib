@@ -29,10 +29,10 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_atomic.h>
 
 #include "libvlc.h"
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <signal.h>
 #include <errno.h>
 #include <time.h>
@@ -102,9 +102,6 @@ static pthread_once_t vlc_clock_once = PTHREAD_ONCE_INIT;
 #else /* _POSIX_TIMERS */
 
 # include <sys/time.h> /* gettimeofday() */
-# if defined (HAVE_DECL_NANOSLEEP) && !HAVE_DECL_NANOSLEEP
-int nanosleep (struct timespec *, struct timespec *);
-# endif
 
 # define vlc_clock_setup() (void)0
 # warning Monotonic clock not available. Expect timing issues.
@@ -457,6 +454,7 @@ static int vlc_clone_attr (vlc_thread_t *th, pthread_attr_t *attr,
 
         pthread_attr_setschedpolicy (attr, policy);
         pthread_attr_setschedparam (attr, &sp);
+        pthread_attr_setinheritsched (attr, PTHREAD_EXPLICIT_SCHED);
     }
 #else
     (void) priority;
@@ -481,7 +479,7 @@ static int vlc_clone_attr (vlc_thread_t *th, pthread_attr_t *attr,
     assert (ret == 0); /* fails iif VLC_STACKSIZE is invalid */
 #endif
 
-    ret = pthread_create (th, attr, entry, data);
+    ret = pthread_create(&th->handle, attr, entry, data);
     pthread_sigmask (SIG_SETMASK, &oldset, NULL);
     pthread_attr_destroy (attr);
     return ret;
@@ -496,9 +494,9 @@ int vlc_clone (vlc_thread_t *th, void *(*entry) (void *), void *data,
     return vlc_clone_attr (th, &attr, entry, data, priority);
 }
 
-void vlc_join (vlc_thread_t handle, void **result)
+void vlc_join(vlc_thread_t th, void **result)
 {
-    int val = pthread_join (handle, result);
+    int val = pthread_join(th.handle, result);
     VLC_THREAD_ASSERT ("joining thread");
 }
 
@@ -548,7 +546,8 @@ int vlc_clone_detach (vlc_thread_t *th, void *(*entry) (void *), void *data,
 
 vlc_thread_t vlc_thread_self (void)
 {
-    return pthread_self ();
+    vlc_thread_t thread = { pthread_self() };
+    return thread;
 }
 
 #if !defined (__linux__)
@@ -573,7 +572,7 @@ int vlc_set_priority (vlc_thread_t th, int priority)
         else
             sp.sched_priority += sched_get_priority_min (policy = SCHED_RR);
 
-        if (pthread_setschedparam (th, policy, &sp))
+        if (pthread_setschedparam(th.handle, policy, &sp))
             return VLC_EGENERIC;
     }
 #else
@@ -582,9 +581,9 @@ int vlc_set_priority (vlc_thread_t th, int priority)
     return VLC_SUCCESS;
 }
 
-void vlc_cancel (vlc_thread_t thread_id)
+void vlc_cancel(vlc_thread_t th)
 {
-    pthread_cancel (thread_id);
+    pthread_cancel(th.handle);
 }
 
 int vlc_savecancel (void)
@@ -699,7 +698,7 @@ unsigned vlc_GetCPUCount(void)
     u_int numcpus;
     processor_info_t cpuinfo;
 
-    processorid_t *cpulist = malloc (sizeof (*cpulist) * sysconf(_SC_NPROCESSORS_MAX));
+    processorid_t *cpulist = vlc_alloc (sysconf(_SC_NPROCESSORS_MAX), sizeof (*cpulist));
     if (unlikely(cpulist == NULL))
         return 1;
 

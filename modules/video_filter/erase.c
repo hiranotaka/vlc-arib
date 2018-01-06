@@ -33,8 +33,8 @@
 #include <vlc_plugin.h>
 #include <vlc_sout.h>
 #include <vlc_image.h>
-
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 #include <vlc_url.h>
 #include "filter_picture.h"
 
@@ -67,7 +67,7 @@ static int EraseCallback( vlc_object_t *, char const *,
 vlc_module_begin ()
     set_description( N_("Erase video filter") )
     set_shortname( N_( "Erase" ))
-    set_capability( "video filter2", 0 )
+    set_capability( "video filter", 0 )
     set_help(ERASE_HELP)
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
@@ -101,14 +101,15 @@ static void LoadMask( filter_t *p_filter, const char *psz_filename )
     image_handler_t *p_image;
     video_format_t fmt_in, fmt_out;
     picture_t *p_old_mask = p_filter->p_sys->p_mask;
-    memset( &fmt_in, 0, sizeof( video_format_t ) );
-    memset( &fmt_out, 0, sizeof( video_format_t ) );
-    fmt_out.i_chroma = VLC_CODEC_YUVA;
+    video_format_Init( &fmt_in, 0 );
+    video_format_Init( &fmt_out, VLC_CODEC_YUVA );
     p_image = image_HandlerCreate( p_filter );
     char *psz_url = vlc_path2uri( psz_filename, NULL );
     p_filter->p_sys->p_mask =
         image_ReadUrl( p_image, psz_url, &fmt_in, &fmt_out );
     free( psz_url );
+    video_format_Clean( &fmt_in );
+    video_format_Clean( &fmt_out );
     if( p_filter->p_sys->p_mask )
     {
         if( p_old_mask )

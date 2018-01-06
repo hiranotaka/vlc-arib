@@ -59,7 +59,6 @@ public:
         StatisticsUpdate,
         InterfaceAoutUpdate, /* 10 */
         MetaChanged,
-        NameChanged,
         InfoChanged,
         SynchroChanged,
         CachingEvent,
@@ -81,13 +80,13 @@ public:
         : QEvent( (QEvent::Type)(type) )
     {
         if( (p_item = p_input) != NULL )
-            vlc_gc_incref( p_item );
+            input_item_Hold( p_item );
     }
 
     virtual ~IMEvent()
     {
         if( p_item )
-            vlc_gc_decref( p_item );
+            input_item_Release( p_item );
     }
 
     input_item_t *item() const { return p_item; };
@@ -202,6 +201,8 @@ public slots:
     void sectionNext();
     void sectionPrev();
     void sectionMenu();
+    /* Program */
+    void changeProgram( int );
     /* Teletext */
     void telexSetPage( int );          ///< Goto teletext page
     void telexSetTransparency( bool ); ///< Transparency on teletext background
@@ -269,6 +270,7 @@ public:
     }
 
     vout_thread_t* getVout();
+    QVector<vout_thread_t*> getVouts() const;
     audio_output_t *getAout();
 
     bool getPlayExitState();

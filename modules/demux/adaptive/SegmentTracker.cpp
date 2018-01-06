@@ -53,6 +53,29 @@ SegmentTrackerEvent::SegmentTrackerEvent(const StreamFormat *fmt)
     u.format.f = fmt;
 }
 
+SegmentTrackerEvent::SegmentTrackerEvent(const ID &id, bool enabled)
+{
+    type = BUFFERING_STATE;
+    u.buffering.enabled = enabled;
+    u.buffering.id = &id;
+}
+
+SegmentTrackerEvent::SegmentTrackerEvent(const ID &id, mtime_t min, mtime_t current, mtime_t target)
+{
+    type = BUFFERING_LEVEL_CHANGE;
+    u.buffering_level.minimum = min;
+    u.buffering_level.current = current;
+    u.buffering_level.target = target;
+    u.buffering.id = &id;
+}
+
+SegmentTrackerEvent::SegmentTrackerEvent(const ID &id, mtime_t duration)
+{
+    type = SEGMENT_CHANGE;
+    u.segment.duration = duration;
+    u.segment.id = &id;
+}
+
 SegmentTracker::SegmentTracker(AbstractAdaptationLogic *logic_, BaseAdaptationSet *adaptSet)
 {
     first = true;
@@ -77,13 +100,18 @@ void SegmentTracker::setAdaptationLogic(AbstractAdaptationLogic *logic_)
     registerListener(logic);
 }
 
-StreamFormat SegmentTracker::initialFormat() const
+StreamFormat SegmentTracker::getCurrentFormat() const
 {
     BaseRepresentation *rep = curRepresentation;
     if(!rep)
         rep = logic->getNextRepresentation(adaptationSet, NULL);
     if(rep)
+    {
+        /* Ensure ephemere content is updated/loaded */
+        if(rep->needsUpdate())
+            (void) rep->runLocalUpdates(0, curNumber, false);
         return rep->getStreamFormat();
+    }
     return StreamFormat();
 }
 
@@ -107,7 +135,8 @@ void SegmentTracker::reset()
     format = StreamFormat::UNSUPPORTED;
 }
 
-SegmentChunk * SegmentTracker::getNextChunk(bool switch_allowed, HTTPConnectionManager *connManager)
+SegmentChunk * SegmentTracker::getNextChunk(bool switch_allowed,
+                                            AbstractConnectionManager *connManager)
 {
     BaseRepresentation *rep = NULL, *prevRep = NULL;
     ISegment *segment;
@@ -167,6 +196,26 @@ SegmentChunk * SegmentTracker::getNextChunk(bool switch_allowed, HTTPConnectionM
         curRepresentation->scheduleNextUpdate(next);
     }
 
+    if(rep->getStreamFormat() != format)
+    {
+        /* Initial format ? */
+        if(format == StreamFormat(StreamFormat::UNSUPPORTED))
+        {
+            format = rep->getStreamFormat();
+        }
+        else
+        {
+            format = rep->getStreamFormat();
+            notify(SegmentTrackerEvent(&format)); /* Notify new demux format */
+            return NULL; /* Force current demux to end */
+        }
+    }
+
+    if(format == StreamFormat(StreamFormat::UNSUPPORTED))
+    {
+        return NULL; /* Can't return chunk because no demux will be created */
+    }
+
     if(!init_sent)
     {
         init_sent = true;
@@ -187,7 +236,6 @@ SegmentChunk * SegmentTracker::getNextChunk(bool switch_allowed, HTTPConnectionM
     segment = rep->getNextSegment(BaseRepresentation::INFOTYPE_MEDIA, next, &next, &b_gap);
     if(!segment)
     {
-        reset();
         return NULL;
     }
 
@@ -199,6 +247,14 @@ SegmentChunk * SegmentTracker::getNextChunk(bool switch_allowed, HTTPConnectionM
     }
 
     SegmentChunk *chunk = segment->toChunk(next, rep, connManager);
+
+    /* Notify new segment length for stats / logic */
+    if(chunk)
+    {
+        const Timescale timescale = rep->inheritTimescale();
+        notify(SegmentTrackerEvent(rep->getAdaptationSet()->getID(),
+                                   timescale.ToTime(segment->duration.Get())));
+    }
 
     /* We need to check segment/chunk format changes, as we can't rely on representation's (HLS)*/
     if(chunk && format != chunk->getStreamFormat())
@@ -253,8 +309,13 @@ void SegmentTracker::setPositionByNumber(uint64_t segnumber, bool restarted)
 mtime_t SegmentTracker::getPlaybackTime() const
 {
     mtime_t time, duration;
-    if(curRepresentation &&
-       curRepresentation->getPlaybackTimeDurationBySegmentNumber(next, &time, &duration))
+
+    BaseRepresentation *rep = curRepresentation;
+    if(!rep)
+        rep = logic->getNextRepresentation(adaptationSet, NULL);
+
+    if(rep &&
+       rep->getPlaybackTimeDurationBySegmentNumber(next, &time, &duration))
     {
         return time;
     }
@@ -271,6 +332,16 @@ mtime_t SegmentTracker::getMinAheadTime() const
     return 0;
 }
 
+void SegmentTracker::notifyBufferingState(bool enabled) const
+{
+    notify(SegmentTrackerEvent(adaptationSet->getID(), enabled));
+}
+
+void SegmentTracker::notifyBufferingLevel(mtime_t min, mtime_t current, mtime_t target) const
+{
+    notify(SegmentTrackerEvent(adaptationSet->getID(), min, current, target));
+}
+
 void SegmentTracker::registerListener(SegmentTrackerListenerInterface *listener)
 {
     listeners.push_back(listener);
@@ -285,7 +356,7 @@ void SegmentTracker::updateSelected()
     }
 }
 
-void SegmentTracker::notify(const SegmentTrackerEvent &event)
+void SegmentTracker::notify(const SegmentTrackerEvent &event) const
 {
     std::list<SegmentTrackerListenerInterface *>::const_iterator it;
     for(it=listeners.begin();it != listeners.end(); ++it)

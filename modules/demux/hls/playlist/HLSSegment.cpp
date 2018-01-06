@@ -60,7 +60,9 @@ void HLSSegment::onChunkDownload(block_t **pp_block, SegmentChunk *chunk, BaseRe
 {
     block_t *p_block = *pp_block;
 
-#ifdef HAVE_GCRYPT
+#ifndef HAVE_GCRYPT
+    (void)chunk;
+#else
     if(encryption.method == SegmentEncryption::AES_128)
     {
         block_t *p_block = *pp_block;
@@ -135,18 +137,6 @@ mtime_t HLSSegment::getUTCTime() const
 void HLSSegment::setEncryption(SegmentEncryption &enc)
 {
     encryption = enc;
-}
-
-void HLSSegment::debug(vlc_object_t *obj, int indent) const
-{
-    std::stringstream ss;
-    ss.imbue(std::locale("C"));
-    ss << std::string(indent, ' ') << debugName <<
-    " #" << (getSequenceNumber() - Segment::SEQUENCE_FIRST) <<
-    " url=" << getUrlSegment().toString();
-    if(startByte!=endByte)
-        ss << " @" << startByte << ".." << endByte;
-    msg_Dbg(obj, "%s", ss.str().c_str());
 }
 
 int HLSSegment::compare(ISegment *segment) const

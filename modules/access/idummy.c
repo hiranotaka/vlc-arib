@@ -36,13 +36,12 @@
 #include <vlc_charset.h>
 
 static int OpenDemux( vlc_object_t * );
-static void CloseDemux( vlc_object_t * );
 
 vlc_module_begin ()
     set_shortname( N_("Dummy") )
     set_description( N_("Dummy input") )
     set_capability( "access_demux", 0 )
-    set_callbacks( OpenDemux, CloseDemux )
+    set_callbacks( OpenDemux, NULL )
     add_shortcut( "dummy", "vlc" )
 vlc_module_end ()
 
@@ -142,7 +141,7 @@ static int ControlPause( demux_t *demux, int query, va_list args )
 static int OpenDemux( vlc_object_t *p_this )
 {
     demux_t *p_demux = (demux_t*)p_this;
-    char * psz_name = p_demux->psz_location;
+    const char *psz_name = p_demux->psz_location;
 
     p_demux->p_sys = NULL;
 
@@ -185,7 +184,7 @@ nop:
         if( length == 0 )
             goto nop; /* avoid division by zero */
 
-        demux_sys_t *p_sys = malloc( sizeof( *p_sys ) );
+        demux_sys_t *p_sys = vlc_obj_malloc( p_this, sizeof( *p_sys ) );
         if( p_sys == NULL )
             return VLC_ENOMEM;
 
@@ -200,16 +199,6 @@ nop:
 
     msg_Err( p_demux, "unknown command `%s'", psz_name );
     return VLC_EGENERIC;
-}
-
-/*****************************************************************************
- * CloseDemux: initialize the target, ie. parse the command
- *****************************************************************************/
-static void CloseDemux( vlc_object_t *p_this )
-{
-    demux_t *p_demux = (demux_t*)p_this;
-
-    free( p_demux->p_sys );
 }
 
 static int DemuxControl( demux_t *p_demux, int i_query, va_list args )

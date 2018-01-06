@@ -72,12 +72,15 @@ endif
 libmicrodns_plugin_la_SOURCES = services_discovery/microdns.c
 libmicrodns_plugin_la_CFLAGS = $(AM_CFLAGS) $(MICRODNS_CFLAGS)
 libmicrodns_plugin_la_LIBADD = $(SOCKET_LIBS) $(MICRODNS_LIBS)
+if HAVE_WIN32
+libmicrodns_plugin_la_LIBADD += -liphlpapi
+endif
 libmicrodns_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(sddir)'
 sd_LTLIBRARIES += $(LTLIBmicrodns)
 EXTRA_LTLIBRARIES += libmicrodns_plugin.la
 
 libbonjour_plugin_la_SOURCES = services_discovery/bonjour.m
-libbonjour_plugin_la_OBJCFLAGS = $(AM_CFLAGS) -fobjc-arc
+libbonjour_plugin_la_OBJCFLAGS = $(AM_OBJCFLAGS) -fobjc-arc
 libbonjour_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(sddir)' -Wl,-framework,Foundation
 if HAVE_DARWIN
 sd_LTLIBRARIES += libbonjour_plugin.la

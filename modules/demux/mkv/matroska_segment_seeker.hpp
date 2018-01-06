@@ -49,22 +49,24 @@ class SegmentSeeker
 
             bool operator<( Range const& rhs ) const
             {
-                return start < rhs.start;    
+                return start < rhs.start;
             }
         };
 
         struct Seekpoint
         {
-            static int const      TRUSTED = +3;
-            static int const QUESTIONABLE = +2;
-            static int const     DISABLED = -1;
+            enum TrustLevel {
+                TRUSTED = +3,
+                QUESTIONABLE = +2,
+                DISABLED = -1,
+            };
 
-            Seekpoint( int trust_level, fptr_t fpos, mtime_t pts, mtime_t duration = -1 )
-                : fpos( fpos ), pts( pts ), duration( duration ), trust_level( trust_level )
+            Seekpoint( fptr_t fpos, mtime_t pts, TrustLevel trust_level = TRUSTED )
+                : fpos( fpos ), pts( pts ), trust_level( trust_level )
             { }
 
             Seekpoint()
-                : fpos( std::numeric_limits<fptr_t>::max() ), pts( -1 ), duration( -1 ), trust_level( -1 )
+                : Seekpoint( std::numeric_limits<fptr_t>::max(), -1, DISABLED )
             { }
 
             bool operator<( Seekpoint const& rhs ) const
@@ -74,8 +76,7 @@ class SegmentSeeker
 
             fptr_t fpos;
             mtime_t pts;
-            mtime_t duration;
-            int trust_level;
+            TrustLevel trust_level;
         };
 
         struct Cluster {
@@ -97,13 +98,14 @@ class SegmentSeeker
 
         typedef std::pair<Seekpoint, Seekpoint> seekpoint_pair_t;
 
-        void add_seekpoint( track_id_t track_id, int level, fptr_t fpos, mtime_t pts );
+        void add_seekpoint( track_id_t, Seekpoint );
 
-        seekpoint_pair_t get_seekpoints_around( mtime_t, seekpoints_t const&, int = Seekpoint::DISABLED );
+        seekpoint_pair_t get_seekpoints_around( mtime_t, seekpoints_t const& );
+        Seekpoint get_first_seekpoint_around( mtime_t, seekpoints_t const&, Seekpoint::TrustLevel = Seekpoint::TRUSTED );
         seekpoint_pair_t get_seekpoints_around( mtime_t, track_ids_t const& );
 
-        tracks_seekpoint_t get_seekpoints( matroska_segment_c&, mtime_t, track_ids_t const& );
-        tracks_seekpoint_t find_greatest_seekpoints_in_range( fptr_t , mtime_t );
+        tracks_seekpoint_t get_seekpoints( matroska_segment_c&, mtime_t, track_ids_t const&, track_ids_t const& );
+        tracks_seekpoint_t find_greatest_seekpoints_in_range( fptr_t , mtime_t, track_ids_t const& filter_tracks );
 
         cluster_positions_t::iterator add_cluster_position( fptr_t pos );
         cluster_map_t      ::iterator add_cluster( KaxCluster * const );

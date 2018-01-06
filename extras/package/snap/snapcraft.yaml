@@ -1,0 +1,221 @@
+name: vlc
+version-script: cat $SNAPCRAFT_STAGE/version
+version: "daily"
+grade: stable
+summary: Read, capture, broadcast your multimedia streams
+description: |
+  VLC is a free and open source cross-platform multimedia player and
+  framework that plays most multimedia files as well as DVDs, Audio CDs,
+  VCDs, and various streaming protocols.
+  NOTE. This snap contains an untested daily build of VLC
+confinement: strict
+
+apps:
+  vlc:
+    desktop: usr/share/applications/vlc.desktop
+    command: desktop-launch $SNAP/bin/vlc-snap-wrapper.sh
+    plugs:
+      - unity7
+      - network
+      - network-bind
+      - home
+      - opengl
+      - pulseaudio
+      - mount-observe
+      - optical-drive
+      - camera
+      - removable-media
+      - screen-inhibit-control
+      - x11
+    slots:
+      - mpris
+
+parts:
+  vlc:
+    after: [desktop-qt5]
+    source: ../../../
+    source-type: git
+    plugin: autotools
+    prepare: |
+      sed -i 's|0\.19\.8|0\.19\.7|'  configure.ac
+    build: |
+      cd contrib && mkdir linux && cd linux
+      ../bootstrap
+      make -j $(getconf _NPROCESSORS_ONLN) .libplacebo
+      make -j $(getconf _NPROCESSORS_ONLN) .ffmpeg
+      cd ../../
+      export NOCONFIGURE=1
+      autoreconf -fi
+      ./configure \
+          --prefix=$SNAPCRAFT_PART_INSTALL/usr \
+          --disable-chromecast \
+          --disable-wayland
+      make -j $(getconf _NPROCESSORS_ONLN)
+    install: |
+      echo $(git describe HEAD) > $SNAPCRAFT_STAGE/version
+      make install
+      sed -i 's|Icon=vlc|Icon=/usr/share/icons/hicolor/256x256/apps/vlc\.png|' $SNAPCRAFT_PART_INSTALL/usr/share/applications/vlc.desktop
+    build-packages:
+      - git
+      - g++
+      - make
+      - yasm
+      - autoconf
+      - libtool
+      - cmake
+      - automake
+      - build-essential
+      - libxcb-xfixes0-dev
+      - texinfo
+      - libvpx-dev
+      - libqt5svg5-dev
+      - liba52-0.7.4-dev
+      - libaa1-dev
+      - libasound2-dev
+      - libass-dev
+      - libavahi-client-dev
+      - libavc1394-dev
+      - libbluray-dev
+      - libcaca-dev
+      - libcairo2-dev
+      - libcddb2-dev
+      - libcdio-dev
+      - libchromaprint-dev
+      - libcrystalhd-dev
+      - libdbus-1-dev
+      - libdc1394-22-dev
+      - libdca-dev
+      - libdirectfb-dev
+      - libdvbpsi-dev
+      - libdvdnav-dev
+      - libdvdread-dev
+      - libegl1-mesa-dev
+      - libfaad-dev
+      - libflac-dev
+      - libfluidsynth-dev
+      - libfreerdp-dev
+      - libfreetype6-dev
+      - libfribidi-dev
+      - libgles2-mesa-dev
+      - libgnutls28-dev
+      - libgtk2.0-dev
+      - libidn11-dev
+      - libiso9660-dev
+      - libjack-dev
+      - libkate-dev
+      - liblircclient-dev
+      - liblivemedia-dev
+      - liblua5.2-dev
+      - libmad0-dev
+      - libmatroska-dev
+      - libmodplug-dev
+      - libmpcdec-dev
+      - libmpeg2-4-dev
+      - libmtp-dev
+      - libncursesw5-dev
+      - libnotify-dev
+      - libogg-dev
+      - libomxil-bellagio-dev
+      - libopus-dev
+      - libpng-dev
+      - libpostproc-dev
+      - libpulse-dev
+      - libqt5x11extras5-dev
+      - qtbase5-private-dev
+      - libraw1394-dev
+      - libresid-builder-dev
+      - librsvg2-dev
+      - libsamplerate0-dev
+      - libsdl-image1.2-dev
+      - libsdl1.2-dev
+      - libshine-dev
+      - libshout3-dev
+      - libsidplay2-dev
+      - libsmbclient-dev
+      - libspeex-dev
+      - libspeexdsp-dev
+      - libssh2-1-dev
+      - libswscale-dev
+      - libtag1-dev
+      - libtheora-dev
+      - libtwolame-dev
+      - libudev-dev
+      - libupnp-dev
+      - libv4l-dev
+      - libva-dev
+      - libvcdinfo-dev
+      - libvdpau-dev
+      - libvncserver-dev
+      - libvorbis-dev
+      - libx11-dev
+      - libx264-dev
+      - libx265-dev
+      - libxcb-composite0-dev
+      - libxcb-keysyms1-dev
+      - libxcb-randr0-dev
+      - libxcb-shm0-dev
+      - libxcb-xv0-dev
+      - libxcb1-dev
+      - libxext-dev
+      - libxi-dev
+      - libxinerama-dev
+      - libxml2-dev
+      - libxpm-dev
+      - libzvbi-dev
+      - lua5.2
+      - pkg-config
+      - qtbase5-dev
+      - xz-utils
+      - zlib1g-dev
+      - bison
+      - flex
+      - zsh
+    stage-packages:
+      - fonts-freefont-ttf
+      - dbus-x11
+      - libaa1
+      - libcaca0
+      - libcairo2
+      - libegl1-mesa
+      - libfreerdp-client1.1
+      - libfreerdp-core1.1
+      - libfreerdp-gdi1.1
+      - libfreetype6
+      - libfribidi0
+      - libgcc1
+      - libgl1-mesa-glx
+      - libgles2-mesa
+      - libglib2.0-0
+      - libpulse0
+      - libqt5core5a
+      - libqt5gui5
+      - librsvg2-2
+      - libsdl-image1.2
+      - libsdl1.2debian
+      - libva-drm1
+      - libva-x11-1
+      - libva1
+      - libvdpau1
+      - libvncclient1
+      - libx11-6
+      - libxcb-composite0
+      - libxcb-keysyms1
+      - libxcb-randr0
+      - libxcb-shm0
+      - libxcb-xv0
+      - libxcb1
+      - libxext6
+      - libxi6
+      - libxinerama1
+      - libxpm4
+      - vdpau-va-driver
+      - i965-va-driver
+      - mesa-utils
+      - mesa-vdpau-drivers
+      - zlib1g
+
+  wrapper:
+    plugin: dump
+    source: .
+    organize:
+      vlc-snap-wrapper.sh: bin/vlc-snap-wrapper.sh

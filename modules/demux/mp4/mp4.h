@@ -38,13 +38,14 @@ typedef struct
     uint32_t     i_sample_count; /* how many samples in this chunk */
     uint32_t     i_sample_first; /* index of the first sample in this chunk */
     uint32_t     i_sample; /* index of the next sample to read in this chunk */
+    uint32_t     i_virtual_run_number; /* chunks interleaving sequence */
 
     /* now provide way to calculate pts, dts, and offset without too
         much memory and with fast access */
 
     /* with this we can calculate dts/pts without waste memory */
     uint64_t     i_first_dts;   /* DTS of the first sample */
-    uint64_t     i_last_dts;    /* DTS of the last sample */
+    uint64_t     i_duration;    /* total duration of all samples */
 
     uint32_t     i_entries_dts;
     uint32_t     *p_sample_count_dts;
@@ -54,12 +55,18 @@ typedef struct
     uint32_t     *p_sample_count_pts;
     int32_t      *p_sample_offset_pts;  /* pts-dts */
 
-    uint8_t      **p_sample_data;     /* set when b_fragmented is true */
     uint32_t     *p_sample_size;
     /* TODO if needed add pts
         but quickly *add* support for edts and seeking */
 
 } mp4_chunk_t;
+
+typedef struct
+{
+    uint64_t i_offset;
+    stime_t  i_first_dts;
+    const MP4_Box_t *p_trun;
+} mp4_run_t;
 
 typedef enum RTP_timstamp_synchronization_s
 {
@@ -82,6 +89,7 @@ typedef struct
 
     es_format_t fmt;
     uint32_t    i_block_flags;
+    uint32_t    i_next_block_flags;
     uint8_t     rgi_chans_reordering[AOUT_CHAN_MAX];
     bool        b_chans_reorder;
     es_out_id_t *p_es;
@@ -108,13 +116,12 @@ typedef struct
     uint32_t         i_sample_count;
 
     mp4_chunk_t    *chunk; /* always defined  for each chunk */
-    mp4_chunk_t    *cchunk; /* current chunk if b_fragmented is true */
 
     /* sample size, p_sample_size defined only if i_sample_size == 0
         else i_sample_size is size for all sample */
     uint32_t         i_sample_size;
     uint32_t         *p_sample_size; /* XXX perhaps add file offset if take
-                                    too much time to do sumations each time*/
+//                                    too much time to do sumations each time*/
 
     uint32_t     i_sample_first; /* i_sample_first value
                                                    of the next chunk */
@@ -126,8 +133,9 @@ typedef struct
     const MP4_Box_t *p_stsd;  /* will contain all data to initialize decoder */
     const MP4_Box_t *p_sample;/* point on actual sdsd */
 
-    bool b_has_non_empty_cchunk;
+#if 0
     bool b_codec_need_restart;
+#endif
 
     mtime_t i_time; // track scaled
 
@@ -142,10 +150,19 @@ typedef struct
     struct
     {
         /* for moof parsing */
-        const MP4_Box_t *p_traf;
-        const MP4_Box_t *p_tfhd;
-        const MP4_Box_t *p_trun;
-        uint64_t   i_traf_base_offset;
+        /* tfhd defaults */
+        uint32_t i_default_sample_size;
+        uint32_t i_default_sample_duration;
+
+        struct
+        {
+            mp4_run_t *p_array;
+            uint32_t   i_current;
+            uint32_t   i_count;
+        } runs;
+        uint64_t i_trun_sample;
+        uint64_t i_trun_sample_pos;
+
     } context;
 
     /* ASF packets handling */

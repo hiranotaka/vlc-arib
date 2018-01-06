@@ -143,7 +143,7 @@ typedef struct
  *****************************************************************************/
 typedef struct
 {
-    int i_cat;
+    enum es_format_category_e i_cat;
     vlc_fourcc_t i_fourcc;
 
     int b_new;
@@ -327,17 +327,17 @@ static int Control( sout_mux_t *p_mux, int i_query, va_list args )
    switch( i_query )
    {
        case MUX_CAN_ADD_STREAM_WHILE_MUXING:
-           pb_bool = (bool*)va_arg( args, bool * );
+           pb_bool = va_arg( args, bool * );
            *pb_bool = true;
            return VLC_SUCCESS;
 
        case MUX_GET_ADD_STREAM_WAIT:
-           pb_bool = (bool*)va_arg( args, bool * );
+           pb_bool = va_arg( args, bool * );
            *pb_bool = true;
            return VLC_SUCCESS;
 
        case MUX_GET_MIME:
-           ppsz = (char**)va_arg( args, char ** );
+           ppsz = va_arg( args, char ** );
            *ppsz = strdup( "application/ogg" );
            return VLC_SUCCESS;
 
@@ -377,13 +377,15 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
     switch( p_input->p_fmt->i_cat )
     {
     case VIDEO_ES:
+    {
+        unsigned int i_frame_rate = p_input->p_fmt->video.i_frame_rate;
+        unsigned int i_frame_rate_base = p_input->p_fmt->video.i_frame_rate_base;
         if( !p_input->p_fmt->video.i_frame_rate ||
             !p_input->p_fmt->video.i_frame_rate_base )
         {
             msg_Warn( p_mux, "Missing frame rate, assuming 25fps" );
-            assert(p_input->p_fmt == &p_input->fmt);
-            p_input->fmt.video.i_frame_rate = 25;
-            p_input->fmt.video.i_frame_rate_base = 1;
+            i_frame_rate = 25;
+            i_frame_rate_base = 1;
         }
 
         switch( p_stream->i_fourcc )
@@ -421,8 +423,8 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
             }
             p_stream->p_oggds_header->i_size = 0 ;
             p_stream->p_oggds_header->i_time_unit =
-                     INT64_C(10000000) * p_input->p_fmt->video.i_frame_rate_base /
-                     (int64_t)p_input->p_fmt->video.i_frame_rate;
+                     INT64_C(10000000) * i_frame_rate_base /
+                     (int64_t)i_frame_rate;
             p_stream->p_oggds_header->i_samples_per_unit = 1;
             p_stream->p_oggds_header->i_default_len = 1 ; /* ??? */
             p_stream->p_oggds_header->i_buffer_size = 1024*1024;
@@ -452,6 +454,7 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
             FREENULL( p_input->p_sys );
             return VLC_EGENERIC;
         }
+    }
         break;
 
     case AUDIO_ES:
@@ -985,6 +988,7 @@ static bool OggCreateHeaders( sout_mux_t *p_mux )
         op.packetno = 0;
         OggFillSkeletonFishead( op.packet, p_mux );
         ogg_stream_packetin( &p_sys->skeleton.os, &op );
+        ogg_packet_clear( &op );
         p_og = OggStreamFlush( p_mux, &p_sys->skeleton.os, 0 );
         block_ChainAppend( &p_hdr, p_og );
         p_sys->skeleton.b_head_done = true;
@@ -1126,6 +1130,7 @@ static bool OggCreateHeaders( sout_mux_t *p_mux )
             op.granulepos = 0;
             op.packetno = p_sys->skeleton.i_packet_no++;
             ogg_stream_packetin( &p_sys->skeleton.os, &op );
+            ogg_packet_clear( &op );
             p_og = OggStreamFlush( p_mux, &p_sys->skeleton.os, 0 );
             block_ChainAppend( &p_hdr, p_og );
             p_stream->skeleton.b_fisbone_done = true;
@@ -1166,6 +1171,7 @@ static bool OggCreateHeaders( sout_mux_t *p_mux )
                 p_stream->skeleton.i_index_pageno = p_sys->skeleton.os.pageno;
 
                 ogg_stream_packetin( &p_sys->skeleton.os, &op );
+                ogg_packet_clear( &op );
                 p_og = OggStreamFlush( p_mux, &p_sys->skeleton.os, 0 );
                 p_mux->p_sys->i_pos += sout_AccessOutWrite( p_mux->p_access, p_og );
             }
@@ -1331,6 +1337,7 @@ static void OggCreateStreamFooter( sout_mux_t *p_mux, ogg_stream_t *p_stream )
             p_sys->skeleton.os.b_o_s = 1;
             p_sys->skeleton.os.e_o_s = 0;
             ogg_stream_packetin( &p_sys->skeleton.os, &op );
+            ogg_packet_clear( &op );
             p_og = OggStreamFlush( p_mux, &p_sys->skeleton.os, 0 );
             sout_AccessOutWrite( p_mux->p_access, p_og );
         }
@@ -1407,6 +1414,7 @@ static void OggRewriteFisheadPage( sout_mux_t *p_mux )
         ogg_stream_reset_serialno( &p_sys->skeleton.os, p_sys->skeleton.i_serial_no );
         OggFillSkeletonFishead( op.packet, p_mux );
         ogg_stream_packetin( &p_sys->skeleton.os, &op );
+        ogg_packet_clear( &op );
         msg_Dbg( p_mux, "rewriting fishead at %"PRId64, p_mux->p_sys->skeleton.i_fishead_offset );
         sout_AccessOutSeek( p_mux->p_access, p_mux->p_sys->skeleton.i_fishead_offset );
         sout_AccessOutWrite( p_mux->p_access,

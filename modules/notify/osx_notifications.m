@@ -60,6 +60,8 @@
  * Preamble
  *****************************************************************************/
 
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
@@ -102,8 +104,6 @@
 struct intf_sys_t
 {
     VLCGrowlDelegate *o_growl_delegate;
-    int             i_id;
-    int             i_item_changes;
 };
 
 /*****************************************************************************
@@ -112,13 +112,12 @@ struct intf_sys_t
 static int  Open    ( vlc_object_t * );
 static void Close   ( vlc_object_t * );
 
-static int ItemChange( vlc_object_t *, const char *,
+static int InputCurrent( vlc_object_t *, const char *,
                       vlc_value_t, vlc_value_t, void * );
 
 /*****************************************************************************
  * Module descriptor
  ****************************************************************************/
-
 vlc_module_begin ()
 set_category( CAT_INTERFACE )
 set_subcategory( SUBCAT_INTERFACE_CONTROL )
@@ -135,20 +134,20 @@ vlc_module_end ()
 static int Open( vlc_object_t *p_this )
 {
     intf_thread_t *p_intf = (intf_thread_t *)p_this;
-    playlist_t *p_playlist;
-    intf_sys_t    *p_sys;
+    playlist_t *p_playlist = pl_Get( p_intf );
+    intf_sys_t *p_sys = p_intf->p_sys = calloc( 1, sizeof(intf_sys_t) );
 
-    p_sys = p_intf->p_sys = calloc( 1, sizeof(intf_sys_t) );
     if( !p_sys )
         return VLC_ENOMEM;
 
     p_sys->o_growl_delegate = [[VLCGrowlDelegate alloc] initWithInterfaceThread:p_intf];
     if( !p_sys->o_growl_delegate )
-      return VLC_ENOMEM;
+    {
+        free( p_sys );
+        return VLC_ENOMEM;
+    }
 
-    p_playlist = pl_Get( p_intf );
-    var_AddCallback( p_playlist, "item-change", ItemChange, p_intf );
-    var_AddCallback( p_playlist, "input-current", ItemChange, p_intf );
+    var_AddCallback( p_playlist, "input-current", InputCurrent, p_intf );
 
     [p_sys->o_growl_delegate registerToGrowl];
     return VLC_SUCCESS;
@@ -163,8 +162,7 @@ static void Close( vlc_object_t *p_this )
     playlist_t *p_playlist = pl_Get( p_intf );
     intf_sys_t *p_sys = p_intf->p_sys;
 
-    var_DelCallback( p_playlist, "item-change", ItemChange, p_intf );
-    var_DelCallback( p_playlist, "input-current", ItemChange, p_intf );
+    var_DelCallback( p_playlist, "input-current", InputCurrent, p_intf );
 
     [GrowlApplicationBridge setGrowlDelegate:nil];
     [p_sys->o_growl_delegate release];
@@ -172,89 +170,51 @@ static void Close( vlc_object_t *p_this )
 }
 
 /*****************************************************************************
- * ItemChange: Playlist item change callback
+ * InputCurrent: Current playlist item changed callback
  *****************************************************************************/
-static int ItemChange( vlc_object_t *p_this, const char *psz_var,
-                      vlc_value_t oldval, vlc_value_t newval, void *param )
+static int InputCurrent( vlc_object_t *p_this, const char *psz_var,
+                        vlc_value_t oldval, vlc_value_t newval, void *param )
 {
     VLC_UNUSED(oldval);
 
     intf_thread_t *p_intf = (intf_thread_t *)param;
-    char *psz_tmp           = NULL;
-    char *psz_title         = NULL;
-    char *psz_artist        = NULL;
-    char *psz_album         = NULL;
-    input_item_t *p_item = newval.p_address;
+    intf_sys_t *p_sys = p_intf->p_sys;
+    input_thread_t *p_input = newval.p_address;
+    char *psz_title = NULL;
+    char *psz_artist = NULL;
+    char *psz_album = NULL;
+    char *psz_arturl = NULL;
 
-    bool b_is_item_current = !strcmp( "input-current", psz_var );
-
-    /* Don't update each time an item has been preparsed */
-    if( b_is_item_current )
-    { /* stores the current input item id */
-        input_thread_t *p_input = newval.p_address;
-        if( !p_input )
-            return VLC_SUCCESS;
-
-        p_item = input_GetItem( p_input );
-        if( p_intf->p_sys->i_id != p_item->i_id )
-        {
-            p_intf->p_sys->i_id = p_item->i_id;
-            p_intf->p_sys->i_item_changes = 0;
-        }
-
+    if( !p_input )
         return VLC_SUCCESS;
-    }
-    /* ignore items which weren't pre-parsed yet */
-    else if( !input_item_IsPreparsed(p_item) )
+
+    input_item_t *p_item = input_GetItem( p_input );
+    if( !p_item )
         return VLC_SUCCESS;
-    else
-    {   /* "item-change" */
-        if( p_item->i_id != p_intf->p_sys->i_id )
-            return VLC_SUCCESS;
 
-        /* Some variable bitrate inputs call "item-change" callbacks each time
-         * their length is updated, that is several times per second.
-         * We'll limit the number of changes to 1 per input. */
-        if( p_intf->p_sys->i_item_changes > 0 )
-            return VLC_SUCCESS;
-
-        p_intf->p_sys->i_item_changes++;
-    }
-
-    /* Playing something ... */
-    if( input_item_GetNowPlayingFb( p_item ) )
-        psz_title = input_item_GetNowPlayingFb( p_item );
-    else
+    /* Get title */
+    psz_title = input_item_GetNowPlayingFb( p_item );
+    if( !psz_title )
         psz_title = input_item_GetTitleFbName( p_item );
+
     if( EMPTY_STR( psz_title ) )
     {
         free( psz_title );
         return VLC_SUCCESS;
     }
 
+    /* Get Artist name */
     psz_artist = input_item_GetArtist( p_item );
-    if( EMPTY_STR( psz_artist ) ) FREENULL( psz_artist );
+    if( EMPTY_STR( psz_artist ) )
+        FREENULL( psz_artist );
+
+    /* Get Album name */
     psz_album = input_item_GetAlbum( p_item ) ;
-    if( EMPTY_STR( psz_album ) ) FREENULL( psz_album );
+    if( EMPTY_STR( psz_album ) )
+        FREENULL( psz_album );
 
-    int i_ret;
-    if( psz_artist && psz_album )
-        i_ret = asprintf( &psz_tmp, "%s\n%s [%s]",
-                         psz_title, psz_artist, psz_album );
-    else if( psz_artist )
-        i_ret = asprintf( &psz_tmp, "%s\n%s", psz_title, psz_artist );
-    else
-        i_ret = asprintf(&psz_tmp, "%s", psz_title );
-
-    if( i_ret == -1 )
-    {
-        free( psz_title );
-        free( psz_artist );
-        free( psz_album );
-        return VLC_ENOMEM;
-    }
-
-    char *psz_arturl = input_item_GetArtURL( p_item );
+    /* Get Art path */
+    psz_arturl = input_item_GetArtURL( p_item );
     if( psz_arturl )
     {
         char *psz = vlc_uri2path( psz_arturl );
@@ -262,17 +222,15 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
         psz_arturl = psz;
     }
 
-    [p_intf->p_sys->o_growl_delegate notifyWithTitle:psz_title
-                                              artist:psz_artist
-                                               album:psz_album
-                                           andArtUrl:psz_arturl];
+    [p_sys->o_growl_delegate notifyWithTitle:psz_title
+                                      artist:psz_artist
+                                       album:psz_album
+                                   andArtUrl:psz_arturl];
 
     free( psz_title );
     free( psz_artist );
     free( psz_album );
     free( psz_arturl );
-    free( psz_tmp );
-
     return VLC_SUCCESS;
 }
 
@@ -316,6 +274,8 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
 
 - (void)dealloc
 {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpartial-availability"
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1080
     // Clear the remaining lastNotification in Notification Center, if any
     @autoreleasepool {
@@ -327,6 +287,7 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
         [[NSNotificationCenter defaultCenter] removeObserver:self];
     }
 #endif
+#pragma clang diagnostic pop
 
     // Release everything
     [applicationName release];
@@ -350,12 +311,15 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
 
         [GrowlApplicationBridge setGrowlDelegate:self];
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpartial-availability"
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1080
         if (hasNativeNotifications) {
             [[NSUserNotificationCenter defaultUserNotificationCenter]
              setDelegate:(id<NSUserNotificationCenterDelegate>)self];
         }
 #endif
+#pragma clang diagnostic pop
     }
 }
 
@@ -419,6 +383,8 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
                                        clickContext:nil
                                          identifier:@"VLCNowPlayingNotification"];
         } else if (hasNativeNotifications) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpartial-availability"
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1080
             // Make the OS X notification and string
             NSUserNotification *notification = [NSUserNotification new];
@@ -442,6 +408,7 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
             [NSUserNotificationCenter.defaultUserNotificationCenter deliverNotification:notification];
             [notification release];
 #endif
+#pragma clang diagnostic pop
         }
 
         // Release stuff
@@ -469,6 +436,8 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
         isInForeground = NO;
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpartial-availability"
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 1080
 - (void)userNotificationCenter:(NSUserNotificationCenter *)center
        didActivateNotification:(NSUserNotification *)notification
@@ -491,4 +460,5 @@ static int ItemChange( vlc_object_t *p_this, const char *psz_var,
     lastNotification = notification;
 }
 #endif
+#pragma clang diagnostic pop
 @end

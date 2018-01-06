@@ -65,10 +65,7 @@ typedef struct {
 #if defined(_WIN32) || defined(__OS2__)
     unsigned wm_state;
 #endif
-    struct {
-        int num;
-        int den;
-    } sar;
+    vlc_rational_t sar;
 } vout_display_state_t;
 
 /**
@@ -83,16 +80,17 @@ vout_display_t *vout_NewDisplay( vout_thread_t *, const video_format_t *,
 void vout_DeleteDisplay(vout_display_t *, vout_display_state_t *);
 bool vout_IsDisplayFiltered(vout_display_t *);
 picture_t * vout_FilterDisplay(vout_display_t *, picture_t *);
+void vout_FilterFlush(vout_display_t *);
 bool vout_AreDisplayPicturesInvalid(vout_display_t *);
 
 bool vout_ManageDisplay(vout_display_t *, bool allow_reset_pictures);
 
-void vout_SetDisplayFullscreen(vout_display_t *, bool is_fullscreen);
 void vout_SetDisplayFilled(vout_display_t *, bool is_filled);
 void vout_SetDisplayZoom(vout_display_t *, unsigned num, unsigned den);
 void vout_SetDisplayAspect(vout_display_t *, unsigned num, unsigned den);
 void vout_SetDisplayCrop(vout_display_t *, unsigned num, unsigned den,
                          unsigned left, unsigned top, int right, int bottom);
+void vout_SetDisplayViewpoint(vout_display_t *, const vlc_viewpoint_t *);
 
 #endif /* VLC_VOUT_WRAPPER_H */
 

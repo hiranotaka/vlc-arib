@@ -4,15 +4,20 @@
 #USE_LIBAV ?= 1
 #USE_FFMPEG ?= 1
 
-ifdef USE_FFMPEG
-HASH=HEAD
-FFMPEG_SNAPURL := http://git.videolan.org/?p=ffmpeg.git;a=snapshot;h=$(HASH);sf=tgz
-FFMPEG_GITURL := git://git.videolan.org/ffmpeg.git
+ifndef USE_LIBAV
+FFMPEG_HASH=eaff5fcb7cde8d1614755269773d471d3a3d1bfc
+FFMPEG_SNAPURL := http://git.videolan.org/?p=ffmpeg.git;a=snapshot;h=$(FFMPEG_HASH);sf=tgz
+FFMPEG_GITURL := http://git.videolan.org/git/ffmpeg.git
+FFMPEG_LAVC_MIN := 57.37.100
+USE_FFMPEG := 1
 else
-HASH=HEAD
-FFMPEG_SNAPURL := http://git.libav.org/?p=libav.git;a=snapshot;h=$(HASH);sf=tgz
+FFMPEG_HASH=e171022c24c42b1e88a51bb3b4c27f13c87c85cb
+FFMPEG_SNAPURL := http://git.libav.org/?p=libav.git;a=snapshot;h=$(FFMPEG_HASH);sf=tgz
 FFMPEG_GITURL := git://git.libav.org/libav.git
+FFMPEG_LAVC_MIN := 57.16.0
 endif
+
+FFMPEG_BASENAME := $(subst .,_,$(subst \,_,$(subst /,_,$(FFMPEG_HASH))))
 
 FFMPEGCONF = \
 	--cc="$(CC)" \
@@ -21,7 +26,6 @@ FFMPEGCONF = \
 	--disable-encoder=vorbis \
 	--disable-decoder=opus \
 	--enable-libgsm \
-	--enable-libopenjpeg \
 	--disable-debug \
 	--disable-avdevice \
 	--disable-devices \
@@ -35,21 +39,33 @@ FFMPEGCONF = \
 ifdef USE_FFMPEG
 FFMPEGCONF += \
 	--disable-swresample \
-	--disable-iconv
+	--disable-iconv \
+	--disable-avisynth \
+	--disable-nvenc \
+	--disable-linux-perf
 ifdef HAVE_DARWIN_OS
 FFMPEGCONF += \
 	--disable-videotoolbox
 endif
 endif
 
-DEPS_ffmpeg = zlib gsm openjpeg
+DEPS_ffmpeg = zlib gsm
+
+ifndef USE_LIBAV
+FFMPEGCONF += \
+	--enable-libopenjpeg
+DEPS_ffmpeg += openjpeg
+endif
 
 # Optional dependencies
 ifndef BUILD_NETWORK
 FFMPEGCONF += --disable-network
 endif
 ifdef BUILD_ENCODERS
-FFMPEGCONF += --enable-libmp3lame --enable-libvpx --disable-decoder=libvpx --disable-decoder=libvpx_vp8 --disable-decoder=libvpx_vp9
+FFMPEGCONF += --enable-libmp3lame --enable-libvpx --disable-decoder=libvpx_vp8 --disable-decoder=libvpx_vp9
+ifndef USE_FFMPEG
+FFMPEGCONF += --disable-decoder=libvpx
+endif
 DEPS_ffmpeg += lame $(DEPS_lame) vpx $(DEPS_vpx)
 else
 FFMPEGCONF += --disable-encoders --disable-muxers
@@ -99,6 +115,9 @@ endif
 ifeq ($(ARCH),mipsel)
 FFMPEGCONF += --arch=mips
 endif
+ifeq ($(ARCH),mips64el)
+FFMPEGCONF += --arch=mips64
+endif
 
 # x86 stuff
 ifeq ($(ARCH),i386)
@@ -129,20 +148,26 @@ ifdef HAVE_NEON
 FFMPEGCONF += --as="$(AS)"
 endif
 endif
-ifdef HAVE_MACOSX
-FFMPEGCONF += --enable-vda
-endif
 endif
 
 # Linux
 ifdef HAVE_LINUX
-FFMPEGCONF += --target-os=linux --enable-pic
+FFMPEGCONF += --target-os=linux --enable-pic --extra-libs="-lm"
 
 endif
 
 ifdef HAVE_ANDROID
+# broken text relocations
 ifeq ($(ANDROID_ABI), x86)
-FFMPEGCONF +=  --disable-mmx --disable-mmxext
+FFMPEGCONF +=  --disable-mmx --disable-mmxext --disable-inline-asm
+endif
+ifeq ($(ANDROID_ABI), x86_64)
+FFMPEGCONF +=  --disable-mmx --disable-mmxext --disable-inline-asm
+endif
+ifdef HAVE_NEON
+ifeq ($(ANDROID_ABI), armeabi-v7a)
+FFMPEGCONF += --as='gas-preprocessor.pl -as-type clang -arch arm $(CC)'
+endif
 endif
 endif
 
@@ -154,10 +179,15 @@ ifndef HAVE_MINGW_W64
 DEPS_ffmpeg += directx
 endif
 endif
-FFMPEGCONF += --target-os=mingw32 --enable-memalign-hack
-FFMPEGCONF += --enable-w32threads --enable-dxva2
+FFMPEGCONF += --target-os=mingw32
+FFMPEGCONF += --enable-w32threads
+ifndef HAVE_WINSTORE
+FFMPEGCONF += --enable-dxva2
+else
+FFMPEGCONF += --disable-dxva2
+endif
 
-ifdef HAVE_WIN64
+ifeq ($(ARCH),x86_64)
 FFMPEGCONF += --cpu=athlon64 --arch=x86_64
 else
 ifeq ($(ARCH),i386) # 32bits intel
@@ -183,23 +213,30 @@ endif
 
 # Build
 PKGS += ffmpeg
-ifeq ($(call need_pkg,"libavcodec >= 55.0.0 libavformat >= 53.21.0 libswscale"),)
+ifeq ($(call need_pkg,"libavcodec >= $(FFMPEG_LAVC_MIN) libavformat >= 53.21.0 libswscale"),)
 PKGS_FOUND += ffmpeg
 endif
 
 FFMPEGCONF += --nm="$(NM)" --ar="$(AR)"
 
-$(TARBALLS)/ffmpeg-$(HASH).tar.xz:
-	$(call download_git,$(FFMPEG_GITURL),,$(HASH))
+$(TARBALLS)/ffmpeg-$(FFMPEG_BASENAME).tar.xz:
+	$(call download_git,$(FFMPEG_GITURL),,$(FFMPEG_HASH))
 
-.sum-ffmpeg: $(TARBALLS)/ffmpeg-$(HASH).tar.xz
-	$(warning Not implemented.)
+.sum-ffmpeg: $(TARBALLS)/ffmpeg-$(FFMPEG_BASENAME).tar.xz
+	$(call check_githash,$(FFMPEG_HASH))
 	touch $@
 
-ffmpeg: ffmpeg-$(HASH).tar.xz .sum-ffmpeg
-	rm -Rf $@ $@-$(HASH)
-	mkdir -p $@-$(HASH)
-	$(XZCAT) "$<" | (cd $@-$(HASH) && tar xv --strip-components=1)
+ffmpeg: ffmpeg-$(FFMPEG_BASENAME).tar.xz .sum-ffmpeg
+	rm -Rf $@ $@-$(FFMPEG_BASENAME)
+	mkdir -p $@-$(FFMPEG_BASENAME)
+	tar xvJf "$<" --strip-components=1 -C $@-$(FFMPEG_BASENAME)
+ifdef USE_FFMPEG
+	$(APPLY) $(SRC)/ffmpeg/armv7_fixup.patch
+	$(APPLY) $(SRC)/ffmpeg/dxva_vc1_crash.patch
+endif
+ifdef USE_LIBAV
+	$(APPLY) $(SRC)/ffmpeg/libav_gsm.patch
+endif
 	$(MOVE)
 
 .ffmpeg: ffmpeg

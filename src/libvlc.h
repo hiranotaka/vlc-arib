@@ -29,11 +29,6 @@ extern const char psz_vlc_changeset[];
 
 typedef struct variable_t variable_t;
 
-/* Actions (hot keys) */
-struct vlc_actions;
-struct vlc_actions *vlc_InitActions (libvlc_int_t *);
-extern void vlc_DeinitActions (libvlc_int_t *, struct vlc_actions *);
-
 /*
  * OS-specific initialization
  */
@@ -124,6 +119,48 @@ void vlc_object_set_destructor (vlc_object_t *, vlc_destructor_t);
 #define vlc_object_set_destructor(a,b) \
         vlc_object_set_destructor (VLC_OBJECT(a), b)
 
+/**
+ * Allocates an object resource.
+ *
+ * @param size storage size in bytes of the resource data
+ * @param release callback to release the resource
+ *
+ * @return a pointer to the (uninitialized) storage space, or NULL on error
+ */
+void *vlc_objres_new(size_t size, void (*release)(void *));
+
+/**
+ * Pushes an object resource on the object resources stack.
+ *
+ * @param obj object to allocate the resource for
+ * @param data resource base address (as returned by vlc_objres_new())
+ */
+void vlc_objres_push(vlc_object_t *obj, void *data);
+
+/**
+ * Releases all resources of an object.
+ *
+ * All resources added with vlc_objres_add() are released in reverse order.
+ * The resource list is reset to empty.
+ *
+ * @param obj object whose resources to release
+ */
+void vlc_objres_clear(vlc_object_t *obj);
+
+/**
+ * Releases one object resource explicitly.
+ *
+ * If a resource associated with an object needs to be released explicitly
+ * earlier than normal, call this function. This is relatively slow and should
+ * be avoided.
+ *
+ * @param obj object whose resource to release
+ * @param data private data for the comparison function
+ * @param match comparison function to match the targeted resource
+ */
+void vlc_objres_remove(vlc_object_t *obj, void *data,
+                       bool (*match)(void *, void *));
+
 #define ZOOM_SECTION N_("Zoom")
 #define ZOOM_QUARTER_KEY_TEXT N_("1:4 Quarter")
 #define ZOOM_HALF_KEY_TEXT N_("1:2 Half")
@@ -135,13 +172,11 @@ void vlc_object_set_destructor (vlc_object_t *, vlc_destructor_t);
  */
 typedef struct vlc_dialog_provider vlc_dialog_provider;
 typedef struct vlc_keystore vlc_keystore;
+typedef struct vlc_actions_t vlc_actions_t;
 
 typedef struct libvlc_priv_t
 {
     libvlc_int_t       public_data;
-
-    /* Logging */
-    bool               b_stats;     ///< Whether to collect stats
 
     /* Singleton objects */
     vlc_logger_t      *logger;
@@ -150,7 +185,7 @@ typedef struct libvlc_priv_t
     vlc_keystore      *p_memory_keystore; ///< memory keystore
     struct playlist_t *playlist; ///< Playlist for interfaces
     struct playlist_preparser_t *parser; ///< Input item meta data handler
-    struct vlc_actions *actions; ///< Hotkeys handler
+    vlc_actions_t *actions; ///< Hotkeys handler
 
     /* Exit callback */
     vlc_exit_t       exit;
@@ -158,72 +193,16 @@ typedef struct libvlc_priv_t
 
 static inline libvlc_priv_t *libvlc_priv (libvlc_int_t *libvlc)
 {
-    return (libvlc_priv_t *)libvlc;
+    return container_of(libvlc, libvlc_priv_t, public_data);
 }
 
-void intf_InsertItem(libvlc_int_t *, const char *mrl, unsigned optc,
-                     const char * const *optv, unsigned flags);
+int intf_InsertItem(libvlc_int_t *, const char *mrl, unsigned optc,
+                    const char * const *optv, unsigned flags);
 void intf_DestroyAll( libvlc_int_t * );
-
-#define libvlc_stats( o ) (libvlc_priv((VLC_OBJECT(o))->obj.libvlc)->b_stats)
 
 /*
  * Variables stuff
  */
 void var_OptionParse (vlc_object_t *, const char *, bool trusted);
-
-/*
- * Stats stuff
- */
-enum
-{
-    STATS_COUNTER,
-    STATS_DERIVATIVE,
-};
-
-typedef struct counter_sample_t
-{
-    uint64_t value;
-    mtime_t  date;
-} counter_sample_t;
-
-typedef struct counter_t
-{
-    int                 i_compute_type;
-    int                 i_samples;
-    counter_sample_t ** pp_samples;
-
-    mtime_t             last_update;
-} counter_t;
-
-enum
-{
-    STATS_INPUT_BITRATE,
-    STATS_READ_BYTES,
-    STATS_READ_PACKETS,
-    STATS_DEMUX_READ,
-    STATS_DEMUX_BITRATE,
-    STATS_DEMUX_CORRUPTED,
-    STATS_DEMUX_DISCONTINUITY,
-    STATS_PLAYED_ABUFFERS,
-    STATS_LOST_ABUFFERS,
-    STATS_DECODED_AUDIO,
-    STATS_DECODED_VIDEO,
-    STATS_DECODED_SUB,
-    STATS_CLIENT_CONNECTIONS,
-    STATS_ACTIVE_CONNECTIONS,
-    STATS_SOUT_SENT_PACKETS,
-    STATS_SOUT_SENT_BYTES,
-    STATS_SOUT_SEND_BITRATE,
-    STATS_DISPLAYED_PICTURES,
-    STATS_LOST_PICTURES,
-};
-
-counter_t * stats_CounterCreate (int);
-void stats_Update (counter_t *, uint64_t, uint64_t *);
-void stats_CounterClean (counter_t * );
-
-void stats_ComputeInputStats(input_thread_t*, input_stats_t*);
-void stats_ReinitInputStats(input_stats_t *);
 
 #endif

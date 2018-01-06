@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCPlaylistInfo.m: MacOS X interface module
+ * VLCPlaylistInfo.m: Controller for the codec info panel
  *****************************************************************************
  * Copyright (C) 2002-2015 VLC authors and VideoLAN
  * $Id$
@@ -23,7 +23,7 @@
  ******************************************************************************/
 
 #import "CompatibilityFixes.h"
-#import "intf.h"
+#import "VLCMain.h"
 #import "VLCPlaylistInfo.h"
 #import "VLCPlaylist.h"
 #import <vlc_url.h>
@@ -93,11 +93,6 @@
     [_displayedLabel setStringValue: _NS("Displayed frames")];
     [_lostFramesLabel setStringValue: _NS("Lost frames")];
 
-    [_soutLabel setStringValue: _NS("Streaming")];
-    [_sentPacketsLabel setStringValue: _NS("Sent packets")];
-    [_sentBytesLabel setStringValue: _NS("Sent bytes")];
-    [_sentBitrateLabel setStringValue: _NS("Send rate")];
-
     [_audioLabel setStringValue: _NS("Audio")];
     [_audioDecodedLabel setStringValue: _NS("Decoded blocks")];
     [_playedAudioBuffersLabel setStringValue: _NS("Played buffers")];
@@ -123,7 +118,7 @@
 - (void)dealloc
 {
     if (p_item)
-        vlc_gc_decref(p_item);
+        input_item_Release(p_item);
 }
 
 - (void)updateCocoaWindowLevel:(NSInteger)i_level
@@ -155,11 +150,6 @@
     [_displayedTextField setIntValue:0];
     [_lostFramesTextField setIntValue:0];
 
-    //Initializing Output Variables
-    [_sentPacketsTextField setIntValue: 0];
-    [_sentBytesTextField setStringValue: [NSString stringWithFormat:_NS("%.1f KiB"), (float)0]];
-    [_sentBitrateTextField setStringValue: [NSString stringWithFormat:@"%6.0f kb/s", (float)0]];
-
     //Initializing Audio Variables
     [_audioDecodedTextField setIntValue:0];
     [_playedAudioBuffersTextField setIntValue: 0];
@@ -178,10 +168,10 @@
 {
     if (_p_item != p_item) {
         if (p_item)
-            vlc_gc_decref(p_item);
+            input_item_Release(p_item);
         [_saveMetaDataButton setEnabled: NO];
         if (_p_item)
-            vlc_gc_incref(_p_item);
+            input_item_Hold(_p_item);
         p_item = _p_item;
     }
 
@@ -276,8 +266,6 @@ FREENULL( psz_##foo );
     if (![self.window isVisible])
         return;
 
-    vlc_mutex_lock(&p_item->p_stats->lock);
-
     /* input */
     [_readBytesTextField setStringValue: [NSString stringWithFormat:
                                           @"%8.0f KiB", (float)(p_item->p_stats->i_read_bytes)/1024]];
@@ -293,19 +281,10 @@ FREENULL( psz_##foo );
     [_displayedTextField setIntValue: p_item->p_stats->i_displayed_pictures];
     [_lostFramesTextField setIntValue: p_item->p_stats->i_lost_pictures];
 
-    /* Sout */
-    [_sentPacketsTextField setIntValue: p_item->p_stats->i_sent_packets];
-    [_sentBytesTextField setStringValue: [NSString stringWithFormat: @"%8.0f KiB",
-                                          (float)(p_item->p_stats->i_sent_bytes)/1024]];
-    [_sentBitrateTextField setStringValue: [NSString stringWithFormat:
-                                            @"%6.0f kb/s", (float)(p_item->p_stats->f_send_bitrate*8)*1000]];
-
     /* Audio */
     [_audioDecodedTextField setIntValue: p_item->p_stats->i_decoded_audio];
     [_playedAudioBuffersTextField setIntValue: p_item->p_stats->i_played_abuffers];
     [_lostAudioBuffersTextField setIntValue: p_item->p_stats->i_lost_abuffers];
-
-    vlc_mutex_unlock(&p_item->p_stats->lock);
 }
 
 - (void)updateStreamsList
@@ -358,6 +337,7 @@ FREENULL( psz_##foo );
         [alert setInformativeText:_NS("VLC was unable to save the meta data.")];
         [alert addButtonWithTitle:_NS("OK")];
         [alert runModal];
+        return;
     }
 
     #define utf8( _blub ) \
@@ -378,7 +358,6 @@ FREENULL( psz_##foo );
     playlist_t *p_playlist = pl_Get(getIntf());
     input_item_WriteMeta(VLC_OBJECT(p_playlist), p_item);
 
-    var_SetBool(p_playlist, "intf-change", true);
     [self updatePanelWithItem: p_item];
 
     [_saveMetaDataButton setEnabled: NO];

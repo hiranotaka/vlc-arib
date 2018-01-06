@@ -39,10 +39,12 @@ using namespace adaptive::logic;
 using namespace smooth;
 using namespace smooth::playlist;
 
-SmoothManager::SmoothManager(demux_t *demux_, Manifest *playlist,
+SmoothManager::SmoothManager(demux_t *demux_,
+                             AuthStorage *auth,
+                             Manifest *playlist,
                        AbstractStreamFactory *factory,
                        AbstractAdaptationLogic::LogicType type) :
-             PlaylistManager(demux_, playlist, factory, type)
+             PlaylistManager(demux_, auth, playlist, factory, type)
 {
 }
 
@@ -52,15 +54,13 @@ SmoothManager::~SmoothManager()
 
 Manifest * SmoothManager::fetchManifest()
 {
-    std::string playlisturl(p_demux->psz_access);
-    playlisturl.append("://");
-    playlisturl.append(p_demux->psz_location);
+    std::string playlisturl(p_demux->psz_url);
 
-    block_t *p_block = Retrieve::HTTP(VLC_OBJECT(p_demux), playlisturl);
+    block_t *p_block = Retrieve::HTTP(VLC_OBJECT(p_demux), authStorage, playlisturl);
     if(!p_block)
         return NULL;
 
-    stream_t *memorystream = stream_MemoryNew(p_demux, p_block->p_buffer, p_block->i_buffer, true);
+    stream_t *memorystream = vlc_stream_MemoryNew(p_demux, p_block->p_buffer, p_block->i_buffer, true);
     if(!memorystream)
     {
         block_Release(p_block);
@@ -70,7 +70,7 @@ Manifest * SmoothManager::fetchManifest()
     xml::DOMParser parser(memorystream);
     if(!parser.parse(true))
     {
-        stream_Delete(memorystream);
+        vlc_stream_Delete(memorystream);
         block_Release(p_block);
         return NULL;
     }
@@ -85,7 +85,7 @@ Manifest * SmoothManager::fetchManifest()
         delete manifestParser;
     }
 
-    stream_Delete(memorystream);
+    vlc_stream_Delete(memorystream);
     block_Release(p_block);
 
     return manifest;
@@ -93,7 +93,25 @@ Manifest * SmoothManager::fetchManifest()
 
 bool SmoothManager::updatePlaylist()
 {
-    return updatePlaylist(false);
+    bool b_playlist_empty = false;
+    /* Trigger full playlist update in case we cannot get next
+       segment from atom */
+    std::vector<AbstractStream *>::const_iterator it;
+    for(it=streams.begin(); it!=streams.end(); ++it)
+    {
+        const AbstractStream *st = *it;
+        const mtime_t m = st->getMinAheadTime();
+        if(st->isDisabled() || !st->isSelected())
+        {
+            continue;
+        }
+        else if(m < 1)
+        {
+            b_playlist_empty = true;
+            break;
+        }
+    }
+    return updatePlaylist(b_playlist_empty);
 }
 
 void SmoothManager::scheduleNextUpdate()
@@ -105,6 +123,8 @@ void SmoothManager::scheduleNextUpdate()
     for(it=streams.begin(); it!=streams.end(); ++it)
     {
         const AbstractStream *st = *it;
+        if(st->isDisabled() || !st->isSelected())
+            continue;
         const mtime_t m = st->getMinAheadTime();
         if(m > 0 && (m < minbuffer || minbuffer == 0))
             minbuffer = m;

@@ -42,10 +42,10 @@
 /****************************************************************************
  * Local prototypes
  ****************************************************************************/
-static const char *const ppsz_sout_options[] = { "quality-mode", NULL };
 static int OpenDecoder(vlc_object_t *);
 static void CloseDecoder(vlc_object_t *);
 #ifdef ENABLE_SOUT
+static const char *const ppsz_sout_options[] = { "quality-mode", NULL };
 static int OpenEncoder(vlc_object_t *);
 static void CloseEncoder(vlc_object_t *);
 static block_t *Encode(encoder_t *p_enc, picture_t *p_pict);
@@ -64,7 +64,7 @@ static block_t *Encode(encoder_t *p_enc, picture_t *p_pict);
 vlc_module_begin ()
     set_shortname("vpx")
     set_description(N_("WebM video decoder"))
-    set_capability("decoder", 100)
+    set_capability("video decoder", 60)
     set_callbacks(OpenDecoder, CloseDecoder)
     set_category(CAT_INPUT)
     set_subcategory(SUBCAT_INPUT_VCODEC)
@@ -101,49 +101,104 @@ struct decoder_sys_t
     struct vpx_codec_ctx ctx;
 };
 
+static const struct
+{
+    vlc_fourcc_t     i_chroma;
+    enum vpx_img_fmt i_chroma_id;
+    uint8_t          i_bitdepth;
+    uint8_t          i_needs_hack;
+
+} chroma_table[] =
+{
+    { VLC_CODEC_I420, VPX_IMG_FMT_I420, 8, 0 },
+    { VLC_CODEC_I422, VPX_IMG_FMT_I422, 8, 0 },
+    { VLC_CODEC_I444, VPX_IMG_FMT_I444, 8, 0 },
+    { VLC_CODEC_I440, VPX_IMG_FMT_I440, 8, 0 },
+
+    { VLC_CODEC_YV12, VPX_IMG_FMT_YV12, 8, 0 },
+    { VLC_CODEC_YUVA, VPX_IMG_FMT_444A, 8, 0 },
+    { VLC_CODEC_YUYV, VPX_IMG_FMT_YUY2, 8, 0 },
+    { VLC_CODEC_UYVY, VPX_IMG_FMT_UYVY, 8, 0 },
+    { VLC_CODEC_YVYU, VPX_IMG_FMT_YVYU, 8, 0 },
+
+    { VLC_CODEC_RGB15, VPX_IMG_FMT_RGB555, 8, 0 },
+    { VLC_CODEC_RGB16, VPX_IMG_FMT_RGB565, 8, 0 },
+    { VLC_CODEC_RGB24, VPX_IMG_FMT_RGB24, 8, 0 },
+    { VLC_CODEC_RGB32, VPX_IMG_FMT_RGB32, 8, 0 },
+
+    { VLC_CODEC_ARGB, VPX_IMG_FMT_ARGB, 8, 0 },
+    { VLC_CODEC_BGRA, VPX_IMG_FMT_ARGB_LE, 8, 0 },
+
+    { VLC_CODEC_GBR_PLANAR, VPX_IMG_FMT_I444, 8, 1 },
+    { VLC_CODEC_GBR_PLANAR_10L, VPX_IMG_FMT_I44416, 10, 1 },
+
+    { VLC_CODEC_I420_10L, VPX_IMG_FMT_I42016, 10, 0 },
+    { VLC_CODEC_I422_10L, VPX_IMG_FMT_I42216, 10, 0 },
+    { VLC_CODEC_I444_10L, VPX_IMG_FMT_I44416, 10, 0 },
+
+    { VLC_CODEC_I420_12L, VPX_IMG_FMT_I42016, 12, 0 },
+    { VLC_CODEC_I422_12L, VPX_IMG_FMT_I42216, 12, 0 },
+    { VLC_CODEC_I444_12L, VPX_IMG_FMT_I44416, 12, 0 },
+
+    { VLC_CODEC_I444_16L, VPX_IMG_FMT_I44416, 16, 0 },
+};
+
+static vlc_fourcc_t FindVlcChroma( struct vpx_image *img )
+{
+    uint8_t hack = (img->fmt & VPX_IMG_FMT_I444) && (img->cs == VPX_CS_SRGB);
+
+    for( unsigned int i = 0; i < ARRAY_SIZE(chroma_table); i++ )
+        if( chroma_table[i].i_chroma_id == img->fmt &&
+            chroma_table[i].i_bitdepth == img->bit_depth &&
+            chroma_table[i].i_needs_hack == hack )
+            return chroma_table[i].i_chroma;
+
+    return 0;
+}
+
 /****************************************************************************
  * Decode: the whole thing
  ****************************************************************************/
-static picture_t *Decode(decoder_t *dec, block_t **pp_block)
+static int Decode(decoder_t *dec, block_t *block)
 {
     struct vpx_codec_ctx *ctx = &dec->p_sys->ctx;
 
-    if( !pp_block || !*pp_block )
-        return NULL;
-    block_t *block = *pp_block;
+    if (block == NULL) /* No Drain */
+        return VLCDEC_SUCCESS;
 
     if (block->i_flags & (BLOCK_FLAG_CORRUPTED)) {
         block_Release(block);
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
     /* Associate packet PTS with decoded frame */
     mtime_t *pkt_pts = malloc(sizeof(*pkt_pts));
     if (!pkt_pts) {
         block_Release(block);
-        *pp_block = NULL;
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
-    *pkt_pts = block->i_pts;
+    *pkt_pts = block->i_pts ? block->i_pts : block->i_dts;
 
     vpx_codec_err_t err;
     err = vpx_codec_decode(ctx, block->p_buffer, block->i_buffer, pkt_pts, 0);
 
     block_Release(block);
-    *pp_block = NULL;
 
     if (err != VPX_CODEC_OK) {
         free(pkt_pts);
         VPX_ERR(dec, ctx, "Failed to decode frame");
-        return NULL;
+        if (err == VPX_CODEC_UNSUP_BITSTREAM)
+            return VLCDEC_ECRITICAL;
+        else
+            return VLCDEC_SUCCESS;
     }
 
     const void *iter = NULL;
     struct vpx_image *img = vpx_codec_get_frame(ctx, &iter);
     if (!img) {
         free(pkt_pts);
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
     /* fetches back the PTS */
@@ -151,16 +206,18 @@ static picture_t *Decode(decoder_t *dec, block_t **pp_block)
     mtime_t pts = *pkt_pts;
     free(pkt_pts);
 
-    if (img->fmt != VPX_IMG_FMT_I420) {
+    dec->fmt_out.i_codec = FindVlcChroma(img);
+
+    if( dec->fmt_out.i_codec == 0 ) {
         msg_Err(dec, "Unsupported output colorspace %d", img->fmt);
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
     video_format_t *v = &dec->fmt_out.video;
 
     if (img->d_w != v->i_visible_width || img->d_h != v->i_visible_height) {
-        v->i_visible_width = img->d_w;
-        v->i_visible_height = img->d_h;
+        v->i_visible_width = dec->fmt_out.video.i_width = img->d_w;
+        v->i_visible_height = dec->fmt_out.video.i_height = img->d_h;
     }
 
     if( !dec->fmt_out.video.i_sar_num || !dec->fmt_out.video.i_sar_den )
@@ -169,9 +226,35 @@ static picture_t *Decode(decoder_t *dec, block_t **pp_block)
         dec->fmt_out.video.i_sar_den = 1;
     }
 
+    v->b_color_range_full = img->range == VPX_CR_FULL_RANGE;
+
+    switch( img->cs )
+    {
+        case VPX_CS_SRGB:
+        case VPX_CS_BT_709:
+            v->space = COLOR_SPACE_BT709;
+            break;
+        case VPX_CS_BT_601:
+        case VPX_CS_SMPTE_170:
+        case VPX_CS_SMPTE_240:
+            v->space = COLOR_SPACE_BT601;
+            break;
+        case VPX_CS_BT_2020:
+            v->space = COLOR_SPACE_BT2020;
+            break;
+        default:
+            break;
+    }
+
+    dec->fmt_out.video.projection_mode = dec->fmt_in.video.projection_mode;
+    dec->fmt_out.video.multiview_mode = dec->fmt_in.video.multiview_mode;
+    dec->fmt_out.video.pose = dec->fmt_in.video.pose;
+
+    if (decoder_UpdateVideoFormat(dec))
+        return VLCDEC_SUCCESS;
     picture_t *pic = decoder_NewPicture(dec);
     if (!pic)
-        return NULL;
+        return VLCDEC_SUCCESS;
 
     for (int plane = 0; plane < pic->i_planes; plane++ ) {
         uint8_t *src = img->planes[plane];
@@ -190,7 +273,8 @@ static picture_t *Decode(decoder_t *dec, block_t **pp_block)
     pic->b_progressive = true; /* codec does not support interlacing */
     pic->date = pts;
 
-    return pic;
+    decoder_QueueVideo(dec, pic);
+    return VLCDEC_SUCCESS;
 }
 
 /*****************************************************************************
@@ -238,12 +322,15 @@ static int OpenDecoder(vlc_object_t *p_this)
         return VLC_EGENERIC;;
     }
 
-    dec->pf_decode_video = Decode;
+    dec->pf_decode = Decode;
 
-    dec->fmt_out.i_cat = VIDEO_ES;
     dec->fmt_out.video.i_width = dec->fmt_in.video.i_width;
     dec->fmt_out.video.i_height = dec->fmt_in.video.i_height;
-    dec->fmt_out.i_codec = VLC_CODEC_I420;
+
+    if (dec->fmt_in.video.i_sar_num > 0 && dec->fmt_in.video.i_sar_den > 0) {
+        dec->fmt_out.video.i_sar_num = dec->fmt_in.video.i_sar_num;
+        dec->fmt_out.video.i_sar_den = dec->fmt_in.video.i_sar_den;
+    }
 
     return VLC_SUCCESS;
 }

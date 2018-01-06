@@ -47,7 +47,7 @@ extern "C" {
  * invalid unsynchronized access) */
 struct sout_instance_t
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
 
     char *psz_sout;
 
@@ -72,7 +72,7 @@ typedef struct sout_stream_id_sys_t  sout_stream_id_sys_t;
 /** Stream output access_output */
 struct sout_access_out_t
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
 
     module_t                *p_module;
     char                    *psz_access;
@@ -120,7 +120,7 @@ static inline bool sout_AccessOutCanControlPace( sout_access_out_t *p_ao )
 /** Muxer structure */
 struct  sout_mux_t
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
     module_t            *p_module;
 
     sout_instance_t     *p_sout;
@@ -196,7 +196,7 @@ enum sout_stream_query_e {
 
 struct sout_stream_t
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
 
     module_t          *p_module;
     sout_instance_t   *p_sout;
@@ -280,10 +280,19 @@ VLC_API void sout_AnnounceUnRegister(vlc_object_t *,session_descriptor_t* );
 /** SDP */
 
 struct sockaddr;
+struct vlc_memstream;
 
-VLC_API char * vlc_sdp_Start( vlc_object_t *obj, const char *cfgpref, const struct sockaddr *src, size_t srclen, const struct sockaddr *addr, size_t addrlen ) VLC_USED;
-VLC_API char * sdp_AddMedia(char **sdp, const char *type, const char *protocol, int dport, unsigned pt, bool bw_indep, unsigned bw, const char *ptname, unsigned clockrate, unsigned channels, const char *fmtp);
-VLC_API char * sdp_AddAttribute(char **sdp, const char *name, const char *fmt, ...) VLC_FORMAT( 3, 4 );
+VLC_API int vlc_sdp_Start(struct vlc_memstream *, vlc_object_t *obj,
+                          const char *cfgpref,
+                          const struct sockaddr *src, size_t slen,
+                          const struct sockaddr *addr, size_t alen) VLC_USED;
+VLC_API void sdp_AddMedia(struct vlc_memstream *, const char *type,
+                          const char *protocol, int dport, unsigned pt,
+                          bool bw_indep, unsigned bw, const char *ptname,
+                          unsigned clockrate, unsigned channels,
+                          const char *fmtp);
+VLC_API void sdp_AddAttribute(struct vlc_memstream *, const char *name,
+                              const char *fmt, ...) VLC_FORMAT(3, 4);
 
 /** Description module */
 typedef struct sout_description_data_t

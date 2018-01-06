@@ -23,6 +23,7 @@ pluginsincludedir = $(pkgincludedir)/plugins
 
 pluginsinclude_HEADERS = \
 	../include/vlc_access.h \
+	../include/vlc_actions.h \
 	../include/vlc_addons.h \
 	../include/vlc_aout.h \
 	../include/vlc_aout_volume.h \
@@ -58,14 +59,13 @@ pluginsinclude_HEADERS = \
 	../include/vlc_input.h \
 	../include/vlc_input_item.h \
 	../include/vlc_interface.h \
-	../include/vlc_keys.h \
 	../include/vlc_keystore.h \
-	../include/vlc_main.h \
 	../include/vlc_md5.h \
 	../include/vlc_messages.h \
 	../include/vlc_meta.h \
 	../include/vlc_meta_fetcher.h \
 	../include/vlc_media_library.h \
+	../include/vlc_memstream.h \
 	../include/vlc_mime.h \
 	../include/vlc_modules.h \
 	../include/vlc_mouse.h \
@@ -86,13 +86,16 @@ pluginsinclude_HEADERS = \
 	../include/vlc_sout.h \
 	../include/vlc_spu.h \
 	../include/vlc_stream.h \
+	../include/vlc_stream_extractor.h \
 	../include/vlc_strings.h \
 	../include/vlc_subpicture.h \
 	../include/vlc_text_style.h \
 	../include/vlc_threads.h \
+	../include/vlc_timestamp_helper.h \
 	../include/vlc_tls.h \
 	../include/vlc_url.h \
 	../include/vlc_variables.h \
+	../include/vlc_viewpoint.h \
 	../include/vlc_vlm.h \
 	../include/vlc_video_splitter.h \
 	../include/vlc_vout.h \
@@ -105,7 +108,6 @@ pluginsinclude_HEADERS = \
 nodist_pluginsinclude_HEADERS = ../include/vlc_about.h
 
 noinst_HEADERS = \
-	../include/vlc_codec_synchro.h \
 	../include/vlc_codecs.h \
 	../include/vlc_extensions.h \
 	../include/vlc_fixups.h \
@@ -180,158 +182,30 @@ AM_CPPFLAGS += -DHAVE_DBUS
 AM_CFLAGS += $(DBUS_CFLAGS)
 endif
 
-libvlccore_la_SOURCES = $(SOURCES_libvlc)
-libvlccore_la_LDFLAGS = \
-	$(LDFLAGS_libvlccore) \
-	-no-undefined \
-	-export-symbols $(srcdir)/libvlccore.sym \
-	-version-info 8:0:0
-libvlccore_la_LIBADD = $(LIBS_libvlccore) \
-	../compat/libcompat.la \
-	$(LTLIBINTL) $(LTLIBICONV) \
-	$(IDN_LIBS) $(LIBPTHREAD) $(SOCKET_LIBS) $(LIBRT) $(LIBDL) $(LIBM)
-libvlccore_la_DEPENDENCIES = libvlccore.sym
-if HAVE_WIN32
-libvlccore_la_DEPENDENCIES += libvlc_win32_rc.$(OBJEXT)
-libvlccore_la_LDFLAGS += -Wl,libvlc_win32_rc.$(OBJEXT) -avoid-version -Wc,-static
-endif
-if HAVE_OS2
-libvlccore_la_LDFLAGS += -avoid-version
-endif
-if HAVE_DBUS
-libvlccore_la_LIBADD += $(DBUS_LIBS)
-endif
-
-libvlc_win32_rc.$(OBJEXT): libvlc_win32_rc.rc
-	$(WINDRES) --include-dir $(top_srcdir)/share --include-dir $(top_srcdir)/extras/package/win32 -i $< -o $@
-
-EXTRA_libvlccore_la_SOURCES = \
-	$(SOURCES_libvlc_darwin) \
-	$(SOURCES_libvlc_android) \
-	$(SOURCES_libvlc_linux) \
-	$(SOURCES_libvlc_win32) \
-	$(SOURCES_libvlc_os2) \
-	$(SOURCES_libvlc_other) \
-	$(SOURCES_libvlc_httpd) \
-	$(SOURCES_libvlc_sout) \
-	$(SOURCES_libvlc_vlm) \
-	$(NULL)
-if HAVE_DARWIN
-libvlccore_la_SOURCES += $(SOURCES_libvlc_darwin)
-else
-if HAVE_ANDROID
-libvlccore_la_SOURCES += $(SOURCES_libvlc_android)
-else
-if HAVE_LINUX
-libvlccore_la_SOURCES += $(SOURCES_libvlc_linux)
-else
-if HAVE_WIN32
-libvlccore_la_SOURCES += $(SOURCES_libvlc_win32)
-else
-if HAVE_OS2
-libvlccore_la_SOURCES += $(SOURCES_libvlc_os2)
-else
-libvlccore_la_SOURCES += $(SOURCES_libvlc_other)
-endif
-endif
-endif
-endif
-endif
-if BUILD_HTTPD
-libvlccore_la_SOURCES += $(SOURCES_libvlc_httpd)
-endif
-if ENABLE_SOUT
-libvlccore_la_SOURCES += $(SOURCES_libvlc_sout)
-if ENABLE_VLM
-libvlccore_la_SOURCES += $(SOURCES_libvlc_vlm)
-endif
-endif
-
-SOURCES_libvlc_darwin = \
-	darwin/dirs.c \
-	posix/filesystem.c \
-	posix/plugin.c \
-	darwin/thread.c \
-	posix/timer.c \
-	darwin/specific.c \
-	posix/rand.c \
-	darwin/error.c \
-	darwin/netconf.c \
-	$(NULL)
-
-SOURCES_libvlc_android = \
-	linux/cpu.c \
-	linux/dirs.c \
-	android/dirs.c \
-	linux/thread.c \
-	android/thread.c \
-	android/error.c \
-	posix/filesystem.c \
-	android/netconf.c \
-	posix/plugin.c \
-	posix/timer.c \
-	android/specific.c \
-	posix/rand.c \
-	$(NULL)
-
-SOURCES_libvlc_linux = \
-	linux/cpu.c \
-	linux/dirs.c \
-	posix/dirs.c \
-	posix/error.c \
-	posix/filesystem.c \
-	posix/netconf.c \
-	posix/plugin.c \
-	linux/thread.c \
-	posix/thread.c \
-	posix/timer.c \
-	posix/specific.c \
-	posix/rand.c \
-	$(NULL)
-
-SOURCES_libvlc_win32 = \
-	win32/dirs.c \
-	win32/error.c \
-	win32/filesystem.c \
-	win32/netconf.c \
-	win32/plugin.c \
-	win32/thread.c \
-	win32/specific.c \
-	win32/winsock.c \
-	win32/rand.c \
-	$(NULL)
-
-SOURCES_libvlc_os2 = \
-	os2/getaddrinfo.c \
-	os2/dirs.c \
-	darwin/error.c \
-	os2/filesystem.c \
-	os2/netconf.c \
-	os2/plugin.c \
-	os2/thread.c \
-	os2/specific.c \
-	os2/rand.c \
-	$(NULL)
-
-SOURCES_libvlc_other = \
-	posix/dirs.c \
-	posix/error.c \
-	posix/filesystem.c \
-	posix/netconf.c \
-	posix/thread.c \
-	posix/timer.c \
-	posix/plugin.c \
-	posix/specific.c \
-	posix/rand.c \
-	$(NULL)
-
-SOURCES_libvlc_common = \
+libvlccore_la_SOURCES = \
 	libvlc.c \
 	libvlc.h \
 	libvlc-module.c \
 	missing.c \
 	revision.c \
 	version.c \
+	config/configuration.h \
+	config/core.c \
+	config/chain.c \
+	config/file.c \
+	config/help.c \
+	config/intf.c \
+	config/cmdline.c \
+	config/getopt.c \
+	config/vlc_getopt.h \
+	extras/libc.c \
+	extras/tdestroy.c \
+	modules/modules.h \
+	modules/modules.c \
+	modules/bank.c \
+	modules/cache.c \
+	modules/entry.c \
+	modules/textdomain.c \
 	interface/dialog.c \
 	interface/interface.c \
 	playlist/playlist_internal.h \
@@ -351,12 +225,12 @@ SOURCES_libvlc_common = \
 	playlist/item.c \
 	playlist/search.c \
 	playlist/services_discovery.c \
+	playlist/renderer.c \
 	input/item.c \
 	input/access.c \
 	input/clock.c \
 	input/control.c \
 	input/decoder.c \
-	input/decoder_synchro.c \
 	input/demux.c \
 	input/demux_chained.c \
 	input/es_out.c \
@@ -372,6 +246,7 @@ SOURCES_libvlc_common = \
 	input/es_out_timeshift.h \
 	input/event.h \
 	input/item.h \
+	input/mrl_helpers.h \
 	input/stream.h \
 	input/input_internal.h \
 	input/input_interface.h \
@@ -379,13 +254,21 @@ SOURCES_libvlc_common = \
 	input/vlm_event.h \
 	input/resource.h \
 	input/resource.c \
+	input/services_discovery.c \
 	input/stats.c \
 	input/stream.c \
 	input/stream_fifo.c \
+	input/stream_extractor.c \
 	input/stream_filter.c \
 	input/stream_memory.c \
 	input/subtitles.c \
 	input/var.c \
+	audio_output/aout_internal.h \
+	audio_output/common.c \
+	audio_output/dec.c \
+	audio_output/filters.c \
+	audio_output/output.c \
+	audio_output/volume.c \
 	video_output/chrono.h \
 	video_output/control.c \
 	video_output/control.h \
@@ -404,6 +287,7 @@ SOURCES_libvlc_common = \
 	video_output/video_epg.c \
 	video_output/video_widgets.c \
 	video_output/vout_subpictures.c \
+	video_output/vout_spuregion_helper.h \
 	video_output/window.c \
 	video_output/window.h \
 	video_output/opengl.c \
@@ -411,26 +295,25 @@ SOURCES_libvlc_common = \
 	video_output/vout_internal.h \
 	video_output/vout_control.h \
 	video_output/vout_wrapper.c \
-	audio_output/aout_internal.h \
-	audio_output/common.c \
-	audio_output/dec.c \
-	audio_output/filters.c \
-	audio_output/output.c \
-	audio_output/volume.c \
 	network/getaddrinfo.c \
 	network/http_auth.c \
+	network/httpd.c \
 	network/io.c \
 	network/tcp.c \
 	network/udp.c \
 	network/rootbind.c \
 	network/tls.c \
 	text/charset.c \
+	text/memstream.c \
 	text/strings.c \
 	text/unicode.c \
 	text/url.c \
 	text/filesystem.c \
 	text/iso_lang.c \
 	text/iso-639_def.h \
+	misc/actions.c \
+	misc/background_worker.c \
+	misc/background_worker.h \
 	misc/md5.c \
 	misc/probe.c \
 	misc/rand.c \
@@ -448,40 +331,20 @@ SOURCES_libvlc_common = \
 	misc/interrupt.c \
 	misc/keystore.c \
 	misc/renderer_discovery.c \
-	modules/modules.h \
-	modules/modules.c \
-	modules/bank.c \
-	modules/cache.c \
-	modules/entry.c \
-	modules/textdomain.c \
 	misc/threads.c \
 	misc/cpu.c \
 	misc/epg.c \
 	misc/exit.c \
-	config/configuration.h \
-	config/core.c \
-	config/chain.c \
-	config/file.c \
-        config/help.c \
-	config/intf.c \
-	config/keys.c \
-	config/cmdline.c \
-	config/getopt.c \
-	config/vlc_getopt.h \
 	misc/events.c \
 	misc/image.c \
 	misc/messages.c \
 	misc/mime.c \
 	misc/objects.c \
+	misc/objres.c \
 	misc/variables.h \
 	misc/variables.c \
 	misc/error.c \
-	misc/update.h \
-	misc/update.c \
-	misc/update_crypto.c \
 	misc/xml.c \
-	extras/libc.c \
-	extras/tdestroy.c \
 	misc/addons.c \
 	misc/filter.c \
 	misc/filter_chain.c \
@@ -489,29 +352,139 @@ SOURCES_libvlc_common = \
 	misc/fingerprinter.c \
 	misc/text_style.c \
 	misc/subpicture.c \
-	misc/subpicture.h \
-	$(NULL)
+	misc/subpicture.h
+libvlccore_la_LIBADD = $(LIBS_libvlccore) \
+	../compat/libcompat.la \
+	$(LTLIBINTL) $(LTLIBICONV) \
+	$(IDN_LIBS) $(LIBPTHREAD) $(SOCKET_LIBS) $(LIBRT) $(LIBDL) $(LIBM)
 
-SOURCES_libvlc_httpd = \
-	network/httpd.c \
-	$(NULL)
+if HAVE_WIN32
+libvlccore_la_SOURCES += \
+	win32/dirs.c \
+	win32/error.c \
+	win32/filesystem.c \
+	win32/netconf.c \
+	win32/plugin.c \
+	win32/rand.c \
+	win32/specific.c \
+	win32/thread.c \
+	win32/winsock.c
+if HAVE_WINSTORE
+libvlccore_la_SOURCES += posix/timer.c
+else
+libvlccore_la_SOURCES += win32/timer.c
+endif
+else
+if HAVE_OS2
+libvlccore_la_SOURCES += \
+	os2/dirs.c \
+	darwin/error.c \
+	os2/filesystem.c \
+	os2/getaddrinfo.c \
+	os2/netconf.c \
+	os2/plugin.c \
+	os2/specific.c \
+	os2/rand.c \
+	os2/thread.c
+else
+if HAVE_NACL
+libvlccore_la_SOURCES += \
+	android/error.c \
+	posix/dirs.c \
+	posix/filesystem.c \
+	posix/netconf.c \
+	posix/rand.c \
+	posix/specific.c \
+	posix/timer.c
+else
+libvlccore_la_SOURCES += \
+	posix/filesystem.c \
+	posix/plugin.c \
+	posix/rand.c \
+	posix/timer.c
+if HAVE_ANDROID
+libvlccore_la_SOURCES += \
+	android/error.c \
+	android/specific.c \
+	android/thread.c \
+	linux/cpu.c \
+	linux/dirs.c \
+	linux/thread.c
+else
+if HAVE_DARWIN
+libvlccore_la_SOURCES += \
+	darwin/dirs.c \
+	darwin/error.c \
+	darwin/netconf.c \
+	darwin/specific.c \
+	darwin/thread.c
+else
+libvlccore_la_SOURCES += \
+	posix/dirs.c \
+	posix/error.c \
+	posix/netconf.c \
+	posix/specific.c \
+	posix/thread.c
+if HAVE_LINUX
+libvlccore_la_SOURCES += \
+	linux/cpu.c \
+	linux/dirs.c \
+	linux/thread.c
+endif
+if HAVE_LIBANL
+libvlccore_la_SOURCES += \
+	linux/getaddrinfo.c
+libvlccore_la_LIBADD += -lanl
+else
+libvlccore_la_SOURCES += \
+	posix/getaddrinfo.c
+endif
+endif
+endif
+endif
+endif
+endif
 
-SOURCES_libvlc_sout = \
-	stream_output/stream_output.c \
-	stream_output/stream_output.h \
-	stream_output/sap.c \
-	stream_output/sdp.c \
-	$(NULL)
+if ENABLE_SOUT
+libvlccore_la_SOURCES += \
+	stream_output/sap.c stream_output/sdp.c \
+	stream_output/stream_output.c stream_output/stream_output.h
+if ENABLE_VLM
+libvlccore_la_SOURCES += input/vlm.c input/vlm_event.c input/vlmshell.c
+endif
+endif
 
-SOURCES_libvlc_vlm = \
-	input/vlm.c \
-	input/vlm_event.c \
-	input/vlmshell.c \
-	$(NULL)
+if UPDATE_CHECK
+libvlccore_la_SOURCES += \
+	misc/update.h misc/update.c \
+	misc/update_crypto.c
+AM_CPPFLAGS += -DUPDATE_CHECK
+AM_CFLAGS += $(GCRYPT_CFLAGS)
+libvlccore_la_LIBADD += $(GCRYPT_LIBS)
+endif
 
-SOURCES_libvlc = \
-	$(SOURCES_libvlc_common) \
-	$(NULL)
+libvlccore_la_LDFLAGS = \
+	$(LDFLAGS_libvlccore) \
+	-no-undefined \
+	-export-symbols $(srcdir)/libvlccore.sym \
+	-version-info 9:0:0
+libvlccore_la_DEPENDENCIES = libvlccore.sym
+if HAVE_WIN32
+libvlccore_la_DEPENDENCIES += libvlc_win32_rc.$(OBJEXT)
+libvlccore_la_LDFLAGS += -Wl,libvlc_win32_rc.$(OBJEXT) -avoid-version -Wc,-static $(LIBCOM)
+endif
+if HAVE_OS2
+libvlccore_la_LDFLAGS += -avoid-version
+endif
+if HAVE_DBUS
+libvlccore_la_LIBADD += $(DBUS_LIBS)
+endif
+if HAVE_DARWIN
+libvlccore_la_LDFLAGS += -Xlinker -install_name -Xlinker @rpath/libvlccore.dylib
+endif
+
+libvlc_win32_rc.$(OBJEXT): libvlc_win32_rc.rc $(top_srcdir)/extras/package/win32/libvlc.dll.manifest
+	$(WINDRES) --include-dir $(top_srcdir)/share --include-dir $(top_srcdir)/extras/package/win32 -i $< -o $@
 
 # FourCC tables
 BUILT_SOURCES += fourcc_tables.h
@@ -524,7 +497,7 @@ fourcc_gen$(BUILDEXEEXT): misc/fourcc_gen.c misc/fourcc_list.h ../include/vlc_fo
 
 fourcc_tables.h: fourcc_gen$(BUILDEXEEXT)
 	$(AM_V_at)rm -f -- $@.tmp
-	$(AM_V_GEN)$(builddir)/fourcc_gen > $@.tmp
+	$(AM_V_GEN)$(builddir)/fourcc_gen$(BUILDEXEEXT) > $@.tmp
 	$(AM_V_at)mv -f -- $@.tmp $@
 
 # Unit/regression tests
@@ -536,11 +509,13 @@ check_PROGRAMS = \
 	test_interrupt \
 	test_md5 \
 	test_picture_pool \
+	test_sort \
 	test_timer \
 	test_url \
 	test_utf8 \
 	test_xmlent \
-	test_headers
+	test_headers \
+	test_mrl_helpers
 
 TESTS = $(check_PROGRAMS) check_symbols
 
@@ -554,11 +529,13 @@ test_interrupt_SOURCES = test/interrupt.c
 test_interrupt_LDADD = $(LDADD) $(LIBS_libvlccore) $(LIBPTHREAD)
 test_md5_SOURCES = test/md5.c
 test_picture_pool_SOURCES = test/picture_pool.c
+test_sort_SOURCES = test/sort.c
 test_timer_SOURCES = test/timer.c
 test_url_SOURCES = test/url.c
 test_utf8_SOURCES = test/utf8.c
 test_xmlent_SOURCES = test/xmlent.c
 test_headers_SOURCES = test/headers.c
+test_mrl_helpers_SOURCES = test/mrl_helpers.c
 
 AM_LDFLAGS = -no-install
 LDADD = libvlccore.la \

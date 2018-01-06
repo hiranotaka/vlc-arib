@@ -83,29 +83,27 @@
 /* Function attributes for compiler warnings */
 #ifdef __GNUC__
 # define VLC_DEPRECATED __attribute__((deprecated))
+# if VLC_GCC_VERSION(6,0)
+#  define VLC_DEPRECATED_ENUM __attribute__((deprecated))
+# else
+#  define VLC_DEPRECATED_ENUM
+# endif
 
-# if defined( _WIN32 ) && VLC_GCC_VERSION(4,4)
+# if defined( _WIN32 )
 #  define VLC_FORMAT(x,y) __attribute__ ((format(gnu_printf,x,y)))
 # else
 #  define VLC_FORMAT(x,y) __attribute__ ((format(printf,x,y)))
 # endif
 # define VLC_FORMAT_ARG(x) __attribute__ ((format_arg(x)))
-
 # define VLC_MALLOC __attribute__ ((malloc))
-# define VLC_NORETURN __attribute__ ((noreturn))
-
-# if VLC_GCC_VERSION(3,4)
-#  define VLC_USED __attribute__ ((warn_unused_result))
-# else
-#  define VLC_USED
-# endif
+# define VLC_USED __attribute__ ((warn_unused_result))
 
 #else
 # define VLC_DEPRECATED
+# define VLC_DEPRECATED_ENUM
 # define VLC_FORMAT(x,y)
 # define VLC_FORMAT_ARG(x)
 # define VLC_MALLOC
-# define VLC_NORETURN
 # define VLC_USED
 #endif
 
@@ -132,7 +130,7 @@
 
 #if defined (_WIN32) && defined (DLL_EXPORT)
 # define VLC_EXPORT __declspec(dllexport)
-#elif VLC_GCC_VERSION(4,0)
+#elif defined (__GNUC__)
 # define VLC_EXPORT __attribute__((visibility("default")))
 #else
 # define VLC_EXPORT
@@ -207,9 +205,8 @@ typedef struct playlist_t playlist_t;
 typedef struct playlist_item_t playlist_item_t;
 typedef struct services_discovery_t services_discovery_t;
 typedef struct services_discovery_sys_t services_discovery_sys_t;
-typedef struct playlist_add_t playlist_add_t;
-typedef struct vlc_renderer_discovery vlc_renderer_discovery;
-typedef struct vlc_renderer_item vlc_renderer_item;
+typedef struct vlc_renderer_discovery_t vlc_renderer_discovery_t;
+typedef struct vlc_renderer_item_t vlc_renderer_item_t;
 
 /* Modules */
 typedef struct module_t module_t;
@@ -221,7 +218,6 @@ typedef struct config_category_t config_category_t;
 typedef struct input_thread_t input_thread_t;
 typedef struct input_item_t input_item_t;
 typedef struct input_item_node_t input_item_node_t;
-typedef struct access_t access_t;
 typedef struct access_sys_t access_sys_t;
 typedef struct stream_t     stream_t;
 typedef struct stream_sys_t stream_sys_t;
@@ -249,6 +245,7 @@ typedef audio_format_t audio_sample_format_t;
 
 /* Video */
 typedef struct vout_thread_t vout_thread_t;
+typedef struct vlc_viewpoint_t vlc_viewpoint_t;
 
 typedef video_format_t video_frame_format_t;
 typedef struct picture_t picture_t;
@@ -411,97 +408,9 @@ typedef int ( * vlc_list_callback_t ) ( vlc_object_t *,      /* variable's objec
 #include "vlc_mtime.h"
 #include "vlc_threads.h"
 
-/**
- * Common structure members
- *****************************************************************************/
-
-/**
- * VLC object common members
- *
- * Common public properties for all VLC objects.
- * Object also have private properties maintained by the core, see
- * \ref vlc_object_internals_t
- */
-struct vlc_common_members
-{
-    /** Object type name
-     *
-     * A constant string identifying the type of the object (for logging)
-     */
-    const char *object_type;
-
-    /** Log messages header
-     *
-     * Human-readable header for log messages. This is not thread-safe and
-     * only used by VLM and Lua interfaces.
-     */
-    char *header;
-
-    int  flags;
-
-    /** Module probe flag
-     *
-     * A boolean during module probing when the probe is "forced".
-     * See \ref module_need().
-     */
-    bool force;
-
-    /** LibVLC instance
-     *
-     * Root VLC object of the objects tree that this object belongs in.
-     */
-    libvlc_int_t *libvlc;
-
-    /** Parent object
-     *
-     * The parent VLC object in the objects tree. For the root (the LibVLC
-     * instance) object, this is NULL.
-     */
-    vlc_object_t *parent;
-};
-
-/**
- * Backward compatibility macro
- */
-#define VLC_COMMON_MEMBERS struct vlc_common_members obj;
-
-/**
- * Type-safe vlc_object_t cast
- *
- * This macro attempts to cast a pointer to a compound type to a
- * \ref vlc_object_t pointer in a type-safe manner.
- * It checks if the compound type actually starts with an embedded
- * \ref vlc_object_t structure.
- */
-#if !defined(__cplusplus) && (__STDC_VERSION__ >= 201112L)
-# define VLC_OBJECT(x) \
-    _Generic((x)->obj, \
-        struct vlc_common_members: (vlc_object_t *)(&(x)->obj) \
-    )
-#elif VLC_GCC_VERSION(4,0)
-# ifndef __cplusplus
-#  define VLC_OBJECT( x ) \
-    __builtin_choose_expr( \
-        __builtin_types_compatible_p(__typeof__((x)->obj), struct vlc_common_members), \
-        (vlc_object_t *)(x), (void)0)
-# else
-#  define VLC_OBJECT( x ) \
-    ((vlc_object_t *)(&((x)->obj)) \
-      + 0 * __builtin_offsetof(__typeof__(*(x)), obj.object_type))
-# endif
-#else
-# define VLC_OBJECT( x ) ((vlc_object_t *)&(x)->obj)
-#endif
-
 /*****************************************************************************
  * Macros and inline functions
  *****************************************************************************/
-
-/* CEIL: division with round to nearest greater integer */
-#define CEIL(n, d)  ( ((n) / (d)) + ( ((n) % (d)) ? 1 : 0) )
-
-/* PAD: PAD(n, d) = CEIL(n ,d) * d */
-#define PAD(n, d)   ( ((n) % (d)) ? ((((n) / (d)) + 1) * (d)) : (n) )
 
 /* __MAX and __MIN: self explanatory */
 #ifndef __MAX
@@ -536,9 +445,9 @@ static inline uint8_t clip_uint8_vlc( int32_t a )
 
 /** Count leading zeroes */
 VLC_USED
-static inline unsigned clz (unsigned x)
+static inline unsigned (clz)(unsigned x)
 {
-#if VLC_GCC_VERSION(3,4)
+#ifdef __GNUC__
     return __builtin_clz (x);
 #else
     unsigned i = sizeof (x) * 8;
@@ -559,9 +468,9 @@ static inline unsigned clz (unsigned x)
 
 /** Count trailing zeroes */
 VLC_USED
-static inline unsigned ctz (unsigned x)
+static inline unsigned (ctz)(unsigned x)
 {
-#if VLC_GCC_VERSION(3,4)
+#ifdef __GNUC__
     return __builtin_ctz (x);
 #else
     unsigned i = sizeof (x) * 8;
@@ -577,9 +486,9 @@ static inline unsigned ctz (unsigned x)
 
 /** Bit weight */
 VLC_USED
-static inline unsigned popcount (unsigned x)
+static inline unsigned (popcount)(unsigned x)
 {
-#if VLC_GCC_VERSION(3,4)
+#ifdef __GNUC__
     return __builtin_popcount (x);
 #else
     unsigned count = 0;
@@ -594,9 +503,9 @@ static inline unsigned popcount (unsigned x)
 
 /** Bit weight of long long */
 VLC_USED
-static inline int popcountll(unsigned long long x)
+static inline int (popcountll)(unsigned long long x)
 {
-#if VLC_GCC_VERSION(3,4)
+#ifdef __GNUC__
     return __builtin_popcountll(x);
 #else
     int count = 0;
@@ -610,9 +519,9 @@ static inline int popcountll(unsigned long long x)
 }
 
 VLC_USED
-static inline unsigned parity (unsigned x)
+static inline unsigned (parity)(unsigned x)
 {
-#if VLC_GCC_VERSION(3,4)
+#ifdef __GNUC__
     return __builtin_parity (x);
 #else
     for (unsigned i = 4 * sizeof (x); i > 0; i /= 2)
@@ -621,24 +530,18 @@ static inline unsigned parity (unsigned x)
 #endif
 }
 
-#ifdef __OS2__
-#   undef bswap16
-#   undef bswap32
-#   undef bswap64
-#endif
-
 /** Byte swap (16 bits) */
 VLC_USED
-static inline uint16_t bswap16 (uint16_t x)
+static inline uint16_t (bswap16)(uint16_t x)
 {
     return (x << 8) | (x >> 8);
 }
 
 /** Byte swap (32 bits) */
 VLC_USED
-static inline uint32_t bswap32 (uint32_t x)
+static inline uint32_t (bswap32)(uint32_t x)
 {
-#if VLC_GCC_VERSION(4,3) || defined(__clang__)
+#if defined (__GNUC__) || defined(__clang__)
     return __builtin_bswap32 (x);
 #else
     return ((x & 0x000000FF) << 24)
@@ -650,9 +553,9 @@ static inline uint32_t bswap32 (uint32_t x)
 
 /** Byte swap (64 bits) */
 VLC_USED
-static inline uint64_t bswap64 (uint64_t x)
+static inline uint64_t (bswap64)(uint64_t x)
 {
-#if VLC_GCC_VERSION(4,3) || defined(__clang__)
+#if defined (__GNUC__) || defined(__clang__)
     return __builtin_bswap64 (x);
 #elif !defined (__cplusplus)
     return ((x & 0x00000000000000FF) << 56)
@@ -675,6 +578,124 @@ static inline uint64_t bswap64 (uint64_t x)
 #endif
 }
 
+/* Integer overflow */
+static inline bool uadd_overflow(unsigned a, unsigned b, unsigned *res)
+{
+#if VLC_GCC_VERSION(5,0) || defined(__clang__)
+     return __builtin_uadd_overflow(a, b, res);
+#else
+     *res = a + b;
+     return (a + b) < a;
+#endif
+}
+
+static inline bool uaddl_overflow(unsigned long a, unsigned long b,
+                                  unsigned long *res)
+{
+#if VLC_GCC_VERSION(5,0) || defined(__clang__)
+     return __builtin_uaddl_overflow(a, b, res);
+#else
+     *res = a + b;
+     return (a + b) < a;
+#endif
+}
+
+static inline bool uaddll_overflow(unsigned long long a, unsigned long long b,
+                                   unsigned long long *res)
+{
+#if VLC_GCC_VERSION(5,0) || defined(__clang__)
+     return __builtin_uaddll_overflow(a, b, res);
+#else
+     *res = a + b;
+     return (a + b) < a;
+#endif
+}
+
+#ifndef __cplusplus
+# define add_overflow(a,b,r) \
+    _Generic(*(r), \
+        unsigned: uadd_overflow(a, b, (unsigned *)(r)), \
+        unsigned long: uaddl_overflow(a, b, (unsigned long *)(r)), \
+        unsigned long long: uaddll_overflow(a, b, (unsigned long long *)(r)))
+#else
+static inline bool add_overflow(unsigned a, unsigned b, unsigned *res)
+{
+    return uadd_overflow(a, b, res);
+}
+
+static inline bool add_overflow(unsigned long a, unsigned long b,
+                                unsigned long *res)
+{
+    return uaddl_overflow(a, b, res);
+}
+
+static inline bool add_overflow(unsigned long long a, unsigned long long b,
+                                unsigned long long *res)
+{
+    return uaddll_overflow(a, b, res);
+}
+#endif
+
+#if !(VLC_GCC_VERSION(5,0) || defined(__clang__))
+# include <limits.h>
+#endif
+
+static inline bool umul_overflow(unsigned a, unsigned b, unsigned *res)
+{
+#if VLC_GCC_VERSION(5,0) || defined(__clang__)
+     return __builtin_umul_overflow(a, b, res);
+#else
+     *res = a * b;
+     return b > 0 && a > (UINT_MAX / b);
+#endif
+}
+
+static inline bool umull_overflow(unsigned long a, unsigned long b,
+                                  unsigned long *res)
+{
+#if VLC_GCC_VERSION(5,0) || defined(__clang__)
+     return __builtin_umull_overflow(a, b, res);
+#else
+     *res = a * b;
+     return b > 0 && a > (ULONG_MAX / b);
+#endif
+}
+
+static inline bool umulll_overflow(unsigned long long a, unsigned long long b,
+                                   unsigned long long *res)
+{
+#if VLC_GCC_VERSION(5,0) || defined(__clang__)
+     return __builtin_umulll_overflow(a, b, res);
+#else
+     *res = a * b;
+     return b > 0 && a > (ULLONG_MAX / b);
+#endif
+}
+
+#ifndef __cplusplus
+#define mul_overflow(a,b,r) \
+    _Generic(*(r), \
+        unsigned: umul_overflow(a, b, (unsigned *)(r)), \
+        unsigned long: umull_overflow(a, b, (unsigned long *)(r)), \
+        unsigned long long: umulll_overflow(a, b, (unsigned long long *)(r)))
+#else
+static inline bool mul_overflow(unsigned a, unsigned b, unsigned *res)
+{
+    return umul_overflow(a, b, res);
+}
+
+static inline bool mul_overflow(unsigned long a, unsigned long b,
+                                unsigned long *res)
+{
+    return umull_overflow(a, b, res);
+}
+
+static inline bool mul_overflow(unsigned long long a, unsigned long long b,
+                                unsigned long long *res)
+{
+    return umulll_overflow(a, b, res);
+}
+#endif
 
 /* Free and set set the variable to NULL */
 #define FREENULL(a) do { free( a ); a = NULL; } while(0)
@@ -849,26 +870,20 @@ static inline void SetQWLE (void *p, uint64_t qw)
 #   include <tchar.h>
 #endif /* _WIN32 */
 
+typedef struct {
+    unsigned num, den;
+} vlc_rational_t;
+
 VLC_API bool vlc_ureduce( unsigned *, unsigned *, uint64_t, uint64_t, uint64_t );
 
-/* Aligned memory allocator */
+#define container_of(ptr, type, member) \
+    ((type *)(((char *)(ptr)) - offsetof(type, member)))
 
-#ifdef __MINGW32__
-# define vlc_memalign(align, size) (__mingw_aligned_malloc(size, align))
-# define vlc_free(base)            (__mingw_aligned_free(base))
-#elif defined(_MSC_VER)
-# define vlc_memalign(align, size) (_aligned_malloc(size, align))
-# define vlc_free(base)            (_aligned_free(base))
-#else
-static inline void *vlc_memalign(size_t align, size_t size)
+VLC_USED VLC_MALLOC
+static inline void *vlc_alloc(size_t count, size_t size)
 {
-    void *base;
-    if (unlikely(posix_memalign(&base, align, size)))
-        base = NULL;
-    return base;
+    return mul_overflow(count, size, &size) ? NULL : malloc(size);
 }
-# define vlc_free(base) free(base)
-#endif
 
 /*****************************************************************************
  * I18n stuff
@@ -889,26 +904,26 @@ static inline const char *vlc_pgettext_aux( const char *ctx, const char *id )
 /*****************************************************************************
  * Loosy memory allocation functions. Do not use in new code.
  *****************************************************************************/
-static inline void *xmalloc (size_t len)
+static inline void *xmalloc(size_t len)
 {
-    void *ptr = malloc (len);
-    if (unlikely (ptr == NULL))
-        abort ();
+    void *ptr = malloc(len);
+    if (unlikely(ptr == NULL && len > 0))
+        abort();
     return ptr;
 }
 
-static inline void *xrealloc (void *ptr, size_t len)
+static inline void *xrealloc(void *ptr, size_t len)
 {
-    void *nptr = realloc (ptr, len);
-    if (unlikely (nptr == NULL))
-        abort ();
+    void *nptr = realloc(ptr, len);
+    if (unlikely(nptr == NULL && len > 0))
+        abort();
     return nptr;
 }
 
-static inline void *xcalloc (size_t n, size_t size)
+static inline void *xcalloc(size_t n, size_t size)
 {
-    void *ptr = calloc (n, size);
-    if (unlikely (ptr == NULL))
+    void *ptr = calloc(n, size);
+    if (unlikely(ptr == NULL && (n > 0 || size > 0)))
         abort ();
     return ptr;
 }
@@ -934,7 +949,6 @@ VLC_API const char * VLC_Compiler( void ) VLC_USED;
 #include "vlc_messages.h"
 #include "vlc_objects.h"
 #include "vlc_variables.h"
-#include "vlc_main.h"
 #include "vlc_configuration.h"
 
 #if defined( _WIN32 ) || defined( __OS2__ )

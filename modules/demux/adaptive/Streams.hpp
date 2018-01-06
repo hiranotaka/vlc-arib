@@ -25,6 +25,7 @@
 #include "ChunksSource.hpp"
 #include "SegmentTracker.hpp"
 
+#include "plumbing/CommandsQueue.hpp"
 #include "plumbing/Demuxer.hpp"
 #include "plumbing/SourceStream.hpp"
 #include "plumbing/FakeESOut.hpp"
@@ -37,7 +38,7 @@ namespace adaptive
 
     namespace http
     {
-        class HTTPConnectionManager;
+        class AbstractConnectionManager;
     }
 
     namespace playlist
@@ -53,28 +54,39 @@ namespace adaptive
                            public SegmentTrackerListenerInterface
     {
     public:
-        AbstractStream(demux_t *, const StreamFormat &);
+        AbstractStream(demux_t *);
         virtual ~AbstractStream();
-        void bind(SegmentTracker *, HTTPConnectionManager *);
+        bool init(const StreamFormat &, SegmentTracker *, AbstractConnectionManager *);
 
         void setLanguage(const std::string &);
         void setDescription(const std::string &);
-        bool isEOF() const;
         mtime_t getPCR() const;
-        mtime_t getBufferingLevel() const;
         mtime_t getMinAheadTime() const;
         mtime_t getFirstDTS() const;
         int esCount() const;
         bool isSelected() const;
+        bool canActivate() const;
         virtual bool reactivate(mtime_t);
+        void setDisabled(bool);
         bool isDisabled() const;
-        typedef enum {status_eof,
-                      status_eop,
-                      status_dis,
-                      status_buffering,
-                      status_buffering_ahead, /* Special case for live waiting new segments */
-                      status_demuxed} status;
-        status demux(mtime_t, bool);
+        typedef enum {
+            status_eof = 0, /* prioritized */
+            status_discontinuity,
+            status_demuxed,
+            status_buffering,
+        } status;
+        typedef enum {
+            buffering_end = 0, /* prioritized */
+            buffering_suspended,
+            buffering_full,
+            buffering_ongoing,
+            buffering_lessthanmin,
+        } buffering_status;
+        buffering_status bufferize(mtime_t, unsigned, unsigned);
+        buffering_status getLastBufferStatus() const;
+        mtime_t getDemuxedAmount() const;
+        status dequeue(mtime_t, mtime_t *);
+        bool decodersDrained();
         virtual bool setPosition(mtime_t, bool);
         mtime_t getPlaybackTime() const;
         void runUpdates();
@@ -86,34 +98,40 @@ namespace adaptive
 
     protected:
         bool seekAble() const;
-        virtual void setTimeOffset();
+        virtual void setTimeOffset(mtime_t);
         virtual block_t *checkBlock(block_t *, bool) = 0;
         virtual AbstractDemuxer * createDemux(const StreamFormat &) = 0;
         virtual bool startDemux();
         virtual bool restartDemux();
 
-        virtual void prepareFormatChange();
+        virtual void prepareRestart(bool = true);
 
         bool discontinuity;
+        bool needrestart;
+        bool inrestart;
 
         demux_t *p_realdemux;
         StreamFormat format;
 
-        HTTPConnectionManager *connManager; /* not owned */
+        AbstractConnectionManager *connManager; /* not owned */
         SegmentTracker *segmentTracker;
 
         SegmentChunk *currentChunk;
-        bool disabled;
         bool eof;
-        bool dead;
-        bool flushing;
-        mtime_t pcr;
         std::string language;
         std::string description;
 
+        CommandsQueue *commandsqueue;
         AbstractDemuxer *demuxer;
         AbstractSourceStream *demuxersource;
         FakeESOut *fakeesout; /* to intercept/proxy what is sent from demuxstream */
+        vlc_mutex_t lock; /* lock for everything accessed by dequeuing */
+
+    private:
+        buffering_status doBufferize(mtime_t, unsigned, unsigned);
+        buffering_status last_buffer_status;
+        bool dead;
+        bool disabled;
     };
 
     class AbstractStreamFactory
@@ -121,7 +139,7 @@ namespace adaptive
         public:
             virtual ~AbstractStreamFactory() {}
             virtual AbstractStream *create(demux_t*, const StreamFormat &,
-                                   SegmentTracker *, HTTPConnectionManager *) const = 0;
+                                   SegmentTracker *, AbstractConnectionManager *) const = 0;
     };
 }
 #endif // STREAMS_HPP

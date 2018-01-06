@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCRendererItem.h: Wrapper class for vlc_renderer_item
+ * VLCRendererItem.h: Wrapper class for vlc_renderer_item_t
  *****************************************************************************
  * Copyright (C) 2016 VLC authors and VideoLAN
  * $Id$
@@ -28,21 +28,21 @@
 
 /**
  \c VLCRendererItem is a simple wrapper class for libvlc’s
- \c vlc_renderer_item. It's initialized with the renderer item and
+ \c vlc_renderer_item_t. It's initialized with the renderer item and
  manages it's lifetime.
  */
 @interface VLCRendererItem : NSObject
 
 /**
  Initialize the object with a renderer item, typically received from
- a \c vlc_renderer_discovery event.
+ a \c vlc_renderer_discovery_t event.
  */
-- (instancetype)initWithRendererItem:(vlc_renderer_item*)item;
+- (instancetype)initWithRendererItem:(vlc_renderer_item_t*)item;
 
 /**
- The underlying \c vlc_renderer_item item
+ The underlying \c vlc_renderer_item_t item
  */
-@property (readonly) vlc_renderer_item* rendererItem;
+@property (readonly, assign) vlc_renderer_item_t* rendererItem;
 
 /**
  The name of the renderer item
@@ -64,22 +64,11 @@
 - (int)capabilityFlags;
 
 /**
- Checks if the Item’s sout string is equivalent to the given
- sout string. If output is YES, it's checked if it's an
- output sout as well.
+ Sets the renderer represented by this \c VLCRendererItem as active
+ for the given playlist.
 
- \param sout    The sout c string to compare with
- \param output  Indicates wether to check if sout is an output
-
- \return YES if souts match the given sout and output, NO otherwise
+ \param playlist The playlist for which to set the renderer
  */
-- (bool)isSoutEqualTo:(const char*)sout asOutput:(bool)output;
-
-/**
- Sets the passed playlist’s sout to the sout of the \c VLCRendererItem.
-
- \param playlist The playlist for which to set the sout
- */
-- (void)setSoutForPlaylist:(playlist_t*)playlist;
+- (void)setRendererForPlaylist:(playlist_t*)playlist;
 
 @end

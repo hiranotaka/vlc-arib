@@ -25,6 +25,7 @@
 #define VLC_IMAGE_H 1
 
 # include <vlc_picture.h>
+# include <vlc_picture_fifo.h>
 
 /**
  * \file
@@ -38,23 +39,25 @@ extern "C" {
 struct image_handler_t
 {
     picture_t * (*pf_read)      ( image_handler_t *, block_t *,
-                                  video_format_t *, video_format_t * );
+                                  const video_format_t *, video_format_t * );
     picture_t * (*pf_read_url)  ( image_handler_t *, const char *,
                                   video_format_t *, video_format_t * );
     block_t * (*pf_write)       ( image_handler_t *, picture_t *,
-                                  video_format_t *, video_format_t * );
+                                  const video_format_t *, const video_format_t * );
     int (*pf_write_url)         ( image_handler_t *, picture_t *,
-                                  video_format_t *, video_format_t *,
+                                  const video_format_t *, video_format_t *,
                                   const char * );
 
     picture_t * (*pf_convert)   ( image_handler_t *, picture_t *,
-                                  video_format_t *, video_format_t * );
+                                  const video_format_t *, video_format_t * );
 
     /* Private properties */
     vlc_object_t *p_parent;
     decoder_t *p_dec;
     encoder_t *p_enc;
     filter_t  *p_filter;
+
+    picture_fifo_t *outfifo;
 };
 
 VLC_API image_handler_t * image_HandlerCreate( vlc_object_t * ) VLC_USED;

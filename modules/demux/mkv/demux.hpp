@@ -331,12 +331,15 @@ struct demux_sys_t
 public:
     demux_sys_t( demux_t & demux )
         :demuxer(demux)
+        ,b_seekable(false)
+        ,b_fastseekable(false)
         ,i_pts(VLC_TS_INVALID)
         ,i_pcr(VLC_TS_INVALID)
         ,i_start_pts(VLC_TS_0)
         ,i_mk_chapter_time(0)
         ,meta(NULL)
         ,i_current_title(0)
+        ,i_current_seekpoint(0)
         ,p_current_vsegment(NULL)
         ,dvd_interpretor( *this )
         ,f_duration(-1.0)
@@ -350,6 +353,8 @@ public:
 
     /* current data */
     demux_t                 & demuxer;
+    bool                    b_seekable;
+    bool                    b_fastseekable;
 
     mtime_t                 i_pts;
     mtime_t                 i_pcr;
@@ -360,6 +365,7 @@ public:
 
     std::vector<input_title_t*>      titles; // matroska editions
     size_t                           i_current_title;
+    size_t                           i_current_seekpoint;
 
     std::vector<matroska_stream_c*>  streams;
     std::vector<attachment_c*>       stored_attachments;

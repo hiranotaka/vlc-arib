@@ -34,13 +34,19 @@
 
 #include "libvlc_internal.h"
 
+typedef struct libvlc_vlm_t
+{
+    libvlc_event_manager_t  event_manager;
+    vlm_t                  *p_vlm;
+} libvlc_vlm_t;
+
 /* VLM events callback. Transmit to libvlc */
 static int VlmEvent( vlc_object_t *p_this, const char * name,
                      vlc_value_t old_val, vlc_value_t newval, void *param )
 {
     VLC_UNUSED(p_this);
     VLC_UNUSED(name);
-    VLC_UNUSED(old_val);    
+    VLC_UNUSED(old_val);
     vlm_event_t *event = (vlm_event_t*)newval.p_address;
     libvlc_event_manager_t *p_event_manager = (libvlc_event_manager_t *) param;
     libvlc_event_t libvlc_event;
@@ -101,62 +107,57 @@ static int VlmEvent( vlc_object_t *p_this, const char * name,
     return 0;
 }
 
-static void libvlc_vlm_release_internal( libvlc_instance_t *p_instance )
+void libvlc_vlm_release( libvlc_instance_t *p_instance )
 {
-    vlm_t *p_vlm = p_instance->libvlc_vlm.p_vlm;
-    if( !p_instance->libvlc_vlm.p_vlm )
+    vlm_t *p_vlm = p_instance->vlm->p_vlm;
+    if( !p_vlm )
         return;
     /* We need to remove medias in order to receive events */
     vlm_Control( p_vlm, VLM_CLEAR_MEDIAS );
     vlm_Control( p_vlm, VLM_CLEAR_SCHEDULES );
 
     var_DelCallback( (vlc_object_t *)p_vlm, "intf-event", VlmEvent,
-                     p_instance->libvlc_vlm.p_event_manager );
-    p_instance->libvlc_vlm.pf_release = NULL;
-    libvlc_event_manager_release( p_instance->libvlc_vlm.p_event_manager );
-    p_instance->libvlc_vlm.p_event_manager = NULL;
+                     &p_instance->vlm->event_manager );
+    libvlc_event_manager_destroy( &p_instance->vlm->event_manager );
     vlm_Delete( p_vlm );
-    p_instance->libvlc_vlm.p_vlm = NULL;
+    free( p_instance->vlm );
+    p_instance->vlm = NULL;
     libvlc_release( p_instance );
 }
 
 static int libvlc_vlm_init( libvlc_instance_t *p_instance )
 {
-    if( !p_instance->libvlc_vlm.p_event_manager )
+    if( !p_instance->vlm )
     {
-        p_instance->libvlc_vlm.p_event_manager =
-            libvlc_event_manager_new( p_instance->libvlc_vlm.p_vlm );
-        if( unlikely(p_instance->libvlc_vlm.p_event_manager == NULL) )
+        p_instance->vlm = malloc( sizeof(*p_instance->vlm) );
+        if( p_instance->vlm == NULL )
             return VLC_ENOMEM;
+        p_instance->vlm->p_vlm = NULL;
+        libvlc_event_manager_init( &p_instance->vlm->event_manager,
+                                   p_instance->vlm );
     }
 
-    if( !p_instance->libvlc_vlm.p_vlm )
+    if( !p_instance->vlm->p_vlm )
     {
-        p_instance->libvlc_vlm.p_vlm = vlm_New( p_instance->p_libvlc_int );
-        if( !p_instance->libvlc_vlm.p_vlm )
+        p_instance->vlm->p_vlm = vlm_New( p_instance->p_libvlc_int );
+        if( !p_instance->vlm->p_vlm )
         {
             libvlc_printerr( "VLM not supported or out of memory" );
             return VLC_EGENERIC;
         }
-        var_AddCallback( (vlc_object_t *)p_instance->libvlc_vlm.p_vlm,
+        var_AddCallback( (vlc_object_t *)p_instance->vlm->p_vlm,
                          "intf-event", VlmEvent,
-                         p_instance->libvlc_vlm.p_event_manager );
-        p_instance->libvlc_vlm.pf_release = libvlc_vlm_release_internal;
+                         &p_instance->vlm->event_manager );
         libvlc_retain( p_instance );
     }
 
     return VLC_SUCCESS;
 }
 
-void libvlc_vlm_release( libvlc_instance_t *p_instance )
-{
-    libvlc_vlm_release_internal( p_instance );
-}
-
 #define VLM_RET(p,ret) do { \
     if( libvlc_vlm_init( p_instance ) ) \
         return (ret); \
-    (p) = p_instance->libvlc_vlm.p_vlm; \
+    (p) = p_instance->vlm->p_vlm; \
   } while(0)
 
 static vlm_media_instance_t *
@@ -196,9 +197,8 @@ static char* recurse_answer( vlm_message_t *p_answer, const char* psz_delim,
     char* psz_childdelim = NULL;
     char* psz_nametag = NULL;
     char* psz_response = strdup( "" );
-    char *psz_tmp;
     int i_success = 0;
-    int i;
+
     vlm_message_t *aw_child, **paw_child;
 
     i_success = asprintf( &psz_childdelim, "%s\t", psz_delim);
@@ -208,8 +208,9 @@ static char* recurse_answer( vlm_message_t *p_answer, const char* psz_delim,
     paw_child = p_answer->child;
     aw_child = *( paw_child );
     /* Iterate over children */
-    for( i = 0; i < p_answer->i_child; i++ )
+    for( int i = 0; i < p_answer->i_child; i++ )
     {
+        char *psz_tmp;
         /* Spare comma if it is the last element */
         char c_comma = ',';
         if( i == (p_answer->i_child - 1) )
@@ -739,5 +740,5 @@ libvlc_vlm_get_event_manager( libvlc_instance_t *p_instance )
 {
     if( libvlc_vlm_init( p_instance ) )
         return NULL;
-    return p_instance->libvlc_vlm.p_event_manager;
+    return &p_instance->vlm->event_manager;
 }

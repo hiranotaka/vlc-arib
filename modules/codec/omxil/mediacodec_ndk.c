@@ -38,8 +38,8 @@
 
 #include "mediacodec.h"
 
-char* MediaCodec_GetName(vlc_object_t *, const char *, size_t,
-                         unsigned int, unsigned int);
+char* MediaCodec_GetName(vlc_object_t *p_obj, const char *psz_mime,
+                         int hxxx_profile, bool *p_adaptive);
 
 #define THREAD_NAME "mediacodec_ndk"
 
@@ -143,6 +143,12 @@ typedef uint8_t* (*pf_AMediaCodec_getOutputBuffer)(AMediaCodec*,
 typedef media_status_t (*pf_AMediaCodec_releaseOutputBuffer)(AMediaCodec*,
         size_t idx, bool render);
 
+typedef media_status_t (*pf_AMediaCodec_releaseOutputBufferAtTime)(AMediaCodec*,
+        size_t idx, int64_t timestampNs);
+
+typedef media_status_t (*pf_AMediaCodec_setOutputSurface)(AMediaCodec*,
+        ANativeWindow *surface);
+
 typedef AMediaFormat *(*pf_AMediaFormat_new)();
 typedef media_status_t (*pf_AMediaFormat_delete)(AMediaFormat*);
 
@@ -171,6 +177,8 @@ struct syms
         pf_AMediaCodec_dequeueOutputBuffer dequeueOutputBuffer;
         pf_AMediaCodec_getOutputBuffer getOutputBuffer;
         pf_AMediaCodec_releaseOutputBuffer releaseOutputBuffer;
+        pf_AMediaCodec_releaseOutputBufferAtTime releaseOutputBufferAtTime;
+        pf_AMediaCodec_setOutputSurface setOutputSurface;
     } AMediaCodec;
     struct {
         pf_AMediaFormat_new new;
@@ -204,6 +212,8 @@ static struct members members[] =
     { "AMediaCodec_dequeueOutputBuffer", OFF(dequeueOutputBuffer), true },
     { "AMediaCodec_getOutputBuffer", OFF(getOutputBuffer), true },
     { "AMediaCodec_releaseOutputBuffer", OFF(releaseOutputBuffer), true },
+    { "AMediaCodec_releaseOutputBufferAtTime", OFF(releaseOutputBufferAtTime), true },
+    { "AMediaCodec_setOutputSurface", OFF(setOutputSurface), false },
 #undef OFF
 #define OFF(x) offsetof(struct syms, AMediaFormat.x)
     { "AMediaFormat_new", OFF(new), true },
@@ -332,14 +342,15 @@ static int Start(mc_api *api, union mc_api_args *p_args)
         syms.AMediaFormat.setInt32(p_sys->p_format, "width", p_args->video.i_width);
         syms.AMediaFormat.setInt32(p_sys->p_format, "height", p_args->video.i_height);
         syms.AMediaFormat.setInt32(p_sys->p_format, "rotation-degrees", p_args->video.i_angle);
-        if (p_args->video.p_awh)
+        if (p_args->video.p_surface)
         {
-            p_anw = AWindowHandler_getANativeWindow(p_args->video.p_awh,
-                                                    AWindow_Video);
-            if( p_anw )
+            p_anw = p_args->video.p_surface;
+            if (p_args->video.b_tunneled_playback)
                 syms.AMediaFormat.setInt32(p_sys->p_format,
-                                           "feature-tunneled-playback",
-                                           p_args->video.b_tunneled_playback);
+                                           "feature-tunneled-playback", 1);
+            if (p_args->video.b_adaptive_playback)
+                syms.AMediaFormat.setInt32(p_sys->p_format,
+                                           "feature-adaptive-playback", 1);
         }
     }
     else
@@ -465,7 +476,7 @@ static int DequeueOutput(mc_api *api, mtime_t i_timeout)
         return MC_API_INFO_OUTPUT_FORMAT_CHANGED;
     else
     {
-        msg_Err(api->p_obj, "AMediaCodec.dequeueOutputBuffer failed");
+        msg_Warn(api->p_obj, "AMediaCodec.dequeueOutputBuffer failed");
         return MC_API_ERROR;
     }
 }
@@ -480,15 +491,15 @@ static int GetOutput(mc_api *api, int i_index, mc_api_out *p_out)
     if (i_index >= 0)
     {
         p_out->type = MC_OUT_TYPE_BUF;
-        p_out->u.buf.i_index = i_index;
+        p_out->buf.i_index = i_index;
 
-        p_out->u.buf.i_ts = p_sys->info.presentationTimeUs;
+        p_out->buf.i_ts = p_sys->info.presentationTimeUs;
         p_out->b_eos = p_sys->info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM;
 
         if (api->b_direct_rendering)
         {
-            p_out->u.buf.p_ptr = NULL;
-            p_out->u.buf.i_size = 0;
+            p_out->buf.p_ptr = NULL;
+            p_out->buf.i_size = 0;
         }
         else
         {
@@ -502,8 +513,8 @@ static int GetOutput(mc_api *api, int i_index, mc_api_out *p_out)
                 msg_Err(api->p_obj, "AMediaCodec.getOutputBuffer failed");
                 return MC_API_ERROR;
             }
-            p_out->u.buf.p_ptr = p_mc_buf + p_sys->info.offset;
-            p_out->u.buf.i_size = p_sys->info.size;
+            p_out->buf.p_ptr = p_mc_buf + p_sys->info.offset;
+            p_out->buf.i_size = p_sys->info.size;
         }
         return 1;
     }
@@ -515,21 +526,21 @@ static int GetOutput(mc_api *api, int i_index, mc_api_out *p_out)
         p_out->b_eos = false;
         if (api->i_cat == VIDEO_ES)
         {
-            p_out->u.conf.video.width         = GetFormatInteger(format, "width");
-            p_out->u.conf.video.height        = GetFormatInteger(format, "height");
-            p_out->u.conf.video.stride        = GetFormatInteger(format, "stride");
-            p_out->u.conf.video.slice_height  = GetFormatInteger(format, "slice-height");
-            p_out->u.conf.video.pixel_format  = GetFormatInteger(format, "color-format");
-            p_out->u.conf.video.crop_left     = GetFormatInteger(format, "crop-left");
-            p_out->u.conf.video.crop_top      = GetFormatInteger(format, "crop-top");
-            p_out->u.conf.video.crop_right    = GetFormatInteger(format, "crop-right");
-            p_out->u.conf.video.crop_bottom   = GetFormatInteger(format, "crop-bottom");
+            p_out->conf.video.width         = GetFormatInteger(format, "width");
+            p_out->conf.video.height        = GetFormatInteger(format, "height");
+            p_out->conf.video.stride        = GetFormatInteger(format, "stride");
+            p_out->conf.video.slice_height  = GetFormatInteger(format, "slice-height");
+            p_out->conf.video.pixel_format  = GetFormatInteger(format, "color-format");
+            p_out->conf.video.crop_left     = GetFormatInteger(format, "crop-left");
+            p_out->conf.video.crop_top      = GetFormatInteger(format, "crop-top");
+            p_out->conf.video.crop_right    = GetFormatInteger(format, "crop-right");
+            p_out->conf.video.crop_bottom   = GetFormatInteger(format, "crop-bottom");
         }
         else
         {
-            p_out->u.conf.audio.channel_count = GetFormatInteger(format, "channel-count");
-            p_out->u.conf.audio.channel_mask  = GetFormatInteger(format, "channel-mask");
-            p_out->u.conf.audio.sample_rate   = GetFormatInteger(format, "sample-rate");
+            p_out->conf.audio.channel_count = GetFormatInteger(format, "channel-count");
+            p_out->conf.audio.channel_mask  = GetFormatInteger(format, "channel-mask");
+            p_out->conf.audio.sample_rate   = GetFormatInteger(format, "sample-rate");
         }
         return 1;
     }
@@ -551,6 +562,34 @@ static int ReleaseOutput(mc_api *api, int i_index, bool b_render)
         return MC_API_ERROR;
 }
 
+/*****************************************************************************
+ * ReleaseOutputAtTime
+ *****************************************************************************/
+static int ReleaseOutputAtTime(mc_api *api, int i_index, int64_t i_ts_ns)
+{
+    mc_api_sys *p_sys = api->p_sys;
+
+    assert(i_index >= 0);
+    if (syms.AMediaCodec.releaseOutputBufferAtTime(p_sys->p_codec, i_index, i_ts_ns)
+                                                   == AMEDIA_OK)
+        return 0;
+    else
+        return MC_API_ERROR;
+}
+
+/*****************************************************************************
+ * SetOutputSurface
+ *****************************************************************************/
+static int SetOutputSurface(mc_api *api, void *p_surface, void *p_jsurface)
+{
+    (void) p_jsurface;
+    assert(p_surface != NULL);
+    mc_api_sys *p_sys = api->p_sys;
+
+    return syms.AMediaCodec.setOutputSurface != NULL
+        && syms.AMediaCodec.setOutputSurface(p_sys->p_codec, p_surface)
+        == AMEDIA_OK ? 0 : MC_API_ERROR;
+}
 
 /*****************************************************************************
  * Clean
@@ -564,16 +603,20 @@ static void Clean(mc_api *api)
 /*****************************************************************************
  * Configure
  *****************************************************************************/
-static int Configure(mc_api * api, size_t i_h264_profile, unsigned int i_width,
-                     unsigned int i_height)
+static int Configure(mc_api * api, int i_profile)
 {
     free(api->psz_name);
+    bool b_adaptive;
     api->psz_name = MediaCodec_GetName(api->p_obj, api->psz_mime,
-                                       i_h264_profile, i_width, i_height);
+                                       i_profile, &b_adaptive);
     if (!api->psz_name)
         return MC_API_ERROR;
     api->i_quirks = OMXCodec_GetQuirks(api->i_cat, api->i_codec, api->psz_name,
                                        strlen(api->psz_name));
+    /* Allow interlaced picture after API 21 */
+    api->i_quirks |= MC_API_VIDEO_QUIRKS_SUPPORT_INTERLACED;
+    if (b_adaptive)
+        api->i_quirks |= MC_API_VIDEO_QUIRKS_ADAPTIVE;
     return 0;
 }
 
@@ -599,7 +642,9 @@ int MediaCodecNdk_Init(mc_api *api)
     api->dequeue_out = DequeueOutput;
     api->get_out = GetOutput;
     api->release_out = ReleaseOutput;
+    api->release_out_ts = ReleaseOutputAtTime;
+    api->set_output_surface = SetOutputSurface;
 
-    api->b_support_interlaced = true;
+    api->b_support_rotation = true;
     return 0;
 }

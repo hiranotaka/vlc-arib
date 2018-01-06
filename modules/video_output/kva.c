@@ -99,7 +99,6 @@ struct vout_display_sys_t
     RECTL              client_rect;
     vout_window_t     *parent_window;
     HWND               parent;
-    RECTL              parent_rect;
     picture_pool_t    *pool;
     unsigned           button_pressed;
     bool               is_mouse_hidden;
@@ -158,7 +157,7 @@ static void PMThread( void *arg )
     vout_display_info_t info = vd->info;
     info.is_slow = false;
     info.has_double_click = true;
-    info.has_hide_mouse = false;
+    info.needs_hide_mouse = true;
     info.has_pictures_invalid = false;
 
     MorphToPM();
@@ -466,12 +465,10 @@ static int Control( vout_display_t *vd, int query, va_list args )
     case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
     case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
     {
-        const video_format_t *src = va_arg(args, const video_format_t *);
-
         if( query == VOUT_DISPLAY_CHANGE_SOURCE_ASPECT )
         {
             vout_display_place_t place;
-            vout_display_PlacePicture(&place, src, vd->cfg, false);
+            vout_display_PlacePicture(&place, &vd->source, vd->cfg, false);
 
             sys->kvas.ulAspectWidth  = place.width;
             sys->kvas.ulAspectHeight = place.height;
@@ -479,7 +476,7 @@ static int Control( vout_display_t *vd, int query, va_list args )
         else
         {
             video_format_t src_rot;
-            video_format_ApplyRotation(&src_rot, src);
+            video_format_ApplyRotation(&src_rot, &vd->source);
 
             sys->kvas.rclSrcRect.xLeft   = src_rot.i_x_offset;
             sys->kvas.rclSrcRect.yTop    = src_rot.i_y_offset;
@@ -1148,15 +1145,16 @@ static MRESULT EXPENTRY WndProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
      * parent window size */
     if( sys->parent_window )
     {
+        RECTL rect;
+
         WinQueryWindowRect( sys->parent, &rcl );
+        WinQueryWindowRect( sys->client, &rect);
 
-        if( rcl.xLeft   != sys->parent_rect.xLeft   ||
-            rcl.yBottom != sys->parent_rect.yBottom ||
-            rcl.xRight  != sys->parent_rect.xRight  ||
-            rcl.yTop    != sys->parent_rect.yTop)
+        if( rcl.xLeft   != rect.xLeft   ||
+            rcl.yBottom != rect.yBottom ||
+            rcl.xRight  != rect.xRight  ||
+            rcl.yTop    != rect.yTop)
         {
-            sys->parent_rect = rcl;
-
             WinCalcFrameRect( sys->frame, &rcl, FALSE );
 
             WinSetWindowPos( sys->frame, NULLHANDLE,

@@ -38,6 +38,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 #include <vlc_cpu.h>
 
 #include "filter_picture.h"
@@ -87,7 +88,7 @@ vlc_module_begin ()
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
-    set_capability( "video filter2", 0 )
+    set_capability( "video filter", 0 )
 
     set_callbacks( OpenPostproc, ClosePostproc )
 
@@ -195,7 +196,7 @@ static int OpenPostproc( vlc_object_t *p_this )
                        p_filter->p_cfg );
 
     var_Create( p_filter, FILTER_PREFIX "q", VLC_VAR_INTEGER |
-                VLC_VAR_HASCHOICE | VLC_VAR_DOINHERIT | VLC_VAR_ISCOMMAND );
+                VLC_VAR_DOINHERIT | VLC_VAR_ISCOMMAND );
 
     text.psz_string = _("Post processing");
     var_Change( p_filter, FILTER_PREFIX "q", VLC_VAR_SETTEXT, &text, NULL );

@@ -28,7 +28,6 @@
 #include "qt.hpp"
 #include "util/singleton.hpp"
 
-#include <vlc_events.h>
 #include <vlc_addons.h>
 
 #include <QObject>
@@ -66,7 +65,9 @@ class AddonsManager : public QObject, public Singleton<AddonsManager>
 public:
     AddonsManager( intf_thread_t * );
     virtual ~AddonsManager();
-    static void addonsEventsCallback( const vlc_event_t *, void * );
+    static void addonFoundCallback( addons_manager_t *, addon_entry_t * );
+    static void addonsDiscoveryEndedCallback( addons_manager_t * );
+    static void addonChangedCallback( addons_manager_t *, addon_entry_t * );
     void customEvent( QEvent * );
     void install( QByteArray id );
     void remove( QByteArray id );

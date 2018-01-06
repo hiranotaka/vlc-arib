@@ -287,7 +287,7 @@ void RtspDelId( rtsp_stream_t *rtsp, rtsp_stream_id_t *id )
             {
                 rtsp_strack_t *tr = ses->trackv + j;
                 RtspTrackClose( tr );
-                REMOVE_ELEM( ses->trackv, ses->trackc, j );
+                TAB_ERASE(ses->trackc, ses->trackv, j);
             }
         }
     }
@@ -463,7 +463,7 @@ int RtspTrackAttach( rtsp_stream_t *rtsp, const char *name,
         vlc_rand_bytes (&track.seq_init, sizeof (track.seq_init));
         vlc_rand_bytes (&track.ssrc, sizeof (track.ssrc));
 
-        INSERT_ELEM(session->trackv, session->trackc, session->trackc, track);
+        TAB_APPEND(session->trackc, session->trackv, track);
         tr = session->trackv + session->trackc - 1;
     }
 
@@ -509,7 +509,7 @@ void RtspTrackDetach( rtsp_stream_t *rtsp, const char *name,
                 /* No (more) SETUP information: better get rid of the
                  * track so that we can have new random ssrc and
                  * seq_init next time. */
-                REMOVE_ELEM( session->trackv, session->trackc, i );
+                TAB_ERASE(session->trackc, session->trackv, i);
                 break;
             }
             /* We keep the SETUP information of the track, but stop it */
@@ -879,8 +879,7 @@ static int RtspHandler( rtsp_stream_t *rtsp, rtsp_stream_id_t *id,
                         else
                             ssrc = id->ssrc;
 
-                        INSERT_ELEM( ses->trackv, ses->trackc, ses->trackc,
-                                     track );
+                        TAB_APPEND(ses->trackc, ses->trackv, track);
                     }
                     else if (tr->setup_fd == -1)
                     {
@@ -1162,7 +1161,7 @@ static int RtspHandler( rtsp_stream_t *rtsp, rtsp_stream_id_t *id,
                             /* Keep VoD tracks whose instance is still
                              * running */
                             if (!(vod && ses->trackv[i].sout_id != NULL))
-                                REMOVE_ELEM( ses->trackv, ses->trackc, i );
+                                TAB_ERASE(ses->trackc, ses->trackv, i);
                         }
                     }
                     RtspClientAlive(ses);

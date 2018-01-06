@@ -44,6 +44,7 @@
 #include <vlc_charset.h>
 #include <vlc_strings.h>
 #include <vlc_rand.h>
+#include <vlc_memstream.h>
 
 #ifndef _WIN32
 # include <locale.h>
@@ -1062,7 +1063,7 @@ static int RtspCallback( httpd_callback_sys_t *p_args, httpd_client_t *cl,
             /* Intentional fall-through on x-playNow option in RTSP request */
             if( !psz_playnow )
                 break;
-        }
+        }   /* fall through */
 
         case HTTPD_MSG_PLAY:
         {
@@ -1400,6 +1401,7 @@ static int RtspCallbackES( httpd_callback_sys_t *p_args, httpd_client_t *cl,
             /* Intentional fall-through on x-playNow option in RTSP request */
             if( !psz_playnow )
                 break;
+            /* fall through */
 
         case HTTPD_MSG_PLAY:
             /* This is kind of a kludge. Should we only support Aggregate
@@ -1499,7 +1501,8 @@ static int RtspCallbackES( httpd_callback_sys_t *p_args, httpd_client_t *cl,
  *****************************************************************************/
 static char *SDPGenerate( const vod_media_t *p_media, httpd_client_t *cl )
 {
-    char *psz_sdp, ip[NI_MAXNUMERICHOST];
+    struct vlc_memstream sdp;
+    char ip[NI_MAXNUMERICHOST];
     const char *psz_control;
     int port;
 
@@ -1521,15 +1524,14 @@ static char *SDPGenerate( const vod_media_t *p_media, httpd_client_t *cl )
     dst.ss_len = dstlen;
 #endif
 
-    psz_sdp = vlc_sdp_Start( VLC_OBJECT( p_media->p_vod ), "sout-rtp-",
-                             NULL, 0, (struct sockaddr *)&dst, dstlen );
-    if( psz_sdp == NULL )
+    if( vlc_sdp_Start( &sdp, VLC_OBJECT( p_media->p_vod ), "sout-rtp-",
+                       NULL, 0, (struct sockaddr *)&dst, dstlen ) )
         return NULL;
 
     if( p_media->i_length > 0 )
     {
         lldiv_t d = lldiv( p_media->i_length / 1000, 1000 );
-        sdp_AddAttribute( &psz_sdp, "range","npt=0-%lld.%03u", d.quot,
+        sdp_AddAttribute( &sdp, "range","npt=0-%lld.%03u", d.quot,
                           (unsigned)d.rem );
     }
 
@@ -1553,13 +1555,13 @@ static char *SDPGenerate( const vod_media_t *p_media, httpd_client_t *cl )
                 continue;
         }
 
-        sdp_AddMedia( &psz_sdp, mime_major, "RTP/AVP", 0 /* p_es->i_port */,
+        sdp_AddMedia( &sdp, mime_major, "RTP/AVP", 0 /* p_es->i_port */,
                       p_es->i_payload_type, false, 0,
                       p_es->psz_ptname, p_es->i_clock_rate, p_es->i_channels,
                       p_es->psz_fmtp );
 
-        sdp_AddAttribute( &psz_sdp, "control", psz_control, ip, port, i );
+        sdp_AddAttribute( &sdp, "control", psz_control, ip, port, i );
     }
 
-    return psz_sdp;
+    return vlc_memstream_close( &sdp ) ? NULL : sdp.ptr;
 }

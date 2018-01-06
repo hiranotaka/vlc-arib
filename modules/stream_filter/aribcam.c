@@ -170,7 +170,7 @@ static ssize_t Read( stream_t *p_stream, void *p_buf, size_t i_toread )
     int i_total_read = 0;
     int i_ret;
 
-    if ( !p_dst || !i_toread )
+    if ( !i_toread )
         return -1;
 
     /* Use data from previous reads */
@@ -182,7 +182,7 @@ static ssize_t Read( stream_t *p_stream, void *p_buf, size_t i_toread )
     while ( i_toread )
     {
         /* make use of the existing buffer, overwritten by decoder data later */
-        int i_srcread = stream_Read( p_stream->p_source, p_dst, i_toread );
+        int i_srcread = vlc_stream_Read( p_stream->s, p_dst, i_toread );
         if ( i_srcread > 0 )
         {
             ARIB_STD_B25_BUFFER putbuf = { p_dst, i_srcread };
@@ -191,14 +191,14 @@ static ssize_t Read( stream_t *p_stream, void *p_buf, size_t i_toread )
             {
                 msg_Err( p_stream, "decoder put failed: %s",
                          GetErrorMessage( i_ret, b25_errors ) );
-                return -1;
+                return 0;
             }
         }
         else
         {
             if ( i_srcread < 0 )
                 msg_Err( p_stream, "Can't read %lu bytes from source stream: %d", i_toread, i_srcread );
-            return -1;
+            return 0;
         }
 
         ARIB_STD_B25_BUFFER getbuf;
@@ -207,7 +207,7 @@ static ssize_t Read( stream_t *p_stream, void *p_buf, size_t i_toread )
         {
             msg_Err( p_stream, "decoder get failed: %s",
                      GetErrorMessage( i_ret, b25_errors ) );
-            return -1;
+            return 0;
         }
 
         if ( (size_t)getbuf.size > i_toread )
@@ -233,7 +233,7 @@ static ssize_t Read( stream_t *p_stream, void *p_buf, size_t i_toread )
 
 static int Seek( stream_t *p_stream, uint64_t i_pos )
 {
-    int i_ret = stream_Seek( p_stream->p_source, i_pos );
+    int i_ret = vlc_stream_Seek( p_stream->s, i_pos );
     if ( i_ret == VLC_SUCCESS )
         RemainFlush( p_stream->p_sys );
     return i_ret;
@@ -244,14 +244,14 @@ static int Seek( stream_t *p_stream, uint64_t i_pos )
  */
 static int Control( stream_t *p_stream, int i_query, va_list args )
 {
-    return stream_vaControl( p_stream->p_source, i_query, args );
+    return vlc_stream_vaControl( p_stream->s, i_query, args );
 }
 
 static int Open( vlc_object_t *p_object )
 {
     stream_t *p_stream = (stream_t *) p_object;
 
-    int64_t i_stream_size = stream_Size( p_stream->p_source );
+    int64_t i_stream_size = stream_Size( p_stream->s );
     if ( i_stream_size > 0 && i_stream_size < ARIB_STD_B25_TS_PROBING_MIN_DATA )
         return VLC_EGENERIC;
 

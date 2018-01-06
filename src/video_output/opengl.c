@@ -23,6 +23,7 @@
 #endif
 
 #include <assert.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 
 #include <vlc_common.h>
@@ -30,6 +31,11 @@
 #include "libvlc.h"
 #include <vlc_modules.h>
 
+struct vlc_gl_priv_t
+{
+    vlc_gl_t gl;
+    atomic_uint ref_count;
+};
 #undef vlc_gl_Create
 /**
  * Creates an OpenGL context (and its underlying surface).
@@ -45,16 +51,13 @@ vlc_gl_t *vlc_gl_Create(struct vout_window_t *wnd, unsigned flags,
                         const char *name)
 {
     vlc_object_t *parent = (vlc_object_t *)wnd;
-    vlc_gl_t *gl;
+    struct vlc_gl_priv_t *glpriv;
     const char *type;
 
     switch (flags /*& VLC_OPENGL_API_MASK*/)
     {
         case VLC_OPENGL:
             type = "opengl";
-            break;
-        case VLC_OPENGL_ES:
-            type = "opengl es";
             break;
         case VLC_OPENGL_ES2:
             type = "opengl es2";
@@ -63,23 +66,33 @@ vlc_gl_t *vlc_gl_Create(struct vout_window_t *wnd, unsigned flags,
             return NULL;
     }
 
-    gl = vlc_custom_create(parent, sizeof (*gl), "gl");
-    if (unlikely(gl == NULL))
+    glpriv = vlc_custom_create(parent, sizeof (*glpriv), "gl");
+    if (unlikely(glpriv == NULL))
         return NULL;
 
-    gl->surface = wnd;
-    gl->module = module_need(gl, type, name, true);
-    if (gl->module == NULL)
+    glpriv->gl.surface = wnd;
+    glpriv->gl.module = module_need(&glpriv->gl, type, name, true);
+    if (glpriv->gl.module == NULL)
     {
-        vlc_object_release(gl);
+        vlc_object_release(&glpriv->gl);
         return NULL;
     }
+    atomic_init(&glpriv->ref_count, 1);
 
-    return gl;
+    return &glpriv->gl;
 }
 
-void vlc_gl_Destroy(vlc_gl_t *gl)
+void vlc_gl_Hold(vlc_gl_t *gl)
 {
+    struct vlc_gl_priv_t *glpriv = (struct vlc_gl_priv_t *)gl;
+    atomic_fetch_add(&glpriv->ref_count, 1);
+}
+
+void vlc_gl_Release(vlc_gl_t *gl)
+{
+    struct vlc_gl_priv_t *glpriv = (struct vlc_gl_priv_t *)gl;
+    if (atomic_fetch_sub(&glpriv->ref_count, 1) != 1)
+        return;
     module_unneed(gl, gl->module);
     vlc_object_release(gl);
 }
@@ -180,7 +193,7 @@ void vlc_gl_surface_Destroy(vlc_gl_t *gl)
     vout_window_t *surface = gl->surface;
     vlc_gl_surface_t *sys = surface->owner.sys;
 
-    vlc_gl_Destroy(gl);
+    vlc_gl_Release(gl);
     vout_window_Delete(surface);
     vlc_mutex_destroy(&sys->lock);
     free(sys);

@@ -130,7 +130,7 @@ File *VLCTagLib::ExtResolver<T>::createFile(FileName fileName, bool, AudioProper
         std::string fext = filename.substr(namesize - ext.length(), ext.length());
         std::transform(fext.begin(), fext.end(), fext.begin(), ::toupper);
         if(fext == ext)
-            return new T(fileName, false, AudioProperties::ReadStyle::Fast);
+            return new T(fileName, false, AudioProperties::Fast);
     }
 
     return 0;
@@ -161,47 +161,44 @@ vlc_module_end ()
 class VlcIostream : public IOStream
 {
 public:
-    VlcIostream(access_t* p_demux)
-        : m_demux( p_demux )
+    VlcIostream(stream_t* p_stream)
+        : m_stream( p_stream )
         , m_previousPos( 0 )
     {
-        vlc_object_hold( m_demux );
     }
 
     ~VlcIostream()
     {
-        vlc_access_Delete( m_demux );
+        vlc_stream_Delete( m_stream );
     }
 
     FileName name() const
     {
-        return m_demux->psz_location;
+        return m_stream->psz_location;
     }
 
     ByteVector readBlock(ulong length)
     {
         ByteVector res(length, 0);
-        int i_read = vlc_access_Read( m_demux, res.data(), length);
+        ssize_t i_read = vlc_stream_Read( m_stream, res.data(), length);
         if (i_read < 0)
-            return ByteVector::null;;
-        res.resize(i_read);
+            return ByteVector::null;
+        else if ((size_t)i_read != length)
+            res.resize(i_read);
         return res;
     }
 
-    void writeBlock(const ByteVector& data)
+    void writeBlock(const ByteVector&)
     {
         // Let's stay Read-Only for now
-        return;
     }
 
-    void insert(const ByteVector& data, ulong start, ulong replace)
+    void insert(const ByteVector&, ulong, ulong)
     {
-        return;
     }
 
-    void removeBlock(ulong start, ulong length)
+    void removeBlock(ulong, ulong)
     {
-        return;
     }
 
     bool readOnly() const
@@ -228,8 +225,8 @@ public:
             default:
                 break;
         }
-        vlc_access_Seek( m_demux, pos + offset );
-        m_previousPos = pos + offset;
+        if (vlc_stream_Seek( m_stream, pos + offset ) == 0)
+            m_previousPos = pos + offset;
     }
 
     void clear()
@@ -245,18 +242,17 @@ public:
     long length()
     {
         uint64_t i_size;
-        if (access_GetSize( m_demux, &i_size ) != VLC_SUCCESS)
+        if (vlc_stream_GetSize( m_stream, &i_size ) != VLC_SUCCESS)
             return -1;
         return i_size;
     }
 
-    void truncate(long length)
+    void truncate(long)
     {
-        return;
     }
 
 private:
-    access_t* m_demux;
+    stream_t* m_stream;
     int64_t m_previousPos;
 };
 #endif /* TAGLIB_VERSION_1_11 */
@@ -523,12 +519,21 @@ static void ReadMetaFromId3v2( ID3v2::Tag* tag, demux_meta_t* p_demux_meta, vlc_
         vlc_meta_Set##metaName( p_meta,                                        \
                                 (*list.begin())->toString().toCString( true ) );
 
+#define SET_EXTRA( tagName, metaName )\
+    list = tag->frameListMap()[tagName];\
+    if( !list.isEmpty() )\
+        vlc_meta_AddExtra( p_meta, metaName,\
+                           (*list.begin())->toString().toCString( true ) );
+
+
     SET( "TCOP", Copyright );
     SET( "TENC", EncodedBy );
     SET( "TLAN", Language );
     SET( "TPUB", Publisher );
     SET( "TPE2", AlbumArtist );
+    SET_EXTRA( "USLT", "Lyrics" );
 
+#undef SET_EXTRA
 #undef SET
 
     /* */
@@ -839,12 +844,12 @@ static int ReadMeta( vlc_object_t* p_this)
     }
     free( psz_path );
 
-    access_t *p_access = vlc_access_NewMRL( p_this, psz_uri );
+    stream_t *p_stream = vlc_access_NewMRL( p_this, psz_uri );
     free( psz_uri );
-    if( p_access == NULL )
+    if( p_stream == NULL )
         return VLC_EGENERIC;
 
-    VlcIostream s( p_access );
+    VlcIostream s( p_stream );
     f = FileRef( &s );
 #else /* VLC_WINSTORE_APP */
     free( psz_uri );

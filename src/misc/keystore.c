@@ -101,7 +101,7 @@ vlc_keystore_store(vlc_keystore *p_keystore,
 }
 
 unsigned int
-vlc_keystore_find(vlc_keystore *p_keystore, 
+vlc_keystore_find(vlc_keystore *p_keystore,
                   const char * const ppsz_values[KEY_MAX],
                   vlc_keystore_entry **pp_entries)
 {
@@ -194,12 +194,8 @@ is_credential_valid(vlc_credential *p_credential)
     if (p_credential->psz_username && *p_credential->psz_username != '\0'
      && p_credential->psz_password)
         return true;
-    else
-    {
-        p_credential->psz_password = NULL;
-        return false;
-    }
-
+    p_credential->psz_password = NULL;
+    return false;
 }
 
 static bool
@@ -277,11 +273,12 @@ smb_split_domain(vlc_credential *p_credential)
         size_t i_len = psz_delim - p_credential->psz_username;
         if (i_len > 0)
         {
-            p_credential->psz_split_username =
+            free(p_credential->psz_split_domain);
+            p_credential->psz_split_domain =
                 strndup(p_credential->psz_username, i_len);
-            p_credential->psz_username = p_credential->psz_split_username;
+            p_credential->psz_realm = p_credential->psz_split_domain;
         }
-        p_credential->psz_realm = psz_delim + 1;
+        p_credential->psz_username = psz_delim + 1;
     }
 }
 
@@ -309,8 +306,11 @@ credential_find_keystore(vlc_credential *p_credential, vlc_keystore *p_keystore)
      * p_credential->psz_username (default username) can be a pointer to an
      * entry */
     if (p_credential->i_entries_count > 0)
+    {
         vlc_keystore_release_entries(p_credential->p_entries,
                                      p_credential->i_entries_count);
+        p_credential->psz_username = NULL;
+    }
     p_credential->p_entries = p_entries;
     p_credential->i_entries_count = i_entries_count;
 
@@ -335,6 +335,8 @@ credential_find_keystore(vlc_credential *p_credential, vlc_keystore *p_keystore)
         {
             p_credential->psz_password = (const char *)p_entry->p_secret;
             p_credential->psz_username = p_entry->ppsz_values[KEY_USER];
+            p_credential->psz_realm = p_entry->ppsz_values[KEY_REALM];
+            p_credential->psz_authtype = p_entry->ppsz_values[KEY_AUTHTYPE];
             p_credential->b_from_keystore = true;
         }
     }
@@ -359,7 +361,7 @@ vlc_credential_clean(vlc_credential *p_credential)
     if (p_credential->p_keystore)
         vlc_keystore_release(p_credential->p_keystore);
 
-    free(p_credential->psz_split_username);
+    free(p_credential->psz_split_domain);
     free(p_credential->psz_var_username);
     free(p_credential->psz_var_password);
     free(p_credential->psz_dialog_username);

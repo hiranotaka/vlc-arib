@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <errno.h>
 
 #include <vlc_common.h>
 #include <vlc_block.h>
@@ -37,16 +38,20 @@
 #include <vlc_access.h>
 #include <vlc_charset.h>
 #include <vlc_interrupt.h>
+#include <vlc_stream_extractor.h>
 
 #include <libvlc.h>
 #include "stream.h"
+#include "mrl_helpers.h"
 
 typedef struct stream_priv_t
 {
     stream_t stream;
     void (*destroy)(stream_t *);
+    block_t *block;
     block_t *peek;
     uint64_t offset;
+    bool eof;
 
     /* UTF-16 and UTF-32 file reading */
     struct {
@@ -57,17 +62,10 @@ typedef struct stream_priv_t
 } stream_priv_t;
 
 /**
- * Allocates a custom VLC stream object
- */
-stream_t *stream_CustomNew(vlc_object_t *parent, void (*destroy)(stream_t *))
-{
-    return stream_CommonNew(parent, destroy);
-}
-
-/**
  * Allocates a VLC stream object
  */
-stream_t *stream_CommonNew(vlc_object_t *parent, void (*destroy)(stream_t *))
+stream_t *vlc_stream_CommonNew(vlc_object_t *parent,
+                               void (*destroy)(stream_t *))
 {
     stream_priv_t *priv = vlc_custom_create(parent, sizeof (*priv), "stream");
     if (unlikely(priv == NULL))
@@ -77,16 +75,20 @@ stream_t *stream_CommonNew(vlc_object_t *parent, void (*destroy)(stream_t *))
 
     s->p_module = NULL;
     s->psz_url = NULL;
-    s->p_source = NULL;
+    s->s = NULL;
     s->pf_read = NULL;
+    s->pf_block = NULL;
     s->pf_readdir = NULL;
+    s->pf_seek = NULL;
     s->pf_control = NULL;
     s->p_sys = NULL;
     s->p_input = NULL;
     assert(destroy != NULL);
     priv->destroy = destroy;
+    priv->block = NULL;
     priv->peek = NULL;
     priv->offset = 0;
+    priv->eof = false;
 
     /* UTF16 and UTF32 text file conversion */
     priv->text.conv = (vlc_iconv_t)(-1);
@@ -105,6 +107,8 @@ void stream_CommonDelete(stream_t *s)
 
     if (priv->peek != NULL)
         block_Release(priv->peek);
+    if (priv->block != NULL)
+        block_Release(priv->block);
 
     free(s->psz_url);
     vlc_object_release(s);
@@ -113,7 +117,7 @@ void stream_CommonDelete(stream_t *s)
 /**
  * Destroy a stream
  */
-void stream_Delete(stream_t *s)
+void vlc_stream_Delete(stream_t *s)
 {
     stream_priv_t *priv = (stream_priv_t *)s;
 
@@ -121,11 +125,7 @@ void stream_Delete(stream_t *s)
     stream_CommonDelete(s);
 }
 
-#undef stream_UrlNew
-/****************************************************************************
- * stream_UrlNew: create a stream from a access
- ****************************************************************************/
-stream_t *stream_UrlNew( vlc_object_t *p_parent, const char *psz_url )
+stream_t *(vlc_stream_NewURL)(vlc_object_t *p_parent, const char *psz_url)
 {
     if( !psz_url )
         return NULL;
@@ -136,6 +136,32 @@ stream_t *stream_UrlNew( vlc_object_t *p_parent, const char *psz_url )
     return s;
 }
 
+stream_t *(vlc_stream_NewMRL)(vlc_object_t* parent, const char* mrl )
+{
+    stream_t* stream = vlc_stream_NewURL( parent, mrl );
+
+    if( stream == NULL )
+        return NULL;
+
+    char const* anchor = strchr( mrl, '#' );
+
+    if( anchor == NULL )
+        return stream;
+
+    char const* extra;
+    if( stream_extractor_AttachParsed( &stream, anchor + 1, &extra ) )
+    {
+        msg_Err( parent, "unable to open %s", mrl );
+        vlc_stream_Delete( stream );
+        return NULL;
+    }
+
+    if( extra && *extra )
+        msg_Warn( parent, "ignoring extra fragment data: %s", extra );
+
+    return stream;
+}
+
 /**
  * Read from the stream until first newline.
  * \param s Stream handle to read from
@@ -143,14 +169,14 @@ stream_t *stream_UrlNew( vlc_object_t *p_parent, const char *psz_url )
  */
 #define STREAM_PROBE_LINE 2048
 #define STREAM_LINE_MAX (2048*100)
-char *stream_ReadLine( stream_t *s )
+char *vlc_stream_ReadLine( stream_t *s )
 {
     stream_priv_t *priv = (stream_priv_t *)s;
     char *p_line = NULL;
     int i_line = 0, i_read = 0;
 
     /* Let's fail quickly if this is a readdir access */
-    if( s->pf_read == NULL )
+    if( s->pf_read == NULL && s->pf_block == NULL )
         return NULL;
 
     for( ;; )
@@ -161,14 +187,20 @@ char *stream_ReadLine( stream_t *s )
         int64_t i_pos;
 
         /* Probe new data */
-        i_data = stream_Peek( s, &p_data, STREAM_PROBE_LINE );
+        i_data = vlc_stream_Peek( s, &p_data, STREAM_PROBE_LINE );
         if( i_data <= 0 ) break; /* No more data */
 
         /* BOM detection */
-        i_pos = stream_Tell( s );
+        i_pos = vlc_stream_Tell( s );
         if( i_pos == 0 && i_data >= 2 )
         {
             const char *psz_encoding = NULL;
+
+            if( unlikely(priv->text.conv != (vlc_iconv_t)-1) )
+            {   /* seek back to beginning? reset */
+                vlc_iconv_close( priv->text.conv );
+                priv->text.conv = (vlc_iconv_t)-1;
+            }
 
             if( !memcmp( p_data, "\xFF\xFE", 2 ) )
             {
@@ -184,10 +216,13 @@ char *stream_ReadLine( stream_t *s )
             if( psz_encoding != NULL )
             {
                 msg_Dbg( s, "UTF-16 BOM detected" );
-                priv->text.char_width = 2;
                 priv->text.conv = vlc_iconv_open( "UTF-8", psz_encoding );
-                if( priv->text.conv == (vlc_iconv_t)-1 )
+                if( unlikely(priv->text.conv == (vlc_iconv_t)-1) )
+                {
                     msg_Err( s, "iconv_open failed" );
+                    goto error;
+                }
+                priv->text.char_width = 2;
             }
         }
 
@@ -248,7 +283,7 @@ char *stream_ReadLine( stream_t *s )
                         i_line + i_data + priv->text.char_width ); /* add \0 */
             if( !p_line )
                 goto error;
-            i_data = stream_Read( s, &p_line[i_line], i_data );
+            i_data = vlc_stream_Read( s, &p_line[i_line], i_data );
             if( i_data <= 0 ) break; /* Hmmm */
             i_line += i_data - priv->text.char_width; /* skip \n */;
             i_read += i_data;
@@ -262,7 +297,7 @@ char *stream_ReadLine( stream_t *s )
                           i_line + STREAM_PROBE_LINE + priv->text.char_width );
         if( !p_line )
             goto error;
-        i_data = stream_Read( s, &p_line[i_line], STREAM_PROBE_LINE );
+        i_data = vlc_stream_Read( s, &p_line[i_line], STREAM_PROBE_LINE );
         if( i_data <= 0 ) break; /* Hmmm */
         i_line += i_data;
         i_read += i_data;
@@ -273,9 +308,6 @@ char *stream_ReadLine( stream_t *s )
 
     if( i_read > 0 )
     {
-        memset(p_line + i_line, 0, priv->text.char_width);
-        i_line += priv->text.char_width; /* the added \0 */
-
         if( priv->text.char_width > 1 )
         {
             int i_new_line = 0;
@@ -286,7 +318,7 @@ char *stream_ReadLine( stream_t *s )
 
             /* iconv */
             /* UTF-8 needs at most 150% of the buffer as many as UTF-16 */
-            i_new_line = i_line * 3 / 2;
+            i_new_line = i_line * 3 / 2 + 1;
             psz_new_line = malloc( i_new_line );
             if( psz_new_line == NULL )
                 goto error;
@@ -297,8 +329,8 @@ char *stream_ReadLine( stream_t *s )
 
             if( vlc_iconv( priv->text.conv, &p_in, &i_in, &p_out, &i_out ) == (size_t)-1 )
             {
-                msg_Err( s, "iconv failed" );
-                msg_Dbg( s, "original: %d, in %d, out %d", i_line, (int)i_in, (int)i_out );
+                msg_Err( s, "conversion error: %s", vlc_strerror_c( errno ) );
+                msg_Dbg( s, "original: %d, in %zu, out %zu", i_line, i_in, i_out );
             }
             free( p_line );
             p_line = psz_new_line;
@@ -306,11 +338,12 @@ char *stream_ReadLine( stream_t *s )
         }
 
         /* Remove trailing LF/CR */
-        while( i_line >= 2 && ( p_line[i_line-2] == '\r' ||
-            p_line[i_line-2] == '\n') ) i_line--;
+        while( i_line >= 1 &&
+               (p_line[i_line - 1] == '\r' || p_line[i_line - 1] == '\n') )
+            i_line--;
 
         /* Make sure the \0 is there */
-        p_line[i_line-1] = '\0';
+        p_line[i_line] = '\0';
 
         return p_line;
     }
@@ -328,75 +361,132 @@ error:
     return NULL;
 }
 
-static ssize_t stream_ReadRaw(stream_t *s, void *buf, size_t len)
+static ssize_t vlc_stream_CopyBlock(block_t **restrict pp,
+                                    void *buf, size_t len)
+{
+    block_t *block = *pp;
+
+    if (block == NULL)
+        return -1;
+
+    if (len > block->i_buffer)
+        len = block->i_buffer;
+
+    if (buf != NULL)
+        memcpy(buf, block->p_buffer, len);
+
+    block->p_buffer += len;
+    block->i_buffer -= len;
+
+    if (block->i_buffer == 0)
+    {
+        block_Release(block);
+        *pp = NULL;
+    }
+
+    return likely(len > 0) ? (ssize_t)len : -1;
+}
+
+static ssize_t vlc_stream_ReadRaw(stream_t *s, void *buf, size_t len)
 {
     stream_priv_t *priv = (stream_priv_t *)s;
-    size_t copy = 0;
-    ssize_t ret = 0;
+    ssize_t ret;
+
+    assert(len <= SSIZE_MAX);
+
+    if (vlc_killed())
+        return 0;
+
+    if (s->pf_read != NULL)
+    {
+        assert(priv->block == NULL);
+        if (buf == NULL)
+        {
+            if (unlikely(len == 0))
+                return 0;
+
+            char dummy[(len <= 256 ? len : 256)];
+            ret = s->pf_read(s, dummy, sizeof (dummy));
+        }
+        else
+            ret = s->pf_read(s, buf, len);
+        return ret;
+    }
+
+    ret = vlc_stream_CopyBlock(&priv->block, buf, len);
+    if (ret >= 0)
+        return ret;
+
+    if (s->pf_block != NULL)
+    {
+        bool eof = false;
+
+        priv->block = s->pf_block(s, &eof);
+        ret = vlc_stream_CopyBlock(&priv->block, buf, len);
+        if (ret >= 0)
+            return ret;
+        return eof ? 0 : -1;
+    }
+
+    return 0;
+}
+
+ssize_t vlc_stream_ReadPartial(stream_t *s, void *buf, size_t len)
+{
+    stream_priv_t *priv = (stream_priv_t *)s;
+    ssize_t ret;
+
+    ret = vlc_stream_CopyBlock(&priv->peek, buf, len);
+    if (ret >= 0)
+    {
+        priv->offset += ret;
+        assert(ret <= (ssize_t)len);
+        return ret;
+    }
+
+    ret = vlc_stream_ReadRaw(s, buf, len);
+    if (ret > 0)
+        priv->offset += ret;
+    if (ret == 0)
+        priv->eof = len != 0;
+    assert(ret <= (ssize_t)len);
+    return ret;
+}
+
+ssize_t vlc_stream_Read(stream_t *s, void *buf, size_t len)
+{
+    size_t copied = 0;
 
     while (len > 0)
     {
-        if (vlc_killed())
-        {
-            ret = -1;
-            break;
-        }
-
-        ret = s->pf_read(s, buf, len);
-        if (ret <= 0)
+        ssize_t ret = vlc_stream_ReadPartial(s, buf, len);
+        if (ret < 0)
+            continue;
+        if (ret == 0)
             break;
 
-        assert((size_t)ret <= len);
         if (buf != NULL)
-            buf = (unsigned char *)buf + ret;
+            buf = (char *)buf + ret;
+        assert(len >= (size_t)ret);
         len -= ret;
-        copy += ret;
-        priv->offset += ret;
+        copied += ret;
     }
 
-    return (copy > 0) ? (ssize_t)copy : ret;
+    return copied;
 }
 
-ssize_t stream_Read(stream_t *s, void *buf, size_t len)
+ssize_t vlc_stream_Peek(stream_t *s, const uint8_t **restrict bufp, size_t len)
 {
     stream_priv_t *priv = (stream_priv_t *)s;
-    block_t *peek = priv->peek;
-    size_t copy = 0;
+    block_t *peek;
 
-    if (peek != NULL)
+    peek = priv->peek;
+    if (peek == NULL)
     {
-        copy = peek->i_buffer < len ? peek->i_buffer : len;
-
-        if (unlikely(len == 0))
-            return 0;
-
-        if (buf != NULL)
-            memcpy(buf, peek->p_buffer, copy);
-
-        peek->p_buffer += copy;
-        peek->i_buffer -= copy;
-        if (peek->i_buffer == 0)
-        {
-            block_Release(peek);
-            priv->peek = NULL;
-        }
-
-        if (buf != NULL)
-            buf = (unsigned char *)buf + copy;
-        len -= copy;
-        if (len == 0)
-            return copy;
+        peek = priv->block;
+        priv->peek = peek;
+        priv->block = NULL;
     }
-
-    ssize_t ret = stream_ReadRaw(s, buf, len);
-    return (ret >= 0) ? (ssize_t)(ret + copy)
-                      : ((copy > 0) ? (ssize_t)copy : ret);
-}
-
-ssize_t stream_Peek(stream_t *s, const uint8_t **restrict bufp, size_t len)
-{
-    stream_priv_t *priv = (stream_priv_t *)s;
-    block_t *peek = priv->peek;
 
     if (peek == NULL)
     {
@@ -404,26 +494,9 @@ ssize_t stream_Peek(stream_t *s, const uint8_t **restrict bufp, size_t len)
         if (unlikely(peek == NULL))
             return VLC_ENOMEM;
 
-        *bufp = peek->p_buffer;
-
-        if (unlikely(len == 0))
-        {
-            priv->peek = peek;
-            return 0;
-        }
-
-        ssize_t ret = stream_ReadRaw(s, peek->p_buffer, len);
-        if (ret < 0)
-        {
-            block_Release(peek);
-            return ret;
-        }
-
-        peek->i_buffer = ret;
-        priv->peek = peek;
-        return ret;
+        peek->i_buffer = 0;
     }
-
+    else
     if (peek->i_buffer < len)
     {
         size_t avail = peek->i_buffer;
@@ -432,69 +505,125 @@ ssize_t stream_Peek(stream_t *s, const uint8_t **restrict bufp, size_t len)
         if (unlikely(peek == NULL))
             return VLC_ENOMEM;
 
-        priv->peek = peek;
         peek->i_buffer = avail;
-
-        ssize_t ret = stream_ReadRaw(s, peek->p_buffer + avail, len - avail);
-        *bufp = peek->p_buffer;
-        if (ret >= 0)
-            peek->i_buffer += ret;
-        return peek->i_buffer;
     }
 
-    /* Nothing to do */
+    priv->peek = peek;
     *bufp = peek->p_buffer;
+
+    while (peek->i_buffer < len)
+    {
+        size_t avail = peek->i_buffer;
+        ssize_t ret;
+
+        ret = vlc_stream_ReadRaw(s, peek->p_buffer + avail, len - avail);
+        if (ret < 0)
+            continue;
+
+        peek->i_buffer += ret;
+
+        if (ret == 0)
+            return peek->i_buffer;
+    }
+
     return len;
 }
 
-uint64_t stream_Tell(const stream_t *s)
+block_t *vlc_stream_ReadBlock(stream_t *s)
 {
-    const stream_priv_t *priv = (const stream_priv_t *)s;
-    uint64_t pos = priv->offset;
+    stream_priv_t *priv = (stream_priv_t *)s;
+    block_t *block;
+
+    if (vlc_killed())
+    {
+        priv->eof = true;
+        return NULL;
+    }
 
     if (priv->peek != NULL)
     {
-        assert(pos >= priv->peek->i_buffer);
-        pos -= priv->peek->i_buffer;
+        block = priv->peek;
+        priv->peek = NULL;
+    }
+    else if (priv->block != NULL)
+    {
+        block = priv->block;
+        priv->block = NULL;
+    }
+    else if (s->pf_block != NULL)
+    {
+        priv->eof = false;
+        block = s->pf_block(s, &priv->eof);
+    }
+    else
+    {
+        block = block_Alloc(4096);
+        if (unlikely(block == NULL))
+            return NULL;
+
+        ssize_t ret = s->pf_read(s, block->p_buffer, block->i_buffer);
+        if (ret > 0)
+            block->i_buffer = ret;
+        else
+        {
+            block_Release(block);
+            block = NULL;
+        }
+
+        priv->eof = !ret;
     }
 
-    return pos;
+    if (block != NULL)
+        priv->offset += block->i_buffer;
+
+    return block;
 }
 
-int stream_Seek(stream_t *s, uint64_t offset)
+uint64_t vlc_stream_Tell(const stream_t *s)
+{
+    const stream_priv_t *priv = (const stream_priv_t *)s;
+
+    return priv->offset;
+}
+
+bool vlc_stream_Eof(const stream_t *s)
+{
+    const stream_priv_t *priv = (const stream_priv_t *)s;
+
+    return priv->eof;
+}
+
+int vlc_stream_Seek(stream_t *s, uint64_t offset)
 {
     stream_priv_t *priv = (stream_priv_t *)s;
+
+    priv->eof = false;
 
     block_t *peek = priv->peek;
     if (peek != NULL)
     {
-        if ((priv->offset - peek->i_buffer) <= offset
-         && offset <= priv->offset)
-        {
-            size_t fwd = offset - (priv->offset - priv->peek->i_buffer);
-            if (fwd <= peek->i_buffer)
-            {   /* Seeking within the peek buffer */
-                peek->p_buffer += fwd;
-                peek->i_buffer -= fwd;
+        if (offset >= priv->offset
+         && offset <= (priv->offset + peek->i_buffer))
+        {   /* Seeking within the peek buffer */
+            size_t fwd = offset - priv->offset;
 
-                if (peek->i_buffer == 0)
-                {
-                    priv->peek = NULL;
-                    block_Release(peek);
-                }
+            peek->p_buffer += fwd;
+            peek->i_buffer -= fwd;
+            priv->offset = offset;
 
-                assert(stream_Tell(s) == offset);
-                return VLC_SUCCESS;
+            if (peek->i_buffer == 0)
+            {
+                priv->peek = NULL;
+                block_Release(peek);
             }
+
+            return VLC_SUCCESS;
         }
     }
     else
     {
         if (priv->offset == offset)
-        {
-            assert(stream_Tell(s) == offset);
             return VLC_SUCCESS; /* Nothing to do! */
-        }
     }
 
     if (s->pf_seek == NULL)
@@ -512,19 +641,13 @@ int stream_Seek(stream_t *s, uint64_t offset)
         block_Release(peek);
     }
 
-    assert(stream_Tell(s) == offset);
+    if (priv->block != NULL)
+    {
+        block_Release(priv->block);
+        priv->block = NULL;
+    }
+
     return VLC_SUCCESS;
-}
-
-static int stream_ControlInternal(stream_t *s, int cmd, ...)
-{
-    va_list ap;
-    int ret;
-
-    va_start(ap, cmd);
-    ret = s->pf_control(s, cmd, ap);
-    va_end(ap);
-    return ret;
 }
 
 /**
@@ -532,7 +655,7 @@ static int stream_ControlInternal(stream_t *s, int cmd, ...)
  * possible "i_query" value and format arguments.  Return VLC_SUCCESS
  * if ... succeed ;) and VLC_EGENERIC if failed or unimplemented
  */
-int stream_vaControl(stream_t *s, int cmd, va_list args)
+int vlc_stream_vaControl(stream_t *s, int cmd, va_list args)
 {
     stream_priv_t *priv = (stream_priv_t *)s;
 
@@ -552,39 +675,17 @@ int stream_vaControl(stream_t *s, int cmd, va_list args)
                 block_Release(priv->peek);
                 priv->peek = NULL;
             }
-            return VLC_SUCCESS;
-        }
 
-        case STREAM_GET_PRIVATE_BLOCK:
-        {
-            block_t **b = va_arg(args, block_t **);
-            bool *eof = va_arg(args, bool *);
-
-            if (priv->peek != NULL)
+            if (priv->block != NULL)
             {
-                *b = priv->peek;
-                priv->peek = NULL;
-                *eof = false;
-                return VLC_SUCCESS;
+                block_Release(priv->block);
+                priv->block = NULL;
             }
-            return stream_ControlInternal(s, STREAM_GET_PRIVATE_BLOCK, b, eof);
+
+            return VLC_SUCCESS;
         }
     }
     return s->pf_control(s, cmd, args);
-}
-
-int stream_Control( stream_t *s, int i_query, ... )
-{
-    va_list args;
-    int     i_result;
-
-    if( s == NULL )
-        return VLC_EGENERIC;
-
-    va_start( args, i_query );
-    i_result = stream_vaControl( s, i_query, args );
-    va_end( args );
-    return i_result;
 }
 
 /**
@@ -596,7 +697,7 @@ int stream_Control( stream_t *s, int i_query, ... )
  @ note The block size may be shorter than requested if the end-of-stream was
  * reached.
  */
-block_t *stream_Block( stream_t *s, size_t size )
+block_t *vlc_stream_Block( stream_t *s, size_t size )
 {
     if( unlikely(size > SSIZE_MAX) )
         return NULL;
@@ -605,7 +706,7 @@ block_t *stream_Block( stream_t *s, size_t size )
     if( unlikely(block == NULL) )
         return NULL;
 
-    ssize_t val = stream_Read( s, block->p_buffer, size );
+    ssize_t val = vlc_stream_Read( s, block->p_buffer, size );
     if( val <= 0 )
     {
         block_Release( block );
@@ -620,7 +721,7 @@ block_t *stream_Block( stream_t *s, size_t size )
  * Returns a node containing all the input_item of the directory pointer by
  * this stream. returns VLC_SUCCESS on success.
  */
-int stream_ReadDir( stream_t *s, input_item_node_t *p_node )
+int vlc_stream_ReadDir( stream_t *s, input_item_node_t *p_node )
 {
     return s->pf_readdir( s, p_node );
 }

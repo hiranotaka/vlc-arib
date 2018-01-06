@@ -24,7 +24,7 @@
  *****************************************************************************/
 
 #import "PXSourceList.h"
-#import "PLModel.h"
+#import "VLCPLModel.h"
 #import "VLCPlaylistView.h"
 
 @interface VLCPlaylist : NSResponder<NSOutlineViewDelegate>
@@ -33,19 +33,16 @@
 @property (readwrite, weak) IBOutlet NSMenuItem *playPlaylistMenuItem;
 @property (readwrite, weak) IBOutlet NSMenuItem *deletePlaylistMenuItem;
 @property (readwrite, weak) IBOutlet NSMenuItem *infoPlaylistMenuItem;
-@property (readwrite, weak) IBOutlet NSMenuItem *preparsePlaylistMenuItem;
 @property (readwrite, weak) IBOutlet NSMenuItem *revealInFinderPlaylistMenuItem;
-@property (readwrite, weak) IBOutlet NSMenuItem *downloadCoverArtPlaylistMenuItem;
 @property (readwrite, weak) IBOutlet NSMenuItem *selectAllPlaylistMenuItem;
-@property (readwrite, weak) IBOutlet NSMenuItem *sortNamePlaylistMenuItem;
-@property (readwrite, weak) IBOutlet NSMenuItem *sortAuthorPlaylistMenuItem;
 @property (readwrite, weak) IBOutlet NSMenuItem *recursiveExpandPlaylistMenuItem;
+@property (readwrite, weak) IBOutlet NSMenuItem *recursiveCollapsePlaylistMenuItem;
 @property (readwrite, weak) IBOutlet NSMenuItem *addFilesToPlaylistMenuItem;
 
 @property (nonatomic, readwrite, weak) VLCPlaylistView *outlineView;
 @property (nonatomic, readwrite, weak) NSTableHeaderView *playlistHeaderView;
 
-- (PLModel *)model;
+- (VLCPLModel *)model;
 
 - (void)reloadStyles;
 
@@ -53,7 +50,6 @@
 
 - (void)playlistUpdated;
 - (void)playbackModeUpdated;
-- (void)sortNode:(int)i_mode;
 
 - (void)currentlyPlayingItemChanged;
 
@@ -61,13 +57,9 @@
 
 - (IBAction)playItem:(id)sender;
 - (IBAction)revealItemInFinder:(id)sender;
-- (IBAction)preparseItem:(id)sender;
-- (IBAction)downloadCoverArt:(id)sender;
 - (IBAction)deleteItem:(id)sender;
 - (IBAction)selectAll:(id)sender;
-- (IBAction)sortNodeByName:(id)sender;
-- (IBAction)sortNodeByAuthor:(id)sender;
-- (IBAction)recursiveExpandNode:(id)sender;
+- (IBAction)recursiveExpandOrCollapseNode:(id)sender;
 - (IBAction)showInfoPanel:(id)sender;
 - (IBAction)addFilesToPlaylist:(id)sender;
 
@@ -83,8 +75,18 @@
 
 /**
  * Simplified version to add new items at the end of the current playlist
+ * @param array array of items. Each item is a Dictionary with meta info.
  */
-- (void)addPlaylistItems:(NSArray*)o_array;
+- (void)addPlaylistItems:(NSArray*)array;
+
+/**
+ * Add new items to playlist, with the possibility to check if an item can be added
+ * to the currently playing media as subtitle.
+ *
+ * @param array array of items. Each item is a Dictionary with meta info.
+ * @param isSubtitle if YES, method tries to add the item as a subtitle
+ */
+- (void)addPlaylistItems:(NSArray*)array tryAsSubtitle:(BOOL)isSubtitle;
 
 /**
  * Adds new items to the playlist, at specified parent node and index.

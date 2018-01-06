@@ -50,16 +50,21 @@
 #include <QBitmap>
 #include <QUrl>
 
-#ifdef QT5_HAS_X11
-# define Q_WS_X11
+#if defined (QT5_HAS_X11)
+# include <X11/Xlib.h>
+# include <QX11Info>
+# if defined(QT5_HAS_XCB)
+#  include <xcb/xproto.h>
+# endif
+#endif
+#ifdef QT5_HAS_WAYLAND
+# include QPNI_HEADER
+# include <QWindow>
 #endif
 
-#ifdef Q_WS_X11
-#   include <X11/Xlib.h>
-#   ifdef HAVE_XI
-#       include <X11/extensions/XInput2.h>
-#   endif
-#   include <qx11info_x11.h>
+#if defined(_WIN32)
+#include <QWindow>
+#include <qpa/qplatformnativeinterface.h>
 #endif
 
 #include <math.h>
@@ -73,8 +78,8 @@
  * This class handles resize issues
  **********************************************************************/
 
-VideoWidget::VideoWidget( intf_thread_t *_p_i )
-            : QFrame( NULL ) , p_intf( _p_i )
+VideoWidget::VideoWidget( intf_thread_t *_p_i, QWidget* p_parent )
+            : QFrame( p_parent ) , p_intf( _p_i )
 {
     /* Set the policy to expand in both directions */
     // setSizePolicy( QSizePolicy::Expanding, QSizePolicy::Expanding );
@@ -95,37 +100,32 @@ VideoWidget::~VideoWidget()
 
 void VideoWidget::sync( void )
 {
-#ifdef Q_WS_X11
     /* Make sure the X server has processed all requests.
      * This protects other threads using distinct connections from getting
      * the video widget window in an inconsistent states. */
-    XSync( QX11Info::display(), False );
+#ifdef QT5_HAS_X11
+    if( QX11Info::isPlatformX11() )
+        XSync( QX11Info::display(), False );
 #endif
 }
 
 /**
  * Request the video to avoid the conflicts
  **/
-WId VideoWidget::request( struct vout_window_t *p_wnd, unsigned int *pi_width,
-                          unsigned int *pi_height, bool b_keep_size )
+bool VideoWidget::request( struct vout_window_t *p_wnd )
 {
     if( stable )
     {
         msg_Dbg( p_intf, "embedded video already in use" );
-        return 0;
+        return false;
     }
     assert( !p_window );
-
-    if( b_keep_size )
-    {
-        *pi_width  = size().width();
-        *pi_height = size().height();
-    }
 
     /* The owner of the video window needs a stable handle (WinId). Reparenting
      * in Qt4-X11 changes the WinId of the widget, so we need to create another
      * dummy widget that stays within the reparentable widget. */
     stable = new QWidget();
+    stable->setContextMenuPolicy( Qt::PreventContextMenu );
     QPalette plt = palette();
     plt.setColor( QPalette::Window, Qt::black );
     stable->setPalette( plt );
@@ -137,45 +137,103 @@ WId VideoWidget::request( struct vout_window_t *p_wnd, unsigned int *pi_width,
        management */
     /* This is currently disabled on X11 as it does not seem to improve
      * performance, but causes the video widget to be transparent... */
-#if !defined (Q_WS_X11) && !defined (Q_WS_QPA)
+#if !defined (QT5_HAS_X11)
     stable->setAttribute( Qt::WA_PaintOnScreen, true );
+#else
+    stable->setMouseTracking( true );
+    setMouseTracking( true );
 #endif
-
     layout->addWidget( stable );
 
-#ifdef Q_WS_X11
-    /* HACK: Only one X11 client can subscribe to mouse button press events.
-     * VLC currently handles those in the video display.
-     * Force Qt to unsubscribe from mouse press and release events. */
-    Display *dpy = QX11Info::display();
-    Window w = stable->winId();
-    XWindowAttributes attr;
-
-    XGetWindowAttributes( dpy, w, &attr );
-    attr.your_event_mask &= ~(ButtonPressMask|ButtonReleaseMask);
-    attr.your_event_mask &= ~PointerMotionMask;
-    XSelectInput( dpy, w, attr.your_event_mask );
-# ifdef HAVE_XI
-    int n;
-    XIEventMask *xi_masks = XIGetSelectedEvents( dpy, w, &n );
-    if( xi_masks != NULL )
-    {
-        for( int i = 0; i < n; i++ )
-            if( xi_masks[i].mask_len >= 1 )
-            {
-                xi_masks[i].mask[0] &= ~XI_ButtonPressMask;
-                xi_masks[i].mask[0] &= ~XI_ButtonReleaseMask;
-                xi_masks[i].mask[0] &= ~XI_MotionMask;
-            }
-
-        XISelectEvents( dpy, w, xi_masks, n );
-        XFree( xi_masks );
-    }
-# endif
-#endif
     sync();
     p_window = p_wnd;
-    return stable->winId();
+
+    p_wnd->type = p_intf->p_sys->voutWindowType;
+    switch( p_wnd->type )
+    {
+        case VOUT_WINDOW_TYPE_XID:
+            p_wnd->handle.xid = stable->winId();
+            p_wnd->display.x11 = NULL;
+            break;
+        case VOUT_WINDOW_TYPE_HWND:
+            p_wnd->handle.hwnd = (void *)stable->winId();
+            break;
+        case VOUT_WINDOW_TYPE_NSOBJECT:
+            p_wnd->handle.nsobject = (void *)stable->winId();
+            break;
+#ifdef QT5_HAS_WAYLAND
+        case VOUT_WINDOW_TYPE_WAYLAND:
+        {
+            /* Ensure only the video widget is native (needed for Wayland) */
+            stable->setAttribute( Qt::WA_DontCreateNativeAncestors, true);
+
+            QWindow *window = stable->windowHandle();
+            assert(window != NULL);
+            window->create();
+
+            QPlatformNativeInterface *qni = qApp->platformNativeInterface();
+            assert(qni != NULL);
+
+            p_wnd->handle.wl = static_cast<wl_surface*>(
+                qni->nativeResourceForWindow(QByteArrayLiteral("surface"),
+                                             window));
+            p_wnd->display.wl = static_cast<wl_display*>(
+                qni->nativeResourceForIntegration(QByteArrayLiteral("wl_display")));
+            break;
+        }
+#endif
+        default:
+            vlc_assert_unreachable();
+    }
+    return true;
+}
+
+QSize VideoWidget::physicalSize() const
+{
+#ifdef QT5_HAS_X11
+    if ( QX11Info::isPlatformX11() )
+    {
+        Display *p_x_display = QX11Info::display();
+        Window x_window = stable->winId();
+        XWindowAttributes x_attributes;
+
+        XGetWindowAttributes( p_x_display, x_window, &x_attributes );
+
+        return QSize( x_attributes.width, x_attributes.height );
+    }
+#endif
+#if defined(_WIN32)
+    HWND hwnd;
+    RECT rect;
+
+    QWindow *window = windowHandle();
+    hwnd = static_cast<HWND>(QGuiApplication::platformNativeInterface()->nativeResourceForWindow("handle", window));
+
+    GetClientRect(hwnd, &rect);
+
+    return QSize( rect.right, rect.bottom );
+#endif
+
+    QSize current_size = size();
+
+#   if HAS_QT56
+    /* Android-like scaling */
+    current_size *= devicePixelRatioF();
+#   else
+    /* OSX-like scaling */
+    current_size *= devicePixelRatio();
+#   endif
+
+    return current_size;
+}
+
+void VideoWidget::reportSize()
+{
+    if( !p_window )
+        return;
+
+    QSize size = physicalSize();
+    vout_window_ReportSize( p_window, size.width(), size.height() );
 }
 
 /* Set the Widget to the correct Size */
@@ -188,8 +246,7 @@ void VideoWidget::setSize( unsigned int w, unsigned int h )
      */
     if( (unsigned)size().width() == w && (unsigned)size().height() == h )
     {
-        if( p_window != NULL )
-            vout_window_ReportSize( p_window, w, h );
+        reportSize();
         return;
     }
 
@@ -205,14 +262,105 @@ void VideoWidget::setSize( unsigned int w, unsigned int h )
     sync();
 }
 
+bool VideoWidget::nativeEvent( const QByteArray& eventType, void* message, long* )
+{
+#if defined(QT5_HAS_X11)
+# if defined(QT5_HAS_XCB)
+    if ( eventType == "xcb_generic_event_t" )
+    {
+        const xcb_generic_event_t* xev = static_cast<const xcb_generic_event_t*>( message );
+
+        if ( xev->response_type == XCB_CONFIGURE_NOTIFY )
+            reportSize();
+    }
+# endif
+#endif
+#ifdef _WIN32
+    if ( eventType == "windows_generic_MSG" )
+    {
+        MSG* msg = static_cast<MSG*>( message );
+        if ( msg->message == WM_SIZE )
+            reportSize();
+    }
+#endif
+    // Let Qt handle that event in any case
+    return false;
+}
+
 void VideoWidget::resizeEvent( QResizeEvent *event )
 {
-    if( p_window != NULL )
-        vout_window_ReportSize( p_window, event->size().width(),
-                                event->size().height() );
-
     QWidget::resizeEvent( event );
+
+    if ( p_intf->p_sys->voutWindowType == VOUT_WINDOW_TYPE_XID ||
+        p_intf->p_sys->voutWindowType == VOUT_WINDOW_TYPE_HWND )
+        return;
+    reportSize();
 }
+
+int VideoWidget::qtMouseButton2VLC( Qt::MouseButton qtButton )
+{
+    if( p_window == NULL )
+        return -1;
+    switch( qtButton )
+    {
+        case Qt::LeftButton:
+            return 0;
+        case Qt::RightButton:
+            return 2;
+        case Qt::MiddleButton:
+            return 1;
+        default:
+            return -1;
+    }
+}
+
+void VideoWidget::mouseReleaseEvent( QMouseEvent *event )
+{
+    int vlc_button = qtMouseButton2VLC( event->button() );
+    if( vlc_button >= 0 )
+    {
+        vout_window_ReportMouseReleased( p_window, vlc_button );
+        event->accept();
+    }
+    else
+        event->ignore();
+}
+
+void VideoWidget::mousePressEvent( QMouseEvent* event )
+{
+    int vlc_button = qtMouseButton2VLC( event->button() );
+    if( vlc_button >= 0 )
+    {
+        vout_window_ReportMousePressed( p_window, vlc_button );
+        event->accept();
+    }
+    else
+        event->ignore();
+}
+
+void VideoWidget::mouseMoveEvent( QMouseEvent *event )
+{
+    if( p_window != NULL )
+    {
+        vout_window_ReportMouseMoved( p_window, event->x(), event->y() );
+        event->accept();
+    }
+    else
+        event->ignore();
+}
+
+void VideoWidget::mouseDoubleClickEvent( QMouseEvent *event )
+{
+    int vlc_button = qtMouseButton2VLC( event->button() );
+    if( vlc_button >= 0 )
+    {
+        vout_window_ReportMouseDoubleClick( p_window, vlc_button );
+        event->accept();
+    }
+    else
+        event->ignore();
+}
+
 
 void VideoWidget::release( void )
 {
@@ -289,8 +437,13 @@ void BackgroundWidget::paintEvent( QPaintEvent *e )
     int i_maxwidth, i_maxheight;
     QPixmap pixmap = QPixmap( pixmapUrl );
     QPainter painter(this);
-    QBitmap pMask;
-    float f_alpha = 1.0;
+
+#if HAS_QT56
+    qreal dpr = devicePixelRatioF();
+#else
+    qreal dpr = devicePixelRatio();
+#endif
+    pixmap.setDevicePixelRatio( dpr );
 
     i_maxwidth  = __MIN( maximumWidth(), width() ) - MARGIN * 2;
     i_maxheight = __MIN( maximumHeight(), height() ) - MARGIN * 2;
@@ -302,32 +455,27 @@ void BackgroundWidget::paintEvent( QPaintEvent *e )
         /* Scale down the pixmap if the widget is too small */
         if( pixmap.width() > i_maxwidth || pixmap.height() > i_maxheight )
         {
-            pixmap = pixmap.scaled( i_maxwidth, i_maxheight,
+            pixmap = pixmap.scaled( i_maxwidth * dpr, i_maxheight * dpr ,
                             Qt::KeepAspectRatio, Qt::SmoothTransformation );
         }
         else
         if ( b_expandPixmap &&
              pixmap.width() < width() && pixmap.height() < height() )
         {
-            /* Scale up the pixmap to fill widget's size */
-            f_alpha = ( (float) pixmap.height() / (float) height() );
             pixmap = pixmap.scaled(
-                    width() - MARGIN * 2,
-                    height() - MARGIN * 2,
-                    Qt::KeepAspectRatio,
-                    ( f_alpha < .2 )? /* Don't waste cpu when not visible */
-                        Qt::SmoothTransformation:
-                        Qt::FastTransformation
-                    );
-            /* Non agressive alpha compositing when sizing up */
-            pMask = QBitmap( pixmap.width(), pixmap.height() );
-            pMask.fill( QColor::fromRgbF( 1.0, 1.0, 1.0, f_alpha ) );
-            pixmap.setMask( pMask );
+                    (width() - MARGIN * 2) * dpr,
+                    (height() - MARGIN * 2) * dpr ,
+                    Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        }
+        else if (dpr != 1.0)
+        {
+            pixmap = pixmap.scaled( pixmap.width() * dpr, pixmap.height() * dpr,
+                                    Qt::KeepAspectRatio, Qt::SmoothTransformation );
         }
 
         painter.drawPixmap(
-                MARGIN + ( i_maxwidth - pixmap.width() ) /2,
-                MARGIN + ( i_maxheight - pixmap.height() ) /2,
+                MARGIN + ( i_maxwidth - ( pixmap.width() / dpr ) ) / 2,
+                MARGIN + ( i_maxheight - ( pixmap.height() / dpr ) ) / 2,
                 pixmap);
     }
     QWidget::paintEvent( e );
@@ -453,60 +601,6 @@ void EasterEggBackgroundWidget::paintEvent( QPaintEvent *e )
 
     BackgroundWidget::paintEvent( e );
 }
-
-#if 0
-#include <QPushButton>
-#include <QHBoxLayout>
-
-/**********************************************************************
- * Visualization selector panel
- **********************************************************************/
-VisualSelector::VisualSelector( intf_thread_t *_p_i ) :
-                                QFrame( NULL ), p_intf( _p_i )
-{
-    QHBoxLayout *layout = new QHBoxLayout( this );
-    layout->setMargin( 0 );
-    QPushButton *prevButton = new QPushButton( "Prev" );
-    QPushButton *nextButton = new QPushButton( "Next" );
-    layout->addWidget( prevButton );
-    layout->addWidget( nextButton );
-
-    layout->addStretch( 10 );
-    layout->addWidget( new QLabel( qtr( "Current visualization" ) ) );
-
-    current = new QLabel( qtr( "None" ) );
-    layout->addWidget( current );
-
-    BUTTONACT( prevButton, prev() );
-    BUTTONACT( nextButton, next() );
-
-    setLayout( layout );
-    setMaximumHeight( 35 );
-}
-
-VisualSelector::~VisualSelector()
-{}
-
-void VisualSelector::prev()
-{
-    char *psz_new = aout_VisualPrev( p_intf );
-    if( psz_new )
-    {
-        current->setText( qfu( psz_new ) );
-        free( psz_new );
-    }
-}
-
-void VisualSelector::next()
-{
-    char *psz_new = aout_VisualNext( p_intf );
-    if( psz_new )
-    {
-        current->setText( qfu( psz_new ) );
-        free( psz_new );
-    }
-}
-#endif
 
 SpeedLabel::SpeedLabel( intf_thread_t *_p_intf, QWidget *parent )
            : QLabel( parent ), p_intf( _p_intf )
@@ -701,7 +795,7 @@ CoverArtLabel::CoverArtLabel( QWidget *parent, intf_thread_t *_p_i )
     p_item = THEMIM->currentInputItem();
     if( p_item )
     {
-        vlc_gc_incref( p_item );
+        input_item_Hold( p_item );
         showArtUpdate( p_item );
     }
     else
@@ -713,14 +807,14 @@ CoverArtLabel::~CoverArtLabel()
     QList< QAction* > artActions = actions();
     foreach( QAction *act, artActions )
         removeAction( act );
-    if ( p_item ) vlc_gc_decref( p_item );
+    if ( p_item ) input_item_Release( p_item );
 }
 
 void CoverArtLabel::setItem( input_item_t *_p_item )
 {
-    if ( p_item ) vlc_gc_decref( p_item );
+    if ( p_item ) input_item_Release( p_item );
     p_item = _p_item;
-    if ( p_item ) vlc_gc_incref( p_item );
+    if ( p_item ) input_item_Hold( p_item );
 }
 
 void CoverArtLabel::showArtUpdate( const QString& url )
@@ -808,7 +902,7 @@ TimeLabel::TimeLabel( intf_thread_t *_p_intf, TimeLabel::Display _displayType  )
               this, setDisplayPosition( float, int64_t, int ) );
 
     connect( this, SIGNAL( broadcastRemainingTime( bool ) ),
-	     THEMIM->getIM(), SIGNAL( remainingTimeChanged( bool ) ) );
+         THEMIM->getIM(), SIGNAL( remainingTimeChanged( bool ) ) );
 
     CONNECT( THEMIM->getIM(), remainingTimeChanged( bool ),
               this, setRemainingTime( bool ) );

@@ -82,17 +82,17 @@ struct access_sys_t
     int         *p_sectors;                                 /* Track sectors */
 };
 
-static block_t *Block( access_t * );
-static int      Seek( access_t *, uint64_t );
-static int      Control( access_t *, int, va_list );
-static int      EntryPoints( access_t * );
+static block_t *Block( stream_t *, bool * );
+static int      Seek( stream_t *, uint64_t );
+static int      Control( stream_t *, int, va_list );
+static int      EntryPoints( stream_t * );
 
 /*****************************************************************************
  * VCDOpen: open vcd
  *****************************************************************************/
 static int Open( vlc_object_t *p_this )
 {
-    access_t     *p_access = (access_t *)p_this;
+    stream_t     *p_access = (stream_t *)p_this;
     access_sys_t *p_sys;
     if( p_access->psz_filepath == NULL )
         return VLC_EGENERIC;
@@ -118,8 +118,8 @@ static int Open( vlc_object_t *p_this )
         free( psz_dup );
 
         /* Only when selected */
-        if( strcmp( p_access->psz_access, "vcd" ) &&
-            strcmp( p_access->psz_access, "svcd" ) )
+        if( strcmp( p_access->psz_name, "vcd" ) &&
+            strcmp( p_access->psz_name, "svcd" ) )
             return VLC_EGENERIC;
 
         psz_dup = var_CreateGetString( p_access, "vcd" );
@@ -197,8 +197,6 @@ static int Open( vlc_object_t *p_this )
     p_access->pf_control = Control;
     p_access->pf_seek    = Seek;
 
-    p_access->info.b_eof       = false;
-
     p_sys->i_current_title = i_title;
     p_sys->i_current_seekpoint = i_chapter;
     p_sys->offset = (uint64_t)(p_sys->i_sector - p_sys->p_sectors[1+i_title]) *
@@ -217,7 +215,7 @@ error:
  *****************************************************************************/
 static void Close( vlc_object_t *p_this )
 {
-    access_t     *p_access = (access_t *)p_this;
+    stream_t     *p_access = (stream_t *)p_this;
     access_sys_t *p_sys = p_access->p_sys;
 
     for( size_t i = 0; i < ARRAY_SIZE(p_sys->titles); i++ )
@@ -230,7 +228,7 @@ static void Close( vlc_object_t *p_this )
 /*****************************************************************************
  * Control:
  *****************************************************************************/
-static int Control( access_t *p_access, int i_query, va_list args )
+static int Control( stream_t *p_access, int i_query, va_list args )
 {
     access_sys_t *p_sys = p_access->p_sys;
     input_title_t ***ppp_title;
@@ -238,14 +236,14 @@ static int Control( access_t *p_access, int i_query, va_list args )
     switch( i_query )
     {
         /* */
-        case ACCESS_CAN_SEEK:
-        case ACCESS_CAN_FASTSEEK:
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_SEEK:
+        case STREAM_CAN_FASTSEEK:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg( args, bool* ) = true;
             break;
 
-        case ACCESS_GET_SIZE:
+        case STREAM_GET_SIZE:
         {
             int i = p_sys->i_current_title;
 
@@ -256,38 +254,39 @@ static int Control( access_t *p_access, int i_query, va_list args )
         }
 
         /* */
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
             *va_arg( args, int64_t * ) = INT64_C(1000)
                 * var_InheritInteger(p_access, "disc-caching");
             break;
 
         /* */
-        case ACCESS_SET_PAUSE_STATE:
+        case STREAM_SET_PAUSE_STATE:
             break;
 
-        case ACCESS_GET_TITLE_INFO:
+        case STREAM_GET_TITLE_INFO:
             ppp_title = va_arg( args, input_title_t*** );
-            *va_arg( args, int* ) = p_sys->i_titles;
-
             /* Duplicate title infos */
-            *ppp_title = xmalloc( sizeof(input_title_t *) * p_sys->i_titles );
+            *ppp_title = vlc_alloc( p_sys->i_titles, sizeof(input_title_t *) );
+            if (!*ppp_title)
+                return VLC_ENOMEM;
+            *va_arg( args, int* ) = p_sys->i_titles;
             for( int i = 0; i < p_sys->i_titles; i++ )
                 (*ppp_title)[i] = vlc_input_title_New();
             break;
 
-        case ACCESS_GET_TITLE:
+        case STREAM_GET_TITLE:
             *va_arg( args, unsigned * ) = p_sys->i_current_title;
             break;
 
-        case ACCESS_GET_SEEKPOINT:
+        case STREAM_GET_SEEKPOINT:
             *va_arg( args, unsigned * ) = p_sys->i_current_seekpoint;
             break;
 
-        case ACCESS_GET_CONTENT_TYPE:
+        case STREAM_GET_CONTENT_TYPE:
             *va_arg( args, char ** ) = strdup("video/MP2P");
             break;
 
-        case ACCESS_SET_TITLE:
+        case STREAM_SET_TITLE:
         {
             int i = va_arg( args, int );
             if( i != p_sys->i_current_title )
@@ -303,7 +302,7 @@ static int Control( access_t *p_access, int i_query, va_list args )
             break;
         }
 
-        case ACCESS_SET_SEEKPOINT:
+        case STREAM_SET_SEEKPOINT:
         {
             int i = va_arg( args, int );
             unsigned i_title = p_sys->i_current_title;
@@ -330,21 +329,18 @@ static int Control( access_t *p_access, int i_query, va_list args )
 /*****************************************************************************
  * Block:
  *****************************************************************************/
-static block_t *Block( access_t *p_access )
+static block_t *Block( stream_t *p_access, bool *restrict eof )
 {
     access_sys_t *p_sys = p_access->p_sys;
     int i_blocks = VCD_BLOCKS_ONCE;
     block_t *p_block;
-
-    /* Check end of file */
-    if( p_access->info.b_eof ) return NULL;
 
     /* Check end of title */
     while( p_sys->i_sector >= p_sys->p_sectors[p_sys->i_current_title + 2] )
     {
         if( p_sys->i_current_title + 2 >= p_sys->i_titles )
         {
-            p_access->info.b_eof = true;
+            *eof = true;
             return NULL;
         }
 
@@ -405,7 +401,7 @@ static block_t *Block( access_t *p_access )
 /*****************************************************************************
  * Seek:
  *****************************************************************************/
-static int Seek( access_t *p_access, uint64_t i_pos )
+static int Seek( stream_t *p_access, uint64_t i_pos )
 {
     access_sys_t *p_sys = p_access->p_sys;
     int i_title = p_sys->i_current_title;
@@ -429,16 +425,13 @@ static int Seek( access_t *p_access, uint64_t i_pos )
         p_sys->i_current_seekpoint = i_seekpoint;
     }
 
-    /* Reset eof */
-    p_access->info.b_eof = false;
-
     return VLC_SUCCESS;
 }
 
 /*****************************************************************************
  * EntryPoints: Reads the information about the entry points on the disc.
  *****************************************************************************/
-static int EntryPoints( access_t *p_access )
+static int EntryPoints( stream_t *p_access )
 {
     access_sys_t *p_sys = p_access->p_sys;
     uint8_t      sector[VCD_DATA_SIZE];

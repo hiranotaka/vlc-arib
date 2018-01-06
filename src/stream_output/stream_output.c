@@ -50,8 +50,6 @@
 
 #include "input/input_interface.h"
 
-#define VLC_CODEC_NULL VLC_FOURCC( 'n', 'u', 'l', 'l' )
-
 #undef DEBUG_BUFFER
 /*****************************************************************************
  * Local prototypes
@@ -156,24 +154,18 @@ void sout_DeleteInstance( sout_instance_t * p_sout )
  * Packetizer/Input
  *****************************************************************************/
 sout_packetizer_input_t *sout_InputNew( sout_instance_t *p_sout,
-                                        es_format_t *p_fmt )
+                                        const es_format_t *p_fmt )
 {
     sout_packetizer_input_t *p_input;
 
     /* *** create a packetizer input *** */
-    p_input         = malloc( sizeof( sout_packetizer_input_t ) );
-    if( !p_input )  return NULL;
+    if( !p_fmt->i_codec || !(p_input = malloc(sizeof(sout_packetizer_input_t))) )
+        return NULL;
+
     p_input->p_sout = p_sout;
-    p_input->p_fmt  = p_fmt;
 
-    msg_Dbg( p_sout, "adding a new sout input (sout_input: %p)",
-             (void *)p_input );
-
-    if( p_fmt->i_codec == VLC_CODEC_NULL )
-    {
-        vlc_object_release( p_sout );
-        return p_input;
-    }
+    msg_Dbg( p_sout, "adding a new sout input for `%4.4s` (sout_input: %p)",
+             (char*) &p_fmt->i_codec, (void *)p_input );
 
     /* *** add it to the stream chain */
     vlc_mutex_lock( &p_sout->lock );
@@ -182,8 +174,10 @@ sout_packetizer_input_t *sout_InputNew( sout_instance_t *p_sout,
 
     if( p_input->id == NULL )
     {
+        msg_Warn( p_sout, "new sout input failed (sout_input: %p)",
+                 (void *)p_input );
         free( p_input );
-        return NULL;
+        p_input = NULL;
     }
 
     return( p_input );
@@ -199,12 +193,9 @@ int sout_InputDelete( sout_packetizer_input_t *p_input )
     msg_Dbg( p_sout, "removing a sout input (sout_input: %p)",
              (void *)p_input );
 
-    if( p_input->p_fmt->i_codec != VLC_CODEC_NULL )
-    {
-        vlc_mutex_lock( &p_sout->lock );
-        p_sout->p_stream->pf_del( p_sout->p_stream, p_input->id );
-        vlc_mutex_unlock( &p_sout->lock );
-    }
+    vlc_mutex_lock( &p_sout->lock );
+    p_sout->p_stream->pf_del( p_sout->p_stream, p_input->id );
+    vlc_mutex_unlock( &p_sout->lock );
 
     free( p_input );
 
@@ -240,12 +231,6 @@ int sout_InputSendBuffer( sout_packetizer_input_t *p_input,
 {
     sout_instance_t     *p_sout = p_input->p_sout;
     int                 i_ret;
-
-    if( p_input->p_fmt->i_codec == VLC_CODEC_NULL )
-    {
-        block_Release( p_buffer );
-        return VLC_SUCCESS;
-    }
 
     vlc_mutex_lock( &p_sout->lock );
     i_ret = p_sout->p_stream->pf_send( p_sout->p_stream,
@@ -316,6 +301,8 @@ void sout_AccessOutDelete( sout_access_out_t *p_access )
  *****************************************************************************/
 int sout_AccessOutSeek( sout_access_out_t *p_access, off_t i_pos )
 {
+    if (p_access->pf_seek == NULL)
+        return VLC_EGENERIC;
     return p_access->pf_seek( p_access, i_pos );
 }
 
@@ -865,11 +852,11 @@ sout_stream_t *sout_StreamChainNew(sout_instance_t *p_sout, const char *psz_chai
         free( psz_parser );
         psz_parser = psz_rest_chain;
 
-        vlc_array_append(&cfg, p_cfg);
-        vlc_array_append(&name, psz_name);
+        vlc_array_append_or_abort(&cfg, p_cfg);
+        vlc_array_append_or_abort(&name, psz_name);
     }
 
-    int i = vlc_array_count(&name);
+    size_t i = vlc_array_count(&name);
     vlc_array_t module;
     vlc_array_init(&module);
     while(i--)
@@ -883,7 +870,7 @@ sout_stream_t *sout_StreamChainNew(sout_instance_t *p_sout, const char *psz_chai
         if(i == vlc_array_count(&name) - 1 && pp_last)
             *pp_last = p_next;   /* last module created in the chain */
 
-        vlc_array_append(&module, p_next);
+        vlc_array_append_or_abort(&module, p_next);
     }
 
     vlc_array_clear(&name);

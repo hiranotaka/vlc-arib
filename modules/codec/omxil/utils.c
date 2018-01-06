@@ -221,9 +221,11 @@ void CopyOmxPicture( int i_color_format, picture_t *p_pic,
         && vlc_CPU_SSE2() && p_architecture_specific && p_architecture_specific->data )
     {
         copy_cache_t *p_surface_cache = (copy_cache_t*)p_architecture_specific->data;
-        uint8_t *ppi_src_pointers[2] = { p_src, p_src + i_src_stride * i_slice_height };
-        size_t pi_src_strides[2] = { i_src_stride, i_src_stride };
-        CopyFromNv12( p_pic, ppi_src_pointers, pi_src_strides, i_src_stride, i_slice_height, p_surface_cache );
+        const uint8_t *ppi_src_pointers[2] = { p_src, p_src + i_src_stride * i_slice_height };
+        const size_t pi_src_strides[2] = { i_src_stride, i_src_stride };
+        Copy420_SP_to_P( p_pic, ppi_src_pointers, pi_src_strides,
+                         i_slice_height, p_surface_cache );
+        picture_SwapUV( p_pic );
         return;
     }
 #endif
@@ -346,7 +348,7 @@ struct str2quirks {
     int i_quirks;
 };
 
-int OMXCodec_GetQuirks( int i_cat, vlc_fourcc_t i_codec,
+int OMXCodec_GetQuirks( enum es_format_category_e i_cat, vlc_fourcc_t i_codec,
                         const char *p_name, unsigned int i_name_len )
 {
     static const struct str2quirks quirks_prefix[] = {
@@ -369,6 +371,7 @@ int OMXCodec_GetQuirks( int i_cat, vlc_fourcc_t i_codec,
         { "OMX.SEC.MPEG4.Decoder", OMXCODEC_VIDEO_QUIRKS_IGNORE_PADDING },
         { "OMX.SEC.mpeg4.dec", OMXCODEC_VIDEO_QUIRKS_IGNORE_PADDING },
         { "OMX.SEC.vc1.dec", OMXCODEC_VIDEO_QUIRKS_IGNORE_PADDING },
+        { "OMX.amlogic.avc.decoder.awesome", OMXCODEC_VIDEO_QUIRKS_SUPPORT_INTERLACED },
         { NULL, 0 }
     };
 
@@ -718,7 +721,8 @@ static const char *GetOmxAudioEncRole( vlc_fourcc_t i_fourcc )
     return audio_enc_format_table[i].psz_role;
 }
 
-const char *GetOmxRole( vlc_fourcc_t i_fourcc, int i_cat, bool b_enc )
+const char *GetOmxRole( vlc_fourcc_t i_fourcc, enum es_format_category_e i_cat,
+                        bool b_enc )
 {
     if(b_enc)
         return i_cat == VIDEO_ES ?

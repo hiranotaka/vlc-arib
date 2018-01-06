@@ -248,7 +248,11 @@ static void *Thread( void *p_data )
     bool run = true;
 
     // tell main thread we are ready
-    vlc_gl_MakeCurrent( gl );
+    if( vlc_gl_MakeCurrent( gl ) != VLC_SUCCESS )
+    {
+        msg_Err( p_filter, "Can't attach gl context" );
+        return NULL;
+    }
 
     while ( run )
     {
@@ -305,11 +309,7 @@ static void *Thread( void *p_data )
         if (intro) intro->draw();
 
         // swap buffers etc.
-        if( !vlc_gl_Lock(gl) )
-        {
-            vlc_gl_Swap( gl );
-            vlc_gl_Unlock( gl );
-        }
+        vlc_gl_Swap( gl );
     }
 
     // stop vsxu nicely (unloads textures and frees memory)

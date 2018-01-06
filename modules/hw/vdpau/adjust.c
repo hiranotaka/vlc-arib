@@ -29,6 +29,7 @@
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
 #include <vlc_atomic.h>
+#include <vlc_picture.h>
 #include "vlc_vdpau.h"
 
 struct filter_sys_t
@@ -107,7 +108,7 @@ static int HueCallback(vlc_object_t *obj, const char *varname,
 static picture_t *Adjust(filter_t *filter, picture_t *pic)
 {
     filter_sys_t *sys = filter->p_sys;
-    vlc_vdp_video_field_t *f = pic->context;
+    vlc_vdp_video_field_t *f = (vlc_vdp_video_field_t *)pic->context;
 
     if (unlikely(f == NULL))
         return pic;
@@ -186,7 +187,7 @@ vlc_module_begin()
     set_description(N_("VDPAU adjust video filter"))
     set_category(CAT_VIDEO)
     set_subcategory(SUBCAT_VIDEO_VFILTER)
-    set_capability("video filter2", 0)
+    set_capability("video filter", 0)
     add_shortcut("adjust")
     set_callbacks(Open, Close)
 vlc_module_end()

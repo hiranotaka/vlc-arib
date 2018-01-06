@@ -39,22 +39,14 @@
 #include <vlc_meta.h>
 
 #include <QTreeWidget>
+#include <QTableWidget>
 #include <QHeaderView>
 #include <QList>
 #include <QStringList>
 #include <QGridLayout>
 #include <QLineEdit>
 #include <QLabel>
-#include <QSpinBox>
 #include <QTextEdit>
-
-static inline void setSpinBounds( QSpinBox *spinbox ) {
-    spinbox->setRange( 0, INT_MAX );
-    spinbox->setAccelerated( true );
-    spinbox->setAlignment( Qt::AlignRight );
-    spinbox->setSpecialValueText("");
-}
-
 
 /************************************************************************
  * Single panels
@@ -129,13 +121,6 @@ MetaPanel::MetaPanel( QWidget *parent,
     metaLayout->addWidget( seqtot_text, line, 9, 1, 1 );
     line++;
 
-    /* Rating - on the same line */
-    /*
-    metaLayout->addWidget( new QLabel( qtr( VLC_META_RATING ) ), line, 4, 1, 2 );
-    rating_text = new QSpinBox; setSpinBounds( rating_text );
-    metaLayout->addWidget( rating_text, line, 6, 1, 1 );
-    */
-
     /* Now Playing - Useful for live feeds (HTTP, DVB, ETC...) */
     ADD_META( VLC_META_NOW_PLAYING, nowplaying_text, 0, 7 );
     nowplaying_text->setReadOnly( true ); line--;
@@ -189,7 +174,6 @@ MetaPanel::MetaPanel( QWidget *parent,
 
     CONNECT( date_text, textEdited( QString ), this, enterEditMode() );
 //    CONNECT( THEMIM->getIM(), artChanged( QString ), this, enterEditMode() );
-/*    CONNECT( rating_text, valueChanged( QString ), this, enterEditMode( QString ) );*/
 
     /* We are not yet in Edit Mode */
     b_inEditMode = false;
@@ -249,15 +233,18 @@ void MetaPanel::update( input_item_t *p_item )
     UPDATE_META( Description, description_text );
     CONNECT( description_text, textChanged(), this, enterEditMode() );
     UPDATE_META( Language, language_text );
-    UPDATE_META( NowPlaying, nowplaying_text );
     UPDATE_META( Publisher, publisher_text );
     UPDATE_META( EncodedBy, encodedby_text );
 
     UPDATE_META( Date, date_text );
     UPDATE_META( TrackNum, seqnum_text );
     UPDATE_META( TrackTotal, seqtot_text );
-//    UPDATE_META( Setting, setting_text );
-//    UPDATE_META_INT( Rating, rating_text );
+
+    /* Now Playing || ES Now Playing */
+    psz_meta = input_item_GetNowPlayingFb( p_item );
+    if( !EMPTY_STR( psz_meta ) )
+        nowplaying_text->setText( qfu( psz_meta ) );
+    free( psz_meta );
 
     /* URL */
     psz_meta = input_item_GetURL( p_item );
@@ -391,12 +378,24 @@ ExtraMetaPanel::ExtraMetaPanel( QWidget *parent ) : QWidget( parent )
      topLabel->setWordWrap( true );
      layout->addWidget( topLabel, 0, 0 );
 
-     extraMetaTree = new QTreeWidget( this );
-     extraMetaTree->setAlternatingRowColors( true );
-     extraMetaTree->setColumnCount( 2 );
-     extraMetaTree->resizeColumnToContents( 0 );
-     extraMetaTree->setHeaderHidden( true );
-     layout->addWidget( extraMetaTree, 1, 0 );
+     extraMeta = new QTableWidget( this );
+     extraMeta->setAlternatingRowColors( true );
+     extraMeta->setColumnCount( 2 );
+     extraMeta->horizontalHeader()->hide();
+     extraMeta->verticalHeader()->hide();
+
+     extraMeta->horizontalHeader()->setStretchLastSection(true);
+     extraMeta->resizeRowsToContents();
+
+     extraMeta->setVerticalScrollMode( QAbstractItemView::ScrollPerPixel );
+     extraMeta->setHorizontalScrollMode( QAbstractItemView::ScrollPerPixel );
+
+     extraMeta->setSelectionBehavior( QAbstractItemView::SelectRows );
+
+     extraMeta->setEditTriggers( QAbstractItemView::NoEditTriggers );
+     extraMeta->setSelectionMode( QAbstractItemView::SingleSelection );
+
+     layout->addWidget( extraMeta, 1, 0 );
 }
 
 /**
@@ -404,49 +403,55 @@ ExtraMetaPanel::ExtraMetaPanel( QWidget *parent ) : QWidget( parent )
  **/
 void ExtraMetaPanel::update( input_item_t *p_item )
 {
+    extraMeta->setRowCount(0);
+
     if( !p_item )
-    {
-        clear();
         return;
-    }
 
-    QList<QTreeWidgetItem *> items;
-
-    extraMetaTree->clear();
-
-    vlc_mutex_lock( &p_item->lock );
+    vlc_mutex_locker meta_lock( &p_item->lock );
     vlc_meta_t *p_meta = p_item->p_meta;
+
     if( !p_meta )
-    {
-        vlc_mutex_unlock( &p_item->lock );
         return;
-    }
 
-    const char *psz_disc_number = vlc_meta_Get( p_meta, vlc_meta_DiscNumber);
-    if( psz_disc_number )
+    struct AddRowHelper {
+        AddRowHelper( QTableWidget* target ) : target( target ) { }
+
+        void operator()( char const* psz_key, char const* psz_value )
+        {
+            int idx = target->rowCount();
+
+            target->insertRow( idx );
+
+            QTableWidgetItem *key = new QTableWidgetItem( qfu( psz_key ) );
+
+            key->setTextAlignment( Qt::AlignRight );
+            key->setFlags( key->flags() ^ Qt::ItemIsSelectable );
+
+            target->setItem( idx, 0, key );
+            target->setItem( idx, 1, new QTableWidgetItem( qfu( psz_value ) ) );
+        }
+
+        QTableWidget* target;
+
+    } add_row ( extraMeta );
+
+    if( char const* psz_disc = vlc_meta_Get( p_meta,  vlc_meta_DiscNumber ) )
+        add_row( VLC_META_DISCNUMBER, psz_disc );
+
+    char ** ppsz_keys = vlc_meta_CopyExtraNames( p_meta );
+    if( ppsz_keys )
     {
-        QStringList tempItem;
-        tempItem.append( VLC_META_DISCNUMBER );
-        tempItem.append( qfu( psz_disc_number ) );
-        items.append( new QTreeWidgetItem ( extraMetaTree, tempItem ) );
+        for( int i = 0; ppsz_keys[i]; ++i )
+        {
+            add_row( ppsz_keys[i], vlc_meta_GetExtra( p_meta, ppsz_keys[i] ) );
+            free( ppsz_keys[i] );
+        }
+
+        free( ppsz_keys );
     }
 
-    char ** ppsz_allkey = vlc_meta_CopyExtraNames( p_meta);
-
-    for( int i = 0; ppsz_allkey[i] ; i++ )
-    {
-        const char * psz_value = vlc_meta_GetExtra( p_meta, ppsz_allkey[i] );
-        QStringList tempItem;
-        tempItem.append( qfu( ppsz_allkey[i] ) + " : ");
-        tempItem.append( qfu( psz_value ) );
-        items.append( new QTreeWidgetItem ( extraMetaTree, tempItem ) );
-        free( ppsz_allkey[i] );
-    }
-    vlc_mutex_unlock( &p_item->lock );
-    free( ppsz_allkey );
-
-    extraMetaTree->addTopLevelItems( items );
-    extraMetaTree->resizeColumnToContents( 0 );
+    extraMeta->verticalHeader()->resizeSections( QHeaderView::ResizeToContents );
 }
 
 /**
@@ -454,7 +459,7 @@ void ExtraMetaPanel::update( input_item_t *p_item )
  **/
 void ExtraMetaPanel::clear()
 {
-    extraMetaTree->clear();
+    extraMeta->clear();
 }
 
 /**
@@ -474,11 +479,7 @@ InfoPanel::InfoPanel( QWidget *parent ) : QWidget( parent )
      InfoTree = new QTreeWidget(this);
      InfoTree->setColumnCount( 1 );
      InfoTree->header()->hide();
-#if HAS_QT5
      InfoTree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-#else
-     InfoTree->header()->setResizeMode(QHeaderView::ResizeToContents);
-#endif
      layout->addWidget(InfoTree, 1, 0 );
 }
 
@@ -496,6 +497,8 @@ void InfoPanel::update( input_item_t *p_item)
     InfoTree->clear();
     QTreeWidgetItem *current_item = NULL;
     QTreeWidgetItem *child_item = NULL;
+
+    vlc_mutex_locker locker( &p_item->lock );
 
     for( int i = 0; i< p_item->i_categories ; i++)
     {
@@ -536,7 +539,7 @@ void InfoPanel::saveCodecsInfo()
 
 /**
  * Fourth Panel - Stats
- * Displays the Statistics for reading/streaming/encoding/displaying in a tree
+ * Displays the Statistics for reading/displaying in a tree
  */
 InputStatsPanel::InputStatsPanel( QWidget *parent ): QWidget( parent )
 {
@@ -569,7 +572,6 @@ InputStatsPanel::InputStatsPanel( QWidget *parent ): QWidget( parent )
     CREATE_CATEGORY( audio, qtr("Audio") );
     CREATE_CATEGORY( video, qtr("Video") );
     CREATE_CATEGORY( input, qtr("Input/Read") );
-    CREATE_CATEGORY( streaming, qtr("Output/Written/Sent") );
 
     CREATE_AND_ADD_TO_CAT( read_media_stat, qtr("Media data size"),
                            "0", input , "KiB" );
@@ -592,12 +594,6 @@ InputStatsPanel::InputStatsPanel( QWidget *parent ): QWidget( parent )
     CREATE_AND_ADD_TO_CAT( vlost_frames_stat, qtr("Lost"),
                            "0", video, qtr("frames") );
 
-    CREATE_AND_ADD_TO_CAT( send_stat, qtr("Sent"), "0", streaming, qtr("packets") );
-    CREATE_AND_ADD_TO_CAT( send_bytes_stat, qtr("Sent"),
-                           "0", streaming, "KiB" );
-    CREATE_AND_ADD_TO_CAT( send_bitrate_stat, qtr("Upstream rate"),
-                           "0", streaming, "kb/s" );
-
     CREATE_AND_ADD_TO_CAT( adecoded_stat, qtr("Decoded"),
                            "0", audio, qtr("blocks") );
     CREATE_AND_ADD_TO_CAT( aplayed_stat, qtr("Played"),
@@ -610,7 +606,6 @@ InputStatsPanel::InputStatsPanel( QWidget *parent ): QWidget( parent )
 
     input->setExpanded( true );
     video->setExpanded( true );
-    streaming->setExpanded( true );
     audio->setExpanded( true );
 
     StatsTree->resizeColumnToContents( 0 );
@@ -643,7 +638,10 @@ void InputStatsPanel::update( input_item_t *p_item )
 {
     if ( !isVisible() ) return;
     assert( p_item );
-    vlc_mutex_lock( &p_item->p_stats->lock );
+
+    vlc_mutex_locker(&p_item->lock);
+    if( p_item->p_stats == NULL )
+        return;
 
 #define UPDATE_INT( widget, calc... ) \
     { widget->setText( 1, QString::number( (qulonglong)calc ) ); }
@@ -665,11 +663,6 @@ void InputStatsPanel::update( input_item_t *p_item )
     UPDATE_INT( vdisplayed_stat,   p_item->p_stats->i_displayed_pictures );
     UPDATE_INT( vlost_frames_stat, p_item->p_stats->i_lost_pictures );
 
-    /* Sout */
-    UPDATE_INT( send_stat,        p_item->p_stats->i_sent_packets );
-    UPDATE_INT( send_bytes_stat,  (p_item->p_stats->i_sent_bytes)/ 1024 );
-    UPDATE_FLOAT( send_bitrate_stat, "%6.0f", (float)(p_item->p_stats->f_send_bitrate * 8000 ) );
-
     /* Audio*/
     UPDATE_INT( adecoded_stat, p_item->p_stats->i_decoded_audio );
     UPDATE_INT( aplayed_stat,  p_item->p_stats->i_played_abuffers );
@@ -677,8 +670,6 @@ void InputStatsPanel::update( input_item_t *p_item )
 
 #undef UPDATE_INT
 #undef UPDATE_FLOAT
-
-    vlc_mutex_unlock(& p_item->p_stats->lock );
 }
 
 void InputStatsPanel::clear()

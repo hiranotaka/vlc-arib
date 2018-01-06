@@ -68,7 +68,6 @@ PlaylistWidget::PlaylistWidget( intf_thread_t *_p_i, QWidget *_par )
     /* Create a Container for the Art Label
        in order to have a beautiful resizing for the selector above it */
     artContainer = new QStackedWidget;
-    artContainer->setMaximumHeight( 256 );
 
     /* Art label */
     CoverArtLabel *art = new CoverArtLabel( artContainer, p_intf );
@@ -97,17 +96,16 @@ PlaylistWidget::PlaylistWidget( intf_thread_t *_p_i, QWidget *_par )
 
     mainView = new StandardPLPanel( this, p_intf, p_root, selector, model );
 
+    QHBoxLayout *topbarLayout = new QHBoxLayout();
+    topbarLayout->setSpacing( 10 );
+    layout->addLayout( topbarLayout, 0, 0 );
+
     /* Location Bar */
     locationBar = new LocationBar( model );
     locationBar->setSizePolicy( QSizePolicy::Ignored, QSizePolicy::Preferred );
-    layout->addWidget( locationBar, 0, 0, 1, 2 );
-    layout->setColumnStretch( 0, 5 );
+    topbarLayout->addWidget( locationBar );
     CONNECT( locationBar, invoked( const QModelIndex & ),
              mainView, browseInto( const QModelIndex & ) );
-
-    QHBoxLayout *topbarLayout = new QHBoxLayout();
-    layout->addLayout( topbarLayout, 0, 1 );
-    topbarLayout->setSpacing( 10 );
 
     /* Button to switch views */
     QToolButton *viewButton = new QToolButton( this );
@@ -139,7 +137,7 @@ PlaylistWidget::PlaylistWidget( intf_thread_t *_p_i, QWidget *_par )
     CONNECT( selector, SDCategorySelected(bool), mainView, setWaiting(bool) );
 
     /* */
-    split = new PlaylistSplitter( this );
+    split = new QSplitter( this );
 
     /* Add the two sides of the QSplitter */
     split->addWidget( leftSplitter );
@@ -267,7 +265,7 @@ void LocationBar::setIndex( const QModelIndex &index )
         actions.append( action );
         CONNECT( btn, clicked(), action, trigger() );
 
-        mapper->setMapping( action, model->itemId( i, PLAYLIST_ID ) );
+        mapper->setMapping( action, model->itemId( i ) );
         CONNECT( action, triggered(), mapper, map() );
 
         first = false;
@@ -391,9 +389,9 @@ void LocationButton::paintEvent ( QPaintEvent * )
     QString str( text() );
     /* This check is absurd, but either it is not done properly inside elidedText(),
        or boundingRect() is wrong */
-    if( r.width() < fontMetrics().boundingRect( text() ).width() )
-        str = fontMetrics().elidedText( text(), Qt::ElideRight, r.width() );
-    p.drawText( r, Qt::AlignVCenter | Qt::AlignLeft, str );
+    if( r.width() < fontMetrics().size(Qt::TextHideMnemonic, text()).width() )
+        str = fontMetrics().elidedText( text(), Qt::ElideRight, r.width(), Qt::TextHideMnemonic  );
+    p.drawText( r, Qt::AlignVCenter | Qt::AlignLeft | Qt::TextHideMnemonic , str );
 
     if( b_arrow )
     {
@@ -405,7 +403,7 @@ void LocationButton::paintEvent ( QPaintEvent * )
 
 QSize LocationButton::sizeHint() const
 {
-    QSize s( fontMetrics().boundingRect( text() ).size() );
+    QSize s( fontMetrics().size( Qt::TextHideMnemonic, text() ) );
     /* Add two pixels to width: font metrics are buggy, if you pass text through elidation
        with exactly the width of its bounding rect, sometimes it still elides */
     s.setWidth( s.width() + ( 2 * PADDING ) + ( b_arrow ? 10 : 0 ) + 2 );
@@ -414,26 +412,3 @@ QSize LocationButton::sizeHint() const
 }
 
 #undef PADDING
-
-#ifdef Q_OS_MAC
-QSplitterHandle *PlaylistSplitter::createHandle()
-{
-    return new SplitterHandle( orientation(), this );
-}
-
-SplitterHandle::SplitterHandle( Qt::Orientation orientation, QSplitter * parent )
-               : QSplitterHandle( orientation, parent)
-{
-};
-
-QSize SplitterHandle::sizeHint() const
-{
-    return (orientation() == Qt::Horizontal) ? QSize( 1, height() ) : QSize( width(), 1 );
-}
-
-void SplitterHandle::paintEvent(QPaintEvent *event)
-{
-    QPainter painter( this );
-    painter.fillRect( event->rect(), QColor(81, 81, 81) );
-}
-#endif /* __APPLE__ */

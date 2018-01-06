@@ -34,6 +34,7 @@
 
 #include <errno.h>
 #include <assert.h>
+#include <limits.h>
 #include <unistd.h>
 #ifdef HAVE_POLL
 # include <poll.h>
@@ -127,7 +128,7 @@ int net_Connect( vlc_object_t *p_this, const char *psz_host, int i_port,
         .ai_flags = AI_NUMERICSERV | AI_IDN,
     }, *res;
 
-    int val = vlc_getaddrinfo (psz_realhost, i_realport, &hints, &res);
+    int val = vlc_getaddrinfo_i11e(psz_realhost, i_realport, &hints, &res);
     if (val)
     {
         msg_Err (p_this, "cannot resolve %s port %d : %s", psz_realhost,
@@ -137,9 +138,8 @@ int net_Connect( vlc_object_t *p_this, const char *psz_host, int i_port,
     }
     free( psz_socks );
 
-    int timeout = var_InheritInteger (p_this, "ipv4-timeout");
-    if (timeout < 0)
-        timeout = -1;
+    mtime_t timeout = var_InheritInteger(p_this, "ipv4-timeout")
+                      * (CLOCK_FREQ / 1000);
 
     for (struct addrinfo *ptr = res; ptr != NULL; ptr = ptr->ai_next)
     {
@@ -161,16 +161,23 @@ int net_Connect( vlc_object_t *p_this, const char *psz_host, int i_port,
             }
 
             struct pollfd ufd;
+            mtime_t deadline = VLC_TS_INVALID;
 
             ufd.fd = fd;
             ufd.events = POLLOUT;
+            deadline = mdate() + timeout;
 
-            do  /* NOTE: timeout screwed up if we catch a signal (EINTR) */
+            do
             {
+                mtime_t now = mdate();
+
                 if (vlc_killed())
                     goto next_ai;
 
-                val = vlc_poll_i11e(&ufd, 1, timeout);
+                if (now > deadline)
+                    now = deadline;
+
+                val = vlc_poll_i11e(&ufd, 1, (deadline - now) / 1000);
             }
             while (val == -1 && errno == EINTR);
 
@@ -361,18 +368,32 @@ static int SocksNegotiate( vlc_object_t *p_obj,
     }
     else if( buffer[1] == 0x02 )
     {
-        int i_len1 = __MIN( strlen(psz_socks_user), 255 );
-        int i_len2 = __MIN( strlen(psz_socks_passwd), 255 );
+        if( psz_socks_user == NULL || psz_socks_passwd == NULL )
+        {
+            msg_Err( p_obj, "socks: server mandates authentication but "
+                            "a username and/or password was not supplied" );
+            return VLC_EGENERIC;
+        }
+
+        int const i_user = strlen( psz_socks_user );
+        int const i_pasw = strlen( psz_socks_passwd );
+
+        if( i_user > 255 || i_pasw > 255 )
+        {
+            msg_Err( p_obj, "socks: rejecting username and/or password due to "
+                            "violation of RFC1929 (longer than 255 bytes)" );
+            return VLC_EGENERIC;
+        }
+
         msg_Dbg( p_obj, "socks: username/password authentication" );
 
-        /* XXX: we don't support user/pwd > 255 (truncated)*/
         buffer[0] = i_socks_version;        /* Version */
-        buffer[1] = i_len1;                 /* User length */
-        memcpy( &buffer[2], psz_socks_user, i_len1 );
-        buffer[2+i_len1] = i_len2;          /* Password length */
-        memcpy( &buffer[2+i_len1+1], psz_socks_passwd, i_len2 );
+        buffer[1] = i_user;                 /* User length */
+        memcpy( &buffer[2], psz_socks_user, i_user );
+        buffer[2+i_user] = i_pasw;          /* Password length */
+        memcpy( &buffer[2+i_user+1], psz_socks_passwd, i_pasw );
 
-        i_len = 3 + i_len1 + i_len2;
+        i_len = 3 + i_user + i_pasw;
 
         if( net_Write( p_obj, fd, buffer, i_len ) != i_len )
             return VLC_EGENERIC;
@@ -435,7 +456,7 @@ static int SocksHandshakeTCP( vlc_object_t *p_obj,
         };
         struct addrinfo *res;
 
-        if (vlc_getaddrinfo (psz_host, 0, &hints, &res))
+        if (vlc_getaddrinfo_i11e(psz_host, 0, &hints, &res))
             return VLC_EGENERIC;
 
         buffer[0] = i_socks_version;

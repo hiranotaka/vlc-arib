@@ -37,16 +37,17 @@
 #include <math.h>
 #include <soxr.h>
 
-#define SOXR_QUALITY_TEXT N_( "Sox Resampling quality" )
+#define SOXR_QUALITY_TEXT N_( "Resampling quality" )
+#define SOXR_QUALITY_LONGTEXT N_( "Resampling quality, from worst to best" )
 
 static const int soxr_resampler_quality_vlclist[] = { 0, 1, 2, 3, 4 };
 static const char *const soxr_resampler_quality_vlctext[] =
 {
-    N_( "Quick cubic interpolation" ),
-    N_( "Low 16-bit with larger roll-off" ),
-    N_( "Medium 16-bit with medium roll-off" ),
-    N_( "High quality" ),
-    N_( "Very high quality" )
+     "Quick cubic interpolation",
+     "Low 16-bit with larger roll-off",
+     "Medium 16-bit with medium roll-off",
+     "High quality",
+     "Very high quality"
 };
 static const soxr_datatype_t soxr_resampler_quality_list[] =
 {
@@ -63,7 +64,7 @@ static int OpenResampler( vlc_object_t * );
 static void Close( vlc_object_t * );
 
 vlc_module_begin ()
-    set_shortname( "SoX Resampler" )
+    set_shortname( N_("SoX Resampler") )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_RESAMPLER )
     add_integer( "soxr-resampler-quality", 2,
@@ -121,10 +122,7 @@ Open( vlc_object_t *p_obj, bool b_change_ratio )
     filter_t *p_filter = (filter_t *)p_obj;
 
     /* Cannot remix */
-    if( p_filter->fmt_in.audio.i_physical_channels
-            != p_filter->fmt_out.audio.i_physical_channels
-     || p_filter->fmt_in.audio.i_original_channels
-            != p_filter->fmt_out.audio.i_original_channels )
+    if( p_filter->fmt_in.audio.i_channels != p_filter->fmt_out.audio.i_channels )
         return VLC_EGENERIC;
 
     /* Get SoXR input/output format */
@@ -144,7 +142,7 @@ Open( vlc_object_t *p_obj, bool b_change_ratio )
     else if( i_vlc_q > MAX_SOXR_QUALITY )
         i_vlc_q = MAX_SOXR_QUALITY;
     const unsigned long i_recipe = soxr_resampler_quality_list[i_vlc_q];
-    const unsigned i_channels = aout_FormatNbChannels( &p_filter->fmt_in.audio );
+    const unsigned i_channels = p_filter->fmt_in.audio.i_channels;
     const double f_ratio = p_filter->fmt_out.audio.i_rate
                            / (double) p_filter->fmt_in.audio.i_rate;
 

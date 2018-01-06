@@ -67,7 +67,7 @@
     "If set to true, the bridge will discard all input elementary streams " \
     "except if it doesn't receive data from another bridge-in. This can " \
     "be used to configure a place holder stream when the real source " \
-    "breaks. Source and placeholder streams should have the same format. " )
+    "breaks. Source and placeholder streams should have the same format." )
 
 #define PLACEHOLDER_DELAY_TEXT N_( "Placeholder delay" )
 #define PLACEHOLDER_DELAY_LONGTEXT N_( \
@@ -310,7 +310,7 @@ static void DelOut( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
 
     p_es->b_empty = true;
     block_ChainRelease( p_es->p_block );
-    p_es->p_block = false;
+    p_es->p_block = NULL;
 
     p_es->b_changed = true;
     vlc_mutex_unlock( &lock );
@@ -448,7 +448,7 @@ static void CloseIn( vlc_object_t * p_this )
 struct sout_stream_id_sys_t
 {
     sout_stream_id_sys_t *id;
-    int i_cat; /* es category. Used for placeholder option */
+    enum es_format_category_e i_cat; /* es category. Used for placeholder option */
 };
 
 static sout_stream_id_sys_t * AddIn( sout_stream_t *p_stream, const es_format_t *p_fmt )
@@ -479,6 +479,8 @@ static sout_stream_id_sys_t * AddIn( sout_stream_t *p_stream, const es_format_t 
                 if( p_sys->id_audio != NULL )
                     msg_Err( p_stream, "We already had an audio es!" );
                 p_sys->id_audio = id->id;
+                break;
+            default:
                 break;
         }
     }
@@ -628,6 +630,7 @@ static int SendIn( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
                         if( !newid )
                             break;
                         p_sys->i_last_audio = i_date;
+                        /* fall through */
                     default:
                         p_stream->p_next->pf_send( p_stream->p_next,
                                    newid?newid:p_bridge->pp_es[i]->id,

@@ -22,12 +22,13 @@
 # include "config.h"
 #endif
 
+#include <stdatomic.h>
+#include <stdnoreturn.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <assert.h>
 
 #include <vlc_common.h>
-#include <vlc_atomic.h>
 
 /*
  * POSIX timers are essentially unusable from a library: there provide no safe
@@ -49,8 +50,7 @@ struct vlc_timer
     atomic_uint  overruns;
 };
 
-VLC_NORETURN
-static void *vlc_timer_thread (void *data)
+noreturn static void *vlc_timer_thread (void *data)
 {
     struct vlc_timer *timer = data;
 
@@ -60,38 +60,46 @@ static void *vlc_timer_thread (void *data)
     for (;;)
     {
         while (timer->value == 0)
+        {
+            assert(timer->interval == 0);
             vlc_cond_wait (&timer->reschedule, &timer->lock);
+        }
 
-        if (vlc_cond_timedwait (&timer->reschedule, &timer->lock,
-                                timer->value) == 0)
+        if (timer->interval != 0)
+        {
+            mtime_t now = mdate();
+
+            if (now > timer->value)
+            {   /* Update overrun counter */
+                unsigned misses = (now - timer->value) / timer->interval;
+
+                timer->value += misses * timer->interval;
+                assert(timer->value <= now);
+                atomic_fetch_add_explicit(&timer->overruns, misses,
+                                          memory_order_relaxed);
+            }
+        }
+
+        mtime_t value = timer->value;
+
+        if (vlc_cond_timedwait(&timer->reschedule, &timer->lock, value) == 0)
             continue;
-        if (timer->interval == 0)
-            timer->value = 0; /* disarm */
+
+        if (likely(timer->value <= value))
+        {
+            timer->value += timer->interval; /* rearm */
+
+            if (timer->interval == 0)
+                timer->value = 0; /* disarm */
+        }
+
         vlc_mutex_unlock (&timer->lock);
 
         int canc = vlc_savecancel ();
         timer->func (timer->data);
         vlc_restorecancel (canc);
 
-        mtime_t now = mdate ();
-        unsigned misses;
-
         vlc_mutex_lock (&timer->lock);
-        if (timer->interval == 0)
-            continue;
-
-        misses = (now - timer->value) / timer->interval;
-        timer->value += timer->interval;
-        /* Try to compensate for one miss (mwait() will return immediately)
-         * but no more. Otherwise, we might busy loop, after extended periods
-         * without scheduling (suspend, SIGSTOP, RT preemption, ...). */
-        if (misses > 1)
-        {
-            misses--;
-            timer->value += misses * timer->interval;
-            atomic_fetch_add_explicit (&timer->overruns, misses,
-                                       memory_order_relaxed);
-        }
     }
 
     vlc_cleanup_pop ();
@@ -138,7 +146,10 @@ void vlc_timer_destroy (vlc_timer_t timer)
 void vlc_timer_schedule (vlc_timer_t timer, bool absolute,
                          mtime_t value, mtime_t interval)
 {
-    if (!absolute && value != 0)
+    if (value == 0)
+        interval = 0;
+    else
+    if (!absolute)
         value += mdate();
 
     vlc_mutex_lock (&timer->lock);

@@ -42,20 +42,12 @@
 #include "chroma.h"
 #include "avcommon.h"
 
-/*****************************************************************************
- * decoder_sys_t: decoder descriptor
- *****************************************************************************/
-struct decoder_sys_t
-{
-    /* Common part between video and audio decoder */
-    AVCODEC_COMMON_MEMBERS
-};
-
 /****************************************************************************
  * Local prototypes
  ****************************************************************************/
-static int OpenDecoder( vlc_object_t * );
-static void CloseDecoder( vlc_object_t * );
+static const int  frame_skip_list[] = { -1, 0, 1, 2, 3, 4 };
+static const char *const frame_skip_list_text[] =
+  { N_("None"), N_("Default"), N_("Non-ref"), N_("Bidir"), N_("Non-key"), N_("All") };
 
 static const int  nloopf_list[] = { 0, 1, 2, 3, 4 };
 static const char *const nloopf_list_text[] =
@@ -82,19 +74,30 @@ static const char *const enc_hq_list_text[] = {
 
 vlc_module_begin ()
     set_shortname( "FFmpeg")
-    add_shortcut( "ffmpeg" )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_VCODEC )
     /* decoder main module */
     set_description( N_("FFmpeg audio/video decoder") )
     set_help( MODULE_DESCRIPTION )
-    set_capability( "decoder", 70 )
     set_section( N_("Decoding") , NULL )
-    set_callbacks( OpenDecoder, CloseDecoder )
 
+    add_shortcut("ffmpeg")
+    set_capability("video decoder", 70)
+    set_callbacks(InitVideoDec, EndVideoDec)
+
+    add_submodule()
+    add_shortcut("ffmpeg")
+    set_capability("audio decoder", 70)
+    set_callbacks(InitAudioDec, EndAudioDec)
+
+    add_submodule()
+    add_shortcut("ffmpeg")
+    set_capability("spu decoder", 70)
+    set_callbacks(InitSubtitleDec, EndSubtitleDec)
 
     add_obsolete_bool( "ffmpeg-dr" ) /* removed since 2.1.0 */
     add_bool( "avcodec-dr", true, DR_TEXT, DR_TEXT, true )
+    add_bool( "avcodec-corrupted", true, CORRUPTED_TEXT, CORRUPTED_LONGTEXT, false )
     add_obsolete_integer ( "ffmpeg-error-resilience" ) /* removed since 2.1.0 */
     add_integer ( "avcodec-error-resilience", 1, ERROR_TEXT,
         ERROR_LONGTEXT, true )
@@ -107,7 +110,7 @@ vlc_module_begin ()
     add_obsolete_integer( "ffmpeg-skip-frame") /* removed since 2.1.0 */
     add_integer( "avcodec-skip-frame", 0, SKIP_FRAME_TEXT,
         SKIP_FRAME_LONGTEXT, true )
-        change_integer_range( -1, 4 )
+        change_integer_list( frame_skip_list, frame_skip_list_text )
     add_obsolete_integer( "ffmpeg-skip-idct" ) /* removed since 2.1.0 */
     add_integer( "avcodec-skip-idct", 0, SKIP_IDCT_TEXT,
         SKIP_IDCT_LONGTEXT, true )
@@ -244,125 +247,75 @@ vlc_module_begin ()
 #endif
 vlc_module_end ()
 
-/*****************************************************************************
- * OpenDecoder: probe the decoder and return score
- *****************************************************************************/
-static int OpenDecoder( vlc_object_t *p_this )
+AVCodecContext *ffmpeg_AllocContext( decoder_t *p_dec,
+                                     const AVCodec **restrict codecp )
 {
-    decoder_t *p_dec = (decoder_t*) p_this;
     unsigned i_codec_id;
-    int i_cat;
     const char *psz_namecodec;
-
-    const AVCodec  *p_codec = NULL;
+    const AVCodec *p_codec = NULL;
 
     /* *** determine codec type *** */
-    if( !GetFfmpegCodec( p_dec->fmt_in.i_codec, &i_cat, &i_codec_id,
-                             &psz_namecodec )
-     || i_cat == UNKNOWN_ES )
-    {
-        return VLC_EGENERIC;
-    }
+    if( !GetFfmpegCodec( p_dec->fmt_in.i_cat, p_dec->fmt_in.i_codec,
+                         &i_codec_id, &psz_namecodec ) )
+         return NULL;
+
+    msg_Dbg( p_dec, "using %s %s", AVPROVIDER(LIBAVCODEC), LIBAVCODEC_IDENT );
 
     /* Initialization must be done before avcodec_find_decoder() */
-    vlc_init_avcodec(p_this);
+    vlc_init_avcodec(VLC_OBJECT(p_dec));
 
     /* *** ask ffmpeg for a decoder *** */
-    char *psz_decoder = var_CreateGetString( p_this, "avcodec-codec" );
-    if( psz_decoder && *psz_decoder )
+    char *psz_decoder = var_InheritString( p_dec, "avcodec-codec" );
+    if( psz_decoder != NULL )
     {
         p_codec = avcodec_find_decoder_by_name( psz_decoder );
         if( !p_codec )
-            msg_Err( p_this, "Decoder `%s' not found", psz_decoder );
+            msg_Err( p_dec, "Decoder `%s' not found", psz_decoder );
         else if( p_codec->id != i_codec_id )
         {
-            msg_Err( p_this, "Decoder `%s' can't handle %4.4s",
+            msg_Err( p_dec, "Decoder `%s' can't handle %4.4s",
                     psz_decoder, (char*)&p_dec->fmt_in.i_codec );
             p_codec = NULL;
         }
+        free( psz_decoder );
     }
-    free( psz_decoder );
     if( !p_codec )
         p_codec = avcodec_find_decoder( i_codec_id );
     if( !p_codec )
     {
         msg_Dbg( p_dec, "codec not found (%s)", psz_namecodec );
-        return VLC_EGENERIC;
+        return NULL;
     }
+
+    *codecp = p_codec;
 
     /* *** get a p_context *** */
     AVCodecContext *avctx = avcodec_alloc_context3(p_codec);
     if( unlikely(avctx == NULL) )
-        return VLC_ENOMEM;
+        return NULL;
 
     avctx->debug = var_InheritInteger( p_dec, "avcodec-debug" );
     avctx->opaque = p_dec;
-
-    int ret;
-
-    switch( i_cat )
-    {
-        case VIDEO_ES:
-            ret = InitVideoDec( p_dec, avctx, p_codec );
-            break;
-        case AUDIO_ES:
-            ret = InitAudioDec( p_dec, avctx, p_codec );
-            break;
-        case SPU_ES:
-            ret = InitSubtitleDec( p_dec, avctx, p_codec );
-            break;
-        default:
-            ret = VLC_EGENERIC;
-    }
-
-    if( ret != VLC_SUCCESS )
-    {
-        avcodec_free_context( &avctx );
-        return ret;
-    }
-
-    if( avctx->profile != FF_PROFILE_UNKNOWN)
-        p_dec->fmt_in.i_profile = avctx->profile;
-    if( avctx->level != FF_LEVEL_UNKNOWN)
-        p_dec->fmt_in.i_level = avctx->level;
-
-    return VLC_SUCCESS;
-}
-
-/*****************************************************************************
- * CloseDecoder: decoder destruction
- *****************************************************************************/
-static void CloseDecoder( vlc_object_t *p_this )
-{
-    decoder_t *p_dec = (decoder_t *)p_this;
-
-    if( p_dec->fmt_out.i_cat == VIDEO_ES )
-        EndVideoDec( p_dec );
-    else
-        ffmpeg_CloseCodec( p_dec );
-
-    decoder_sys_t *p_sys = p_dec->p_sys;
-
-    avcodec_free_context( &p_sys->p_context );
-    free( p_sys );
+    return avctx;
 }
 
 /*****************************************************************************
  * ffmpeg_OpenCodec:
  *****************************************************************************/
-int ffmpeg_OpenCodec( decoder_t *p_dec )
+int ffmpeg_OpenCodec( decoder_t *p_dec, AVCodecContext *ctx,
+                      const AVCodec *codec )
 {
-    decoder_sys_t *p_sys = p_dec->p_sys;
     char *psz_opts = var_InheritString( p_dec, "avcodec-options" );
     AVDictionary *options = NULL;
     int ret;
 
-    if (psz_opts && *psz_opts)
-        options = vlc_av_get_options(psz_opts);
-    free(psz_opts);
+    if (psz_opts) {
+        vlc_av_get_options(psz_opts, &options);
+        free(psz_opts);
+    }
 
     vlc_avcodec_lock();
-    ret = avcodec_open2( p_sys->p_context, p_sys->p_codec, options ? &options : NULL );
+    ret = avcodec_open2( ctx, codec, options ? &options : NULL );
     vlc_avcodec_unlock();
 
     AVDictionaryEntry *t = NULL;
@@ -373,24 +326,10 @@ int ffmpeg_OpenCodec( decoder_t *p_dec )
 
     if( ret < 0 )
     {
-        msg_Err( p_dec, "cannot start codec (%s)", p_sys->p_codec->name );
+        msg_Err( p_dec, "cannot start codec (%s)", codec->name );
         return VLC_EGENERIC;
     }
 
-    msg_Dbg( p_dec, "codec (%s) started", p_sys->p_codec->name );
-    p_sys->b_delayed_open = false;
+    msg_Dbg( p_dec, "codec (%s) started", codec->name );
     return VLC_SUCCESS;
-}
-
-void ffmpeg_CloseCodec( decoder_t *p_dec )
-{
-    decoder_sys_t *p_sys = p_dec->p_sys;
-
-    if( p_sys->b_delayed_open )
-        return;
-
-    vlc_avcodec_lock();
-    avcodec_close( p_sys->p_context );
-    vlc_avcodec_unlock();
-    msg_Dbg( p_dec, "ffmpeg codec (%s) stopped", p_sys->p_codec->name );
 }

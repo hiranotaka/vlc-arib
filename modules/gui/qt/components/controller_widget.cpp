@@ -30,6 +30,7 @@
 
 #include "input_manager.hpp"         /* Get notification of Volume Change */
 #include "util/input_slider.hpp"     /* SoundSlider */
+#include "util/imagehelper.hpp"
 
 #include <math.h>
 
@@ -38,6 +39,8 @@
 #include <QMenu>
 #include <QWidgetAction>
 #include <QMouseEvent>
+
+#define VOLUME_MAX 125
 
 SoundWidget::SoundWidget( QWidget *_parent, intf_thread_t * _p_intf,
                           bool b_shiny, bool b_special )
@@ -50,8 +53,7 @@ SoundWidget::SoundWidget( QWidget *_parent, intf_thread_t * _p_intf,
 
     /* We need a Label for the pix */
     volMuteLabel = new QLabel;
-    volMuteLabelSize = QSize(16.0*logicalDpiX()/DPI_REF_VALUE, 16.0*logicalDpiY()/DPI_REF_VALUE);
-    volMuteLabel->setPixmap( QPixmap( ":/toolbar/volume-medium" ).scaled(volMuteLabelSize) );
+    volMuteLabel->setPixmap( ImageHelper::loadSvgToPixmap( ":/toolbar/volume-medium.svg", 16, 16 ) );
 
     /* We might need a subLayout too */
     QVBoxLayout *subLayout;
@@ -126,19 +128,23 @@ SoundWidget::SoundWidget( QWidget *_parent, intf_thread_t * _p_intf,
 void SoundWidget::refreshLabels()
 {
     int i_sliderVolume = volumeSlider->value();
+    const char *psz_icon = ":/toolbar/volume-muted.svg";
 
     if( b_is_muted )
     {
-        volMuteLabel->setPixmap( QPixmap(":/toolbar/volume-muted" ).scaled(volMuteLabelSize) );
+        volMuteLabel->setPixmap( ImageHelper::loadSvgToPixmap( psz_icon, 16, 16 ) );
         volMuteLabel->setToolTip(qfu(vlc_pgettext("Tooltip|Unmute", "Unmute")));
         return;
     }
 
     if( i_sliderVolume < VOLUME_MAX / 3 )
-        volMuteLabel->setPixmap( QPixmap( ":/toolbar/volume-low" ).scaled(volMuteLabelSize) );
+        psz_icon = ":/toolbar/volume-low.svg";
     else if( i_sliderVolume > (VOLUME_MAX * 2 / 3 ) )
-        volMuteLabel->setPixmap( QPixmap( ":/toolbar/volume-high" ).scaled(volMuteLabelSize) );
-    else volMuteLabel->setPixmap( QPixmap( ":/toolbar/volume-medium" ).scaled(volMuteLabelSize) );
+        psz_icon = ":/toolbar/volume-high.svg";
+    else
+        psz_icon = ":/toolbar/volume-medium.svg";
+
+    volMuteLabel->setPixmap( ImageHelper::loadSvgToPixmap( psz_icon, 16, 16 ) );
     volMuteLabel->setToolTip( qfu(vlc_pgettext("Tooltip|Mute", "Mute")) );
 }
 
@@ -224,7 +230,7 @@ bool SoundWidget::eventFilter( QObject *obj, QEvent *e )
  **/
 void PlayButton::updateButtonIcons( bool b_playing )
 {
-    setIcon( b_playing ? QIcon( ":/toolbar/pause_b" ) : QIcon( ":/toolbar/play_b" ) );
+    setIcon( b_playing ? QIcon( ":/toolbar/pause_b.svg" ) : QIcon( ":/toolbar/play_b.svg" ) );
     setToolTip( b_playing ? qtr( "Pause the playback" )
                           : qtr( I_PLAY_TOOLTIP ) );
 }
@@ -233,18 +239,18 @@ void AtoB_Button::updateButtonIcons( bool timeA, bool timeB )
 {
     if( !timeA && !timeB)
     {
-        setIcon( QIcon( ":/toolbar/atob_nob" ) );
+        setIcon( QIcon( ":/toolbar/atob_nob.svg" ) );
         setToolTip( qtr( "Loop from point A to point B continuously\n"
                          "Click to set point A" ) );
     }
     else if( timeA && !timeB )
     {
-        setIcon( QIcon( ":/toolbar/atob_noa" ) );
+        setIcon( QIcon( ":/toolbar/atob_noa.svg" ) );
         setToolTip( qtr( "Click to set point B" ) );
     }
     else if( timeA && timeB )
     {
-        setIcon( QIcon( ":/toolbar/atob" ) );
+        setIcon( QIcon( ":/toolbar/atob.svg" ) );
         setToolTip( qtr( "Stop the A to B loop" ) );
     }
 }
@@ -252,8 +258,8 @@ void AtoB_Button::updateButtonIcons( bool timeA, bool timeB )
 void LoopButton::updateButtonIcons( int value )
 {
     setChecked( value != NORMAL );
-    setIcon( ( value == REPEAT_ONE ) ? QIcon( ":/buttons/playlist/repeat_one" )
-                                     : QIcon( ":/buttons/playlist/repeat_all" ) );
+    setIcon( ( value == REPEAT_ONE ) ? QIcon( ":/buttons/playlist/repeat_one.svg" )
+                                     : QIcon( ":/buttons/playlist/repeat_all.svg" ) );
 }
 
 void AspectRatioComboBox::updateRatios()

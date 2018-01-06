@@ -41,7 +41,7 @@
 #include "../libvlc.h"
 #include <vlc_charset.h>
 #include <vlc_fs.h>
-#include <vlc_keys.h>
+#include <vlc_actions.h>
 #include <vlc_modules.h>
 #include <vlc_plugin.h>
 
@@ -204,7 +204,7 @@ int config_LoadConfigFile( vlc_object_t *p_this )
             continue; /* syntax error */
         *ptr = '\0';
 
-        module_config_t *item = config_FindConfig (p_this, psz_option_name);
+        module_config_t *item = config_FindConfig(psz_option_name);
         if (item == NULL)
             continue;
 
@@ -236,7 +236,7 @@ int config_LoadConfigFile( vlc_object_t *p_this )
                 break;
 
             default:
-                free ((char *)item->value.psz);
+                free (item->value.psz);
                 item->value.psz = strdupnull (psz_option_value);
                 break;
         }
@@ -421,14 +421,12 @@ int config_SaveConfigFile (vlc_object_t *p_this)
     vlc_rwlock_rdlock (&config_lock);*/
 
     /* Look for the selected module, if NULL then save everything */
-    size_t count;
-    module_t **list = module_list_get (&count);
-    for (size_t i = 0; i < count; i++)
+    for (vlc_plugin_t *p = vlc_plugins; p != NULL; p = p->next)
     {
-        module_t *p_parser = list[i];
+        module_t *p_parser = p->module;
         module_config_t *p_item, *p_end;
 
-        if( !p_parser->i_config_items )
+        if (p->conf.count == 0)
             continue;
 
         fprintf( file, "[%s]", module_get_object (p_parser) );
@@ -437,9 +435,9 @@ int config_SaveConfigFile (vlc_object_t *p_this)
         else
             fprintf( file, "\n\n" );
 
-        for( p_item = p_parser->p_config, p_end = p_item + p_parser->confsize;
+        for (p_item = p->conf.items, p_end = p_item + p->conf.size;
              p_item < p_end;
-             p_item++ )
+             p_item++)
         {
             if (!CONFIG_ITEM(p_item->i_type)   /* ignore hint */
              || p_item->b_removed              /* ignore deprecated option */
@@ -480,7 +478,6 @@ int config_SaveConfigFile (vlc_object_t *p_this)
     }
     vlc_rwlock_unlock (&config_lock);
 
-    module_list_free (list);
     if (loc != (locale_t)0)
     {
         uselocale (baseloc);
@@ -499,11 +496,7 @@ int config_SaveConfigFile (vlc_object_t *p_this)
         fclose (file);
         goto error;
     }
-#if defined(__APPLE__) || defined(__ANDROID__)
-    fsync (fd); /* Flush from OS */
-#else
     fdatasync (fd); /* Flush from OS */
-#endif
 #if defined (_WIN32) || defined (__OS2__)
     /* Windows cannot (re)move open files nor overwrite existing ones */
     fclose (file);

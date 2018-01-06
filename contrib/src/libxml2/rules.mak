@@ -1,6 +1,6 @@
 # libxml2
 
-LIBXML2_VERSION := 2.9.3
+LIBXML2_VERSION := 2.9.4
 LIBXML2_URL := http://xmlsoft.org/sources/libxml2-$(LIBXML2_VERSION).tar.gz
 
 PKGS += libxml2
@@ -27,10 +27,13 @@ XMLCONF = --with-minimal     \
           --without-iconv    \
           --without-http     \
           --without-ftp      \
-          --without-debug    \
           --without-docbook  \
           --without-regexps  \
           --without-python
+
+ifdef WITH_OPTIMIZATION
+XMLCONF+= --without-debug
+endif
 
 libxml2: libxml2-$(LIBXML2_VERSION).tar.gz .sum-libxml2
 	$(UNPACK)
@@ -41,6 +44,8 @@ libxml2: libxml2-$(LIBXML2_VERSION).tar.gz .sum-libxml2
 ifdef HAVE_WINSTORE
 	$(APPLY) $(SRC)/libxml2/nogetcwd.patch
 endif
+	$(APPLY) $(SRC)/libxml2/libxml2-lzma.patch
+	$(call pkg_static,"libxml-2.0.pc.in")
 	$(MOVE)
 
 .libxml2: libxml2

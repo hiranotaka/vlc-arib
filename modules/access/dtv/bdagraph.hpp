@@ -36,6 +36,7 @@
 
 #include <comcat.h>
 #include "dtv/bdadefs.h"
+#include <stdexcept>
 
 
 // TBS tuner extension headers
@@ -62,6 +63,18 @@ DWORD KSPROPERTY_BDA_PLPINFO = 22;
 // End of TBS tuner extension headers
 
 
+struct ComContext
+{
+    ComContext( int mode )
+    {
+        if( FAILED( CoInitializeEx( NULL, mode ) ) )
+            throw std::runtime_error( "CoInitializeEx failed" );
+    }
+    ~ComContext()
+    {
+        CoUninitialize();
+    }
+};
 
 class BDAOutput
 {
@@ -127,12 +140,9 @@ private:
 
     IMediaControl*  p_media_control;
     IGraphBuilder*  p_filter_graph;
-    ITuningSpaceContainer*      p_tuning_space_container;
     ITuningSpace*               p_tuning_space;
     ITuneRequest*               p_tune_request;
 
-    IDVBTuningSpace*            p_dvb_tuning_space;
-    IDVBSTuningSpace*           p_dvbs_tuning_space;
 #if 0
     IDigitalCableTuningSpace*   p_cqam_tuning_space;
     IATSCTuningSpace*           p_atsc_tuning_space;

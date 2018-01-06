@@ -46,7 +46,7 @@ static void CloseDecoder  ( vlc_object_t * );
  "VLC partly implements this, but you can choose to disable all formatting.")
 
 vlc_module_begin ()
-    set_capability( "decoder", 40 )
+    set_capability( "spu decoder", 40 )
     set_shortname( N_("USFSubs"))
     set_description( N_("USF subtitles decoder") )
     set_callbacks( OpenDecoder, CloseDecoder )
@@ -99,7 +99,7 @@ struct decoder_sys_t
     int                 i_images;
 };
 
-static subpicture_t *DecodeBlock   ( decoder_t *, block_t ** );
+static int           DecodeBlock   ( decoder_t *, block_t * );
 static char         *CreatePlainText( char * );
 static int           ParseImageAttachments( decoder_t *p_dec );
 
@@ -126,8 +126,7 @@ static int OpenDecoder( vlc_object_t *p_this )
     if( ( p_dec->p_sys = p_sys = calloc(1, sizeof(decoder_sys_t)) ) == NULL )
         return VLC_ENOMEM;
 
-    p_dec->pf_decode_sub = DecodeBlock;
-    p_dec->fmt_out.i_cat = SPU_ES;
+    p_dec->pf_decode = DecodeBlock;
     p_dec->fmt_out.i_codec = 0;
 
     /* init of p_sys */
@@ -154,22 +153,19 @@ static int OpenDecoder( vlc_object_t *p_this )
  ****************************************************************************
  * This function must be fed with complete subtitles units.
  ****************************************************************************/
-static subpicture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
+static int DecodeBlock( decoder_t *p_dec, block_t *p_block )
 {
     subpicture_t *p_spu;
-    block_t *p_block;
 
-    if( !pp_block || *pp_block == NULL )
-        return NULL;
-
-    p_block = *pp_block;
+    if( p_block == NULL ) /* No Drain */
+        return VLCDEC_SUCCESS;
 
     p_spu = ParseText( p_dec, p_block );
 
     block_Release( p_block );
-    *pp_block = NULL;
-
-    return p_spu;
+    if( p_spu != NULL )
+        decoder_QueueSub( p_dec, p_spu );
+    return VLCDEC_SUCCESS;
 }
 
 /*****************************************************************************
@@ -182,8 +178,7 @@ static void CloseDecoder( vlc_object_t *p_this )
 
     if( p_sys->pp_ssa_styles )
     {
-        int i;
-        for( i = 0; i < p_sys->i_ssa_styles; i++ )
+        for( int i = 0; i < p_sys->i_ssa_styles; i++ )
         {
             if( !p_sys->pp_ssa_styles[i] )
                 continue;
@@ -196,8 +191,7 @@ static void CloseDecoder( vlc_object_t *p_this )
     }
     if( p_sys->pp_images )
     {
-        int i;
-        for( i = 0; i < p_sys->i_images; i++ )
+        for( int i = 0; i < p_sys->i_images; i++ )
         {
             if( !p_sys->pp_images[i] )
                 continue;
@@ -312,9 +306,7 @@ static ssa_style_t *ParseStyle( decoder_sys_t *p_sys, char *psz_subtitle )
 
     if( psz_style )
     {
-        int i;
-
-        for( i = 0; i < p_sys->i_ssa_styles; i++ )
+        for( int i = 0; i < p_sys->i_ssa_styles; i++ )
         {
             if( !strcmp( p_sys->pp_ssa_styles[i]->psz_stylename, psz_style ) )
                 p_ssa_style = p_sys->pp_ssa_styles[i];
@@ -418,20 +410,18 @@ static void SetupPositions( subpicture_region_t *p_region, char *psz_subtitle )
 
 static subpicture_region_t *CreateTextRegion( decoder_t *p_dec,
                                               char *psz_subtitle,
-                                              int i_len,
                                               int i_sys_align )
 {
     decoder_sys_t        *p_sys = p_dec->p_sys;
     subpicture_region_t  *p_text_region;
     video_format_t        fmt;
-    VLC_UNUSED( i_len );
 
     /* Create a new subpicture region */
-    memset( &fmt, 0, sizeof(video_format_t) );
-    fmt.i_chroma = VLC_CODEC_TEXT;
+    video_format_Init( &fmt, VLC_CODEC_TEXT );
     fmt.i_width = fmt.i_height = 0;
     fmt.i_x_offset = fmt.i_y_offset = 0;
     p_text_region = subpicture_region_New( &fmt );
+    video_format_Clean( &fmt );
 
     if( p_text_region != NULL )
     {
@@ -440,9 +430,7 @@ static subpicture_region_t *CreateTextRegion( decoder_t *p_dec,
         p_ssa_style = ParseStyle( p_sys, psz_subtitle );
         if( !p_ssa_style )
         {
-            int i;
-
-            for( i = 0; i < p_sys->i_ssa_styles; i++ )
+            for( int i = 0; i < p_sys->i_ssa_styles; i++ )
             {
                 if( !strcasecmp( p_sys->pp_ssa_styles[i]->psz_stylename, "Default" ) )
                     p_ssa_style = p_sys->pp_ssa_styles[i];
@@ -488,12 +476,11 @@ static int ParseImageAttachments( decoder_t *p_dec )
     decoder_sys_t        *p_sys = p_dec->p_sys;
     input_attachment_t  **pp_attachments;
     int                   i_attachments_cnt;
-    int                   k = 0;
 
     if( VLC_SUCCESS != decoder_GetInputAttachments( p_dec, &pp_attachments, &i_attachments_cnt ))
         return VLC_EGENERIC;
 
-    for( k = 0; k < i_attachments_cnt; k++ )
+    for( int k = 0; k < i_attachments_cnt; k++ )
     {
         input_attachment_t *p_attach = pp_attachments[k];
 
@@ -640,12 +627,17 @@ static void ParseUSFHeaderTags( decoder_t *p_dec, xml_reader_t *p_xml_reader )
                         if( !strcasecmp( p_sys->pp_ssa_styles[i]->psz_stylename, "Default" ) )
                         {
                             ssa_style_t *p_default_style = p_sys->pp_ssa_styles[i];
+                            text_style_t *p_orig_text_style = p_ssa_style->p_style;
 
                             memcpy( p_ssa_style, p_default_style, sizeof( ssa_style_t ) );
+
+                            // reset data-members that are not to be overwritten
+                            p_ssa_style->p_style = p_orig_text_style;
+                            p_ssa_style->psz_stylename = NULL;
+
                             //FIXME: Make font_style a pointer. Actually we double copy some data here,
                             //   we use text_style_Copy to avoid copying psz_fontname, though .
                             text_style_Copy( p_ssa_style->p_style, p_default_style->p_style );
-                            p_ssa_style->psz_stylename = NULL;
                         }
                     }
 
@@ -857,7 +849,6 @@ static subpicture_region_t *ParseUSFString( decoder_t *p_dec,
 
                     p_text_region = CreateTextRegion( p_dec,
                                                       psz_subtitle,
-                                                      psz_end - psz_subtitle,
                                                       p_sys->i_align );
 
                     if( !p_region_first )
@@ -876,7 +867,7 @@ static subpicture_region_t *ParseUSFString( decoder_t *p_dec,
             {
                 subpicture_region_t *p_image_region = NULL;
 
-                char *psz_end = strcasestr( psz_subtitle, "</image>" );
+                psz_end = strcasestr( psz_subtitle, "</image>" );
                 char *psz_content = strchr( psz_subtitle, '>' );
                 int   i_transparent = -1;
 
@@ -929,14 +920,10 @@ static subpicture_region_t *ParseUSFString( decoder_t *p_dec,
             {
                 subpicture_region_t  *p_text_region;
 
-                if( psz_end )
-                    psz_end += strcspn( psz_end, ">" ) + 1;
-                else
-                    psz_end = psz_subtitle + strlen( psz_subtitle );
+                psz_end = psz_subtitle + strlen( psz_subtitle );
 
                 p_text_region = CreateTextRegion( p_dec,
                                                   psz_subtitle,
-                                                  psz_end - psz_subtitle,
                                                   p_sys->i_align );
 
                 if( p_text_region )
@@ -975,7 +962,7 @@ static void ParseUSFHeader( decoder_t *p_dec )
     stream_t      *p_sub = NULL;
     xml_reader_t  *p_xml_reader = NULL;
 
-    p_sub = stream_MemoryNew( VLC_OBJECT(p_dec),
+    p_sub = vlc_stream_MemoryNew( VLC_OBJECT(p_dec),
                               p_dec->fmt_in.p_extra,
                               p_dec->fmt_in.i_extra,
                               true );
@@ -994,7 +981,7 @@ static void ParseUSFHeader( decoder_t *p_dec )
 
         xml_ReaderDelete( p_xml_reader );
     }
-    stream_Delete( p_sub );
+    vlc_stream_Delete( p_sub );
 }
 
 /* Function now handles tags which has attribute values, and tries
@@ -1082,7 +1069,6 @@ static char *CreatePlainText( char *psz_subtitle )
     s = strpbrk( psz_text, "\t\r\n " );
     while( s )
     {
-        int   k;
         char  spc = ' ';
         int   i_whitespace = strspn( s, "\t\r\n " );
 
@@ -1090,7 +1076,7 @@ static char *CreatePlainText( char *psz_subtitle )
          * occurs in the whitespace use a '\n' as our value,
          * otherwise just use a ' '
          */
-        for( k = 0; k < i_whitespace; k++ )
+        for( int k = 0; k < i_whitespace; k++ )
             if( s[k] == '\n' ) spc = '\n';
 
         if( i_whitespace > 1 )

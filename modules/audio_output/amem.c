@@ -163,6 +163,9 @@ static int Start (audio_output_t *aout, audio_sample_format_t *fmt)
     char format[5] = "S16N";
     unsigned channels;
 
+    if (aout_FormatNbChannels(fmt) == 0)
+        return VLC_EGENERIC;
+
     if (sys->setup != NULL)
     {
         channels = aout_FormatNbChannels(fmt);
@@ -228,7 +231,7 @@ static int Start (audio_output_t *aout, audio_sample_format_t *fmt)
     }
 
     fmt->i_format = VLC_CODEC_S16N;
-    fmt->i_original_channels = fmt->i_physical_channels;
+    fmt->channel_type = AUDIO_CHANNEL_TYPE_BITMAP;
     return VLC_SUCCESS;
 }
 

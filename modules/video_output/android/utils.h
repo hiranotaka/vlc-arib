@@ -38,124 +38,121 @@ typedef struct AWindowHandler AWindowHandler;
 enum AWindow_ID {
     AWindow_Video,
     AWindow_Subtitles,
+    AWindow_SurfaceTexture,
     AWindow_Max,
 };
 
 /**
  * native_window_api_t. See android/native_window.h in NDK
  */
-
-typedef int32_t (*ptr_ANativeWindow_lock)(ANativeWindow*, ANativeWindow_Buffer*, ARect*);
-typedef void (*ptr_ANativeWindow_unlockAndPost)(ANativeWindow*);
-typedef int32_t (*ptr_ANativeWindow_setBuffersGeometry)(ANativeWindow*, int32_t, int32_t, int32_t);
-
 typedef struct
 {
-    ptr_ANativeWindow_lock winLock;
-    ptr_ANativeWindow_unlockAndPost unlockAndPost;
-    ptr_ANativeWindow_setBuffersGeometry setBuffersGeometry; /* can be NULL */
+    int32_t (*winLock)(ANativeWindow*, ANativeWindow_Buffer*, ARect*);
+    void (*unlockAndPost)(ANativeWindow*);
+    int32_t (*setBuffersGeometry)(ANativeWindow*, int32_t, int32_t, int32_t); /* can be NULL */
 } native_window_api_t;
 
 /**
  * native_window_priv_api_t. See system/core/include/system/window.h in AOSP.
  */
-
 typedef struct native_window_priv native_window_priv;
-typedef native_window_priv *(*ptr_ANativeWindowPriv_connect) (ANativeWindow *);
-typedef int (*ptr_ANativeWindowPriv_disconnect) (native_window_priv *);
-typedef int (*ptr_ANativeWindowPriv_setUsage) (native_window_priv *, bool, int );
-typedef int (*ptr_ANativeWindowPriv_setBuffersGeometry) (native_window_priv *, int, int, int );
-typedef int (*ptr_ANativeWindowPriv_getMinUndequeued) (native_window_priv *, unsigned int *);
-typedef int (*ptr_ANativeWindowPriv_getMaxBufferCount) (native_window_priv *, unsigned int *);
-typedef int (*ptr_ANativeWindowPriv_setBufferCount) (native_window_priv *, unsigned int );
-typedef int (*ptr_ANativeWindowPriv_setCrop) (native_window_priv *, int, int, int, int);
-typedef int (*ptr_ANativeWindowPriv_dequeue) (native_window_priv *, void **);
-typedef int (*ptr_ANativeWindowPriv_lock) (native_window_priv *, void *);
-typedef int (*ptr_ANativeWindowPriv_queue) (native_window_priv *, void *);
-typedef int (*ptr_ANativeWindowPriv_cancel) (native_window_priv *, void *);
-typedef int (*ptr_ANativeWindowPriv_lockData) (native_window_priv *, void **, ANativeWindow_Buffer *);
-typedef int (*ptr_ANativeWindowPriv_unlockData) (native_window_priv *, void *, bool b_render);
-typedef int (*ptr_ANativeWindowPriv_setOrientation) (native_window_priv *, int);
+typedef struct
+{
+    native_window_priv *(*connect)(ANativeWindow *);
+    int (*disconnect) (native_window_priv *);
+    int (*setUsage) (native_window_priv *, bool, int );
+    int (*setBuffersGeometry) (native_window_priv *, int, int, int );
+    int (*getMinUndequeued) (native_window_priv *, unsigned int *);
+    int (*getMaxBufferCount) (native_window_priv *, unsigned int *);
+    int (*setBufferCount) (native_window_priv *, unsigned int );
+    int (*setCrop) (native_window_priv *, int, int, int, int);
+    int (*dequeue) (native_window_priv *, void **);
+    int (*lock) (native_window_priv *, void *);
+    int (*queue) (native_window_priv *, void *);
+    int (*cancel) (native_window_priv *, void *);
+    int (*lockData) (native_window_priv *, void **, ANativeWindow_Buffer *);
+    int (*unlockData) (native_window_priv *, void *, bool b_render);
+    int (*setOrientation) (native_window_priv *, int);
+} native_window_priv_api_t;
+
+struct awh_mouse_coords
+{
+    int i_action;
+    int i_button;
+    int i_x;
+    int i_y;
+};
 
 typedef struct
 {
-    ptr_ANativeWindowPriv_connect connect;
-    ptr_ANativeWindowPriv_disconnect disconnect;
-    ptr_ANativeWindowPriv_setUsage setUsage;
-    ptr_ANativeWindowPriv_setBuffersGeometry setBuffersGeometry;
-    ptr_ANativeWindowPriv_getMinUndequeued getMinUndequeued;
-    ptr_ANativeWindowPriv_getMaxBufferCount getMaxBufferCount;
-    ptr_ANativeWindowPriv_setBufferCount setBufferCount;
-    ptr_ANativeWindowPriv_setCrop setCrop;
-    ptr_ANativeWindowPriv_dequeue dequeue;
-    ptr_ANativeWindowPriv_lock lock;
-    ptr_ANativeWindowPriv_lockData lockData;
-    ptr_ANativeWindowPriv_unlockData unlockData;
-    ptr_ANativeWindowPriv_queue queue;
-    ptr_ANativeWindowPriv_cancel cancel;
-    ptr_ANativeWindowPriv_setOrientation setOrientation;
-} native_window_priv_api_t;
+    void (*on_new_window_size)(vout_window_t *wnd, unsigned i_width,
+                               unsigned i_height);
+    void (*on_new_mouse_coords)(vout_window_t *wnd,
+                                const struct awh_mouse_coords *coords);
+} awh_events_t;
 
 /**
- * This function returns a JNIEnv* created from the android JavaVM attached to
- * the VLC object var. it doesn't need to be released.
+ * Load a private native window API
+ *
+ * This can be used to access the private ANativeWindow API.
+ * \param api doesn't need to be released
+ * \return 0 on success, -1 on error.
+ */
+int android_loadNativeWindowPrivApi(native_window_priv_api_t *api);
+
+/**
+ * Attach or get a JNIEnv*
+ *
+ * The returned JNIEnv* is created from the android JavaVM attached to the VLC
+ * object var.
+ * \return a valid JNIEnv * or NULL. It doesn't need to be released.
  */
 JNIEnv *android_getEnv(vlc_object_t *p_obj, const char *psz_thread_name);
 
 /**
- * This function return a new AWindowHandler created from a
- * IAWindowNativeHandler jobject attached to the VLC object var. It must be
- * released with AWindowHandler_destroy.
+ * Create new AWindowHandler
+ *
+ * This handle allow to access IAWindowNativeHandler jobject attached to the
+ * VLC object var.
+ * \return a valid AWindowHandler * or NULL. It must be released with
+ * AWindowHandler_destroy.
  */
-AWindowHandler *AWindowHandler_new(vlc_object_t *p_obj);
+AWindowHandler *AWindowHandler_new(vout_window_t *wnd, awh_events_t *p_events);
 void AWindowHandler_destroy(AWindowHandler *p_awh);
 
 /**
- * This functions returns a native_window_api_t that can be used to access the
- * public ANativeWindow API. It can't be NULL and shouldn't be released
+ * Get the public native window API
+ *
+ * Used to access the public ANativeWindow API.
+ * \return a valid native_window_api_t. It doesn't need to be released.
  */
 native_window_api_t *AWindowHandler_getANativeWindowAPI(AWindowHandler *p_awh);
 
 /**
- * This function returns a native_window_priv_api_t that can be used to access
- * the private ANativeWindow API. It can be NULL and shouldn't be released
- */
-native_window_priv_api_t *AWindowHandler_getANativeWindowPrivAPI(AWindowHandler *p_awh);
-
-/**
- * This function retrieves the mouse coordinates sent by the Android
- * MediaPlayer. It returns true if the coordinates are valid.
- */
-bool AWindowHandler_getMouseCoordinates(AWindowHandler *p_awh,
-                                        int *p_action, int *p_button,
-                                        int *p_x, int *p_y);
-
-/**
- * This function retrieves the window size sent by the Android MediaPlayer.  It
- * returns true if the size is valid.
- */
-bool AWindowHandler_getWindowSize(AWindowHandler *p_awh,
-                                  int *p_width, int *p_height);
-
-/**
- * This function returns the Video or the Subtitles Android Surface attached to
- * the MediaPlayer. It can be released with AWindowHandler_releaseSurface or by
- * AWindowHandler_destroy.
+ * Get the Video or the Subtitles Android Surface
+ *
+ * \return the surface in a jobject, or NULL. It should be released with
+ * AWindowHandler_releaseANativeWindow() or AWindowHandler_destroy().
  */
 jobject AWindowHandler_getSurface(AWindowHandler *p_awh, enum AWindow_ID id);
-void AWindowHandler_releaseSurface(AWindowHandler *p_awh, enum AWindow_ID id);
 
 /**
- * This function returns the Video or the Subtitles ANativeWindow attached to
- * the Android Surface. It can be released with
- * AWindowHandler_releaseANativeWindow, AWindowHandler_releaseSurface or by
- * AWindowHandler_destroy.
+ * Get the Video or the Subtitles ANativeWindow
+ *
+ * \return a valid ANativeWindow or NULL.It should be released with
+ * AWindowHandler_releaseANativeWindow() or AWindowHandler_destroy.()
  */
 ANativeWindow *AWindowHandler_getANativeWindow(AWindowHandler *p_awh,
                                                enum AWindow_ID id);
+
+/**
+ * Release the Video/Subtitles Surface/ANativeWindow
+ */
 void AWindowHandler_releaseANativeWindow(AWindowHandler *p_awh,
                                          enum AWindow_ID id);
 /**
+ * Pre-ICS hack of ANativeWindow_setBuffersGeometry
+ *
  * This function is a fix up of ANativeWindow_setBuffersGeometry that doesn't
  * work before Android ICS. It configures the Surface from the Android
  * MainThread via a SurfaceHolder. It returns VLC_SUCCESS if the Surface was
@@ -165,14 +162,72 @@ int AWindowHandler_setBuffersGeometry(AWindowHandler *p_awh, enum AWindow_ID id,
                                       int i_width, int i_height, int i_format);
 
 /**
- * This function set the window layout.
+ * Returns true if the video layout can be changed
  */
-int AWindowHandler_setWindowLayout(AWindowHandler *p_awh,
-                                   int i_width, int i_height,
-                                   int i_visible_width, int i_visible_height,
-                                   int i_sar_num, int i_sar_den);
+bool AWindowHandler_canSetVideoLayout(AWindowHandler *p_awh);
 
-/* Signal a critical error
- * TODO: remove this when there is a decoder fallback */
+/**
+ * Set the video layout
+ *
+ * Should be called only if AWindowHandler_canSetVideoLayout() returned true
+ */
+int AWindowHandler_setVideoLayout(AWindowHandler *p_awh,
+                                  int i_width, int i_height,
+                                  int i_visible_width, int i_visible_height,
+                                  int i_sar_num, int i_sar_den);
+
+/**
+ * Attach a SurfaceTexture to the OpenGL ES context that is current on the
+ * calling thread.
+ *
+ * See SurfaceTexture Android documentation.
+ * \return 0 on success, -1 on error.
+ */
 int
-AWindowHandler_sendHardwareAccelerationError(vlc_object_t *p_obj, AWindowHandler *p_awh);
+SurfaceTexture_attachToGLContext(AWindowHandler *p_awh, int tex_name);
+
+/**
+ * Detach a SurfaceTexture from the OpenGL ES context that owns the OpenGL ES
+ * texture object.
+ */
+void
+SurfaceTexture_detachFromGLContext(AWindowHandler *p_awh);
+
+/**
+ * Get a Java Surface from the attached SurfaceTexture
+ *
+ * This object can be used with mediacodec_jni.
+ */
+static inline jobject
+SurfaceTexture_getSurface(AWindowHandler *p_awh)
+{
+    return AWindowHandler_getSurface(p_awh, AWindow_SurfaceTexture);
+}
+
+/**
+ * Get a ANativeWindow from the attached SurfaceTexture
+ *
+ * This pointer can be used with mediacodec_ndk.
+ */
+static inline ANativeWindow *
+SurfaceTexture_getANativeWindow(AWindowHandler *p_awh)
+{
+    return AWindowHandler_getANativeWindow(p_awh, AWindow_SurfaceTexture);
+}
+
+/**
+ * Wait for a new frame and update it
+ *
+ * This function must be called from the OpenGL thread. This is an helper that
+ * waits for a new frame via the Java SurfaceTexture.OnFrameAvailableListener
+ * listener and update the frame via the SurfaceTexture.updateTexImage()
+ * method.
+ *
+ * \param pp_transform_mtx the transform matrix fetched from
+ * SurfaceTexture.getTransformMatrix() after the
+ * SurfaceTexture.updateTexImage() call
+ * \return VLC_SUCCESS or a VLC error
+ */
+int
+SurfaceTexture_waitAndUpdateTexImage(AWindowHandler *p_awh,
+                                     const float **pp_transform_mtx);

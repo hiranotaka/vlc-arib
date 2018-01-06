@@ -22,12 +22,14 @@
 # include "config.h"
 #endif
 
+#include <limits.h>
+#include <string.h>
+
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_access.h>
 
 static int Open (vlc_object_t *);
-static void Close (vlc_object_t *);
 
 vlc_module_begin ()
     set_shortname (N_("SDP"))
@@ -36,109 +38,76 @@ vlc_module_begin ()
     set_subcategory (SUBCAT_INPUT_ACCESS)
 
     set_capability ("access", 0)
-    set_callbacks (Open, Close)
+    set_callbacks (Open, NULL)
     add_shortcut ("sdp")
 vlc_module_end()
 
-static ssize_t Read (access_t *, uint8_t *, size_t);
-static int Seek (access_t *, uint64_t);
-static int Control (access_t *, int, va_list);
-
-struct access_sys_t
-{
-    size_t offset;
-    size_t length;
-    char   data[];
-};
+static ssize_t Read (stream_t *, void *, size_t);
+static int Seek (stream_t *, uint64_t);
+static int Control (stream_t *, int, va_list);
 
 static int Open (vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
-    size_t len = strlen (access->psz_location);
+    stream_t *access = (stream_t *)obj;
 
-    access_sys_t *sys = malloc (sizeof(*sys) + len);
-    if (unlikely(sys == NULL))
-        return VLC_ENOMEM;
-
-    /* NOTE: This copy is not really needed. Better safe than sorry. */
-    sys->offset = 0;
-    sys->length = len;
-    memcpy (sys->data, access->psz_location, len);
-
-    access_InitFields (access);
     access->pf_read = Read;
     access->pf_block = NULL;
     access->pf_seek = Seek;
     access->pf_control = Control;
-    access->p_sys = sys;
+    access->p_sys = (char *)access->psz_location;
 
     return VLC_SUCCESS;
 }
 
-static void Close (vlc_object_t *obj)
+static ssize_t Read (stream_t *access, void *buf, size_t len)
 {
-    access_t *access = (access_t *)obj;
-    access_sys_t *sys = access->p_sys;
+    char *in = access->p_sys, *out = buf;
+    size_t i;
 
-    free (sys);
+    for (i = 0; i < len && *in != '\0'; i++)
+        *(out++) = *(in++);
+
+    access->p_sys = in;
+    return i;
 }
 
-static ssize_t Read (access_t *access, uint8_t *buf, size_t len)
+static int Seek (stream_t *access, uint64_t position)
 {
-    access_sys_t *sys = access->p_sys;
-
-    if (sys->offset >= sys->length)
-    {
-        access->info.b_eof = true;
-        return 0;
-    }
-
-    if (len > sys->length - sys->offset)
-        len = sys->length - sys->offset;
-    memcpy (buf, sys->data + sys->offset, len);
-    return len;
-}
-
-static int Seek (access_t *access, uint64_t position)
-{
-    access_sys_t *sys = access->p_sys;
-
-    if (position > sys->length)
-        position = sys->length;
-
-    sys->offset = position;
-    access->info.b_eof = false;
+#if (UINT64_MAX > SIZE_MAX)
+    if (unlikely(position > SIZE_MAX))
+        position = SIZE_MAX;
+#endif
+    access->p_sys = (char *)access->psz_location
+                    + strnlen(access->psz_location, position);
     return VLC_SUCCESS;
 }
 
-static int Control (access_t *access, int query, va_list args)
+static int Control (stream_t *access, int query, va_list args)
 {
-    access_sys_t *sys = access->p_sys;
-
     switch (query)
     {
-        case ACCESS_CAN_SEEK:
-        case ACCESS_CAN_FASTSEEK:
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_SEEK:
+        case STREAM_CAN_FASTSEEK:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
         {
-            bool *b = va_arg(args, bool*);
+            bool *b = va_arg(args, bool *);
             *b = true;
             return VLC_SUCCESS;
         }
 
-        case ACCESS_GET_SIZE:
-            *va_arg(args, uint64_t *) = sys->length;
+        case STREAM_GET_SIZE:
+            *va_arg(args, uint64_t *) = strlen(access->psz_location);
             return VLC_SUCCESS;
 
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
         {
             int64_t *dp = va_arg(args, int64_t *);
             *dp = DEFAULT_PTS_DELAY;
             return VLC_SUCCESS;
         }
     
-        case ACCESS_SET_PAUSE_STATE:
+        case STREAM_SET_PAUSE_STATE:
             return VLC_SUCCESS;
     }
     return VLC_EGENERIC;

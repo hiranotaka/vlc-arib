@@ -34,8 +34,8 @@
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 #include <vlc_image.h>
 #include "filter_picture.h"
 
@@ -53,7 +53,7 @@ static picture_t *Filter( filter_t *, picture_t * );
 vlc_module_begin ()
     set_description( N_("Psychedelic video filter") )
     set_shortname( N_( "Psychedelic" ))
-    set_capability( "video filter2", 0 )
+    set_capability( "video filter", 0 )
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
@@ -143,8 +143,6 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
 
     picture_t *p_converted;
     video_format_t fmt_out;
-    memset( &fmt_out, 0, sizeof(video_format_t) );
-    fmt_out.p_palette = NULL;
 
     if( !p_pic ) return NULL;
 

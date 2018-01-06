@@ -62,6 +62,7 @@
 #include <QApplication>
 #include <QSignalMapper>
 #include <QFileDialog>
+#include <QUrl>
 
 #define I_OP_DIR_WINTITLE I_DIR_OR_FOLDER( N_("Open Directory"), \
                                            N_("Open Folder") )
@@ -85,9 +86,6 @@ DialogsProvider::DialogsProvider( intf_thread_t *_p_intf ) :
     CONNECT( menusUpdateMapper, mapped(QObject *),
              this, menuUpdateAction( QObject *) );
 
-    SDMapper = new QSignalMapper();
-    CONNECT( SDMapper, mapped (QString), this, SDMenuAction( QString ) );
-
     new DialogHandler (p_intf, this );
 }
 
@@ -97,6 +95,9 @@ DialogsProvider::~DialogsProvider()
     MediaInfoDialog::killInstance();
     MessagesDialog::killInstance();
     BookmarksDialog::killInstance();
+#ifdef ENABLE_VLM
+    VLMDialog::killInstance();
+#endif
     HelpDialog::killInstance();
 #ifdef UPDATE_CHECK
     UpdateDialog::killInstance();
@@ -106,12 +107,35 @@ DialogsProvider::~DialogsProvider()
 
     delete menusMapper;
     delete menusUpdateMapper;
-    delete SDMapper;
 
     delete popupMenu;
     delete videoPopupMenu;
     delete audioPopupMenu;
     delete miscPopupMenu;
+}
+
+QStringList DialogsProvider::getOpenURL( QWidget *parent,
+                                         const QString &caption,
+                                         const QString &dir,
+                                         const QString &filter,
+                                         QString *selectedFilter )
+{
+    QStringList res;
+    QList<QUrl> urls = QFileDialog::getOpenFileUrls( parent, caption, QUrl::fromUserInput( dir ), filter, selectedFilter );
+
+    foreach( const QUrl& url, urls )
+        res.append( url.toEncoded() );
+
+    return res;
+}
+
+QString DialogsProvider::getSaveFileName( QWidget *parent,
+                                          const QString &caption,
+                                          const QString &dir,
+                                          const QString &filter,
+                                          QString *selectedFilter )
+{
+    return QFileDialog::getSaveFileName( parent, caption, dir, filter, selectedFilter );
 }
 
 void DialogsProvider::quit()
@@ -164,7 +188,12 @@ void DialogsProvider::customEvent( QEvent *event )
            delete popupMenu; popupMenu = NULL;
            bool show = (de->i_arg != 0);
            if( show )
+           {
+               //popping a QMenu prevents mouse release events to be received,
+               //this ensures the coherency of the vout mouse state.
+               emit releaseMouseEvents();
                popupMenu = VLCMenuBar::PopupMenu( p_intf, show );
+           }
            break;
         }
         case INTF_DIALOG_AUDIOPOPUPMENU:
@@ -353,13 +382,13 @@ void DialogsProvider::openFileGenericDialog( intf_dialog_args_t *p_arg )
     /* Save */
     if( p_arg->b_save )
     {
-        QString file = QFileDialog::getSaveFileName( NULL,
+        QString file = getSaveFileName( NULL,
                                         qfu( p_arg->psz_title ),
                                         p_intf->p_sys->filepath, extensions );
         if( !file.isEmpty() )
         {
             p_arg->i_results = 1;
-            p_arg->psz_results = (char **)malloc( p_arg->i_results * sizeof( char * ) );
+            p_arg->psz_results = (char **)vlc_alloc( p_arg->i_results, sizeof( char * ) );
             p_arg->psz_results[0] = strdup( qtu( toNativeSepNoSlash( file ) ) );
         }
         else
@@ -367,14 +396,13 @@ void DialogsProvider::openFileGenericDialog( intf_dialog_args_t *p_arg )
     }
     else /* non-save mode */
     {
-        QStringList files = QFileDialog::getOpenFileNames( NULL,
-                qfu( p_arg->psz_title ), p_intf->p_sys->filepath,
-                extensions );
-        p_arg->i_results = files.count();
-        p_arg->psz_results = (char **)malloc( p_arg->i_results * sizeof( char * ) );
+        QStringList urls = getOpenURL( NULL, qfu( p_arg->psz_title ),
+                                       p_intf->p_sys->filepath, extensions );
+        p_arg->i_results = urls.count();
+        p_arg->psz_results = (char **)vlc_alloc( p_arg->i_results, sizeof( char * ) );
         i = 0;
-        foreach( const QString &file, files )
-            p_arg->psz_results[i++] = strdup( qtu( toNativeSepNoSlash( file ) ) );
+        foreach( const QString &uri, urls )
+            p_arg->psz_results[i++] = strdup( qtu( uri ) );
         if(i == 0)
             p_intf->p_sys->filepath = QString::fromLatin1("");
         else
@@ -465,15 +493,16 @@ QStringList DialogsProvider::showSimpleOpen( const QString& help,
     }
     ADD_EXT_FILTER( fileTypes, EXTENSIONS_ALL );
     fileTypes.replace( ";*", " *");
+    fileTypes.chop(2); //remove trailling ";;"
 
-    QStringList files = QFileDialog::getOpenFileNames( NULL,
+    QStringList urls = getOpenURL( NULL,
         help.isEmpty() ? qtr(I_OP_SEL_FILES ) : help,
         path.isEmpty() ? p_intf->p_sys->filepath : path,
         fileTypes );
 
-    if( !files.isEmpty() ) savedirpathFromFile( files.last() );
+    if( !urls.isEmpty() ) savedirpathFromFile( urls.last() );
 
-    return files;
+    return urls;
 }
 
 /**
@@ -483,13 +512,12 @@ QStringList DialogsProvider::showSimpleOpen( const QString& help,
  **/
 void DialogsProvider::addFromSimple( bool pl, bool go)
 {
-    QStringList files = DialogsProvider::showSimpleOpen();
+    QStringList urls = DialogsProvider::showSimpleOpen();
 
     bool first = go;
-    files.sort();
-    foreach( const QString &file, files )
+    urls.sort();
+    foreach( const QString &url, urls )
     {
-        QString url = toURI( toNativeSeparators( file ) );
         Open::openMRL( p_intf, url, first, pl);
         first = false;
     }
@@ -585,15 +613,22 @@ void DialogsProvider::PLAppendDir()
  ****************/
 void DialogsProvider::openAPlaylist()
 {
-    QStringList files = showSimpleOpen( qtr( "Open playlist..." ),
+    QStringList urls = showSimpleOpen( qtr( "Open playlist..." ),
                                         EXT_FILTER_PLAYLIST );
-    foreach( const QString &file, files )
+    foreach( const QString &url, urls )
     {
-        playlist_Import( THEPL, qtu( toNativeSeparators( file ) ) );
+        char* psz_path = vlc_uri2path(qtu( url ));
+        if ( !psz_path )
+        {
+            msg_Warn( p_intf, "unable to load playlist '%s'", qtu( url ) );
+            continue;
+        }
+        playlist_Import( THEPL, psz_path );
+        free( psz_path );
     }
 }
 
-void DialogsProvider::saveAPlaylist(playlist_t *p_playlist, playlist_item_t *p_node)
+void DialogsProvider::savePlayingToPlaylist()
 {
     static const struct
     {
@@ -620,10 +655,10 @@ void DialogsProvider::saveAPlaylist(playlist_t *p_playlist, playlist_item_t *p_n
     }
 
     QString selected;
-    QString file = QFileDialog::getSaveFileName( NULL,
-                                                 qtr( "Save playlist as..." ),
-                                                 p_intf->p_sys->filepath, filters.join( ";;" ),
-                                                 &selected );
+    QString file = getSaveFileName( NULL,
+                                    qtr( "Save playlist as..." ),
+                                    p_intf->p_sys->filepath, filters.join( ";;" ),
+                                    &selected );
     const char *psz_selected_module = NULL;
     const char *psz_last_playlist_ext = NULL;
 
@@ -659,31 +694,10 @@ void DialogsProvider::saveAPlaylist(playlist_t *p_playlist, playlist_item_t *p_n
 
     if ( psz_selected_module )
     {
-        playlist_Export( p_playlist, qtu( toNativeSeparators( file ) ),
-                         p_node, psz_selected_module );
+        playlist_Export( THEPL, qtu( toNativeSeparators( file ) ),
+                         true, psz_selected_module );
         getSettings()->setValue( "last-playlist-ext", psz_last_playlist_ext );
     }
-}
-
-void DialogsProvider::savePlayingToPlaylist()
-{
-    saveAPlaylist(THEPL, THEPL->p_playing);
-}
-
-void DialogsProvider::saveRecentsToPlaylist()
-{
-    playlist_item_t *p_node_recents = RecentsMRL::getInstance(p_intf)->toPlaylist(0);
-
-    if (p_node_recents == NULL)
-    {
-        msg_Warn(p_intf, "cannot create playlist from recents");
-        return;
-    }
-
-    saveAPlaylist(THEPL, p_node_recents);
-    playlist_Lock(THEPL);
-    playlist_NodeDelete(THEPL, p_node_recents, true, false);
-    playlist_Unlock(THEPL);
 }
 
 /****************************************************************************
@@ -796,12 +810,11 @@ void DialogsProvider::loadSubtitlesFile()
                                       EXT_FILTER_SUBTITLE,
                                       qfu( path2 ) );
     free( path2 );
-    foreach( const QString &qsFile, qsl )
+    foreach( const QString &qsUrl, qsl )
     {
-        if( input_AddSubtitleOSD( p_input, qtu( toNativeSeparators( qsFile ) ),
-                    true, true ) )
+        if( input_AddSlave( p_input, SLAVE_TYPE_SPU, qtu( qsUrl ), true, true, false ) )
             msg_Warn( p_intf, "unable to load subtitles from '%s'",
-                      qtu( qsFile ) );
+                      qtu( qsUrl ) );
     }
 }
 
@@ -820,14 +833,6 @@ void DialogsProvider::menuUpdateAction( QObject *data )
     MenuFunc *func = qobject_cast<MenuFunc *>(data);
     assert( func );
     func->doFunc( p_intf );
-}
-
-void DialogsProvider::SDMenuAction( const QString& data )
-{
-    if( !playlist_IsServicesDiscoveryLoaded( THEPL, qtu( data ) ) )
-        playlist_ServicesDiscoveryAdd( THEPL, qtu( data ) );
-    else
-        playlist_ServicesDiscoveryRemove( THEPL, qtu( data ) );
 }
 
 void DialogsProvider::sendKey( int key )

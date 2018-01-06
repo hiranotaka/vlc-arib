@@ -24,7 +24,8 @@
 #include "Downloader.hpp"
 
 #include <vlc_threads.h>
-#include <vlc_atomic.h>
+
+#include <atomic>
 
 using namespace adaptive::http;
 
@@ -33,7 +34,6 @@ Downloader::Downloader()
     vlc_mutex_init(&lock);
     vlc_cond_init(&waitcond);
     killed = false;
-    thread_handle = { 0 };
     thread_handle_valid = false;
 }
 
@@ -41,7 +41,7 @@ bool Downloader::start()
 {
     if(!thread_handle_valid &&
        vlc_clone(&thread_handle, downloaderThread,
-                 reinterpret_cast<void *>(this), VLC_THREAD_PRIORITY_INPUT))
+                 static_cast<void *>(this), VLC_THREAD_PRIORITY_INPUT))
     {
         return false;
     }
@@ -51,8 +51,11 @@ bool Downloader::start()
 
 Downloader::~Downloader()
 {
+    vlc_mutex_lock( &lock );
     killed = true;
     vlc_cond_signal(&waitcond);
+    vlc_mutex_unlock( &lock );
+
     if(thread_handle_valid)
         vlc_join(thread_handle, NULL);
     vlc_mutex_destroy(&lock);
@@ -61,6 +64,7 @@ Downloader::~Downloader()
 void Downloader::schedule(HTTPChunkBufferedSource *source)
 {
     vlc_mutex_lock(&lock);
+    source->hold();
     chunks.push_back(source);
     vlc_cond_signal(&waitcond);
     vlc_mutex_unlock(&lock);
@@ -69,13 +73,14 @@ void Downloader::schedule(HTTPChunkBufferedSource *source)
 void Downloader::cancel(HTTPChunkBufferedSource *source)
 {
     vlc_mutex_lock(&lock);
+    source->release();
     chunks.remove(source);
     vlc_mutex_unlock(&lock);
 }
 
 void * Downloader::downloaderThread(void *opaque)
 {
-    Downloader *instance = reinterpret_cast<Downloader *>(opaque);
+    Downloader *instance = static_cast<Downloader *>(opaque);
     int canc = vlc_savecancel();
     instance->Run();
     vlc_restorecancel( canc );
@@ -90,16 +95,11 @@ void Downloader::DownloadSource(HTTPChunkBufferedSource *source)
 
 void Downloader::Run()
 {
+    vlc_mutex_lock(&lock);
     while(1)
     {
-        vlc_mutex_lock(&lock);
-        if(killed)
-            break;
-
         while(chunks.empty() && !killed)
-        {
             vlc_cond_wait(&waitcond, &lock);
-        }
 
         if(killed)
             break;
@@ -109,10 +109,11 @@ void Downloader::Run()
             HTTPChunkBufferedSource *source = chunks.front();
             DownloadSource(source);
             if(source->isDone())
+            {
                 chunks.pop_front();
+                source->release();
+            }
         }
-
-        vlc_mutex_unlock(&lock);
     }
     vlc_mutex_unlock(&lock);
 }

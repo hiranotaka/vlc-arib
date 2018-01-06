@@ -98,7 +98,7 @@ static bool Peek( demux_t *p_demux, bool b_first )
     {
         p_sys->i_frame_size_estimate += 5120;
     }
-    i_data = stream_Peek( p_demux->s, &p_sys->p_peek,
+    i_data = vlc_stream_Peek( p_demux->s, &p_sys->p_peek,
                           p_sys->i_frame_size_estimate );
     if( i_data == p_sys->i_data_peeked )
     {
@@ -262,7 +262,7 @@ static int SendBlock( demux_t *p_demux, int i )
     demux_sys_t *p_sys = p_demux->p_sys;
     block_t     *p_block;
 
-    if( ( p_block = stream_Block( p_demux->s, i ) ) == NULL )
+    if( ( p_block = vlc_stream_Block( p_demux->s, i ) ) == NULL )
     {
         msg_Warn( p_demux, "cannot read data" );
         return 0;
@@ -280,7 +280,7 @@ static int SendBlock( demux_t *p_demux, int i )
     p_block->i_dts = p_block->i_pts;
 
     /* set PCR */
-    es_out_Control( p_demux->out, ES_OUT_SET_PCR, p_block->i_pts );
+    es_out_SetPCR( p_demux->out, p_block->i_pts );
     es_out_Send( p_demux->out, p_sys->p_es, p_block );
 
     if( p_sys->b_still )
@@ -344,7 +344,8 @@ static int Open( vlc_object_t * p_this )
     if( b_matched )
     {
         p_demux->pf_demux = MimeDemux;
-        stream_Read( p_demux->s, NULL, i_size );
+        if( vlc_stream_Read( p_demux->s, NULL, i_size ) < i_size )
+            goto error;
     }
     else if( i_size == 0 )
     {
@@ -382,8 +383,7 @@ static int Open( vlc_object_t * p_this )
         p_sys->b_still = false;
     p_sys->i_frame_length = f_fps ? (CLOCK_FREQ / f_fps) : 0;
 
-    es_format_Init( &p_sys->fmt, VIDEO_ES, 0 );
-    p_sys->fmt.i_codec = VLC_CODEC_MJPG;
+    es_format_Init( &p_sys->fmt, VIDEO_ES, VLC_CODEC_MJPG );
 
     p_sys->p_es = es_out_Add( p_demux->out, &p_sys->fmt );
     return VLC_SUCCESS;
@@ -462,7 +462,7 @@ static int MimeDemux( demux_t *p_demux )
 
     if( i_size > 0 )
     {
-        if( stream_Read( p_demux->s, NULL, i_size ) != i_size )
+        if( vlc_stream_Read( p_demux->s, NULL, i_size ) != i_size )
             return 0;
     }
     else if( i_size < 0 )
@@ -527,7 +527,6 @@ static int MimeDemux( demux_t *p_demux )
     if( !b_match )
     {
         msg_Err( p_demux, "discard non-JPEG part" );
-        stream_Read( p_demux->s, NULL, i );
         return 0;
     }
 

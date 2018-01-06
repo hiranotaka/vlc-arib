@@ -40,11 +40,10 @@
 
 #include <vlc_intf_strings.h>
 
-#ifndef Q_OS_MAC
 SearchLineEdit::SearchLineEdit( QWidget *parent ) : QLineEdit( parent )
 {
     clearButton = new QFramelessButton( this );
-    clearButton->setIcon( QIcon( ":/search_clear" ) );
+    clearButton->setIcon( QIcon( ":/search_clear.svg" ) );
     clearButton->setIconSize( QSize( 16, 16 ) );
     clearButton->setCursor( Qt::ArrowCursor );
     clearButton->setToolTip( qfu(vlc_pgettext("Tooltip|Clear", "Clear")) );
@@ -138,5 +137,3 @@ void SearchLineEdit::searchEditingFinished()
 {
     emit searchDelayedChanged( text() );
 }
-
-#endif

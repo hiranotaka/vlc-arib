@@ -37,7 +37,7 @@ struct access_entry
 
 struct access_sys_t
 {
-    access_t *access;
+    stream_t *access;
     struct access_entry *next;
     struct access_entry *first;
     bool can_seek;
@@ -48,39 +48,35 @@ struct access_sys_t
     int64_t caching;
 };
 
-static access_t *GetAccess(access_t *access)
+static stream_t *GetAccess(stream_t *access)
 {
     access_sys_t *sys = access->p_sys;
-    access_t *a = sys->access;
+    stream_t *a = sys->access;
 
     if (a != NULL)
     {
-        if (!vlc_access_Eof(a))
+        if (!vlc_stream_Eof(a))
             return a;
 
-        vlc_access_Delete(a);
+        vlc_stream_Delete(a);
         sys->access = NULL;
     }
 
     if (sys->next == NULL)
-    {
-error:
-        access->info.b_eof = true;
         return NULL;
-    }
 
     a = vlc_access_NewMRL(VLC_OBJECT(access), sys->next->mrl);
     if (a == NULL)
-        goto error;
+        return NULL;
 
     sys->access = a;
     sys->next = sys->next->next;
     return a;
 }
 
-static ssize_t Read(access_t *access, uint8_t *buf, size_t len)
+static ssize_t Read(stream_t *access, void *buf, size_t len)
 {
-    access_t *a = GetAccess(access);
+    stream_t *a = GetAccess(access);
     if (a == NULL)
         return 0;
 
@@ -88,52 +84,30 @@ static ssize_t Read(access_t *access, uint8_t *buf, size_t len)
      * change. We need to check it. For instance, a path could point to a
      * regular file during Open() yet point to a directory here and now. */
     if (unlikely(a->pf_read == NULL))
-    {
-        access->info.b_eof = true;
         return 0;
-    }
 
-    return vlc_access_Read(a, buf, len);
+    return vlc_stream_ReadPartial(a, buf, len);
 }
 
-static block_t *Block(access_t *access)
+static block_t *Block(stream_t *access, bool *restrict eof)
 {
-    access_t *a = GetAccess(access);
+    stream_t *a = GetAccess(access);
     if (a == NULL)
-        return NULL;
-
-    if (likely(a->pf_block != NULL))
-        return vlc_access_Block(a);
-
-    if (a->pf_read == NULL)
     {
-        access->info.b_eof = true;
+        *eof = true;
         return NULL;
     }
 
-    /* Emulate pf_block in case of mixed pf_read and bf_block */
-    block_t *block = block_Alloc(4096);
-    if (unlikely(block == NULL))
-        return NULL;
-
-    ssize_t ret = vlc_access_Read(a, block->p_buffer, block->i_buffer);
-    if (ret >= 0)
-        block->i_buffer = ret;
-    else
-    {
-        block_Release(block);
-        block = NULL;
-    }
-    return block;
+    return vlc_stream_ReadBlock(a);
 }
 
-static int Seek(access_t *access, uint64_t position)
+static int Seek(stream_t *access, uint64_t position)
 {
     access_sys_t *sys = access->p_sys;
 
     if (sys->access != NULL)
     {
-        vlc_access_Delete(sys->access);
+        vlc_stream_Delete(sys->access);
         sys->access = NULL;
     }
 
@@ -141,64 +115,64 @@ static int Seek(access_t *access, uint64_t position)
 
     for (uint64_t offset = 0;;)
     {
-        access_t *a = GetAccess(access);
+        stream_t *a = GetAccess(access);
         if (a == NULL)
             break;
 
         bool can_seek;
-        access_Control(a, ACCESS_CAN_SEEK, &can_seek);
+        vlc_stream_Control(a, STREAM_CAN_SEEK, &can_seek);
         if (!can_seek)
             break;
 
         uint64_t size;
 
-        if (access_GetSize(a, &size))
+        if (vlc_stream_GetSize(a, &size))
             break;
         if (position - offset < size)
         {
-            if (vlc_access_Seek(a, position - offset))
+            if (vlc_stream_Seek(a, position - offset))
                 break;
             return VLC_SUCCESS;
         }
 
         offset += size;
-        vlc_access_Delete(a);
+        vlc_stream_Delete(a);
         sys->access = NULL;
     }
 
     return VLC_EGENERIC;
 }
 
-static int Control(access_t *access, int query, va_list args)
+static int Control(stream_t *access, int query, va_list args)
 {
     access_sys_t *sys = access->p_sys;
 
     switch (query)
     {
-        case ACCESS_CAN_SEEK:
+        case STREAM_CAN_SEEK:
             *va_arg(args, bool *) = sys->can_seek;
             break;
-        case ACCESS_CAN_FASTSEEK:
+        case STREAM_CAN_FASTSEEK:
             *va_arg(args, bool *) = sys->can_seek_fast;
             break;
-        case ACCESS_CAN_PAUSE:
+        case STREAM_CAN_PAUSE:
             *va_arg(args, bool *) = sys->can_pause;
             break;
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg(args, bool *) = sys->can_control_pace;
             break;
-        case ACCESS_GET_SIZE:
+        case STREAM_GET_SIZE:
             if (sys->size == UINT64_MAX)
                 return VLC_EGENERIC;
             *va_arg(args, uint64_t *) = sys->size;
             break;
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
             *va_arg(args, int64_t *) = sys->caching;
             break;
 
-        case ACCESS_GET_SIGNAL:
-        case ACCESS_SET_PAUSE_STATE:
-            return access_vaControl(sys->access, query, args);
+        case STREAM_GET_SIGNAL:
+        case STREAM_SET_PAUSE_STATE:
+            return vlc_stream_vaControl(sys->access, query, args);
 
         default:
             return VLC_EGENERIC;
@@ -208,13 +182,13 @@ static int Control(access_t *access, int query, va_list args)
 
 static int Open(vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
 
     char *list = var_CreateGetNonEmptyString(access, "concat-list");
     if (list == NULL)
         return VLC_EGENERIC;
 
-    access_sys_t *sys = malloc(sizeof (*sys));
+    access_sys_t *sys = vlc_obj_malloc(obj, sizeof (*sys));
     if (unlikely(sys == NULL))
     {
         free(list);
@@ -244,7 +218,7 @@ static int Open(vlc_object_t *obj)
         if (unlikely(e == NULL))
             break;
 
-        access_t *a = vlc_access_NewMRL(obj, mrl);
+        stream_t *a = vlc_access_NewMRL(obj, mrl);
         if (a == NULL)
         {
             msg_Err(access, "cannot concatenate location %s", mrl);
@@ -257,7 +231,7 @@ static int Open(vlc_object_t *obj)
             if (a->pf_block == NULL)
             {
                 msg_Err(access, "cannot concatenate directory %s", mrl);
-                vlc_access_Delete(a);
+                vlc_stream_Delete(a);
                 free(e);
                 continue;
             }
@@ -269,29 +243,30 @@ static int Open(vlc_object_t *obj)
         memcpy(e->mrl, mrl, mlen + 1);
 
         if (sys->can_seek)
-            access_Control(a, ACCESS_CAN_SEEK, &sys->can_seek);
+            vlc_stream_Control(a, STREAM_CAN_SEEK, &sys->can_seek);
         if (sys->can_seek_fast)
-            access_Control(a, ACCESS_CAN_FASTSEEK, &sys->can_seek_fast);
+            vlc_stream_Control(a, STREAM_CAN_FASTSEEK, &sys->can_seek_fast);
         if (sys->can_pause)
-            access_Control(a, ACCESS_CAN_PAUSE, &sys->can_pause);
+            vlc_stream_Control(a, STREAM_CAN_PAUSE, &sys->can_pause);
         if (sys->can_control_pace)
-            access_Control(a, ACCESS_CAN_CONTROL_PACE, &sys->can_control_pace);
+            vlc_stream_Control(a, STREAM_CAN_CONTROL_PACE,
+                               &sys->can_control_pace);
         if (sys->size != UINT64_MAX)
         {
             uint64_t size;
 
-            if (access_GetSize(a, &size))
+            if (vlc_stream_GetSize(a, &size))
                 sys->size = UINT64_MAX;
             else
                 sys->size += size;
         }
 
         int64_t caching;
-        access_Control(a, ACCESS_GET_PTS_DELAY, &caching);
+        vlc_stream_Control(a, STREAM_GET_PTS_DELAY, &caching);
         if (caching > sys->caching)
             sys->caching = caching;
 
-        vlc_access_Delete(a);
+        vlc_stream_Delete(a);
         pp = &e->next;
     }
 
@@ -299,7 +274,6 @@ static int Open(vlc_object_t *obj)
     *pp = NULL;
     sys->next = sys->first;
 
-    access_InitFields(access);
     access->pf_read = read_cb ? Read : NULL;
     access->pf_block = read_cb ? NULL : Block;
     access->pf_seek = Seek;
@@ -311,11 +285,11 @@ static int Open(vlc_object_t *obj)
 
 static void Close(vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
     access_sys_t *sys = access->p_sys;
 
     if (sys->access != NULL)
-        vlc_access_Delete(sys->access);
+        vlc_stream_Delete(sys->access);
 
     for (struct access_entry *e = sys->first, *next; e != NULL; e = next)
     {
@@ -324,7 +298,6 @@ static void Close(vlc_object_t *obj)
     }
 
     var_Destroy(access, "concat-list");
-    free(sys);
 }
 
 #define INPUT_LIST_TEXT N_("Inputs list")

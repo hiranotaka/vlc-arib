@@ -51,7 +51,6 @@ void            EventThreadDestroy( event_thread_t * );
 int             EventThreadStart( event_thread_t *, event_hwnd_t *, const event_cfg_t * );
 void            EventThreadStop( event_thread_t * );
 
-void            EventThreadMouseHide( event_thread_t * );
 void            EventThreadUpdateTitle( event_thread_t *, const char *psz_fallback );
 int             EventThreadGetWindowStyle( event_thread_t * );
 void            EventThreadUpdateWindowPosition( event_thread_t *, bool *pb_moved, bool *pb_resized,
@@ -61,4 +60,13 @@ void            EventThreadUpdateSourceAndPlace( event_thread_t *p_event,
                                                  const vout_display_place_t *p_place );
 void            EventThreadUseOverlay( event_thread_t *, bool b_used );
 bool            EventThreadGetAndResetHasMoved( event_thread_t * );
+
+# ifdef __cplusplus
+extern "C" {
+# endif
+void* HookWindowsSensors(vout_display_t*, HWND);
+void UnhookWindowsSensors(void*);
+# ifdef __cplusplus
+}
+# endif
 

@@ -30,7 +30,7 @@
 
 static int Open (vlc_object_t *);
 
-VLC_SD_PROBE_HELPER("disc", "Discs", SD_CAT_DEVICES)
+VLC_SD_PROBE_HELPER("disc", N_("Discs"), SD_CAT_DEVICES)
 
 /*
  * Module descriptor
@@ -56,6 +56,8 @@ static int Open (vlc_object_t *obj)
 {
     services_discovery_t *sd = (services_discovery_t *)obj;
 
+    sd->description = _("Discs");
+
     LONG drives = GetLogicalDrives ();
     char mrl[12] = "file:///A:/", name[3] = "A:";
     TCHAR path[4] = TEXT("A:\\");
@@ -79,7 +81,7 @@ static int Open (vlc_object_t *obj)
         if (item == NULL)
             break;
 
-        services_discovery_AddItem (sd, item, _("Local drives"));
+        services_discovery_AddItem(sd, item);
     }
     return VLC_SUCCESS;
 }

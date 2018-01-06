@@ -36,6 +36,11 @@ namespace adaptive
         class BasePeriod;
         class BaseAdaptationSet;
     }
+
+    namespace http
+    {
+        class AuthStorage;
+    }
 }
 
 namespace hls
@@ -52,7 +57,7 @@ namespace hls
         class M3U8Parser
         {
             public:
-                M3U8Parser             ();
+                M3U8Parser             (AuthStorage *auth);
                 virtual ~M3U8Parser    ();
 
                 M3U8 *             parse  (vlc_object_t *p_obj, stream_t *p_stream, const std::string &);
@@ -63,9 +68,9 @@ namespace hls
                 void createAndFillRepresentation(vlc_object_t *, BaseAdaptationSet *,
                                                  const AttributesTag *, const std::list<Tag *>&);
                 void parseSegments(vlc_object_t *, Representation *, const std::list<Tag *>&);
-                void setFormatFromCodecs(Representation *, const std::string);
                 void setFormatFromExtension(Representation *rep, const std::string &);
                 std::list<Tag *> parseEntries(stream_t *);
+                AuthStorage *auth;
         };
     }
 }

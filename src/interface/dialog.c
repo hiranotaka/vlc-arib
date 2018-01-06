@@ -166,17 +166,6 @@ libvlc_InternalDialogInit(libvlc_int_t *p_libvlc)
     return VLC_SUCCESS;
 }
 
-static int
-dialog_get_idx_locked(vlc_dialog_provider *p_provider, vlc_dialog_id *p_id)
-{
-    for (int i = 0; i < vlc_array_count(&p_provider->dialog_array); ++i)
-    {
-        if (p_id == vlc_array_item_at_index(&p_provider->dialog_array, i))
-            return i;
-    }
-    return -1;
-}
-
 static void
 dialog_cancel_locked(vlc_dialog_provider *p_provider, vlc_dialog_id *p_id)
 {
@@ -199,23 +188,28 @@ dialog_add_locked(vlc_dialog_provider *p_provider, enum dialog_type i_type)
 
     if (p_id == NULL)
         return NULL;
+
+    if(vlc_array_append(&p_provider->dialog_array, p_id))
+    {
+        free(p_id);
+        return NULL;
+    }
+
     vlc_mutex_init(&p_id->lock);
     vlc_cond_init(&p_id->wait);
 
     p_id->i_type = i_type;
     p_id->i_refcount = 2; /* provider and callbacks */
 
-    vlc_array_append(&p_provider->dialog_array, p_id);
     return p_id;
 }
 
 static void
 dialog_remove_locked(vlc_dialog_provider *p_provider, vlc_dialog_id *p_id)
 {
-    int i_array_idx = dialog_get_idx_locked(p_provider, p_id);
-    assert(i_array_idx >= 0);
-
-    vlc_array_remove(&p_provider->dialog_array, i_array_idx);
+    ssize_t i_idx = vlc_array_index_of_item(&p_provider->dialog_array, p_id);
+    assert(i_idx >= 0);
+    vlc_array_remove(&p_provider->dialog_array, i_idx);
 
     vlc_mutex_lock(&p_id->lock);
     p_id->i_refcount--;
@@ -231,7 +225,7 @@ dialog_remove_locked(vlc_dialog_provider *p_provider, vlc_dialog_id *p_id)
 static void
 dialog_clear_all_locked(vlc_dialog_provider *p_provider)
 {
-    for (int i = 0; i < vlc_array_count(&p_provider->dialog_array); ++i)
+    for (size_t i = 0; i < vlc_array_count(&p_provider->dialog_array); ++i)
     {
         vlc_dialog_id *p_id =
             vlc_array_item_at_index(&p_provider->dialog_array, i);
@@ -245,6 +239,8 @@ libvlc_InternalDialogClean(libvlc_int_t *p_libvlc)
     assert(p_libvlc != NULL);
     vlc_dialog_provider *p_provider = libvlc_priv(p_libvlc)->p_dialog_provider;
 
+    if (p_provider == NULL)
+        return;
     vlc_mutex_lock(&p_provider->lock);
     dialog_clear_all_locked(p_provider);
     vlc_mutex_unlock(&p_provider->lock);
@@ -655,11 +651,8 @@ dialog_update_progress(vlc_object_t *p_obj, vlc_dialog_id *p_id, float f_value,
     }
 
     if (p_id->b_progress_indeterminate)
-    {
-        vlc_mutex_unlock(&p_provider->lock);
-        free(psz_text);
-        return VLC_EGENERIC;
-    }
+        f_value = 0.0f;
+
     if (psz_text != NULL)
     {
         free(p_id->psz_progress_text);

@@ -42,146 +42,87 @@
 
 #include <QStyleFactory>
 #include <QSettings>
+#include <QScreen>
 #include <QtAlgorithms>
 #include <QDir>
 #include <assert.h>
 #include <math.h>
 
 #define ICON_HEIGHT 48
+#define ICON_WIDTH 48
 
 #ifdef _WIN32
 # include <vlc_charset.h>
 # include <shobjidl.h>
 #endif
 #include <vlc_modules.h>
+#include <vlc_arrays.h>
 
-static const char *const ppsz_language[] =
-{
-    "auto",
-    "en",
-    "ar",
-    "bn",
-    "pt_BR",
-    "en_GB",
-    "el",
-    "bg",
-    "ca",
-    "zh_TW",
-    "cs",
-    "cy",
-    "da",
-    "nl",
-    "fi",
-    "et",
-    "eu",
-    "fr",
-    "ga",
-    "gd",
-    "gl",
-    "ka",
-    "de",
-    "he",
-    "hr",
-    "hu",
-    "hy",
-    "is",
-    "id",
-    "it",
-    "ja",
-    "ko",
-    "lt",
-    "mn",
-    "ms",
-    "nb",
-    "nn",
-    "kk",
-    "km",
-    "ne",
-    "oc",
-    "fa",
-    "pl",
-    "pt_PT",
-    "pa",
-    "ro",
-    "ru",
-    "zh_CN",
-    "si",
-    "sr",
-    "sk",
-    "sl",
-    "ckb",
-    "es",
-    "sv",
-    "te",
-    "tr",
-    "uk",
-    "vi",
-    "wa",
-    NULL,
-};
+static struct {
+    const char iso[6];
+    const char name[34];
 
-static const char *const ppsz_language_text[] =
-{
-    N_("Auto"),
-    "American English",
-    "ﻉﺮﺒﻳ",
-    "বাংলা",
-    "Português Brasileiro",
-    "British English",
-    "Νέα Ελληνικά",
-    "български език",
-    "Català",
-    "正體中文",
-    "Čeština",
-    "Cymraeg",
-    "Dansk",
-    "Nederlands",
-    "Suomi",
-    "eesti keel",
-    "Euskara",
-    "Français",
-    "Gaeilge",
-    "Gàidhlig",
-    "Galego",
-    "ქართული",
-    "Deutsch",
-    "עברית",
-    "hrvatski",
-    "Magyar",
-    "հայերեն",
-    "íslenska",
-    "Bahasa Indonesia",
-    "Italiano",
-    "日本語",
-    "한국어",
-    "lietuvių",
-    "Монгол хэл",
-    "Melayu",
-    "Bokmål",
-    "Nynorsk",
-    "Қазақ тілі",
-    "ភាសាខ្មែរ",
-    "नेपाली",
-    "Occitan",
-    "ﻑﺍﺮﺳی",
-    "Polski",
-    "Português",
-    "ਪੰਜਾਬੀ",
-    "Română",
-    "Русский",
-    "简体中文",
-    "සිංහල",
-    "српски",
-    "Slovensky",
-    "slovenščina",
-    "کوردیی سۆرانی",
-    "Español",
-    "Svenska",
-    "తెలుగు",
-    "Türkçe",
-    "украї́нська мо́ва",
-    "tiếng Việt",
-    "Walon",
+} const language_map[] = {
+    { "auto",  N_("Auto") },
+    { "en",    "American English" },
+    { "ar",    "عربي" },
+    { "bn",    "বাংলা" },
+    { "pt_BR", "Português Brasileiro" },
+    { "en_GB", "British English" },
+    { "el",    "Νέα Ελληνικά" },
+    { "bg",    "български език" },
+    { "ca",    "Català" },
+    { "zh_TW", "正體中文" },
+    { "cs",    "Čeština" },
+    { "cy",    "Cymraeg" },
+    { "da",    "Dansk" },
+    { "nl",    "Nederlands" },
+    { "fi",    "Suomi" },
+    { "et",    "eesti keel" },
+    { "eu",    "Euskara" },
+    { "fr",    "Français" },
+    { "ga",    "Gaeilge" },
+    { "gd",    "Gàidhlig" },
+    { "gl",    "Galego" },
+    { "ka",    "ქართული" },
+    { "de",    "Deutsch" },
+    { "he",    "עברית" },
+    { "hr",    "hrvatski" },
+    { "hu",    "Magyar" },
+    { "hy",    "հայերեն" },
+    { "is",    "íslenska" },
+    { "id",    "Bahasa Indonesia" },
+    { "it",    "Italiano" },
+    { "ja",    "日本語" },
+    { "ko",    "한국어" },
+    { "lt",    "lietuvių" },
+    { "mn",    "Монгол хэл" },
+    { "ms",    "Melayu" },
+    { "nb",    "Bokmål" },
+    { "nn",    "Nynorsk" },
+    { "kk",    "Қазақ тілі" },
+    { "km",    "ភាសាខ្មែរ" },
+    { "ne",    "नेपाली" },
+    { "oc",    "Occitan" },
+    { "fa",    "فارسی" },
+    { "pl",    "Polski" },
+    { "pt_PT", "Português" },
+    { "pa",    "ਪੰਜਾਬੀ" },
+    { "ro",    "Română" },
+    { "ru",    "Русский" },
+    { "zh_CN", "简体中文" },
+    { "si",    "සිංහල" },
+    { "sr",    "српски" },
+    { "sk",    "Slovensky" },
+    { "sl",    "slovenščina" },
+    { "ckb",   "کوردیی سۆرانی" },
+    { "es",    "Español" },
+    { "sv",    "Svenska" },
+    { "te",    "తెలుగు" },
+    { "tr",    "Türkçe" },
+    { "uk",    "украї́нська мо́ва" },
+    { "vi",    "tiếng Việt" },
+    { "wa",    "Walon" }
 };
 
 static int getDefaultAudioVolume(vlc_object_t *obj, const char *aout)
@@ -251,16 +192,27 @@ SPrefsCatList::SPrefsCatList( intf_thread_t *_p_intf, QWidget *_parent ) :
     QSignalMapper *mapper = new QSignalMapper( layout );
     CONNECT( mapper, mapped(int), this, switchPanel(int) );
 
-    short icon_height = ICON_HEIGHT;
+    QPixmap scaled;
+#if HAS_QT56
+    qreal dpr = devicePixelRatioF();
+#else
+    qreal dpr = devicePixelRatio();
+#endif
 
 #define ADD_CATEGORY( button, label, ltooltip, icon, numb )                 \
     QToolButton * button = new QToolButton( this );                         \
-    button->setIcon( QIcon( ":/prefsmenu/" #icon ) );                       \
+    /* Scale icon to non native size outside of toolbutton to avoid widget size */\
+    /* computation using native size */\
+    scaled = QPixmap( ":/prefsmenu/" #icon ".png" )\
+             .scaledToHeight( ICON_HEIGHT * dpr, Qt::SmoothTransformation );\
+    scaled.setDevicePixelRatio( dpr ); \
+    button->setIcon( scaled );                \
     button->setText( label );                                               \
     button->setToolTip( ltooltip );                                         \
     button->setToolButtonStyle( Qt::ToolButtonTextUnderIcon );              \
-    button->setIconSize( QSize( icon_height + 40 , icon_height ) );         \
-    button->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred        ); \
+    button->setIconSize( QSize( ICON_WIDTH, ICON_HEIGHT ) );          \
+    button->setMinimumWidth( 40 + ICON_WIDTH );\
+    button->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Minimum); \
     button->setAutoRaise( true );                                           \
     button->setCheckable( true );                                           \
     button->setAutoExclusive( true );                                       \
@@ -310,7 +262,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
     radioGroup = NULL;
 
 #define CONFIG_GENERIC( option, type, label, qcontrol )                   \
-            p_config =  config_FindConfig( VLC_OBJECT(p_intf), option );  \
+            p_config =  config_FindConfig( option );                      \
             if( p_config )                                                \
             {                                                             \
                 control =  new type ## ConfigControl( VLC_OBJECT(p_intf), \
@@ -323,7 +275,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             }
 
 #define CONFIG_BOOL( option, qcontrol )                           \
-            p_config =  config_FindConfig( VLC_OBJECT(p_intf), option );  \
+            p_config =  config_FindConfig( option );                      \
             if( p_config )                                                \
             {                                                             \
                 control =  new BoolConfigControl( VLC_OBJECT(p_intf),     \
@@ -334,7 +286,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 
 
 #define CONFIG_GENERIC_NO_UI( option, type, label, qcontrol )             \
-            p_config =  config_FindConfig( VLC_OBJECT(p_intf), option );  \
+            p_config =  config_FindConfig( option );                      \
             if( p_config )                                                \
             {                                                             \
                 control =  new type ## ConfigControl( VLC_OBJECT(p_intf), \
@@ -349,7 +301,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 
 
 #define CONFIG_GENERIC_NO_BOOL( option, type, label, qcontrol )           \
-            p_config =  config_FindConfig( VLC_OBJECT(p_intf), option );  \
+            p_config =  config_FindConfig( option );                      \
             if( p_config )                                                \
             {                                                             \
                 control =  new type ## ConfigControl( VLC_OBJECT(p_intf), \
@@ -358,7 +310,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             }
 
 #define CONFIG_GENERIC_FILE( option, type, label, qcontrol, qbutton )     \
-            p_config =  config_FindConfig( VLC_OBJECT(p_intf), option );  \
+            p_config =  config_FindConfig( option );                      \
             if( p_config )                                                \
             {                                                             \
                 control =  new type ## ConfigControl( VLC_OBJECT(p_intf), \
@@ -407,20 +359,33 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
                      ui.videoZone, setEnabled( bool ) );
 
             CONFIG_BOOL( "fullscreen", fullscreen );
-            CONFIG_BOOL( "video-on-top", alwaysOnTop );
             CONFIG_BOOL( "video-deco", windowDecorations );
             CONFIG_GENERIC( "vout", StringList, ui.voutLabel, outputModule );
 
+            optionWidgets["fullscreenScreenB"] = ui.fullscreenScreenBox;
+            ui.fullscreenScreenBox->addItem( qtr("Automatic"), -1 );
+            int i_screenCount = 0;
+            foreach( QScreen* screen, QGuiApplication::screens() )
+            {
+                ui.fullscreenScreenBox->addItem( screen->name(), i_screenCount );
+                i_screenCount++;
+            }
+            p_config =  config_FindConfig( "qt-fullscreen-screennumber" );
+            if( p_config )
+            {
+                int i_defaultScreen = p_config->value.i + 1;
+                if ( i_defaultScreen < 0 || i_defaultScreen > ( ui.fullscreenScreenBox->count() - 1 ) )
+                    ui.fullscreenScreenBox->setCurrentIndex( 0 );
+                else
+                    ui.fullscreenScreenBox->setCurrentIndex(p_config->value.i + 1);
+            }
+
 #ifdef _WIN32
-            CONFIG_GENERIC( "directx-device", StringList, ui.dxDeviceLabel,
-                            dXdisplayDevice );
             CONFIG_BOOL( "directx-overlay", overlay );
             CONFIG_BOOL( "directx-hw-yuv", hwYUVBox );
             CONNECT( ui.overlay, toggled( bool ), ui.hwYUVBox, setEnabled( bool ) );
 #else
             ui.directXBox->setVisible( false );
-            ui.overlay->setVisible( false );
-            ui.hwYUVBox->setVisible( false );
 #endif
 
 #ifdef __OS2__
@@ -517,6 +482,17 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             }
 #endif
 
+#ifdef _WIN32
+            CONFIG_GENERIC( "mmdevice-passthrough", IntegerList,
+                            ui.mmdevicePassthroughLabel, mmdevicePassthroughBox );
+            optionWidgets["mmdevicePassthroughL"] = ui.mmdevicePassthroughLabel;
+            optionWidgets["mmdevicePassthroughB"] = ui.mmdevicePassthroughBox;
+#else
+            ui.mmdevicePassthroughLabel->setVisible( false );
+            ui.mmdevicePassthroughBox->setVisible( false );
+#endif
+
+
 #undef audioControl2
 #undef audioControl
 #undef audioCommon
@@ -538,8 +514,6 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
                             preferredAudioLanguage );
 
             CONFIG_BOOL( "spdif", spdifBox );
-            CONFIG_GENERIC( "force-dolby-surround", IntegerList, ui.dolbyLabel,
-                            detectionDolby );
 
             CONFIG_GENERIC_NO_BOOL( "norm-max-level" , Float, NULL,
                                     volNormSpin );
@@ -565,7 +539,6 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             /*Little mofification of ui.volumeValue to compile with Qt < 4.3 */
             ui.volumeValue->setButtonSymbols(QAbstractSpinBox::NoButtons);
             optionWidgets["volLW"] = ui.volumeValue;
-            optionWidgets["headphoneB"] = ui.headphoneEffect;
             optionWidgets["spdifChB"] = ui.spdifBox;
             optionWidgets["defaultVolume"] = ui.defaultVolume;
             optionWidgets["resetVolumeCheckbox"] = ui.resetVolumeCheckbox;
@@ -608,9 +581,6 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             bool b_enabled = ( qs_filter.contains( "normvol" ) );
             ui.volNormBox->setChecked( b_enabled );
             ui.volNormSpin->setEnabled( b_enabled );
-
-            b_enabled = ( qs_filter.contains( "headphone" ) );
-            ui.headphoneEffect->setChecked( b_enabled );
 
             /* Volume Label */
             updateAudioVolume( ui.defaultVolume->value() ); // First time init
@@ -676,6 +646,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
             else
                 FreeLibrary( hdxva2_dll );
 #endif
+            CONFIG_BOOL( "input-fast-seek", fastSeekBox );
             optionWidgets["inputLE"] = ui.DVDDeviceComboBox;
             optionWidgets["cachingCoB"] = ui.cachingCombo;
             CONFIG_GENERIC( "avcodec-skiploopfilter", IntegerList, ui.filterLabel, loopFilterBox );
@@ -721,8 +692,8 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 #ifndef _WIN32
             ui.langBox->hide();
 #else
-            for( int i = 0; ppsz_language[i] != NULL; i++)
-                ui.langCombo->addItem( qfu(ppsz_language_text[i]), ppsz_language[i]);
+            for( int i = 0; i < ARRAY_SIZE( language_map ); i++)
+                ui.langCombo->addItem( qfu( language_map[i].name ), language_map[i].iso );
             CONNECT( ui.langCombo, currentIndexChanged( int ), this, langChanged( int ) );
 
             HKEY h_key;
@@ -849,9 +820,10 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
                      ui.recentlyPlayedFilters, setEnabled( bool ) );
             ui.recentlyPlayedFilters->setEnabled( false );
             CONFIG_BOOL( "qt-recentplay", saveRecentlyPlayed );
-            CONFIG_BOOL( "qt-continue", continueBox );
+            CONFIG_GENERIC( "qt-continue", IntegerList, ui.continuePlaybackLabel, continuePlaybackComboBox );
             CONFIG_GENERIC( "qt-recentplay-filter", String, ui.filterLabel,
                     recentlyPlayedFilters );
+            CONFIG_GENERIC( "qt-auto-raise", IntegerList, ui.autoRaiseLabel, autoRaiseComboBox );
 
         END_SPREFS_CAT;
 
@@ -894,7 +866,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 
         case SPrefsHotkeys:
         {
-            p_config = config_FindConfig( VLC_OBJECT(p_intf), "key-play" );
+            p_config = config_FindConfig( "key-play" );
 
             QGridLayout *gLayout = new QGridLayout;
             panel->setLayout( gLayout );
@@ -913,7 +885,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 
             line++;
 
-            p_config = config_FindConfig( VLC_OBJECT(p_intf), "hotkeys-y-wheel-mode" );
+            p_config = config_FindConfig( "hotkeys-y-wheel-mode" );
             control = new IntegerListConfigControl( VLC_OBJECT(p_intf),
                     p_config, this, false );
             control->insertIntoExistingGrid( gLayout, line );
@@ -921,7 +893,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 
             line++;
 
-            p_config = config_FindConfig( VLC_OBJECT(p_intf), "hotkeys-x-wheel-mode" );
+            p_config = config_FindConfig( "hotkeys-x-wheel-mode" );
             control = new IntegerListConfigControl( VLC_OBJECT(p_intf),
                     p_config, this, false );
             control->insertIntoExistingGrid( gLayout, line );
@@ -930,7 +902,7 @@ SPrefsPanel::SPrefsPanel( intf_thread_t *_p_intf, QWidget *_parent,
 #ifdef _WIN32
             line++;
 
-            p_config = config_FindConfig( VLC_OBJECT(p_intf), "qt-disable-volume-keys" );
+            p_config = config_FindConfig( "qt-disable-volume-keys" );
             control = new BoolConfigControl( VLC_OBJECT(p_intf), p_config, this );
             control->insertIntoExistingGrid( gLayout, line );
             controls.append( control );
@@ -966,6 +938,12 @@ void SPrefsPanel::updateAudioOptions( int number)
     QString value = qobject_cast<QComboBox *>(optionWidgets["audioOutCoB"])
                                             ->itemData( number ).toString();
 #ifdef _WIN32
+    /* Since MMDevice is most likely to be used by default, we show MMDevice
+     * options by default */
+    const bool mmDeviceEnabled = value == "mmdevice" || value == "any";
+    optionWidgets["mmdevicePassthroughL"]->setVisible( mmDeviceEnabled );
+    optionWidgets["mmdevicePassthroughB"]->setVisible( mmDeviceEnabled );
+
     optionWidgets["directxW"]->setVisible( ( value == "directsound" ) );
     optionWidgets["directxL"]->setVisible( ( value == "directsound" ) );
     optionWidgets["waveoutW"]->setVisible( ( value == "waveout" ) );
@@ -1078,6 +1056,13 @@ void SPrefsPanel::apply()
         break;
     }
 
+    case SPrefsVideo:
+    {
+        int i_fullscreenScreen =  qobject_cast<QComboBox *>(optionWidgets["fullscreenScreenB"])->currentData().toInt();
+        config_PutInt( p_intf, "qt-fullscreen-screennumber", i_fullscreenScreen );
+        break;
+    }
+
     case SPrefsAudio:
     {
         bool b_checked =
@@ -1086,14 +1071,6 @@ void SPrefsPanel::apply()
             qs_filter.append( "normvol" );
         if( !b_checked && qs_filter.contains( "normvol" ) )
             qs_filter.removeAll( "normvol" );
-
-        b_checked =
-            qobject_cast<QCheckBox *>(optionWidgets["headphoneB"])->isChecked();
-
-        if( b_checked && !qs_filter.contains( "headphone" ) )
-            qs_filter.append( "headphone" );
-        if( !b_checked && qs_filter.contains( "headphone" ) )
-            qs_filter.removeAll( "headphone" );
 
         config_PutPsz( p_intf, "audio-filter", qtu( qs_filter.join( ":" ) ) );
 
@@ -1186,7 +1163,7 @@ void SPrefsPanel::changeStyle( QString s_style )
 void SPrefsPanel::langChanged( int i )
 {
     free( lang );
-    lang = strdup( ppsz_language[i] );
+    lang = strdup( language_map[i].iso );
 }
 
 void SPrefsPanel::configML()
@@ -1229,7 +1206,10 @@ bool SPrefsPanel::addType( const char * psz_ext, QTreeWidgetItem* current,
     const char* psz_VLC = "VLC";
     current = new QTreeWidgetItem( parent, QStringList( psz_ext ) );
 
-    if( strstr( qvReg->ReadRegistry( psz_ext, "", "" ), psz_VLC ) )
+    char* psz_reg = qvReg->ReadRegistry( psz_ext, "", "" );
+    if( psz_reg == NULL )
+        return false;
+    if( strstr( psz_reg, psz_VLC ) )
     {
         current->setCheckState( 0, Qt::Checked );
         b_temp = true;
@@ -1239,6 +1219,7 @@ bool SPrefsPanel::addType( const char * psz_ext, QTreeWidgetItem* current,
         current->setCheckState( 0, Qt::Unchecked );
         b_temp = false;
     }
+    free( psz_reg );
     listAsso.append( current );
     return b_temp;
 }

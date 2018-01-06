@@ -33,6 +33,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 #include <vlc_cpu.h>
 
 #include <libswscale/swscale.h>
@@ -67,7 +68,7 @@ const char *const ppsz_mode_descriptions[] =
 vlc_module_begin ()
     set_description( N_("Video scaling filter") )
     set_shortname( N_("Swscale" ) )
-    set_capability( "video filter2", 150 )
+    set_capability( "video converter", 150 )
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
     set_callbacks( OpenScaler, CloseScaler )
@@ -374,8 +375,8 @@ static int Init( filter_t *p_filter )
         msg_Err( p_filter, "format not supported" );
         return VLC_EGENERIC;
     }
-    if( p_fmti->i_visible_width <= 0 || p_fmti->i_visible_height <= 0 ||
-        p_fmto->i_visible_width <= 0 || p_fmto->i_visible_height <= 0 )
+    if( p_fmti->i_visible_width == 0 || p_fmti->i_visible_height == 0 ||
+        p_fmto->i_visible_width == 0 || p_fmto->i_visible_height == 0 )
     {
         msg_Err( p_filter, "invalid scaling: %ix%i -> %ix%i",
                  p_fmti->i_visible_width, p_fmti->i_visible_height,

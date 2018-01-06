@@ -89,7 +89,7 @@ MPD * IsoffMainParser::parse()
 
 void    IsoffMainParser::parseMPDAttributes   (MPD *mpd, xml::Node *node)
 {
-    const std::map<std::string, std::string> attr = node->getAttributes();
+    const std::map<std::string, std::string> & attr = node->getAttributes();
 
     std::map<std::string, std::string>::const_iterator it;
 
@@ -99,7 +99,7 @@ void    IsoffMainParser::parseMPDAttributes   (MPD *mpd, xml::Node *node)
 
     it = attr.find("minBufferTime");
     if(it != attr.end())
-        mpd->minBufferTime.Set(IsoTime(it->second) * CLOCK_FREQ);
+        mpd->setMinBuffering(IsoTime(it->second) * CLOCK_FREQ);
 
     it = attr.find("minimumUpdatePeriod");
     if(it != attr.end())
@@ -124,6 +124,10 @@ void    IsoffMainParser::parseMPDAttributes   (MPD *mpd, xml::Node *node)
     it = attr.find("timeShiftBufferDepth");
         if(it != attr.end())
             mpd->timeShiftBufferDepth.Set(IsoTime(it->second) * CLOCK_FREQ);
+
+    it = attr.find("suggestedPresentationDelay");
+    if(it != attr.end())
+        mpd->suggestedPresentationDelay.Set(IsoTime(it->second) * CLOCK_FREQ);
 }
 
 void IsoffMainParser::parsePeriods(MPD *mpd, Node *root)
@@ -210,7 +214,7 @@ size_t IsoffMainParser::parseSegmentInformation(Node *node, SegmentInformation *
         info->setTimescale(Integer<uint64_t>(node->getAttributeValue("timescale")));
 
     if(node->hasAttribute("id"))
-        info->setID(node->getAttributeValue("id"));
+        info->setID(ID(node->getAttributeValue("id")));
     else
         info->setID(ID((*nextid)++));
 
@@ -409,7 +413,7 @@ size_t IsoffMainParser::parseSegmentList(Node * segListNode, SegmentInformation 
                 total++;
             }
 
-            info->setSegmentList(list);
+            info->appendSegmentList(list, true);
         }
     }
     return total;
@@ -441,6 +445,8 @@ void IsoffMainParser::parseTimeline(Node *node, MediaSegmentTemplate *templ)
     uint64_t number = 0;
     if(node->hasAttribute("startNumber"))
         number = Integer<uint64_t>(node->getAttributeValue("startNumber"));
+    else if(templ->startNumber.Get())
+        number = templ->startNumber.Get();
 
     SegmentTimeline *timeline = new (std::nothrow) SegmentTimeline(templ);
     if(timeline)

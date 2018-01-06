@@ -35,7 +35,6 @@ function VlcSyntax()
   " Playlist
   syn keyword cType playlist_t playlist_item_t
   syn keyword cType services_discovery_t services_discovery_sys_t
-  syn keyword cType playlist_add_t playlist_preparse_t
   syn keyword cType item_info_t item_info_category_t 
   syn keyword cType sout_format_t playlist_export_t playlist_import_t
   " Intf
@@ -104,7 +103,7 @@ function VlcSyntax()
   syn keyword cType md5_t vlc_meta_t vlc_callback_t iso639_lang_t
   
   " misc macros
-  syn keyword cOperator VLC_OBJECT VLC_EXPORT VLC_COMMON_MEMBERS
+  syn keyword cOperator VLC_OBJECT VLC_EXPORT
   " don't use these any more, please
   syn keyword cError u8 s8 u16 s16 u32 s32 u64 s64
   " don't put trailing spaces! DON'T USE TABS!!!

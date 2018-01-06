@@ -35,6 +35,10 @@
 #import <CoreFoundation/CoreFoundation.h>
 #import <Cocoa/Cocoa.h>
 
+#ifdef HAVE_BREAKPAD
+#import <Breakpad/Breakpad.h>
+#endif
+
 
 /**
  * Handler called when VLC asks to terminate the program.
@@ -74,6 +78,36 @@ static void vlc_terminate(void *data)
 
     });
 }
+
+#ifdef HAVE_BREAKPAD
+BreakpadRef initBreakpad()
+{
+    BreakpadRef bp = nil;
+
+    /* Create caches directory in case it does not exist */
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSString *cachePath = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *bundleName = [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleIdentifier"];
+    NSString *cacheAppPath = [cachePath stringByAppendingPathComponent:bundleName];
+    if (![fileManager fileExistsAtPath:cacheAppPath]) {
+        [fileManager createDirectoryAtPath:cacheAppPath withIntermediateDirectories:NO attributes:nil error:nil];
+    }
+
+    /* Get Info.plist config */
+    NSMutableDictionary *breakpad_config = [[[NSBundle mainBundle] infoDictionary] mutableCopy];
+
+    /* Use in-process reporting */
+    [breakpad_config setObject:[NSNumber numberWithBool:YES]
+                        forKey:@BREAKPAD_IN_PROCESS];
+
+    /* Set dump location */
+    [breakpad_config setObject:cacheAppPath
+                        forKey:@BREAKPAD_DUMP_DIRECTORY];
+
+    bp = BreakpadCreate(breakpad_config);
+    return bp;
+}
+#endif
 
 /*****************************************************************************
  * main: parse command line, start interface and spawn threads.
@@ -214,12 +248,16 @@ int main(int i_argc, const char *ppsz_argv[])
             if (length > 0) {
                 CFIndex maxSize = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8);
                 lang = (char *)malloc(maxSize);
-                CFStringGetCString(language, lang, maxSize - 1, kCFStringEncodingUTF8);
-            }
-            if (strncmp( lang, "auto", 4 )) {
-                char tmp[11];
-                snprintf(tmp, 11, "LANG=%s", lang);
-                putenv(tmp);
+                if(lang) {
+                    CFStringGetCString(language, lang, maxSize - 1, kCFStringEncodingUTF8);
+                    if (strncmp( lang, "auto", 4 )) {
+                        char tmp[11];
+                        snprintf(tmp, 11, "LANG=%s", lang);
+                        putenv(tmp);
+
+                    }
+                }
+                free(lang);
             }
             CFRelease(language);
         }
@@ -227,7 +265,7 @@ int main(int i_argc, const char *ppsz_argv[])
 
     ppsz_argv++; i_argc--; /* skip executable path */
 
-    /* When VLC.app is run by double clicking in Mac OS X, the 2nd arg
+    /* When VLC.app is run by double clicking in Mac OS X < 10.9, the 2nd arg
      * is the PSN - process serial number (a unique PID-ish thingie)
      * still ok for real Darwin & when run from command line
      * for example -psn_0_9306113 */
@@ -259,6 +297,10 @@ int main(int i_argc, const char *ppsz_argv[])
      * runloop is used. Otherwise, [NSApp run] needs to be called, which setups more stuff
      * before actually starting the loop.
      */
+#ifdef HAVE_BREAKPAD
+    BreakpadRef breakpad;
+    breakpad = initBreakpad();
+#endif
     @autoreleasepool {
         if(NSApp == nil) {
             CFRunLoopRun();
@@ -276,6 +318,10 @@ out:
     dispatch_release(sigChldSource);
 
     libvlc_release(vlc);
+
+#ifdef HAVE_BREAKPAD
+    BreakpadRelease(breakpad);
+#endif
 
     return ret;
 }

@@ -48,7 +48,7 @@
 
 #define AUTO_GUID_TEXT N_("Set NFS uid/guid automatically")
 #define AUTO_GUID_LONGTEXT N_("If uid/gid are not specified in " \
-    "the url, this module will try to automatically set a uid/gid.")
+    "the url, VLC will automatically set a uid/gid.")
 
 static int Open(vlc_object_t *);
 static void Close(vlc_object_t *);
@@ -75,6 +75,7 @@ struct access_sys_t
     vlc_url_t               encoded_url;
     char *                  psz_url_decoded;
     char *                  psz_url_decoded_slash;
+    bool                    b_eof;
     bool                    b_error;
     bool                    b_auto_guid;
 
@@ -97,23 +98,25 @@ struct access_sys_t
 };
 
 static bool
-nfs_check_status(access_t *p_access, int i_status, const char *psz_error,
+nfs_check_status(stream_t *p_access, int i_status, const char *psz_error,
                  const char *psz_func)
 {
+    access_sys_t *sys = p_access->p_sys;
+
     if (i_status < 0)
     {
         if (i_status != -EINTR)
         {
             msg_Err(p_access, "%s failed: %d, '%s'", psz_func, i_status,
                     psz_error);
-            if (!p_access->p_sys->b_error)
+            if (!sys->b_error)
                 vlc_dialog_display_error(p_access,
                                          _("NFS operation failed"), "%s",
                                          psz_error);
         }
         else
             msg_Warn(p_access, "%s interrupted", psz_func);
-        p_access->p_sys->b_error = true;
+        sys->b_error = true;
         return true;
     }
     else
@@ -123,8 +126,8 @@ nfs_check_status(access_t *p_access, int i_status, const char *psz_error,
     nfs_check_status(p_access, i_status, (const char *)p_data, __func__)
 
 static int
-vlc_rpc_mainloop(access_t *p_access, struct rpc_context *p_rpc_ctx,
-                 bool (*pf_until_cb)(access_t *))
+vlc_rpc_mainloop(stream_t *p_access, struct rpc_context *p_rpc_ctx,
+                 bool (*pf_until_cb)(stream_t *))
 {
     access_sys_t *p_sys = p_access->p_sys;
 
@@ -154,7 +157,7 @@ vlc_rpc_mainloop(access_t *p_access, struct rpc_context *p_rpc_ctx,
 }
 
 static int
-vlc_nfs_mainloop(access_t *p_access, bool (*pf_until_cb)(access_t *))
+vlc_nfs_mainloop(stream_t *p_access, bool (*pf_until_cb)(stream_t *))
 {
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_nfs != NULL);
@@ -163,7 +166,7 @@ vlc_nfs_mainloop(access_t *p_access, bool (*pf_until_cb)(access_t *))
 }
 
 static int
-vlc_mount_mainloop(access_t *p_access, bool (*pf_until_cb)(access_t *))
+vlc_mount_mainloop(stream_t *p_access, bool (*pf_until_cb)(stream_t *))
 {
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_mount != NULL);
@@ -175,14 +178,14 @@ nfs_read_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
             void *p_private_data)
 {
     VLC_UNUSED(p_nfs);
-    access_t *p_access = p_private_data;
+    stream_t *p_access = p_private_data;
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_nfs == p_nfs);
     if (NFS_CHECK_STATUS(p_access, i_status, p_data))
         return;
 
     if (i_status == 0)
-        p_access->info.b_eof = true;
+        p_sys->b_eof = true;
     else
     {
         p_sys->res.read.i_len = i_status;
@@ -191,16 +194,19 @@ nfs_read_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
 }
 
 static bool
-nfs_read_finished_cb(access_t *p_access)
+nfs_read_finished_cb(stream_t *p_access)
 {
     access_sys_t *p_sys = p_access->p_sys;
-    return p_sys->res.read.i_len > 0 || p_access->info.b_eof;
+    return p_sys->res.read.i_len > 0 || p_sys->b_eof;
 }
 
 static ssize_t
-FileRead(access_t *p_access, uint8_t *p_buf, size_t i_len)
+FileRead(stream_t *p_access, void *p_buf, size_t i_len)
 {
     access_sys_t *p_sys = p_access->p_sys;
+
+    if (p_sys->b_eof)
+        return 0;
 
     p_sys->res.read.i_len = 0;
     p_sys->res.read.p_buf = p_buf;
@@ -222,7 +228,7 @@ nfs_seek_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
             void *p_private_data)
 {
     VLC_UNUSED(p_nfs);
-    access_t *p_access = p_private_data;
+    stream_t *p_access = p_private_data;
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_nfs == p_nfs);
     (void) p_data;
@@ -233,17 +239,16 @@ nfs_seek_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
 }
 
 static bool
-nfs_seek_finished_cb(access_t *p_access)
+nfs_seek_finished_cb(stream_t *p_access)
 {
     access_sys_t *p_sys = p_access->p_sys;
     return p_sys->res.seek.b_done;
 }
 
 static int
-FileSeek(access_t *p_access, uint64_t i_pos)
+FileSeek(stream_t *p_access, uint64_t i_pos)
 {
     access_sys_t *p_sys = p_access->p_sys;
-    p_access->info.b_eof = false;
 
     p_sys->res.seek.b_done = false;
     if (nfs_lseek_async(p_sys->p_nfs, p_sys->p_nfsfh, i_pos, SEEK_SET,
@@ -260,37 +265,37 @@ FileSeek(access_t *p_access, uint64_t i_pos)
 }
 
 static int
-FileControl(access_t *p_access, int i_query, va_list args)
+FileControl(stream_t *p_access, int i_query, va_list args)
 {
     access_sys_t *p_sys = p_access->p_sys;
 
     switch (i_query)
     {
-        case ACCESS_CAN_SEEK:
+        case STREAM_CAN_SEEK:
             *va_arg(args, bool *) = true;
             break;
 
-        case ACCESS_CAN_FASTSEEK:
+        case STREAM_CAN_FASTSEEK:
             *va_arg(args, bool *) = false;
             break;
 
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg(args, bool *) = true;
             break;
 
-        case ACCESS_GET_SIZE:
+        case STREAM_GET_SIZE:
         {
             *va_arg(args, uint64_t *) = p_sys->stat.nfs_size;
             break;
         }
 
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
             *va_arg(args, int64_t *) = var_InheritInteger(p_access,
                                                           "network-caching");
             break;
 
-        case ACCESS_SET_PAUSE_STATE:
+        case STREAM_SET_PAUSE_STATE:
             break;
 
         default:
@@ -317,15 +322,15 @@ NfsGetUrl(vlc_url_t *p_url, const char *psz_file)
 }
 
 static int
-DirRead(access_t *p_access, input_item_node_t *p_node)
+DirRead(stream_t *p_access, input_item_node_t *p_node)
 {
     access_sys_t *p_sys = p_access->p_sys;
     struct nfsdirent *p_nfsdirent;
     int i_ret = VLC_SUCCESS;
     assert(p_sys->p_nfsdir);
 
-    struct access_fsdir fsdir;
-    access_fsdir_init(&fsdir, p_access, p_node);
+    struct vlc_readdir_helper rdh;
+    vlc_readdir_helper_init(&rdh, p_access, p_node);
 
     while (i_ret == VLC_SUCCESS
         && (p_nfsdirent = nfs_readdir(p_sys->p_nfs, p_sys->p_nfsdir)) != NULL)
@@ -356,25 +361,25 @@ DirRead(access_t *p_access, input_item_node_t *p_node)
         default:
             i_type = ITEM_TYPE_UNKNOWN;
         }
-        i_ret = access_fsdir_additem(&fsdir, psz_url, p_nfsdirent->name,
-                                     i_type, ITEM_NET);
+        i_ret = vlc_readdir_helper_additem(&rdh, psz_url, NULL, p_nfsdirent->name,
+                                           i_type, ITEM_NET);
         free(psz_url);
     }
 
-    access_fsdir_finish(&fsdir, i_ret == VLC_SUCCESS);
+    vlc_readdir_helper_finish(&rdh, i_ret == VLC_SUCCESS);
 
     return i_ret;
 }
 
 static int
-MountRead(access_t *p_access, input_item_node_t *p_node)
+MountRead(stream_t *p_access, input_item_node_t *p_node)
 {
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_mount != NULL && p_sys->res.exports.i_count >= 0);
     int i_ret = VLC_SUCCESS;
 
-    struct access_fsdir fsdir;
-    access_fsdir_init(&fsdir, p_access, p_node);
+    struct vlc_readdir_helper rdh;
+    vlc_readdir_helper_init(&rdh, p_access, p_node);
 
     for (int i = 0; i < p_sys->res.exports.i_count && i_ret == VLC_SUCCESS; ++i)
     {
@@ -386,29 +391,14 @@ MountRead(access_t *p_access, input_item_node_t *p_node)
             i_ret = VLC_ENOMEM;
             break;
         }
-        i_ret = access_fsdir_additem(&fsdir, psz_url, psz_name,
-                                     ITEM_TYPE_DIRECTORY, ITEM_NET);
+        i_ret = vlc_readdir_helper_additem(&rdh, psz_url, NULL, psz_name,
+                                            ITEM_TYPE_DIRECTORY, ITEM_NET);
         free(psz_url);
     }
 
-    access_fsdir_finish(&fsdir, i_ret == VLC_SUCCESS);
+    vlc_readdir_helper_finish(&rdh, i_ret == VLC_SUCCESS);
 
     return i_ret;
-}
-
-static int
-DirControl(access_t *p_access, int i_query, va_list args)
-{
-    switch (i_query)
-    {
-    case ACCESS_IS_DIRECTORY:
-        *va_arg( args, bool * ) = true; /* might loop */
-        break;
-    default:
-        return access_vaDirectoryControlHelper(p_access, i_query, args);
-    }
-
-    return VLC_SUCCESS;
 }
 
 static void
@@ -416,7 +406,7 @@ nfs_opendir_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
                void *p_private_data)
 {
     VLC_UNUSED(p_nfs);
-    access_t *p_access = p_private_data;
+    stream_t *p_access = p_private_data;
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_nfs == p_nfs);
     if (NFS_CHECK_STATUS(p_access, i_status, p_data))
@@ -430,7 +420,7 @@ nfs_open_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
             void *p_private_data)
 {
     VLC_UNUSED(p_nfs);
-    access_t *p_access = p_private_data;
+    stream_t *p_access = p_private_data;
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_nfs == p_nfs);
     if (NFS_CHECK_STATUS(p_access, i_status, p_data))
@@ -444,7 +434,7 @@ nfs_stat64_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
               void *p_private_data)
 {
     VLC_UNUSED(p_nfs);
-    access_t *p_access = p_private_data;
+    stream_t *p_access = p_private_data;
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_nfs == p_nfs);
     if (NFS_CHECK_STATUS(p_access, i_status, p_data))
@@ -491,7 +481,7 @@ nfs_mount_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
              void *p_private_data)
 {
     VLC_UNUSED(p_nfs);
-    access_t *p_access = p_private_data;
+    stream_t *p_access = p_private_data;
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_nfs == p_nfs);
     (void) p_data;
@@ -504,7 +494,7 @@ nfs_mount_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
     if (i_status == -EACCES && p_sys->psz_url_decoded_slash == NULL)
     {
         vlc_url_t url;
-        vlc_UrlParse(&url, p_sys->psz_url_decoded);
+        vlc_UrlParseFixup(&url, p_access->psz_url);
         if (url.psz_path == NULL || url.psz_path[0] == '\0'
          || url.psz_path[strlen(url.psz_path) - 1] == '/'
          || (p_sys->psz_url_decoded_slash = NfsGetUrl(&url, "/")) == NULL)
@@ -534,7 +524,7 @@ nfs_mount_cb(int i_status, struct nfs_context *p_nfs, void *p_data,
 }
 
 static bool
-nfs_mount_open_finished_cb(access_t *p_access)
+nfs_mount_open_finished_cb(stream_t *p_access)
 {
     access_sys_t *p_sys = p_access->p_sys;
     return p_sys->p_nfsfh != NULL || p_sys->p_nfsdir != NULL
@@ -542,7 +532,7 @@ nfs_mount_open_finished_cb(access_t *p_access)
 }
 
 static bool
-nfs_mount_open_slash_finished_cb(access_t *p_access)
+nfs_mount_open_slash_finished_cb(stream_t *p_access)
 {
     access_sys_t *p_sys = p_access->p_sys;
     return p_sys->p_nfsfh != NULL || p_sys->p_nfsdir != NULL;
@@ -553,7 +543,7 @@ mount_export_cb(struct rpc_context *p_ctx, int i_status, void *p_data,
                 void *p_private_data)
 {
     VLC_UNUSED(p_ctx);
-    access_t *p_access = p_private_data;
+    stream_t *p_access = p_private_data;
     access_sys_t *p_sys = p_access->p_sys;
     assert(p_sys->p_mount == p_ctx);
     if (NFS_CHECK_STATUS(p_access, i_status, p_data))
@@ -600,14 +590,14 @@ mount_export_cb(struct rpc_context *p_ctx, int i_status, void *p_data,
 }
 
 static bool
-mount_getexports_finished_cb(access_t *p_access)
+mount_getexports_finished_cb(stream_t *p_access)
 {
     access_sys_t *p_sys = p_access->p_sys;
     return p_sys->res.exports.i_count != -1;
 }
 
 static int
-NfsInit(access_t *p_access, const char *psz_url_decoded)
+NfsInit(stream_t *p_access, const char *psz_url_decoded)
 {
     access_sys_t *p_sys = p_access->p_sys;
     p_sys->p_nfs = nfs_init_context();
@@ -630,13 +620,12 @@ NfsInit(access_t *p_access, const char *psz_url_decoded)
 static int
 Open(vlc_object_t *p_obj)
 {
-    access_t *p_access = (access_t *)p_obj;
-    access_sys_t *p_sys = calloc(1, sizeof (*p_sys));
+    stream_t *p_access = (stream_t *)p_obj;
+    access_sys_t *p_sys = vlc_obj_calloc(p_obj, 1, sizeof (*p_sys));
 
     if (unlikely(p_sys == NULL))
-        goto error;
+        return VLC_ENOMEM;
     p_access->p_sys = p_sys;
-    p_access->info.b_eof = false;
 
     p_sys->b_auto_guid = var_InheritBool(p_obj, "nfs-auto-guid");
 
@@ -646,7 +635,8 @@ Open(vlc_object_t *p_obj)
         goto error;
 
     /* Parse the encoded URL */
-    vlc_UrlParse(&p_sys->encoded_url, p_access->psz_url);
+    if (vlc_UrlParseFixup(&p_sys->encoded_url, p_access->psz_url) != 0)
+        goto error;
     if (p_sys->encoded_url.psz_option)
     {
         if (strstr(p_sys->encoded_url.psz_option, "uid")
@@ -708,7 +698,7 @@ Open(vlc_object_t *p_obj)
         {
             p_access->pf_readdir = DirRead;
             p_access->pf_seek = NULL;
-            p_access->pf_control = DirControl;
+            p_access->pf_control = access_vaDirectoryControlHelper;
         }
         else
             vlc_assert_unreachable();
@@ -741,7 +731,7 @@ Open(vlc_object_t *p_obj)
 
         p_access->pf_readdir = MountRead;
         p_access->pf_seek = NULL;
-        p_access->pf_control = DirControl;
+        p_access->pf_control = access_vaDirectoryControlHelper;
     }
 
     return VLC_SUCCESS;
@@ -754,7 +744,7 @@ error:
 static void
 Close(vlc_object_t *p_obj)
 {
-    access_t *p_access = (access_t *)p_obj;
+    stream_t *p_access = (stream_t *)p_obj;
     access_sys_t *p_sys = p_access->p_sys;
 
     if (p_sys->p_nfsfh != NULL)
@@ -781,5 +771,4 @@ Close(vlc_object_t *p_obj)
 
     free(p_sys->psz_url_decoded);
     free(p_sys->psz_url_decoded_slash);
-    free(p_sys);
 }

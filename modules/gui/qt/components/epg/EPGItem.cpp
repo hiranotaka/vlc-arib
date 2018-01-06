@@ -35,11 +35,13 @@
 
 #include "qt.hpp"
 
-EPGItem::EPGItem( vlc_epg_event_t *data, EPGView *view )
-    : m_view( view )
+EPGItem::EPGItem( const vlc_epg_event_t *data, EPGView *view, EPGProgram *prog )
+    : QGraphicsItem()
 {
+    m_view = view;
+    program = prog;
+    m_id = data->i_id;
     setData( data );
-    m_current = false;
     m_boundingRect.setHeight( TRACKS_HEIGHT );
     setFlags( QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsFocusable);
     setAcceptHoverEvents( true );
@@ -67,9 +69,8 @@ void EPGItem::paint( QPainter *painter, const QStyleOptionGraphicsItem *option, 
 
     QLinearGradient gradient( mapped.topLeft(), mapped.bottomLeft() );
 
-    bool b_simultaneous = playsAt( m_view->baseTime() );
-    if ( m_current || b_simultaneous )
-        gradientColor.setRgb( 244, 125, 0 , b_simultaneous ? 192 : 255 );
+    if ( program->getCurrent() == this )
+        gradientColor.setRgb( 244, 125, 0 , 255 );
     else
         gradientColor.setRgb( 201, 217, 242 );
 
@@ -139,18 +140,17 @@ QDateTime EPGItem::end() const
     return QDateTime( m_start ).addSecs( m_duration );
 }
 
-int EPGItem::duration() const
+uint32_t EPGItem::duration() const
 {
     return m_duration;
 }
 
-void EPGItem::setRow( unsigned int i_row_ )
+uint16_t EPGItem::eventID() const
 {
-    i_row = i_row_;
-    updatePos();
+    return m_id;
 }
 
-bool EPGItem::setData( vlc_epg_event_t *data )
+bool EPGItem::setData( const vlc_epg_event_t *data )
 {
     QDateTime newtime = QDateTime::fromTime_t( data->i_start );
     QString newname = qfu( data->psz_name );
@@ -170,15 +170,18 @@ bool EPGItem::setData( vlc_epg_event_t *data )
         m_shortDescription = newshortdesc;
         setDuration( data->i_duration );
         setRating( data->i_rating );
-        update();
+        m_descitems.clear();
+        for( int i=0; i<data->i_description_items; i++ )
+        {
+            m_descitems.append(QPair<QString, QString>(
+                                  QString(data->description_items[i].psz_key),
+                                  QString(data->description_items[i].psz_value)));
+        }
+        updatePos();
+        prepareGeometryChange();
         return true;
     }
     return false;
-}
-
-void EPGItem::setCurrent( bool b_current )
-{
-    m_current = b_current;
 }
 
 bool EPGItem::endsBefore( const QDateTime &ref ) const
@@ -191,7 +194,12 @@ bool EPGItem::playsAt( const QDateTime & ref ) const
     return (m_start <= ref) && !endsBefore( ref );
 }
 
-void EPGItem::setDuration( int duration )
+const QList<QPair<QString, QString>> & EPGItem::descriptionItems() const
+{
+    return m_descitems;
+}
+
+void EPGItem::setDuration( uint32_t duration )
 {
     m_duration = duration;
     m_boundingRect.setWidth( duration );
@@ -215,8 +223,12 @@ QString EPGItem::description() const
 
 void EPGItem::updatePos()
 {
-    int x = m_view->startTime().secsTo( m_start );
-    setPos( x, i_row * TRACKS_HEIGHT );
+    QDateTime overallmin = m_view->startTime();
+    if( overallmin.isValid() )
+    {
+        int x = m_view->startTime().secsTo( m_start );
+        setPos( x, program->getPosition() * TRACKS_HEIGHT );
+    }
 }
 
 void EPGItem::hoverEnterEvent ( QGraphicsSceneHoverEvent * event )
@@ -228,6 +240,11 @@ void EPGItem::hoverEnterEvent ( QGraphicsSceneHoverEvent * event )
 void EPGItem::hoverLeaveEvent ( QGraphicsSceneHoverEvent * event )
 { /* required to redraw our background without flaws */
     hoverEnterEvent( event );
+}
+
+void EPGItem::mouseDoubleClickEvent( QGraphicsSceneMouseEvent * )
+{
+    program->activate();
 }
 
 void EPGItem::focusInEvent( QFocusEvent * event )

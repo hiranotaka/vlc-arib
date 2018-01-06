@@ -38,6 +38,8 @@
 #include <vlc_image.h>
 #include <vlc_block.h>
 
+#define PICTURE_SW_SIZE_MAX (1<<28) /* 256MB: 8K * 8K * 4*/
+
 /**
  * Allocate a new picture in the heap.
  *
@@ -62,7 +64,13 @@ static int AllocatePicture( picture_t *p_pic )
         i_bytes += p->i_pitch * p->i_lines;
     }
 
-    uint8_t *p_data = vlc_memalign( 16, i_bytes );
+    if( i_bytes >= PICTURE_SW_SIZE_MAX )
+    {
+        p_pic->i_planes = 0;
+        return VLC_ENOMEM;
+    }
+
+    uint8_t *p_data = aligned_alloc( 16, i_bytes );
     if( i_bytes > 0 && p_data == NULL )
     {
         p_pic->i_planes = 0;
@@ -86,11 +94,10 @@ static int AllocatePicture( picture_t *p_pic )
 
 static void PictureDestroyContext( picture_t *p_picture )
 {
-    void (**context)( void * ) = p_picture->context;
-    if( context != NULL )
+    picture_context_t *ctx = p_picture->context;
+    if (ctx != NULL)
     {
-        void (*context_destroy)( void * ) = *context;
-        context_destroy( context );
+        ctx->destroy(ctx);
         p_picture->context = NULL;
     }
 }
@@ -111,7 +118,7 @@ static void picture_DestroyFromResource( picture_t *p_picture )
  */
 static void picture_Destroy( picture_t *p_picture )
 {
-    vlc_free( p_picture->p[0].p_pixels );
+    aligned_free( p_picture->p[0].p_pixels );
     free( p_picture );
 }
 
@@ -273,7 +280,7 @@ picture_t *picture_New( vlc_fourcc_t i_chroma, int i_width, int i_height, int i_
 {
     video_format_t fmt;
 
-    memset( &fmt, 0, sizeof(fmt) );
+    video_format_Init( &fmt, 0 );
     video_format_Setup( &fmt, i_chroma, i_width, i_height,
                         i_width, i_height, i_sar_num, i_sar_den );
 
@@ -309,13 +316,6 @@ void picture_Release( picture_t *p_picture )
     priv->gc.destroy( p_picture );
 }
 
-bool picture_IsReferenced( picture_t *p_picture )
-{
-    picture_priv_t *priv = (picture_priv_t *)p_picture;
-
-    return atomic_load( &priv->gc.refs ) > 1;
-}
-
 /*****************************************************************************
  *
  *****************************************************************************/
@@ -342,12 +342,11 @@ void plane_CopyPixels( plane_t *p_dst, const plane_t *p_src )
         /* We need to proceed line by line */
         uint8_t *p_in = p_src->p_pixels;
         uint8_t *p_out = p_dst->p_pixels;
-        int i_line;
 
         assert( p_in );
         assert( p_out );
 
-        for( i_line = i_height; i_line--; )
+        for( int i_line = i_height; i_line--; )
         {
             memcpy( p_out, p_in, i_width );
             p_in += p_src->i_pitch;
@@ -368,10 +367,13 @@ void picture_CopyProperties( picture_t *p_dst, const picture_t *p_src )
 
 void picture_CopyPixels( picture_t *p_dst, const picture_t *p_src )
 {
-    int i;
-
-    for( i = 0; i < p_src->i_planes ; i++ )
+    for( int i = 0; i < p_src->i_planes ; i++ )
         plane_CopyPixels( p_dst->p+i, p_src->p+i );
+
+    assert( p_dst->context == NULL );
+
+    if( p_src->context != NULL )
+        p_dst->context = p_src->context->copy( p_src->context );
 }
 
 void picture_Copy( picture_t *p_dst, const picture_t *p_src )
@@ -380,6 +382,38 @@ void picture_Copy( picture_t *p_dst, const picture_t *p_src )
     picture_CopyProperties( p_dst, p_src );
 }
 
+static void picture_DestroyClone(picture_t *clone)
+{
+    picture_t *picture = ((picture_priv_t *)clone)->gc.opaque;
+
+    free(clone);
+    picture_Release(picture);
+}
+
+picture_t *picture_Clone(picture_t *picture)
+{
+    /* TODO: merge common code with picture_pool_ClonePicture(). */
+    picture_resource_t res = {
+        .p_sys = picture->p_sys,
+        .pf_destroy = picture_DestroyClone,
+    };
+
+    for (int i = 0; i < picture->i_planes; i++) {
+        res.p[i].p_pixels = picture->p[i].p_pixels;
+        res.p[i].i_lines = picture->p[i].i_lines;
+        res.p[i].i_pitch = picture->p[i].i_pitch;
+    }
+
+    picture_t *clone = picture_NewFromResource(&picture->format, &res);
+    if (likely(clone != NULL)) {
+        ((picture_priv_t *)clone)->gc.opaque = picture;
+        picture_Hold(picture);
+
+        if (picture->context != NULL)
+            clone->context = picture->context->copy(picture->context);
+    }
+    return clone;
+}
 
 /*****************************************************************************
  *
@@ -407,17 +441,26 @@ int picture_Export( vlc_object_t *p_obj,
     fmt_out.i_chroma  = i_format;
 
     /* compute original width/height */
-    unsigned int i_original_width;
-    unsigned int i_original_height;
-    if( fmt_in.i_sar_num >= fmt_in.i_sar_den )
+    unsigned int i_width, i_height, i_original_width, i_original_height;
+    if( fmt_in.i_visible_width > 0 && fmt_in.i_visible_height > 0 )
     {
-        i_original_width = (int64_t)fmt_in.i_width * fmt_in.i_sar_num / fmt_in.i_sar_den;
-        i_original_height = fmt_in.i_height;
+        i_width = fmt_in.i_visible_width;
+        i_height = fmt_in.i_visible_height;
     }
     else
     {
-        i_original_width =  fmt_in.i_width;
-        i_original_height = (int64_t)fmt_in.i_height * fmt_in.i_sar_den / fmt_in.i_sar_num;
+        i_width = fmt_in.i_width;
+        i_height = fmt_in.i_height;
+    }
+    if( fmt_in.i_sar_num >= fmt_in.i_sar_den )
+    {
+        i_original_width = (int64_t)i_width * fmt_in.i_sar_num / fmt_in.i_sar_den;
+        i_original_height = i_height;
+    }
+    else
+    {
+        i_original_width =  i_width;
+        i_original_height = i_height * fmt_in.i_sar_den / fmt_in.i_sar_num;
     }
 
     /* */
@@ -429,16 +472,18 @@ int picture_Export( vlc_object_t *p_obj,
     /* scale if only one direction is provided */
     if( fmt_out.i_height == 0 && fmt_out.i_width > 0 )
     {
-        fmt_out.i_height = fmt_in.i_height * fmt_out.i_width
-                     * fmt_in.i_sar_den / fmt_in.i_width / fmt_in.i_sar_num;
+        fmt_out.i_height = i_height * fmt_out.i_width
+                         * fmt_in.i_sar_den / fmt_in.i_width / fmt_in.i_sar_num;
     }
     else if( fmt_out.i_width == 0 && fmt_out.i_height > 0 )
     {
-        fmt_out.i_width  = fmt_in.i_width * fmt_out.i_height
-                     * fmt_in.i_sar_num / fmt_in.i_height / fmt_in.i_sar_den;
+        fmt_out.i_width  = i_width * fmt_out.i_height
+                         * fmt_in.i_sar_num / fmt_in.i_height / fmt_in.i_sar_den;
     }
 
     image_handler_t *p_image = image_HandlerCreate( p_obj );
+    if( !p_image )
+        return VLC_ENOMEM;
 
     block_t *p_block = image_Write( p_image, p_picture, &fmt_in, &fmt_out );
 

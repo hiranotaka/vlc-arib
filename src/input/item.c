@@ -26,14 +26,18 @@
 #endif
 #include <assert.h>
 #include <time.h>
+#include <limits.h>
+#include <ctype.h>
 
 #include <vlc_common.h>
 #include <vlc_url.h>
 #include <vlc_interface.h>
 #include <vlc_charset.h>
+#include <vlc_strings.h>
 
 #include "item.h"
 #include "info.h"
+#include "input_internal.h"
 
 struct input_item_opaque
 {
@@ -57,19 +61,16 @@ void input_item_SetErrorWhenReading( input_item_t *p_i, bool b_error )
 
     if( b_changed )
     {
-        vlc_event_t event;
-
-        event.type = vlc_InputItemErrorWhenReadingChanged;
-        event.u.input_item_error_when_reading_changed.new_value = b_error;
-        vlc_event_send( &p_i->event_manager, &event );
+        vlc_event_send( &p_i->event_manager, &(vlc_event_t) {
+            .type = vlc_InputItemErrorWhenReadingChanged,
+            .u.input_item_error_when_reading_changed.new_value = b_error } );
     }
 }
 void input_item_SignalPreparseEnded( input_item_t *p_i, int status )
 {
-    vlc_event_t event;
-    event.type = vlc_InputItemPreparseEnded;
-    event.u.input_item_preparse_ended.new_status = status;
-    vlc_event_send( &p_i->event_manager, &event );
+    vlc_event_send( &p_i->event_manager, &(vlc_event_t) {
+        .type = vlc_InputItemPreparseEnded,
+        .u.input_item_preparse_ended.new_status = status } );
 }
 
 void input_item_SetPreparsed( input_item_t *p_i, bool b_preparsed )
@@ -97,10 +98,9 @@ void input_item_SetPreparsed( input_item_t *p_i, bool b_preparsed )
 
     if( b_send_event )
     {
-        vlc_event_t event;
-        event.type = vlc_InputItemPreparsedChanged;
-        event.u.input_item_preparsed_changed.new_status = new_status;
-        vlc_event_send( &p_i->event_manager, &event );
+        vlc_event_send( &p_i->event_manager, &(vlc_event_t) {
+            .type = vlc_InputItemPreparsedChanged,
+            .u.input_item_preparsed_changed.new_status = new_status } );
     }
 }
 
@@ -144,8 +144,6 @@ void input_item_SetArtFetched( input_item_t *p_i, bool b_art_fetched )
 
 void input_item_SetMeta( input_item_t *p_i, vlc_meta_type_t meta_type, const char *psz_val )
 {
-    vlc_event_t event;
-
     vlc_mutex_lock( &p_i->lock );
     if( !p_i->p_meta )
         p_i->p_meta = vlc_meta_New();
@@ -153,9 +151,9 @@ void input_item_SetMeta( input_item_t *p_i, vlc_meta_type_t meta_type, const cha
     vlc_mutex_unlock( &p_i->lock );
 
     /* Notify interested third parties */
-    event.type = vlc_InputItemMetaChanged;
-    event.u.input_item_meta_changed.meta_type = meta_type;
-    vlc_event_send( &p_i->event_manager, &event );
+    vlc_event_send( &p_i->event_manager, &(vlc_event_t) {
+        .type = vlc_InputItemMetaChanged,
+        .u.input_item_meta_changed.meta_type = meta_type } );
 }
 
 void input_item_CopyOptions( input_item_t *p_child,
@@ -163,68 +161,72 @@ void input_item_CopyOptions( input_item_t *p_child,
 {
     char **optv = NULL;
     uint8_t *flagv = NULL;
-    size_t optc;
+    int optc = 0;
+    char **optv_realloc = NULL;
+    uint8_t *flagv_realloc = NULL;
 
     vlc_mutex_lock( &p_parent->lock );
 
-    optc = p_parent->i_options;
-    if( optc > 0 )
+    if( p_parent->i_options > 0 )
     {
-        optv = xmalloc( optc * sizeof (*optv) );
-        for( size_t i = 0; i < optc; i++ )
-            optv[i] = xstrdup( p_parent->ppsz_options[i] );
+        optv = vlc_alloc( p_parent->i_options, sizeof (*optv) );
+        if( likely(optv) )
+            flagv = vlc_alloc( p_parent->i_options, sizeof (*flagv) );
 
-        flagv = xmalloc( optc * sizeof (*flagv) );
-        memcpy( flagv, p_parent->optflagv, optc * sizeof (*flagv) );
+        if( likely(flagv) )
+        {
+            for( int i = 0; i < p_parent->i_options; i++ )
+            {
+                char *psz_dup = strdup( p_parent->ppsz_options[i] );
+                if( likely(psz_dup) )
+                {
+                    flagv[optc] = p_parent->optflagv[i];
+                    optv[optc++] = psz_dup;
+                }
+            }
+        }
     }
 
     vlc_mutex_unlock( &p_parent->lock );
 
-    if( optc == 0 )
-        return;
+    if( likely(optv && flagv && optc ) )
+    {
+        vlc_mutex_lock( &p_child->lock );
 
-    vlc_mutex_lock( &p_child->lock );
+        if( INT_MAX - p_child->i_options >= optc &&
+            SIZE_MAX / sizeof (*flagv) >= (size_t) (p_child->i_options + optc) )
+            flagv_realloc = realloc( p_child->optflagv,
+                                    (p_child->i_options + optc) * sizeof (*flagv) );
+        if( likely(flagv_realloc) )
+        {
+            p_child->optflagv = flagv_realloc;
+            if( SIZE_MAX / sizeof (*optv) >= (size_t) (p_child->i_options + optc) )
+                optv_realloc = realloc( p_child->ppsz_options,
+                                       (p_child->i_options + optc) * sizeof (*optv) );
+            if( likely(optv_realloc) )
+            {
+                p_child->ppsz_options = optv_realloc;
+                memcpy( p_child->ppsz_options + p_child->i_options, optv,
+                        optc * sizeof (*optv) );
+                memcpy( p_child->optflagv + p_child->i_options, flagv,
+                        optc * sizeof (*flagv) );
+                p_child->i_options += optc;
+                p_child->optflagc += optc;
+            }
+        }
 
-    p_child->ppsz_options = xrealloc( p_child->ppsz_options,
-                                (p_child->i_options + optc) * sizeof (*optv) );
-    memcpy( p_child->ppsz_options + p_child->i_options, optv,
-            optc * sizeof (*optv) );
-    p_child->i_options += optc;
+        vlc_mutex_unlock( &p_child->lock );
+    }
 
-    p_child->optflagv = xrealloc( p_child->optflagv,
-                               (p_child->i_options + optc) * sizeof (*flagv) );
-    memcpy( p_child->optflagv + p_child->i_options, flagv,
-            optc * sizeof (*flagv) );
-    p_child->optflagc += optc;
-
-    vlc_mutex_unlock( &p_child->lock );
+    if( unlikely(!flagv_realloc || !optv_realloc) )
+    {
+        /* Didn't copy pointers, so need to free the strdup() */
+        for( int i=0; i<optc; i++ )
+            free( optv[i] );
+    }
 
     free( flagv );
     free( optv );
-}
-
-static void post_subitems( input_item_node_t *p_node )
-{
-    for( int i = 0; i < p_node->i_children; i++ )
-    {
-        vlc_event_t event;
-        event.type = vlc_InputItemSubItemAdded;
-        event.u.input_item_subitem_added.p_new_child = p_node->pp_children[i]->p_item;
-        vlc_event_send( &p_node->p_item->event_manager, &event );
-
-        post_subitems( p_node->pp_children[i] );
-    }
-}
-
-/* This won't hold the item, but can tell to interested third parties
- * Like the playlist, that there is a new sub item. With this design
- * It is not the input item's responsibility to keep all the ref of
- * the input item children. */
-void input_item_PostSubItem( input_item_t *p_parent, input_item_t *p_child )
-{
-    input_item_node_t *p_node = input_item_node_Create( p_parent );
-    input_item_node_AppendItem( p_node, p_child );
-    input_item_node_PostAndDelete( p_node );
 }
 
 bool input_item_HasErrorWhenReading( input_item_t *p_item )
@@ -418,11 +420,9 @@ void input_item_SetDuration( input_item_t *p_i, mtime_t i_duration )
 
     if( b_send_event )
     {
-        vlc_event_t event;
-
-        event.type = vlc_InputItemDurationChanged;
-        event.u.input_item_duration_changed.new_duration = i_duration;
-        vlc_event_send( &p_i->event_manager, &event );
+        vlc_event_send( &p_i->event_manager, &(vlc_event_t) {
+            .type = vlc_InputItemDurationChanged,
+            .u.input_item_duration_changed.new_duration = i_duration } );
     }
 }
 
@@ -486,11 +486,7 @@ void input_item_Release( input_item_t *p_item )
 
     free( p_item->psz_name );
     free( p_item->psz_uri );
-    if( p_item->p_stats != NULL )
-    {
-        vlc_mutex_destroy( &p_item->p_stats->lock );
-        free( p_item->p_stats );
-    }
+    free( p_item->p_stats );
 
     if( p_item->p_meta != NULL )
         vlc_meta_Delete( p_item->p_meta );
@@ -551,11 +547,20 @@ int input_item_AddOption( input_item_t *p_input, const char *psz_option,
         err = VLC_ENOMEM;
         goto out;
     }
+
     p_input->optflagv = flagv;
+
+    char* psz_option_dup = strdup( psz_option );
+    if( unlikely( !psz_option_dup ) )
+    {
+        err = VLC_ENOMEM;
+        goto out;
+    }
+
+    TAB_APPEND(p_input->i_options, p_input->ppsz_options, psz_option_dup);
+
     flagv[p_input->optflagc++] = flags;
 
-    INSERT_ELEM( p_input->ppsz_options, p_input->i_options,
-                 p_input->i_options, strdup( psz_option ) );
 out:
     vlc_mutex_unlock( &p_input->lock );
     return err;
@@ -608,18 +613,37 @@ void input_item_ApplyOptions(vlc_object_t *obj, input_item_t *item)
     vlc_mutex_unlock(&item->lock);
 }
 
+static int bsearch_strcmp_cb(const void *a, const void *b)
+{
+    const char *const *entry = b;
+    return strcasecmp(a, *entry);
+}
+
+static bool input_item_IsMaster(const char *psz_filename)
+{
+    static const char *const ppsz_master_exts[] = { MASTER_EXTENSIONS };
+
+    const char *psz_ext = strrchr(psz_filename, '.');
+    if (psz_ext == NULL || *(++psz_ext) == '\0')
+        return false;
+
+    return bsearch(psz_ext, ppsz_master_exts, ARRAY_SIZE(ppsz_master_exts),
+                   sizeof(const char *), bsearch_strcmp_cb) != NULL;
+}
+
 bool input_item_slave_GetType(const char *psz_filename,
                               enum slave_type *p_slave_type)
 {
-    static const char *const ppsz_sub_exts[] = { SLAVE_SPU_EXTENSIONS, NULL };
-    static const char *const ppsz_audio_exts[] = { SLAVE_AUDIO_EXTENSIONS, NULL };
+    static const char *const ppsz_sub_exts[] = { SLAVE_SPU_EXTENSIONS };
+    static const char *const ppsz_audio_exts[] = { SLAVE_AUDIO_EXTENSIONS };
 
     static struct {
         enum slave_type i_type;
         const char *const *ppsz_exts;
+        size_t nmemb;
     } p_slave_list[] = {
-        { SLAVE_TYPE_SPU, ppsz_sub_exts },
-        { SLAVE_TYPE_AUDIO, ppsz_audio_exts },
+        { SLAVE_TYPE_SPU, ppsz_sub_exts, ARRAY_SIZE(ppsz_sub_exts) },
+        { SLAVE_TYPE_AUDIO, ppsz_audio_exts, ARRAY_SIZE(ppsz_audio_exts) },
     };
 
     const char *psz_ext = strrchr(psz_filename, '.');
@@ -628,14 +652,11 @@ bool input_item_slave_GetType(const char *psz_filename,
 
     for (unsigned int i = 0; i < sizeof(p_slave_list) / sizeof(*p_slave_list); ++i)
     {
-        for (const char *const *ppsz_slave_ext = p_slave_list[i].ppsz_exts;
-             *ppsz_slave_ext != NULL; ppsz_slave_ext++)
+        if (bsearch(psz_ext, p_slave_list[i].ppsz_exts, p_slave_list[i].nmemb,
+                    sizeof(const char *), bsearch_strcmp_cb))
         {
-            if (!strcasecmp(psz_ext, *ppsz_slave_ext))
-            {
-                *p_slave_type = p_slave_list[i].i_type;
-                return true;
-            }
+            *p_slave_type = p_slave_list[i].i_type;
+            return true;
         }
     }
     return false;
@@ -667,7 +688,7 @@ int input_item_AddSlave(input_item_t *p_item, input_item_slave_t *p_slave)
 
     vlc_mutex_lock( &p_item->lock );
 
-    INSERT_ELEM( p_item->pp_slaves, p_item->i_slaves, p_item->i_slaves, p_slave );
+    TAB_APPEND(p_item->i_slaves, p_item->pp_slaves, p_slave);
 
     vlc_mutex_unlock( &p_item->lock );
     return VLC_SUCCESS;
@@ -735,27 +756,12 @@ static int InputItemVaAddInfo( input_item_t *p_i,
         p_cat = info_category_New( psz_cat );
         if( !p_cat )
             return VLC_ENOMEM;
-        INSERT_ELEM( p_i->pp_categories, p_i->i_categories, p_i->i_categories,
-                     p_cat );
+        TAB_APPEND(p_i->i_categories, p_i->pp_categories, p_cat);
     }
     info_t *p_info = info_category_VaAddInfo( p_cat, psz_name, psz_format, args );
     if( !p_info || !p_info->psz_value )
         return VLC_EGENERIC;
     return VLC_SUCCESS;
-}
-
-static int InputItemAddInfo( input_item_t *p_i,
-                             const char *psz_cat,
-                             const char *psz_name,
-                             const char *psz_format, ... )
-{
-    va_list args;
-
-    va_start( args, psz_format );
-    const int i_ret = InputItemVaAddInfo( p_i, psz_cat, psz_name, psz_format, args );
-    va_end( args );
-
-    return i_ret;
 }
 
 int input_item_AddInfo( input_item_t *p_i,
@@ -775,12 +781,9 @@ int input_item_AddInfo( input_item_t *p_i,
 
 
     if( !i_ret )
-    {
-        vlc_event_t event;
+        vlc_event_send( &p_i->event_manager, &(vlc_event_t) {
+            .type = vlc_InputItemInfoChanged } );
 
-        event.type = vlc_InputItemInfoChanged;
-        vlc_event_send( &p_i->event_manager, &event );
-    }
     return i_ret;
 }
 
@@ -811,14 +814,12 @@ int input_item_DelInfo( input_item_t *p_i,
     {
         /* Remove the complete categorie */
         info_category_Delete( p_cat );
-        REMOVE_ELEM( p_i->pp_categories, p_i->i_categories, i_cat );
+        TAB_ERASE(p_i->i_categories, p_i->pp_categories, i_cat);
     }
     vlc_mutex_unlock( &p_i->lock );
 
-
-    vlc_event_t event;
-    event.type = vlc_InputItemInfoChanged;
-    vlc_event_send( &p_i->event_manager, &event );
+    vlc_event_send( &p_i->event_manager,
+                    &(vlc_event_t) { .type = vlc_InputItemInfoChanged } );
 
     return VLC_SUCCESS;
 }
@@ -833,17 +834,13 @@ void input_item_ReplaceInfos( input_item_t *p_item, info_category_t *p_cat )
         p_item->pp_categories[i_cat] = p_cat;
     }
     else
-    {
-        INSERT_ELEM( p_item->pp_categories, p_item->i_categories, p_item->i_categories,
-                     p_cat );
-    }
+        TAB_APPEND(p_item->i_categories, p_item->pp_categories, p_cat);
     vlc_mutex_unlock( &p_item->lock );
 
-
-    vlc_event_t event;
-    event.type = vlc_InputItemInfoChanged;
-    vlc_event_send( &p_item->event_manager, &event );
+    vlc_event_send( &p_item->event_manager,
+                    &(vlc_event_t) { .type = vlc_InputItemInfoChanged } );
 }
+
 void input_item_MergeInfos( input_item_t *p_item, info_category_t *p_cat )
 {
     vlc_mutex_lock( &p_item->lock );
@@ -856,52 +853,102 @@ void input_item_MergeInfos( input_item_t *p_item, info_category_t *p_cat )
         info_category_Delete( p_cat );
     }
     else
+        TAB_APPEND(p_item->i_categories, p_item->pp_categories, p_cat);
+    vlc_mutex_unlock( &p_item->lock );
+
+    vlc_event_send( &p_item->event_manager,
+                    &(vlc_event_t) { .type = vlc_InputItemInfoChanged } );
+}
+
+void input_item_SetEpgEvent( input_item_t *p_item, const vlc_epg_event_t *p_epg_evt )
+{
+    bool b_changed = false;
+    vlc_mutex_lock( &p_item->lock );
+
+    for( int i = 0; i < p_item->i_epg; i++ )
     {
-        INSERT_ELEM( p_item->pp_categories, p_item->i_categories, p_item->i_categories,
-                     p_cat );
+        vlc_epg_t *p_epg = p_item->pp_epg[i];
+        for( size_t j = 0; j < p_epg->i_event; j++ )
+        {
+            /* Same event can exist in more than one table */
+            if( p_epg->pp_event[j]->i_id == p_epg_evt->i_id )
+            {
+                vlc_epg_event_t *p_dup = vlc_epg_event_Duplicate( p_epg_evt );
+                if( p_dup )
+                {
+                    if( p_epg->p_current == p_epg->pp_event[j] )
+                        p_epg->p_current = p_dup;
+                    vlc_epg_event_Delete( p_epg->pp_event[j] );
+                    p_epg->pp_event[j] = p_dup;
+                    b_changed = true;
+                }
+                break;
+            }
+        }
     }
     vlc_mutex_unlock( &p_item->lock );
 
-
-    vlc_event_t event;
-    event.type = vlc_InputItemInfoChanged;
-    vlc_event_send( &p_item->event_manager, &event );
+    if ( b_changed )
+    {
+        vlc_event_send( &p_item->event_manager,
+                        &(vlc_event_t) { .type = vlc_InputItemInfoChanged } );
+    }
 }
 
-#define EPG_DEBUG
-void input_item_SetEpg( input_item_t *p_item, const vlc_epg_t *p_update )
+//#define EPG_DEBUG
+#ifdef EPG_DEBUG
+static int InputItemAddInfo( input_item_t *p_i,
+                             const char *psz_cat,
+                             const char *psz_name,
+                             const char *psz_format, ... )
 {
+    va_list args;
+
+    va_start( args, psz_format );
+    const int i_ret = InputItemVaAddInfo( p_i, psz_cat, psz_name, psz_format, args );
+    va_end( args );
+
+    return i_ret;
+}
+#endif
+
+void input_item_SetEpg( input_item_t *p_item, const vlc_epg_t *p_update, bool b_current_source )
+{
+    vlc_epg_t *p_epg = vlc_epg_Duplicate( p_update );
+    if( !p_epg )
+        return;
+
     vlc_mutex_lock( &p_item->lock );
 
     /* */
-    vlc_epg_t *p_epg = NULL;
+    vlc_epg_t **pp_epg = NULL;
     for( int i = 0; i < p_item->i_epg; i++ )
     {
-        vlc_epg_t *p_tmp = p_item->pp_epg[i];
-
-        if( (p_tmp->psz_name == NULL) != (p_update->psz_name == NULL) )
-            continue;
-        if( p_tmp->psz_name && p_update->psz_name && strcmp(p_tmp->psz_name, p_update->psz_name) )
-            continue;
-
-        p_epg = p_tmp;
-        break;
+        if( p_item->pp_epg[i]->i_source_id == p_update->i_source_id &&
+            p_item->pp_epg[i]->i_id == p_update->i_id )
+        {
+            pp_epg = &p_item->pp_epg[i];
+            break;
+        }
     }
 
-    /* */
-    if( !p_epg )
+    /* replace with new version */
+    if( pp_epg )
     {
-        p_epg = vlc_epg_New( p_update->psz_name );
-        if( p_epg )
-            TAB_APPEND( p_item->i_epg, p_item->pp_epg, p_epg );
+        vlc_epg_Delete( *pp_epg );
+        if( *pp_epg == p_item->p_epg_table ) /* current table can have changed */
+            p_item->p_epg_table = NULL;
+        *pp_epg = p_epg;
     }
-    if( p_epg )
-        vlc_epg_Merge( p_epg, p_update );
+    else
+    {
+        TAB_APPEND( p_item->i_epg, p_item->pp_epg, p_epg );
+    }
+
+    if( b_current_source && p_epg->b_present )
+        p_item->p_epg_table = p_epg;
 
     vlc_mutex_unlock( &p_item->lock );
-
-    if( !p_epg )
-        return;
 
 #ifdef EPG_DEBUG
     char *psz_epg;
@@ -911,7 +958,7 @@ void input_item_SetEpg( input_item_t *p_item, const vlc_epg_t *p_update )
     input_item_DelInfo( p_item, psz_epg, NULL );
 
     vlc_mutex_lock( &p_item->lock );
-    for( int i = 0; i < p_epg->i_event; i++ )
+    for( size_t i = 0; i < p_epg->i_event; i++ )
     {
         const vlc_epg_event_t *p_evt = p_epg->pp_event[i];
         time_t t_start = (time_t)p_evt->i_start;
@@ -938,20 +985,40 @@ void input_item_SetEpg( input_item_t *p_item, const vlc_epg_t *p_update )
     free( psz_epg );
 signal:
 #endif
+    vlc_event_send( &p_item->event_manager,
+                    &(vlc_event_t){ .type = vlc_InputItemInfoChanged, } );
+}
 
-    if( p_epg->i_event > 0 )
+void input_item_ChangeEPGSource( input_item_t *p_item, int i_source_id )
+{
+    vlc_mutex_lock( &p_item->lock );
+    p_item->p_epg_table = NULL;
+    if( i_source_id > 0 )
     {
-        vlc_event_t event = { .type = vlc_InputItemInfoChanged, };
-        vlc_event_send( &p_item->event_manager, &event );
+        /* Update pointer to current/next table in the full schedule */
+        for( int i = 0; i < p_item->i_epg; i++ )
+        {
+            if( p_item->pp_epg[i]->i_source_id == i_source_id &&
+                p_item->pp_epg[i]->b_present )
+            {
+                p_item->p_epg_table = p_item->pp_epg[i];
+                break;
+            }
+        }
     }
+    vlc_mutex_unlock( &p_item->lock );
+}
+
+void input_item_SetEpgTime( input_item_t *p_item, int64_t i_time )
+{
+    vlc_mutex_lock( &p_item->lock );
+    p_item->i_epg_time = i_time;
+    vlc_mutex_unlock( &p_item->lock );
 }
 
 void input_item_SetEpgOffline( input_item_t *p_item )
 {
-    vlc_mutex_lock( &p_item->lock );
-    for( int i = 0; i < p_item->i_epg; i++ )
-        vlc_epg_SetCurrent( p_item->pp_epg[i], -1 );
-    vlc_mutex_unlock( &p_item->lock );
+    input_item_ChangeEPGSource( p_item, -1 );
 
 #ifdef EPG_DEBUG
     vlc_mutex_lock( &p_item->lock );
@@ -979,16 +1046,14 @@ void input_item_SetEpgOffline( input_item_t *p_item )
         vlc_mutex_unlock( &p_item->lock );
 #endif
 
-    vlc_event_t event = { .type = vlc_InputItemInfoChanged, };
-    vlc_event_send( &p_item->event_manager, &event );
+    vlc_event_send( &p_item->event_manager,
+                    &(vlc_event_t) { .type = vlc_InputItemInfoChanged } );
 }
 
 input_item_t *
 input_item_NewExt( const char *psz_uri, const char *psz_name,
                    mtime_t duration, int type, enum input_item_net_type i_net )
 {
-    static atomic_uint last_input_id = ATOMIC_VAR_INIT(0);
-
     input_item_owner_t *owner = calloc( 1, sizeof( *owner ) );
     if( unlikely(owner == NULL) )
         return NULL;
@@ -998,7 +1063,6 @@ input_item_NewExt( const char *psz_uri, const char *psz_name,
     input_item_t *p_input = &owner->item;
     vlc_event_manager_t * p_em = &p_input->event_manager;
 
-    p_input->i_id = atomic_fetch_add(&last_input_id, 1);
     vlc_mutex_init( &p_input->lock );
 
     p_input->psz_name = NULL;
@@ -1028,15 +1092,6 @@ input_item_NewExt( const char *psz_uri, const char *psz_name,
     TAB_INIT( p_input->i_slaves, p_input->pp_slaves );
 
     vlc_event_manager_init( p_em, p_input );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemMetaChanged );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemSubItemAdded );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemSubItemTreeAdded );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemDurationChanged );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemPreparsedChanged );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemNameChanged );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemInfoChanged );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemErrorWhenReadingChanged );
-    vlc_event_manager_register_event_type( p_em, vlc_InputItemPreparseEnded );
 
     if( type != ITEM_TYPE_UNKNOWN )
         p_input->i_type = type;
@@ -1138,6 +1193,7 @@ static int GuessType( const input_item_t *p_item, bool *p_net )
         { "raw139", ITEM_TYPE_CARD, false }, /* raw1394 */
         { "rt",     ITEM_TYPE_STREAM, true }, /* rtp, rtsp, rtmp */
         { "satell", ITEM_TYPE_CARD, false }, /* satellite */
+        { "satip",  ITEM_TYPE_STREAM, true }, /* satellite over ip */
         { "screen", ITEM_TYPE_CARD, false },
         { "sdp",    ITEM_TYPE_STREAM, true },
         { "sftp",   ITEM_TYPE_FILE, true },
@@ -1187,39 +1243,22 @@ input_item_node_t *input_item_node_Create( input_item_t *p_input )
     assert( p_input );
 
     p_node->p_item = p_input;
-    vlc_gc_incref( p_input );
+    input_item_Hold( p_input );
 
-    p_node->p_parent = NULL;
     p_node->i_children = 0;
     p_node->pp_children = NULL;
-    p_node->b_can_loop = false;
 
     return p_node;
 }
 
-static void RecursiveNodeDelete( input_item_node_t *p_node )
-{
-    for( int i = 0; i < p_node->i_children; i++ )
-        RecursiveNodeDelete( p_node->pp_children[i] );
-
-    vlc_gc_decref( p_node->p_item );
-    free( p_node->pp_children );
-    free( p_node );
-}
-
 void input_item_node_Delete( input_item_node_t *p_node )
 {
-    if( p_node->p_parent )
-        for( int i = 0; i < p_node->p_parent->i_children; i++ )
-            if( p_node->p_parent->pp_children[i] == p_node )
-            {
-                REMOVE_ELEM( p_node->p_parent->pp_children,
-                        p_node->p_parent->i_children,
-                        i );
-                break;
-            }
+    for( int i = 0; i < p_node->i_children; i++ )
+        input_item_node_Delete( p_node->pp_children[i] );
 
-    RecursiveNodeDelete( p_node );
+    input_item_Release( p_node->p_item );
+    free( p_node->pp_children );
+    free( p_node );
 }
 
 input_item_node_t *input_item_node_AppendItem( input_item_node_t *p_node, input_item_t *p_item )
@@ -1242,70 +1281,25 @@ input_item_node_t *input_item_node_AppendItem( input_item_node_t *p_node, input_
     return p_new_child;
 }
 
-void input_item_node_AppendNode( input_item_node_t *p_parent, input_item_node_t *p_child )
+void input_item_node_AppendNode( input_item_node_t *p_parent,
+                                 input_item_node_t *p_child )
 {
-    assert( p_parent && p_child && p_child->p_parent == NULL );
-    INSERT_ELEM( p_parent->pp_children,
-                 p_parent->i_children,
-                 p_parent->i_children,
-                 p_child );
-    p_child->p_parent = p_parent;
+    assert(p_parent != NULL);
+    assert(p_child != NULL);
+    TAB_APPEND(p_parent->i_children, p_parent->pp_children, p_child);
 }
 
-static int compar_node( const void *p1, const void *p2 )
+void input_item_node_RemoveNode( input_item_node_t *parent,
+                                 input_item_node_t *child )
 {
-    input_item_node_t *p_node1 = *((input_item_node_t **) p1);
-    input_item_node_t *p_node2 = *((input_item_node_t **) p2);
-
-    assert( p_node1->p_parent && p_node1->p_parent == p_node2->p_parent &&
-            p_node1->p_parent->compar_cb );
-
-    input_item_compar_cb compar_cb = p_node1->p_parent->compar_cb;
-    return compar_cb( p_node1->p_item, p_node2->p_item );
-}
-
-static void sort_subitems( input_item_node_t *p_node,
-                           input_item_compar_cb compar_cb )
-{
-    if( p_node->i_children <= 0 || !compar_cb )
-        return;
-
-    p_node->compar_cb = compar_cb;
-
-    /* Lock first all children. This avoids to lock/unlock them from each
-     * compar callback call */
-    for( int i = 0; i < p_node->i_children; i++ )
-        vlc_mutex_lock( &p_node->pp_children[i]->p_item->lock );
-
-    /* Sort current node */
-    qsort( p_node->pp_children, p_node->i_children,
-           sizeof(input_item_node_t *), compar_node );
-
-    /* Unlock all children */
-    for( int i = 0; i < p_node->i_children; i++ )
-        vlc_mutex_unlock( &p_node->pp_children[i]->p_item->lock );
-
-    p_node->compar_cb = NULL;
-
-    /* Sort all children */
-    for( int i = 0; i < p_node->i_children; i++ )
-        sort_subitems( p_node->pp_children[i], compar_cb );
-}
-
-void input_item_node_Sort( input_item_node_t *p_node,
-                           input_item_compar_cb compar_cb )
-{
-    sort_subitems( p_node, compar_cb );
+    TAB_REMOVE(parent->i_children, parent->pp_children, child);
 }
 
 void input_item_node_PostAndDelete( input_item_node_t *p_root )
 {
-    post_subitems( p_root );
-
-    vlc_event_t event;
-    event.type = vlc_InputItemSubItemTreeAdded;
-    event.u.input_item_subitem_tree_added.p_root = p_root;
-    vlc_event_send( &p_root->p_item->event_manager, &event );
+    vlc_event_send( &p_root->p_item->event_manager, &(vlc_event_t) {
+        .type = vlc_InputItemSubItemTreeAdded,
+        .u.input_item_subitem_tree_added.p_root = p_root } );
 
     input_item_node_Delete( p_root );
 }
@@ -1319,8 +1313,6 @@ void input_item_UpdateTracksInfo(input_item_t *item, const es_format_t *fmt)
         return;
 
     es_format_Copy(fmt_copy, fmt);
-    /* XXX: we could free p_extra to save memory, we will likely not need
-     * the decoder specific data */
 
     vlc_mutex_lock( &item->lock );
 
@@ -1340,4 +1332,493 @@ void input_item_UpdateTracksInfo(input_item_t *item, const es_format_t *fmt)
     /* ES not found, insert it */
     TAB_APPEND(item->i_es, item->es, fmt_copy);
     vlc_mutex_unlock( &item->lock );
+}
+
+static int rdh_compar_type(input_item_t *p1, input_item_t *p2)
+{
+    if (p1->i_type != p2->i_type)
+    {
+        if (p1->i_type == ITEM_TYPE_DIRECTORY)
+            return -1;
+        if (p2->i_type == ITEM_TYPE_DIRECTORY)
+            return 1;
+    }
+    return 0;
+}
+
+static int rdh_compar_filename(const void *a, const void *b)
+{
+    input_item_node_t *const *na = a, *const *nb = b;
+    input_item_t *ia = (*na)->p_item, *ib = (*nb)->p_item;
+
+    int i_ret = rdh_compar_type(ia, ib);
+    if (i_ret != 0)
+        return i_ret;
+
+    return vlc_filenamecmp(ia->psz_name, ib->psz_name);
+}
+
+static void rdh_sort(input_item_node_t *p_node)
+{
+    if (p_node->i_children <= 0)
+        return;
+
+    /* Sort current node */
+    qsort(p_node->pp_children, p_node->i_children,
+          sizeof(input_item_node_t *), rdh_compar_filename);
+
+    /* Sort all children */
+    for (int i = 0; i < p_node->i_children; i++)
+        rdh_sort(p_node->pp_children[i]);
+}
+
+/**
+ * Does the provided file name has one of the extension provided ?
+ */
+static bool rdh_file_has_ext(const char *psz_filename,
+                             const char *psz_ignored_exts)
+{
+    if (psz_ignored_exts == NULL)
+        return false;
+
+    const char *ext = strrchr(psz_filename, '.');
+    if (ext == NULL)
+        return false;
+
+    size_t extlen = strlen(++ext);
+
+    for (const char *type = psz_ignored_exts, *end; type[0]; type = end + 1)
+    {
+        end = strchr(type, ',');
+        if (end == NULL)
+            end = type + strlen(type);
+
+        if (type + extlen == end && !strncasecmp(ext, type, extlen))
+            return true;
+
+        if (*end == '\0')
+            break;
+    }
+
+    return false;
+}
+
+static bool rdh_file_is_ignored(struct vlc_readdir_helper *p_rdh,
+                                const char *psz_filename)
+{
+    return (psz_filename[0] == '\0'
+         || strcmp(psz_filename, ".") == 0
+         || strcmp(psz_filename, "..") == 0
+         || (!p_rdh->b_show_hiddenfiles && psz_filename[0] == '.')
+         || rdh_file_has_ext(psz_filename, p_rdh->psz_ignored_exts));
+}
+
+struct rdh_slave
+{
+    input_item_slave_t *p_slave;
+    char *psz_filename;
+    input_item_node_t *p_node;
+};
+
+struct rdh_dir
+{
+    input_item_node_t *p_node;
+    char psz_path[];
+};
+
+static char *rdh_name_from_filename(const char *psz_filename)
+{
+    /* remove leading white spaces */
+    while (*psz_filename != '\0' && *psz_filename == ' ')
+        psz_filename++;
+
+    char *psz_name = strdup(psz_filename);
+    if (!psz_name)
+        return NULL;
+
+    /* remove extension */
+    char *psz_ptr = strrchr(psz_name, '.');
+    if (psz_ptr && psz_ptr != psz_name)
+        *psz_ptr = '\0';
+
+    /* remove trailing white spaces */
+    int i = strlen(psz_name) - 1;
+    while (psz_name[i] == ' ' && i >= 0)
+        psz_name[i--] = '\0';
+
+    /* convert to lower case */
+    psz_ptr = psz_name;
+    while (*psz_ptr != '\0')
+    {
+        *psz_ptr = tolower(*psz_ptr);
+        psz_ptr++;
+    }
+
+    return psz_name;
+}
+
+static uint8_t rdh_get_slave_priority(input_item_t *p_item,
+                                      input_item_slave_t *p_slave,
+                                      const char *psz_slave_filename)
+{
+    uint8_t i_priority = SLAVE_PRIORITY_MATCH_NONE;
+    char *psz_item_name = rdh_name_from_filename(p_item->psz_name);
+    char *psz_slave_name = rdh_name_from_filename(psz_slave_filename);
+
+    if (!psz_item_name || !psz_slave_name)
+        goto done;
+
+    size_t i_item_len = strlen(psz_item_name);
+    size_t i_slave_len = strlen(psz_slave_name);
+
+    /* The slave name len should not be twice longer than the item name len. */
+    if (i_item_len > i_slave_len || i_slave_len > 2 * i_item_len)
+        goto done;
+
+    /* check if the names match exactly */
+    if (!strcmp(psz_item_name, psz_slave_name))
+    {
+        i_priority = SLAVE_PRIORITY_MATCH_ALL;
+        goto done;
+    }
+
+    /* "cdg" slaves have to be a full match */
+    if (p_slave->i_type == SLAVE_TYPE_SPU)
+    {
+        char *psz_ext = strrchr(psz_slave_name, '.');
+        if (psz_ext != NULL && strcasecmp(++psz_ext, "cdg") == 0)
+            goto done;
+    }
+
+    /* check if the item name is a substring of the slave name */
+    const char *psz_sub = strstr(psz_slave_name, psz_item_name);
+
+    if (psz_sub)
+    {
+        /* check if the item name was found at the end of the slave name */
+        if (strlen(psz_sub + strlen(psz_item_name)) == 0)
+        {
+            i_priority = SLAVE_PRIORITY_MATCH_RIGHT;
+            goto done;
+        }
+        else
+        {
+            i_priority = SLAVE_PRIORITY_MATCH_LEFT;
+            goto done;
+        }
+    }
+
+done:
+    free(psz_item_name);
+    free(psz_slave_name);
+    return i_priority;
+}
+
+static int rdh_should_match_idx(struct vlc_readdir_helper *p_rdh,
+                                struct rdh_slave *p_rdh_sub)
+{
+    char *psz_ext = strrchr(p_rdh_sub->psz_filename, '.');
+    if (!psz_ext)
+        return false;
+    psz_ext++;
+
+    if (strcasecmp(psz_ext, "sub") != 0)
+        return false;
+
+    for (size_t i = 0; i < p_rdh->i_slaves; i++)
+    {
+        struct rdh_slave *p_rdh_slave = p_rdh->pp_slaves[i];
+
+        if (p_rdh_slave == NULL || p_rdh_slave == p_rdh_sub)
+            continue;
+
+        /* check that priorities match */
+        if (p_rdh_slave->p_slave->i_priority !=
+            p_rdh_sub->p_slave->i_priority)
+            continue;
+
+        /* check that the filenames without extension match */
+        if (strncasecmp(p_rdh_sub->psz_filename, p_rdh_slave->psz_filename,
+                        strlen(p_rdh_sub->psz_filename) - 3 ) != 0)
+            continue;
+
+        /* check that we have an idx file */
+        char *psz_ext_idx = strrchr(p_rdh_slave->psz_filename, '.');
+        if (psz_ext_idx == NULL)
+            continue;
+        psz_ext_idx++;
+        if (strcasecmp(psz_ext_idx, "idx" ) == 0)
+            return true;
+    }
+    return false;
+}
+
+static void rdh_attach_slaves(struct vlc_readdir_helper *p_rdh,
+                              input_item_node_t *p_parent_node)
+{
+    if (p_rdh->i_sub_autodetect_fuzzy == 0)
+        return;
+
+    /* Try to match slaves for each items of the node */
+    for (int i = 0; i < p_parent_node->i_children; i++)
+    {
+        input_item_node_t *p_node = p_parent_node->pp_children[i];
+        input_item_t *p_item = p_node->p_item;
+
+        enum slave_type unused;
+        if (!input_item_IsMaster(p_item->psz_name)
+         || input_item_slave_GetType(p_item->psz_name, &unused))
+            continue; /* don't match 2 possible slaves between each others */
+
+        for (size_t j = 0; j < p_rdh->i_slaves; j++)
+        {
+            struct rdh_slave *p_rdh_slave = p_rdh->pp_slaves[j];
+
+            /* Don't try to match slaves with themselves or slaves already
+             * attached with the higher priority */
+            if (p_rdh_slave->p_node == p_node
+             || p_rdh_slave->p_slave->i_priority == SLAVE_PRIORITY_MATCH_ALL)
+                continue;
+
+            uint8_t i_priority =
+                rdh_get_slave_priority(p_item, p_rdh_slave->p_slave,
+                                         p_rdh_slave->psz_filename);
+
+            if (i_priority < p_rdh->i_sub_autodetect_fuzzy)
+                continue;
+
+            /* Drop the ".sub" slave if a ".idx" slave matches */
+            if (p_rdh_slave->p_slave->i_type == SLAVE_TYPE_SPU
+             && rdh_should_match_idx(p_rdh, p_rdh_slave))
+                continue;
+
+            input_item_slave_t *p_slave =
+                input_item_slave_New(p_rdh_slave->p_slave->psz_uri,
+                                     p_rdh_slave->p_slave->i_type,
+                                     i_priority);
+            if (p_slave == NULL)
+                break;
+
+            if (input_item_AddSlave(p_item, p_slave) != VLC_SUCCESS)
+            {
+                input_item_slave_Delete(p_slave);
+                break;
+            }
+
+            /* Remove the corresponding node if any: This slave won't be
+             * added in the parent node */
+            if (p_rdh_slave->p_node != NULL)
+            {
+                input_item_node_RemoveNode(p_parent_node, p_rdh_slave->p_node);
+                input_item_node_Delete(p_rdh_slave->p_node);
+                p_rdh_slave->p_node = NULL;
+            }
+
+            p_rdh_slave->p_slave->i_priority = i_priority;
+        }
+    }
+
+    /* Attach all children */
+    for (int i = 0; i < p_parent_node->i_children; i++)
+        rdh_attach_slaves(p_rdh, p_parent_node->pp_children[i]);
+}
+
+static int rdh_unflatten(struct vlc_readdir_helper *p_rdh,
+                         input_item_node_t **pp_node, const char *psz_path,
+                         int i_net)
+{
+    /* Create an input input for each sub folders that is contained in the full
+     * path. Update pp_node to point to the direct parent of the future item to
+     * add. */
+
+    assert(psz_path != NULL);
+    const char *psz_subpaths = psz_path;
+
+    while ((psz_subpaths = strchr(psz_subpaths, '/')))
+    {
+        input_item_node_t *p_subnode = NULL;
+
+        /* Check if this sub folder item was already added */
+        for (size_t i = 0; i < p_rdh->i_dirs && p_subnode == NULL; i++)
+        {
+            struct rdh_dir *rdh_dir = p_rdh->pp_dirs[i];
+            if (!strncmp(rdh_dir->psz_path, psz_path, psz_subpaths - psz_path))
+                p_subnode = rdh_dir->p_node;
+        }
+
+        /* The sub folder item doesn't exist, so create it */
+        if (p_subnode == NULL)
+        {
+            size_t i_sub_path_len = psz_subpaths - psz_path;
+            struct rdh_dir *p_rdh_dir =
+                malloc(sizeof(struct rdh_dir) + 1 + i_sub_path_len);
+            if (p_rdh_dir == NULL)
+                return VLC_ENOMEM;
+            strncpy(p_rdh_dir->psz_path, psz_path, i_sub_path_len);
+            p_rdh_dir->psz_path[i_sub_path_len] = 0;
+
+            const char *psz_subpathname = strrchr(p_rdh_dir->psz_path, '/');
+            if (psz_subpathname != NULL)
+                ++psz_subpathname;
+            else
+                psz_subpathname = p_rdh_dir->psz_path;
+
+            input_item_t *p_item =
+                input_item_NewExt("vlc://nop", psz_subpathname, -1,
+                                  ITEM_TYPE_DIRECTORY, i_net);
+            if (p_item == NULL)
+            {
+                free(p_rdh_dir);
+                return VLC_ENOMEM;
+            }
+            input_item_CopyOptions(p_item, (*pp_node)->p_item);
+            *pp_node = input_item_node_AppendItem(*pp_node, p_item);
+            input_item_Release(p_item);
+            if (*pp_node == NULL)
+            {
+                free(p_rdh_dir);
+                return VLC_ENOMEM;
+            }
+            p_rdh_dir->p_node = *pp_node;
+            TAB_APPEND(p_rdh->i_dirs, p_rdh->pp_dirs, p_rdh_dir);
+        }
+        else
+            *pp_node = p_subnode;
+        psz_subpaths++;
+    }
+    return VLC_SUCCESS;
+}
+
+#undef vlc_readdir_helper_init
+void vlc_readdir_helper_init(struct vlc_readdir_helper *p_rdh,
+                             vlc_object_t *p_obj, input_item_node_t *p_node)
+{
+    /* Read options from the parent item. This allows vlc_stream_ReadDir()
+     * users to specify options whitout touhing any vlc_object_t. Apply options
+     * on a temporary object in order to not apply options (that can be
+     * insecure) to the current object. */
+    vlc_object_t *p_var_obj = vlc_object_create(p_obj, sizeof(vlc_object_t));
+    if (p_var_obj != NULL)
+    {
+        input_item_ApplyOptions(p_var_obj, p_node->p_item);
+        p_obj = p_var_obj;
+    }
+
+    p_rdh->p_node = p_node;
+    p_rdh->b_show_hiddenfiles = var_InheritBool(p_obj, "show-hiddenfiles");
+    p_rdh->psz_ignored_exts = var_InheritString(p_obj, "ignore-filetypes");
+    bool b_autodetect = var_InheritBool(p_obj, "sub-autodetect-file");
+    p_rdh->i_sub_autodetect_fuzzy = !b_autodetect ? 0 :
+        var_InheritInteger(p_obj, "sub-autodetect-fuzzy");
+    p_rdh->b_flatten = var_InheritBool(p_obj, "extractor-flatten");
+    TAB_INIT(p_rdh->i_slaves, p_rdh->pp_slaves);
+    TAB_INIT(p_rdh->i_dirs, p_rdh->pp_dirs);
+
+    if (p_var_obj != NULL)
+        vlc_object_release(p_var_obj);
+}
+
+void vlc_readdir_helper_finish(struct vlc_readdir_helper *p_rdh, bool b_success)
+{
+    if (b_success)
+    {
+        rdh_attach_slaves(p_rdh, p_rdh->p_node);
+        rdh_sort(p_rdh->p_node);
+    }
+    free(p_rdh->psz_ignored_exts);
+
+    /* Remove unmatched slaves */
+    for (size_t i = 0; i < p_rdh->i_slaves; i++)
+    {
+        struct rdh_slave *p_rdh_slave = p_rdh->pp_slaves[i];
+        if (p_rdh_slave != NULL)
+        {
+            input_item_slave_Delete(p_rdh_slave->p_slave);
+            free(p_rdh_slave->psz_filename);
+            free(p_rdh_slave);
+        }
+    }
+    TAB_CLEAN(p_rdh->i_slaves, p_rdh->pp_slaves);
+
+    for (size_t i = 0; i < p_rdh->i_dirs; i++)
+        free(p_rdh->pp_dirs[i]);
+    TAB_CLEAN(p_rdh->i_dirs, p_rdh->pp_dirs);
+}
+
+int vlc_readdir_helper_additem(struct vlc_readdir_helper *p_rdh,
+                               const char *psz_uri, const char *psz_flatpath,
+                               const char *psz_filename, int i_type, int i_net)
+{
+    enum slave_type i_slave_type;
+    struct rdh_slave *p_rdh_slave = NULL;
+    assert(psz_flatpath || psz_filename);
+
+    if (!p_rdh->b_flatten)
+    {
+        if (psz_filename == NULL)
+        {
+            psz_filename = strrchr(psz_flatpath, '/');
+            if (psz_filename != NULL)
+                ++psz_filename;
+            else
+                psz_filename = psz_flatpath;
+        }
+    }
+    else
+    {
+        if (psz_filename == NULL)
+            psz_filename = psz_flatpath;
+        psz_flatpath = NULL;
+    }
+
+    if (p_rdh->i_sub_autodetect_fuzzy != 0
+     && input_item_slave_GetType(psz_filename, &i_slave_type))
+    {
+        p_rdh_slave = malloc(sizeof(*p_rdh_slave));
+        if (!p_rdh_slave)
+            return VLC_ENOMEM;
+
+        p_rdh_slave->p_node = NULL;
+        p_rdh_slave->psz_filename = strdup(psz_filename);
+        p_rdh_slave->p_slave = input_item_slave_New(psz_uri, i_slave_type,
+                                                      SLAVE_PRIORITY_MATCH_NONE);
+        if (!p_rdh_slave->p_slave || !p_rdh_slave->psz_filename)
+        {
+            free(p_rdh_slave->psz_filename);
+            free(p_rdh_slave);
+            return VLC_ENOMEM;
+        }
+
+        TAB_APPEND(p_rdh->i_slaves, p_rdh->pp_slaves, p_rdh_slave);
+    }
+
+    if (rdh_file_is_ignored(p_rdh, psz_filename))
+        return VLC_SUCCESS;
+
+    input_item_node_t *p_node = p_rdh->p_node;
+
+    if (psz_flatpath != NULL)
+    {
+        int i_ret = rdh_unflatten(p_rdh, &p_node, psz_flatpath, i_net);
+        if (i_ret != VLC_SUCCESS)
+            return i_ret;
+    }
+
+    input_item_t *p_item = input_item_NewExt(psz_uri, psz_filename, -1, i_type,
+                                             i_net);
+    if (p_item == NULL)
+        return VLC_ENOMEM;
+
+    input_item_CopyOptions(p_item, p_node->p_item);
+    p_node = input_item_node_AppendItem(p_node, p_item);
+    input_item_Release(p_item);
+    if (p_node == NULL)
+        return VLC_ENOMEM;
+
+    /* A slave can also be an item. If there is a match, this item will be
+     * removed from the parent node. This is not a common case, since most
+     * slaves will be ignored by rdh_file_is_ignored() */
+    if (p_rdh_slave != NULL)
+        p_rdh_slave->p_node = p_node;
+    return VLC_SUCCESS;
 }

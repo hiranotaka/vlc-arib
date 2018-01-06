@@ -95,19 +95,21 @@ static char *enlarge_to16( const uint8_t *p_src, size_t i_src, uint8_t i_prefix 
     if( i_src == 0 )
         return NULL;
 
-    char *psz_new = malloc( i_src * 2 + 1 );
+    char *psz_new_allocated = malloc( i_src * 2 + 1 );
+    char *psz_new = psz_new_allocated;
+
     if( psz_new )
     {
         memset( psz_new, i_prefix, i_src * 2 );
         psz_new[ i_src * 2 ] = 0;
-        while( *p_src )
+        while( i_src-- )
         {
             psz_new[1] = p_src[0];
             p_src++;
             psz_new += 2;
         }
     }
-    return psz_new;
+    return psz_new_allocated;
 }
 
 static bool convert_encoding_set( atsc_a65_handle_t *p_handle,
@@ -130,20 +132,7 @@ static bool convert_encoding_set( atsc_a65_handle_t *p_handle,
             return false;
     }
 
-    if( i_mode == ATSC_A65_MODE_UNICODE_RANGE_START ) /* Latin 1 */
-    {
-        char *psz_realloc = realloc( psz_dest, i_mergmin1 + i_src + 1 );
-        if( psz_realloc )
-        {
-            psz_realloc[i_mergmin1 + i_src] = 0;
-            memcpy( &psz_realloc[i_mergmin1], p_src, i_src );
-            psz_dest = psz_realloc;
-            i_mergmin1 += i_src;
-        }
-        else return false;
-    }
-    else if( i_mode > ATSC_A65_MODE_UNICODE_RANGE_START &&  /* 8 range prefix + 8 */
-             i_mode <= ATSC_A65_MODE_UNICODE_RANGE_END )
+    if( i_mode <= ATSC_A65_MODE_UNICODE_RANGE_END ) /* 8 range prefix + 8 */
     {
         if( !p_handle->iconv_u16be )
         {
@@ -170,7 +159,7 @@ static bool convert_encoding_set( atsc_a65_handle_t *p_handle,
                                                                             &p_outbuf, &i_outbuf_remain ) );
                 psz_dest = psz_realloc;
                 i_mergmin1 += (i_outbuf_size - i_outbuf_remain);
-                psz_dest[i_mergmin1 - 1] = 0;
+                *p_outbuf = '\0';
             }
             free( psz16 );
         }

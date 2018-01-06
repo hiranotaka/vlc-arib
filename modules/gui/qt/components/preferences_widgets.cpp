@@ -35,7 +35,7 @@
 #include "util/customwidgets.hpp"
 #include "util/searchlineedit.hpp"
 #include "util/qt_dirs.hpp"
-#include <vlc_keys.h>
+#include <vlc_actions.h>
 #include <vlc_intf_strings.h>
 #include <vlc_modules.h>
 #include <vlc_plugin.h>
@@ -175,19 +175,19 @@ void InterfacePreviewWidget::setNormalPreview( bool b_minimal )
 
 void InterfacePreviewWidget::setPreview( enum_style e_style )
 {
-    QString pixmapLocationString(":/prefsmenu/");
+    QString pixmapLocationString;
 
     switch( e_style )
     {
     default:
     case COMPLETE:
-        pixmapLocationString += "sample_complete";
+        pixmapLocationString = ":/prefsmenu/sample_complete.png";
         break;
     case MINIMAL:
-        pixmapLocationString += "sample_minimal";
+        pixmapLocationString = ":/prefsmenu/sample_minimal.png";
         break;
     case SKINS:
-        pixmapLocationString += "sample_skins";
+        pixmapLocationString = ":/prefsmenu/sample_skins.png";
         break;
     }
 
@@ -393,7 +393,7 @@ StringListConfigControl::StringListConfigControl( vlc_object_t *_p_this,
     combo->setMinimumWidth( MINWIDTH_BOX );
     combo->setSizePolicy( QSizePolicy::MinimumExpanding, QSizePolicy::Preferred );
 
-    module_config_t *p_module_config = config_FindConfig( p_this, p_item->psz_name );
+    module_config_t *p_module_config = config_FindConfig( p_item->psz_name );
 
     finish( p_module_config );
 }
@@ -421,7 +421,7 @@ StringListConfigControl::StringListConfigControl( vlc_object_t *_p_this,
     combo = _combo;
     label = _label;
 
-    module_config_t *p_module_config = config_FindConfig( p_this, getName() );
+    module_config_t *p_module_config = config_FindConfig( getName() );
 
     finish( p_module_config );
 }
@@ -469,8 +469,7 @@ QString StringListConfigControl::getValue() const
 void setfillVLCConfigCombo( const char *configname, intf_thread_t *p_intf,
                             QComboBox *combo )
 {
-    module_config_t *p_config =
-                      config_FindConfig( VLC_OBJECT(p_intf), configname );
+    module_config_t *p_config = config_FindConfig( configname );
     if( p_config == NULL )
         return;
 
@@ -871,7 +870,7 @@ IntegerListConfigControl::IntegerListConfigControl( vlc_object_t *_p_this,
     combo = new QComboBox( p );
     combo->setMinimumWidth( MINWIDTH_BOX );
 
-    module_config_t *p_module_config = config_FindConfig( p_this, p_item->psz_name );
+    module_config_t *p_module_config = config_FindConfig( p_item->psz_name );
 
     finish( p_module_config );
 }
@@ -893,7 +892,7 @@ IntegerListConfigControl::IntegerListConfigControl( vlc_object_t *_p_this,
     combo = _combo;
     label = _label;
 
-    module_config_t *p_module_config = config_FindConfig( p_this, getName() );
+    module_config_t *p_module_config = config_FindConfig( getName() );
 
     finish( p_module_config );
 }
@@ -1133,7 +1132,7 @@ KeySelectorControl::KeySelectorControl( vlc_object_t *_p_this,
 {
     label = new QLabel(
         qtr( "Select or double click an action to change the associated "
-             "hotkey. Use delete key to remove hotkeys"), p );
+             "hotkey. Use delete key to remove hotkeys."), p );
 
     label->setWordWrap( true );
     searchLabel = new QLabel( qtr( "Search" ), p );

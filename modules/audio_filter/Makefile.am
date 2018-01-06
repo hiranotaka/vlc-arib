@@ -16,6 +16,10 @@ libgain_plugin_la_SOURCES = audio_filter/gain.c
 libparam_eq_plugin_la_SOURCES = audio_filter/param_eq.c
 libparam_eq_plugin_la_LIBADD = $(LIBM)
 libscaletempo_plugin_la_SOURCES = audio_filter/scaletempo.c
+libscaletempo_plugin_la_LIBADD = $(LIBM)
+libscaletempo_pitch_plugin_la_SOURCES = $(libscaletempo_plugin_la_SOURCES)
+libscaletempo_pitch_plugin_la_LIBADD = $(libscaletempo_plugin_la_LIBADD)
+libscaletempo_pitch_plugin_la_CFLAGS = $(AM_CFLAGS) -DPITCH_SHIFTER
 libstereo_widen_plugin_la_SOURCES = audio_filter/stereo_widen.c
 libspatializer_plugin_la_SOURCES = \
 	audio_filter/spatializer/allpass.cpp \
@@ -40,6 +44,7 @@ audio_filter_LTLIBRARIES = \
 	libgain_plugin.la \
 	libparam_eq_plugin.la \
 	libscaletempo_plugin.la \
+	libscaletempo_pitch_plugin.la \
 	libspatializer_plugin.la \
 	libstereo_widen_plugin.la
 
@@ -75,30 +80,23 @@ audio_filter_LTLIBRARIES += \
 	libsimple_channel_mixer_plugin.la \
 	libtrivial_channel_mixer_plugin.la
 
+# Spatial audio: ambisonics / binaural
+libspatialaudio_plugin_la_SOURCES = \
+	audio_filter/channel_mixer/spatialaudio.cpp
+libspatialaudio_plugin_la_CXXFLAGS = $(AM_CXXFLAGS) $(SPATIALAUDIO_CFLAGS)
+libspatialaudio_plugin_la_LIBADD = $(SPATIALAUDIO_LIBS)
+libspatialaudio_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(audio_filterdir)'
+EXTRA_LTLIBRARIES += libspatialaudio_plugin.la
+audio_filter_LTLIBRARIES += $(LTLIBspatialaudio)
+
 # Converters
-liba52tofloat32_plugin_la_SOURCES = audio_filter/converter/a52tofloat32.c
-liba52tofloat32_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(CPPFLAGS_a52tofloat32)
-liba52tofloat32_plugin_la_LIBADD = $(LIBM) $(LIBS_a52tofloat32)
-liba52tofloat32_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(audio_filterdir)'
-libdtstofloat32_plugin_la_SOURCES = audio_filter/converter/dtstofloat32.c
-libdtstofloat32_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(DCA_CFLAGS)
-libdtstofloat32_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(audio_filterdir)'
-libdtstofloat32_plugin_la_LIBADD = $(LIBM) $(DCA_LIBS)
-EXTRA_LTLIBRARIES += liba52tofloat32_plugin.la libdtstofloat32_plugin.la
-audio_filter_LTLIBRARIES += $(LTLIBa52tofloat32) $(LTLIBdtstofloat32)
-
-libmad_plugin_la_SOURCES = audio_filter/converter/mpgatofixed32.c
-libmad_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(MAD_CFLAGS)
-libmad_plugin_la_LIBADD = $(AM_LIBADD) $(MAD_LIBS)
-if HAVE_MAD
-audio_filter_LTLIBRARIES += libmad_plugin.la
-endif
-
 libaudio_format_plugin_la_SOURCES = audio_filter/converter/format.c
 libaudio_format_plugin_la_CPPFLAGS = $(AM_CPPFLAGS)
 libaudio_format_plugin_la_LIBADD = $(LIBM)
 
-libtospdif_plugin_la_SOURCES = audio_filter/converter/tospdif.c
+libtospdif_plugin_la_SOURCES = audio_filter/converter/tospdif.c \
+	packetizer/a52.h \
+	packetizer/dts_header.c packetizer/dts_header.h
 
 audio_filter_LTLIBRARIES += \
 	libtospdif_plugin.la \
@@ -112,12 +110,12 @@ libugly_resampler_plugin_la_SOURCES = audio_filter/resampler/ugly.c
 libsamplerate_plugin_la_SOURCES = audio_filter/resampler/src.c
 libsamplerate_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(SAMPLERATE_CFLAGS)
 libsamplerate_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(audio_filterdir)'
-libsamplerate_plugin_la_LIBADD = $(LIBM) $(SAMPLERATE_LIBS)
+libsamplerate_plugin_la_LIBADD = $(SAMPLERATE_LIBS) $(LIBM)
 
 libsoxr_plugin_la_SOURCES = audio_filter/resampler/soxr.c
 libsoxr_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(SOXR_CFLAGS)
 libsoxr_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(audio_filterdir)'
-libsoxr_plugin_la_LIBADD = $(LIBM) $(SOXR_LIBS)
+libsoxr_plugin_la_LIBADD = $(SOXR_LIBS) $(LIBM)
 
 audio_filter_LTLIBRARIES += \
 	$(LTLIBsamplerate) \

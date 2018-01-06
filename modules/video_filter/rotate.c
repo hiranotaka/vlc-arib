@@ -30,12 +30,13 @@
 #endif
 
 #include <math.h>                                            /* sin(), cos() */
+#include <stdatomic.h>
 
 #define VLC_MODULE_LICENSE VLC_LICENSE_GPL_2_PLUS
 #include <vlc_common.h>
 #include <vlc_plugin.h>
-#include <vlc_atomic.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 #include "filter_picture.h"
 #include "../control/motionlib.h"
 
@@ -66,7 +67,7 @@ static int RotateCallback( vlc_object_t *p_this, char const *psz_var,
 vlc_module_begin ()
     set_description( N_("Rotate video filter") )
     set_shortname( N_( "Rotate" ))
-    set_capability( "video filter2", 0 )
+    set_capability( "video filter", 0 )
     set_category( CAT_VIDEO )
     set_subcategory( SUBCAT_VIDEO_VFILTER )
 
@@ -91,21 +92,31 @@ struct filter_sys_t
     motion_sensors_t *p_motion;
 };
 
+typedef union {
+    uint32_t u;
+    struct {
+        int16_t sin;
+        int16_t cos;
+    };
+} sincos_t;
+
 static void store_trigo( struct filter_sys_t *sys, float f_angle )
 {
+    sincos_t sincos;
+
     f_angle *= (float)(M_PI / 180.); /* degrees -> radians */
 
-    uint16_t i_sin = lroundf(sinf(f_angle) * 4096.f);
-    uint16_t i_cos = lroundf(cosf(f_angle) * 4096.f);
-    atomic_store( &sys->sincos, (i_cos << 16u) | (i_sin << 0u));
+    sincos.sin = lroundf(sinf(f_angle) * 4096.f);
+    sincos.cos = lroundf(cosf(f_angle) * 4096.f);
+    atomic_store(&sys->sincos, sincos.u);
 }
 
 static void fetch_trigo( struct filter_sys_t *sys, int *i_sin, int *i_cos )
 {
-    uint32_t sincos = atomic_load( &sys->sincos );
+    sincos_t sincos = { .u = atomic_load(&sys->sincos) };
 
-    *i_sin = (int16_t)(sincos & 0xFFFF);
-    *i_cos = (int16_t)(sincos >> 16);
+    *i_sin = sincos.sin;
+    *i_cos = sincos.cos;
 }
 
 /*****************************************************************************

@@ -35,6 +35,7 @@
 #include <vlc_plugin.h>
 #include <vlc_cpu.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -58,7 +59,7 @@ vlc_module_begin()
     set_description(N_("Gradfun video filter"))
     set_shortname(N_("Gradfun"))
     set_help(N_("Debanding algorithm"))
-    set_capability("video filter2", 0)
+    set_capability("video filter", 0)
     set_category(CAT_VIDEO)
     set_subcategory(SUBCAT_VIDEO_VFILTER)
     add_integer_with_range(CFG_PREFIX "radius", 16, RADIUS_MIN, RADIUS_MAX,
@@ -95,6 +96,7 @@ vlc_module_end()
 #   define HAVE_6REGS 0
 #endif
 #define av_clip_uint8 clip_uint8_vlc
+#include <stdalign.h>
 #include "gradfun.h"
 
 static picture_t *Filter(filter_t *, picture_t *);
@@ -166,7 +168,7 @@ static void Close(vlc_object_t *object)
 
     var_DelCallback(filter, CFG_PREFIX "radius",   Callback, NULL);
     var_DelCallback(filter, CFG_PREFIX "strength", Callback, NULL);
-    vlc_free(sys->cfg.buf);
+    aligned_free(sys->cfg.buf);
     vlc_mutex_destroy(&sys->lock);
     free(sys);
 }
@@ -192,7 +194,7 @@ static picture_t *Filter(filter_t *filter, picture_t *src)
     cfg->thresh = (1 << 15) / strength;
     if (cfg->radius != radius) {
         cfg->radius = radius;
-        cfg->buf    = vlc_memalign(16,
+        cfg->buf    = aligned_alloc(16,
                                    (((fmt->i_width + 15) & ~15) * (cfg->radius + 1) / 2 + 32) * sizeof(*cfg->buf));
     }
 

@@ -41,7 +41,7 @@
 #include <vlc_filter.h>
 #include <vlc_modules.h>
 
-#include "../video_filter/mosaic.h"
+#include "../spu/mosaic.h"
 
 /*****************************************************************************
  * Local structures
@@ -77,6 +77,7 @@ static sout_stream_id_sys_t *Add( sout_stream_t *, const es_format_t * );
 static void              Del ( sout_stream_t *, sout_stream_id_sys_t * );
 static int               Send( sout_stream_t *, sout_stream_id_sys_t *, block_t * );
 
+static int decoder_queue_video( decoder_t *p_dec, picture_t *p_pic );
 inline static int video_update_format_decoder( decoder_t *p_dec );
 inline static picture_t *video_new_buffer_decoder( decoder_t * );
 inline static picture_t *video_new_buffer_filter( filter_t * );
@@ -151,7 +152,7 @@ vlc_module_begin ()
     add_string( CFG_PREFIX "chroma", NULL, CHROMA_TEXT, CHROMA_LONGTEXT,
                 false )
 
-    add_module_list( CFG_PREFIX "vfilter", "video filter2",
+    add_module_list( CFG_PREFIX "vfilter", "video filter",
                      NULL, VFILTER_TEXT, VFILTER_LONGTEXT, false )
 
     add_integer_with_range( CFG_PREFIX "alpha", 255, 0, 255,
@@ -290,7 +291,9 @@ static sout_stream_id_sys_t * Add( sout_stream_t *p_stream, const es_format_t *p
     p_sys->p_decoder->fmt_out = p_sys->p_decoder->fmt_in;
     p_sys->p_decoder->fmt_out.i_extra = 0;
     p_sys->p_decoder->fmt_out.p_extra = 0;
-    p_sys->p_decoder->pf_decode_video = 0;
+    p_sys->p_decoder->pf_decode = NULL;
+    p_sys->p_decoder->pf_queue_video = decoder_queue_video;
+    p_sys->p_decoder->p_queue_ctx = p_stream;
     p_sys->p_decoder->pf_vout_format_update = video_update_format_decoder;
     p_sys->p_decoder->pf_vout_buffer_new = video_new_buffer_decoder;
     p_sys->p_decoder->p_owner = malloc( sizeof(decoder_owner_sys_t) );
@@ -304,19 +307,11 @@ static sout_stream_id_sys_t * Add( sout_stream_t *p_stream, const es_format_t *p
     //p_sys->p_decoder->p_cfg = p_sys->p_video_cfg;
 
     p_sys->p_decoder->p_module =
-        module_need( p_sys->p_decoder, "decoder", "$codec", false );
+        module_need( p_sys->p_decoder, "video decoder", "$codec", false );
 
-    if( !p_sys->p_decoder->p_module || !p_sys->p_decoder->pf_decode_video )
+    if( !p_sys->p_decoder->p_module )
     {
-        if( p_sys->p_decoder->p_module )
-        {
-            msg_Err( p_stream, "instanciated a non video decoder" );
-            module_unneed( p_sys->p_decoder, p_sys->p_decoder->p_module );
-        }
-        else
-        {
-            msg_Err( p_stream, "cannot find decoder" );
-        }
+        msg_Err( p_stream, "cannot find decoder" );
         free( p_sys->p_decoder->p_owner );
         vlc_object_release( p_sys->p_decoder );
         return NULL;
@@ -393,12 +388,16 @@ static sout_stream_id_sys_t * Add( sout_stream_t *p_stream, const es_format_t *p
         };
 
         p_sys->p_vf2 = filter_chain_NewVideo( p_stream, false, &owner );
-        es_format_t fmt;
-        es_format_Copy( &fmt, &p_sys->p_decoder->fmt_out );
-        if( p_sys->i_chroma )
-            fmt.video.i_chroma = p_sys->i_chroma;
-        filter_chain_Reset( p_sys->p_vf2, &fmt, &fmt );
-        filter_chain_AppendFromString( p_sys->p_vf2, psz_chain );
+        if (p_sys->p_vf2 != NULL)
+        {
+            es_format_t fmt;
+            es_format_Copy( &fmt, &p_sys->p_decoder->fmt_out );
+            if( p_sys->i_chroma )
+                fmt.video.i_chroma = p_sys->i_chroma;
+            filter_chain_Reset( p_sys->p_vf2, &fmt, &fmt );
+            es_format_Clean( &fmt );
+            filter_chain_AppendFromString( p_sys->p_vf2, psz_chain );
+        }
         free( psz_chain );
     }
     else
@@ -481,28 +480,96 @@ static void Del( sout_stream_t *p_stream, sout_stream_id_sys_t *id )
     p_sys->b_inited = false;
 }
 
-/*****************************************************************************
- * PushPicture : push a picture in the mosaic-struct structure
- *****************************************************************************/
-static void PushPicture( sout_stream_t *p_stream, picture_t *p_picture )
+static int decoder_queue_video( decoder_t *p_dec, picture_t *p_pic )
 {
+    sout_stream_t *p_stream = p_dec->p_queue_ctx;
     sout_stream_sys_t *p_sys = p_stream->p_sys;
+    picture_t *p_new_pic;
+    const video_format_t *p_fmt_in = &p_sys->p_decoder->fmt_out.video;
+
+    if( p_sys->i_height || p_sys->i_width )
+    {
+        video_format_t fmt_out;
+
+        memset( &fmt_out, 0, sizeof(video_format_t) );
+
+
+        if( p_sys->i_chroma )
+            fmt_out.i_chroma = p_sys->i_chroma;
+        else
+            fmt_out.i_chroma = VLC_CODEC_I420;
+
+        const unsigned i_fmt_in_aspect =
+            (int64_t)VOUT_ASPECT_FACTOR *
+            p_fmt_in->i_sar_num * p_fmt_in->i_width /
+            (p_fmt_in->i_sar_den * p_fmt_in->i_height);
+        if ( !p_sys->i_height )
+        {
+            fmt_out.i_width = p_sys->i_width;
+            fmt_out.i_height = (p_sys->i_width * VOUT_ASPECT_FACTOR
+                * p_sys->i_sar_num / p_sys->i_sar_den / i_fmt_in_aspect)
+                  & ~0x1;
+        }
+        else if ( !p_sys->i_width )
+        {
+            fmt_out.i_height = p_sys->i_height;
+            fmt_out.i_width = (p_sys->i_height * i_fmt_in_aspect
+                * p_sys->i_sar_den / p_sys->i_sar_num / VOUT_ASPECT_FACTOR)
+                  & ~0x1;
+        }
+        else
+        {
+            fmt_out.i_width = p_sys->i_width;
+            fmt_out.i_height = p_sys->i_height;
+        }
+        fmt_out.i_visible_width = fmt_out.i_width;
+        fmt_out.i_visible_height = fmt_out.i_height;
+
+        p_new_pic = image_Convert( p_sys->p_image,
+                                   p_pic, p_fmt_in, &fmt_out );
+        if( p_new_pic == NULL )
+        {
+            msg_Err( p_stream, "image conversion failed" );
+            picture_Release( p_pic );
+            return -1;
+        }
+    }
+    else
+    {
+        /* TODO: chroma conversion if needed */
+
+        p_new_pic = picture_New( p_pic->format.i_chroma,
+                                 p_pic->format.i_width, p_pic->format.i_height,
+                                 p_fmt_in->i_sar_num,
+                                 p_fmt_in->i_sar_den );
+        if( !p_new_pic )
+        {
+            picture_Release( p_pic );
+            msg_Err( p_stream, "image allocation failed" );
+            return -1;
+        }
+
+        picture_Copy( p_new_pic, p_pic );
+    }
+    picture_Release( p_pic );
+
+    if( p_sys->p_vf2 )
+        p_new_pic = filter_chain_VideoFilter( p_sys->p_vf2, p_new_pic );
+
+    /* push the picture in the mosaic-struct structure */
     bridged_es_t *p_es = p_sys->p_es;
-
     vlc_global_lock( VLC_MOSAIC_MUTEX );
-
-    *p_es->pp_last = p_picture;
-    p_picture->p_next = NULL;
-    p_es->pp_last = &p_picture->p_next;
-
+    *p_es->pp_last = p_new_pic;
+    p_new_pic->p_next = NULL;
+    p_es->pp_last = &p_new_pic->p_next;
     vlc_global_unlock( VLC_MOSAIC_MUTEX );
+    return 0;
 }
 
 static int Send( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
                  block_t *p_buffer )
 {
     sout_stream_sys_t *p_sys = p_stream->p_sys;
-    picture_t *p_pic;
 
     if ( (sout_stream_sys_t *)id != p_sys )
     {
@@ -510,86 +577,8 @@ static int Send( sout_stream_t *p_stream, sout_stream_id_sys_t *id,
         return VLC_SUCCESS;
     }
 
-    while ( (p_pic = p_sys->p_decoder->pf_decode_video( p_sys->p_decoder,
-                                                        &p_buffer )) )
-    {
-        picture_t *p_new_pic;
-
-        if( p_sys->i_height || p_sys->i_width )
-        {
-            video_format_t fmt_out, fmt_in;
-
-            memset( &fmt_in, 0, sizeof(video_format_t) );
-            memset( &fmt_out, 0, sizeof(video_format_t) );
-            fmt_in = p_sys->p_decoder->fmt_out.video;
-
-
-            if( p_sys->i_chroma )
-                fmt_out.i_chroma = p_sys->i_chroma;
-            else
-                fmt_out.i_chroma = VLC_CODEC_I420;
-
-            const unsigned i_fmt_in_aspect =
-                (int64_t)VOUT_ASPECT_FACTOR *
-                fmt_in.i_sar_num * fmt_in.i_width /
-                (fmt_in.i_sar_den * fmt_in.i_height);
-            if ( !p_sys->i_height )
-            {
-                fmt_out.i_width = p_sys->i_width;
-                fmt_out.i_height = (p_sys->i_width * VOUT_ASPECT_FACTOR
-                    * p_sys->i_sar_num / p_sys->i_sar_den / i_fmt_in_aspect)
-                      & ~0x1;
-            }
-            else if ( !p_sys->i_width )
-            {
-                fmt_out.i_height = p_sys->i_height;
-                fmt_out.i_width = (p_sys->i_height * i_fmt_in_aspect
-                    * p_sys->i_sar_den / p_sys->i_sar_num / VOUT_ASPECT_FACTOR)
-                      & ~0x1;
-            }
-            else
-            {
-                fmt_out.i_width = p_sys->i_width;
-                fmt_out.i_height = p_sys->i_height;
-            }
-            fmt_out.i_visible_width = fmt_out.i_width;
-            fmt_out.i_visible_height = fmt_out.i_height;
-
-            p_new_pic = image_Convert( p_sys->p_image,
-                                       p_pic, &fmt_in, &fmt_out );
-            if( p_new_pic == NULL )
-            {
-                msg_Err( p_stream, "image conversion failed" );
-                picture_Release( p_pic );
-                continue;
-            }
-        }
-        else
-        {
-            /* TODO: chroma conversion if needed */
-
-            p_new_pic = picture_New( p_pic->format.i_chroma,
-                                     p_pic->format.i_width, p_pic->format.i_height,
-                                     p_sys->p_decoder->fmt_out.video.i_sar_num,
-                                     p_sys->p_decoder->fmt_out.video.i_sar_den );
-            if( !p_new_pic )
-            {
-                picture_Release( p_pic );
-                msg_Err( p_stream, "image allocation failed" );
-                continue;
-            }
-
-            picture_Copy( p_new_pic, p_pic );
-        }
-        picture_Release( p_pic );
-
-        if( p_sys->p_vf2 )
-            p_new_pic = filter_chain_VideoFilter( p_sys->p_vf2, p_new_pic );
-
-        PushPicture( p_stream, p_new_pic );
-    }
-
-    return VLC_SUCCESS;
+    int ret = p_sys->p_decoder->pf_decode( p_sys->p_decoder, p_buffer );
+    return ret == VLCDEC_SUCCESS ? VLC_SUCCESS : VLC_EGENERIC;
 }
 
 inline static int video_update_format_decoder( decoder_t *p_dec )

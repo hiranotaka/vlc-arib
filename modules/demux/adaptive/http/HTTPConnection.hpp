@@ -35,6 +35,7 @@ namespace adaptive
     namespace http
     {
         class Socket;
+        class AuthStorage;
 
         class AbstractConnection
         {
@@ -63,7 +64,8 @@ namespace adaptive
         class HTTPConnection : public AbstractConnection
         {
             public:
-                HTTPConnection(vlc_object_t *stream, Socket *, bool = false);
+                HTTPConnection(vlc_object_t *, AuthStorage *,  Socket *,
+                               const ConnectionParams &, bool = false);
                 virtual ~HTTPConnection();
 
                 virtual bool    canReuse     (const ConnectionParams &) const;
@@ -84,11 +86,18 @@ namespace adaptive
                 virtual std::string extraRequestHeaders() const;
                 virtual std::string buildRequestHeader(const std::string &path) const;
 
+                ssize_t         readChunk   (void *p_buffer, size_t len);
                 int parseReply();
                 std::string readLine();
                 char * psz_useragent;
 
+                AuthStorage        *authStorage;
+                ConnectionParams    locationparams;
+                ConnectionParams    proxyparams;
                 bool                connectionClose;
+                bool                chunked;
+                bool                chunked_eof;
+                size_t              chunkLength;
                 bool                queryOk;
                 int                 retries;
                 static const int    retryCount = 5;
@@ -118,14 +127,17 @@ namespace adaptive
        class ConnectionFactory
        {
            public:
-               ConnectionFactory();
+               ConnectionFactory( AuthStorage * );
                virtual ~ConnectionFactory();
                virtual AbstractConnection * createConnection(vlc_object_t *, const ConnectionParams &);
+           private:
+               AuthStorage *authStorage;
        };
 
        class StreamUrlConnectionFactory : public ConnectionFactory
        {
            public:
+               StreamUrlConnectionFactory();
                virtual AbstractConnection * createConnection(vlc_object_t *, const ConnectionParams &);
        };
     }

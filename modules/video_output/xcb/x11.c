@@ -51,7 +51,7 @@ vlc_module_begin ()
     set_subcategory (SUBCAT_VIDEO_VOUT)
     set_capability ("vout display", 100)
     set_callbacks (Open, Close)
-    add_shortcut ("xcb-x11", "x11", "xid")
+    add_shortcut ("xcb-x11", "x11")
 
     add_obsolete_bool ("x11-shm") /* obsoleted since 2.0.0 */
 vlc_module_end ()
@@ -66,7 +66,6 @@ struct vout_display_sys_t
     xcb_connection_t *conn;
     vout_window_t *embed; /* VLC window */
 
-    xcb_cursor_t cursor; /* blank cursor */
     xcb_window_t window; /* drawable X window */
     xcb_gcontext_t gc; /* context to put images */
     xcb_shm_seg_t seg_base; /**< shared memory segment XID base */
@@ -79,7 +78,6 @@ struct vout_display_sys_t
 static picture_pool_t *Pool (vout_display_t *, unsigned);
 static void Display (vout_display_t *, picture_t *, subpicture_t *subpicture);
 static int Control (vout_display_t *, int, va_list);
-static void Manage (vout_display_t *);
 
 static void ResetPictures (vout_display_t *);
 
@@ -115,7 +113,7 @@ static int Open (vlc_object_t *obj)
     /* Get window, connect to X server */
     xcb_connection_t *conn;
     const xcb_screen_t *scr;
-    sys->embed = XCB_parent_Create (vd, &conn, &scr);
+    sys->embed = vlc_xcb_parent_Create(vd, &conn, &scr);
     if (sys->embed == NULL)
     {
         free (sys);
@@ -282,13 +280,12 @@ found_format:;
         /* Create graphic context (I wonder why the heck do we need this) */
         xcb_create_gc (conn, sys->gc, sys->window, 0, NULL);
 
-        if (XCB_error_Check (vd, conn, "cannot create X11 window", c))
+        if (vlc_xcb_error_Check(vd, conn, "cannot create X11 window", c))
             goto error;
     }
     msg_Dbg (vd, "using X11 window %08"PRIx32, sys->window);
     msg_Dbg (vd, "using X11 graphic context %08"PRIx32, sys->gc);
 
-    sys->cursor = XCB_cursor_Create (conn, scr);
     sys->visible = false;
     if (XCB_shm_Check (obj, conn))
     {
@@ -301,14 +298,12 @@ found_format:;
 
     /* Setup vout_display_t once everything is fine */
     vd->info.has_pictures_invalid = true;
-    vd->info.has_event_thread = true;
 
     vd->fmt = fmt_pic;
     vd->pool = Pool;
     vd->prepare = NULL;
     vd->display = Display;
     vd->control = Control;
-    vd->manage = Manage;
 
     return VLC_SUCCESS;
 
@@ -327,11 +322,6 @@ static void Close (vlc_object_t *obj)
     vout_display_sys_t *sys = vd->sys;
 
     ResetPictures (vd);
-
-    /* show the default cursor */
-    xcb_change_window_attributes (sys->conn, sys->embed->handle.xid, XCB_CW_CURSOR,
-                                  &(uint32_t) { XCB_CURSOR_NONE });
-    xcb_flush (sys->conn);
 
     /* colormap, window and context are garbage-collected by X */
     xcb_disconnect (sys->conn);
@@ -412,6 +402,8 @@ static void Display (vout_display_t *vd, picture_t *pic, subpicture_t *subpictur
     xcb_shm_seg_t segment = XCB_picture_GetSegment(pic);
     xcb_void_cookie_t ck;
 
+    vlc_xcb_Manage(vd, sys->conn, &sys->visible);
+
     if (!sys->visible)
         goto out;
     if (segment != 0)
@@ -464,7 +456,7 @@ static int Control (vout_display_t *vd, int query, va_list ap)
     case VOUT_DISPLAY_CHANGE_DISPLAY_SIZE:
     {
         const vout_display_cfg_t *p_cfg =
-            (const vout_display_cfg_t*)va_arg (ap, const vout_display_cfg_t *);
+            va_arg (ap, const vout_display_cfg_t *);
         vout_display_place_t place;
 
         vout_display_PlacePicture (&place, &vd->source, p_cfg, false);
@@ -512,25 +504,10 @@ static int Control (vout_display_t *vd, int query, va_list ap)
         return VLC_SUCCESS;
     }
 
-    /* Hide the mouse. It will be send when
-     * vout_display_t::info.b_hide_mouse is false */
-    case VOUT_DISPLAY_HIDE_MOUSE:
-        xcb_change_window_attributes (sys->conn, sys->embed->handle.xid,
-                                  XCB_CW_CURSOR, &(uint32_t){ sys->cursor });
-        xcb_flush (sys->conn);
-        return VLC_SUCCESS;
-
     default:
         msg_Err (vd, "Unknown request in XCB vout display");
         return VLC_EGENERIC;
     }
-}
-
-static void Manage (vout_display_t *vd)
-{
-    vout_display_sys_t *sys = vd->sys;
-
-    XCB_Manage (vd, sys->conn, &sys->visible);
 }
 
 static void ResetPictures (vout_display_t *vd)

@@ -27,13 +27,12 @@
 
 using namespace adaptive;
 
-FakeESOutID::FakeESOutID( FakeESOut *fakeesout_, const es_format_t *p_fmt )
+FakeESOutID::FakeESOutID( FakeESOut *fakeesout, const es_format_t *p_fmt )
+    : fakeesout( fakeesout )
+    , p_real_es_id( NULL )
+    , pending_delete( false )
 {
-    p_real_es_id = NULL;
-    fakeesout = fakeesout_;
-    es_format_Init( &fmt, 0, 0 );
     es_format_Copy( &fmt, p_fmt );
-    pending_delete = false;
 }
 
 FakeESOutID::~FakeESOutID()
@@ -73,12 +72,15 @@ const es_format_t *FakeESOutID::getFmt() const
 
 bool FakeESOutID::isCompatible( const FakeESOutID *p_other ) const
 {
+    if( p_other->fmt.i_cat != fmt.i_cat )
+        return false;
+
     switch(fmt.i_codec)
     {
         case VLC_CODEC_H264:
         case VLC_CODEC_HEVC:
         case VLC_CODEC_VC1:
-            return true;
+                return true;
 
         default:
             if(fmt.i_cat == AUDIO_ES)

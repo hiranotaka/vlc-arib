@@ -56,8 +56,11 @@ static FT_Face LoadFace( filter_t *p_filter, const char *psz_fontfile, int i_idx
     char *psz_key = NULL;
 
     int i_font_size  = ConvertToLiveSize( p_filter, p_style );
-    int i_font_width = p_style->i_style_flags & STYLE_HALFWIDTH ?
-                       i_font_size / 2 : i_font_size;
+    int i_font_width = i_font_size;
+    if( p_style->i_style_flags & STYLE_HALFWIDTH )
+        i_font_width /= 2;
+    else if( p_style->i_style_flags & STYLE_DOUBLEWIDTH )
+        i_font_width *= 2;
 
     if( asprintf( &psz_key, "%s - %d - %d - %d",
                   psz_fontfile, i_idx,
@@ -65,31 +68,44 @@ static FT_Face LoadFace( filter_t *p_filter, const char *psz_fontfile, int i_idx
         return NULL;
 
     FT_Face p_face = vlc_dictionary_value_for_key( &p_sys->face_map, psz_key );
-    if( p_face != kVLCDictionaryNotFound )
+    if( p_face != NULL )
         goto done;
 
     if( psz_fontfile[0] == ':' && psz_fontfile[1] == '/' )
     {
         int i_attach = atoi( psz_fontfile + 2 );
         if( i_attach < 0 || i_attach >= p_sys->i_font_attachments )
-        {
             msg_Err( p_filter, "LoadFace: Invalid font attachment index" );
-            p_face = NULL;
-        }
         else
         {
             input_attachment_t *p_attach = p_sys->pp_font_attachments[ i_attach ];
             if( FT_New_Memory_Face( p_sys->p_library, p_attach->p_data,
                                     p_attach->i_data, i_idx, &p_face ) )
-                p_face = NULL;
+                msg_Err( p_filter, "LoadFace: Error creating face for %s", psz_key );
         }
     }
+
+#if defined( _WIN32 )
+    else if( !memcmp( psz_fontfile, ":dw/", 4 ) )
+    {
+        int i_index = atoi( psz_fontfile + 4 );
+        FT_Stream p_stream;
+        if( DWrite_GetFontStream( p_filter, i_index, &p_stream ) != VLC_SUCCESS )
+            msg_Err( p_filter, "LoadFace: Invalid font stream index" );
+        else
+        {
+            FT_Open_Args args = {0};
+            args.flags = FT_OPEN_STREAM;
+            args.stream = p_stream;
+            if( FT_Open_Face( p_sys->p_library, &args, i_idx, &p_face ) )
+                msg_Err( p_filter, "LoadFace: Error creating face for %s", psz_key );
+        }
+    }
+#endif
+
     else
         if( FT_New_Face( p_sys->p_library, psz_fontfile, i_idx, &p_face ) )
-        {
             msg_Err( p_filter, "LoadFace: Error creating face for %s", psz_key );
-            p_face = NULL;
-        }
 
     if( !p_face )
         goto done;
@@ -233,7 +249,7 @@ vlc_family_t *NewFamily( filter_t *p_filter, const char *psz_family,
     if( psz_family && *psz_family )
         psz_name = ToLower( psz_family );
     else
-        if( asprintf( &psz_name, FB_NAME"-%02d",
+        if( asprintf( &psz_name, FB_NAME"-%04d",
                       p_sys->i_fallback_counter++ ) < 0 )
             psz_name = NULL;
 
@@ -408,6 +424,10 @@ void DumpDictionary( filter_t *p_filter, const vlc_dictionary_t *p_dict,
                      bool b_dump_fonts, int i_max_families )
 {
     char **ppsz_keys = vlc_dictionary_all_keys( p_dict );
+
+    if( unlikely( !ppsz_keys ) )
+        return;
+
     for( int i = 0; ppsz_keys[ i ]; ++i )
     {
         vlc_family_t *p_family = vlc_dictionary_value_for_key( p_dict, ppsz_keys[ i ] );
@@ -444,7 +464,7 @@ int ConvertToLiveSize( filter_t *p_filter, const text_style_t *p_style )
     }
     else if ( p_style->f_font_relsize )
     {
-        i_font_size = (int) p_filter->fmt_out.video.i_height * p_style->f_font_relsize;
+        i_font_size = (int) p_filter->fmt_out.video.i_height * p_style->f_font_relsize / 100;
     }
 
     if( p_sys->i_scale != 100 )
@@ -544,6 +564,9 @@ char* Generic_Select( filter_t *p_filter, const char* psz_family,
 
     if( !p_family )
         p_family = p_sys->pf_get_family( p_filter, psz_family );
+
+    if( !p_family || !p_family->p_fonts )
+        p_family = p_sys->pf_get_family( p_filter, SYSTEM_DEFAULT_FAMILY );
 
     vlc_font_t *p_font;
     if( p_family && ( p_font = GetBestFont( p_filter, p_family, b_bold,

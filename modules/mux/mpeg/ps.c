@@ -235,17 +235,17 @@ static int Control( sout_mux_t *p_mux, int i_query, va_list args )
     switch( i_query )
     {
         case MUX_CAN_ADD_STREAM_WHILE_MUXING:
-            pb_bool = (bool*)va_arg( args, bool * );
+            pb_bool = va_arg( args, bool * );
             *pb_bool = true;
             return VLC_SUCCESS;
 
         case MUX_GET_ADD_STREAM_WAIT:
-            pb_bool = (bool*)va_arg( args, bool * );
+            pb_bool = va_arg( args, bool * );
             *pb_bool = false;
             return VLC_SUCCESS;
 
         case MUX_GET_MIME:
-            ppsz = (char**)va_arg( args, char ** );
+            ppsz = va_arg( args, char ** );
             *ppsz = strdup( "video/mpeg" );
             return VLC_SUCCESS;
 
@@ -267,6 +267,8 @@ static int AddStream( sout_mux_t *p_mux, sout_input_t *p_input )
              (char*)&p_input->p_fmt->i_codec );
 
     p_input->p_sys = p_stream = malloc( sizeof( ps_stream_t ) );
+    if( unlikely(p_input->p_sys == NULL) )
+        return VLC_ENOMEM;
     p_stream->i_stream_type = 0x81;
 
     /* Init this new stream */

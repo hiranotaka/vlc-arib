@@ -75,7 +75,7 @@ static const int pi_channels_maps[7] =
  *****************************************************************************/
 static int  DecoderOpen  ( vlc_object_t * );
 static void DecoderClose ( vlc_object_t * );
-static void *DecodeBlock ( decoder_t *, block_t ** );
+static int DecodeBlock ( decoder_t *, block_t * );
 static void *DecoderThread( void * );
 static int  EncoderOpen  ( vlc_object_t * );
 static void EncoderClose ( vlc_object_t * );
@@ -90,10 +90,15 @@ static void CopyPicture( picture_t *, uint8_t * );
 vlc_module_begin ()
     set_description( N_("DirectMedia Object decoder") )
     add_shortcut( "dmo" )
-    set_capability( "decoder", 1 )
+    set_capability( "video decoder", 1 )
     set_callbacks( DecoderOpen, DecoderClose )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_VCODEC )
+
+    add_submodule()
+    add_shortcut("dmo")
+    set_capability( "audio decoder", 1 )
+    set_callbacks(DecoderOpen, DecoderClose)
 
 #   define ENC_CFG_PREFIX "sout-dmo-"
     add_submodule ()
@@ -125,10 +130,7 @@ struct decoder_sys_t
     vlc_mutex_t  lock;
     vlc_cond_t   wait_input, wait_output;
     bool         b_ready, b_works;
-    block_t    **pp_input;
-
-    int          i_output;
-    void       **pp_output;
+    block_t     *p_input;
 };
 
 const GUID IID_IWMCodecPrivateData = {0x73f0be8e, 0x57f7, 0x4f01, {0xaa, 0x66, 0x9f, 0x57, 0x34, 0xc, 0xfe, 0xe}};
@@ -271,18 +273,14 @@ found:
         return VLC_ENOMEM;
 
     /* Set callbacks */
-    p_dec->pf_decode_video = (picture_t *(*)(decoder_t *, block_t **))
-        DecodeBlock;
-    p_dec->pf_decode_audio = (block_t *(*)(decoder_t *, block_t **))
-        DecodeBlock;
+    p_dec->pf_decode = DecodeBlock;
 
     vlc_mutex_init( &p_sys->lock );
     vlc_cond_init( &p_sys->wait_input );
     vlc_cond_init( &p_sys->wait_output );
     p_sys->b_works =
     p_sys->b_ready = false;
-    p_sys->pp_input = NULL;
-    TAB_INIT( p_sys->i_output, p_sys->pp_output );
+    p_sys->p_input = NULL;
 
     if( vlc_clone( &p_sys->thread, DecoderThread, p_dec,
                    VLC_THREAD_PRIORITY_INPUT ) )
@@ -319,38 +317,27 @@ static void DecoderClose( vlc_object_t *p_this )
     vlc_mutex_unlock( &p_sys->lock );
 
     vlc_join( p_sys->thread, NULL );
-    TAB_CLEAN( p_sys->i_output, p_sys->pp_output );
     vlc_cond_destroy( &p_sys->wait_input );
     vlc_cond_destroy( &p_sys->wait_output );
     vlc_mutex_destroy( &p_sys->lock );
     free( p_sys );
 }
 
-static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
+static int DecodeBlock( decoder_t *p_dec, block_t *p_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    void *p_ret;
+
+    if( p_block == NULL ) /* No Drain */
+        return VLCDEC_SUCCESS;
 
     vlc_mutex_lock( &p_sys->lock );
-    if( p_sys->i_output <= 0 )
-    {
-        p_sys->pp_input = pp_block;
-        vlc_cond_signal( &p_sys->wait_input );
-
-        while( p_sys->pp_input )
-            vlc_cond_wait( &p_sys->wait_output, &p_sys->lock );
-    }
-
-    p_ret = NULL;
-    if( p_sys->i_output > 0 )
-    {
-        p_ret = p_sys->pp_output[0];
-        TAB_REMOVE( p_sys->i_output, p_sys->pp_output, p_ret );
-    }
-
+    while( p_sys->p_input )
+        vlc_cond_wait( &p_sys->wait_output, &p_sys->lock );
+    p_sys->p_input = p_block;
+    vlc_cond_signal( &p_sys->wait_input );
     vlc_mutex_unlock( &p_sys->lock );
 
-    return p_ret;
+    return VLCDEC_SUCCESS;
 }
 
 /*****************************************************************************
@@ -471,8 +458,7 @@ static int DecOpen( decoder_t *p_dec )
         p_dec->fmt_out.audio.i_channels = p_dec->fmt_in.audio.i_channels;
         p_dec->fmt_out.audio.i_bitspersample = 16;//p_dec->fmt_in.audio.i_bitspersample; We request 16
         p_dec->fmt_out.audio.i_physical_channels =
-            p_dec->fmt_out.audio.i_original_channels =
-                pi_channels_maps[p_dec->fmt_out.audio.i_channels];
+            pi_channels_maps[p_dec->fmt_out.audio.i_channels];
 
         p_wf->wFormatTag = WAVE_FORMAT_PCM;
         p_wf->nSamplesPerSec = p_dec->fmt_out.audio.i_rate;
@@ -742,7 +728,7 @@ static int LoadDMO( vlc_object_t *p_this, HINSTANCE *p_hmsdmo_dll,
         if( CoCreateInstance( &clsid_dmo, NULL, CLSCTX_INPROC,
                               &IID_IMediaObject, (void **)pp_dmo ) )
         {
-            msg_Warn( p_this, "can't create DMO: %ls", psz_dmo_name );
+            msg_Warn( p_this, "can't create DMO" );
             *pp_dmo = 0;
         }
         else
@@ -836,7 +822,7 @@ static void DecClose( decoder_t *p_dec )
  ****************************************************************************
  * This function must be fed with packets.
  ****************************************************************************/
-static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
+static int DecBlock( decoder_t *p_dec, block_t **pp_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
     block_t *p_block;
@@ -846,8 +832,6 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
     CMediaBuffer *p_out;
     block_t block_out;
     uint32_t i_status;
-
-    if( !pp_block ) return NULL;
 
     p_block = *pp_block;
 
@@ -867,7 +851,7 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
     {
         /* We've just started the stream, wait for the first PTS. */
         if( p_block ) block_Release( p_block );
-        return NULL;
+        return -1;
     }
 #endif
 
@@ -890,7 +874,7 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
 #ifdef DMO_DEBUG
             msg_Dbg( p_dec, "ProcessInput(): no output generated" );
 #endif
-            return NULL;
+            return -1;
         }
         else if( i_result == (int)DMO_E_NOTACCEPTING )
         {
@@ -900,20 +884,16 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
         else if( i_result != S_OK )
         {
             msg_Dbg( p_dec, "ProcessInput(): failed" );
-            return NULL;
+            return -1;
         }
         else
         {
 #ifdef DMO_DEBUG
             msg_Dbg( p_dec, "ProcessInput(): successful" );
 #endif
+            block_Release( p_block );
             *pp_block = NULL;
         }
-    }
-    else if( p_block && !p_block->i_buffer )
-    {
-        block_Release( p_block );
-        *pp_block = NULL;
     }
 
     /* Get output from the DMO */
@@ -938,7 +918,7 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
 #endif
 
         p_out->vt->Release( (IUnknown *)p_out );
-        return NULL;
+        return -1;
     }
 
 #ifdef DMO_DEBUG
@@ -951,14 +931,16 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
         msg_Dbg( p_dec, "ProcessOutput(): no output (i_buffer_out == 0)" );
 #endif
         p_out->vt->Release( (IUnknown *)p_out );
-        return NULL;
+        return -1;
     }
 
     if( p_dec->fmt_out.i_cat == VIDEO_ES )
     {
         /* Get a new picture */
+        if( decoder_UpdateVideoFormat( p_dec ) )
+            return -1;
         picture_t *p_pic = decoder_NewPicture( p_dec );
-        if( !p_pic ) return NULL;
+        if( !p_pic ) return -1;
 
         CopyPicture( p_pic, block_out.p_buffer );
 
@@ -968,10 +950,17 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
 
         p_out->vt->Release( (IUnknown *)p_out );
 
-        return p_pic;
+        decoder_QueueVideo( p_dec, p_pic );
+        return 0;
     }
     else
     {
+        if( decoder_UpdateAudioFormat( p_dec ) )
+        {
+            p_out->vt->Release( (IUnknown *)p_out );
+            return -1;
+        }
+
         block_t *p_aout_buffer;
         int i_samples = block_out.i_buffer /
             ( p_dec->fmt_out.audio.i_bitspersample *
@@ -990,10 +979,9 @@ static void *DecBlock( decoder_t *p_dec, block_t **pp_block )
         }
         p_out->vt->Release( (IUnknown *)p_out );
 
-        return p_aout_buffer;
+        decoder_QueueAudio( p_dec, p_aout_buffer );
+        return 0;
     }
-
-    return NULL;
 }
 
 static void CopyPicture( picture_t *p_pic, uint8_t *p_in )
@@ -1001,9 +989,7 @@ static void CopyPicture( picture_t *p_pic, uint8_t *p_in )
     int i_plane, i_line, i_width, i_dst_stride;
     uint8_t *p_dst, *p_src = p_in;
 
-    p_dst = p_pic->p[1].p_pixels;
-    p_pic->p[1].p_pixels = p_pic->p[2].p_pixels;
-    p_pic->p[2].p_pixels = p_dst;
+    plane_SwapUV( p_pic->p );
 
     for( i_plane = 0; i_plane < p_pic->i_planes; i_plane++ )
     {
@@ -1019,9 +1005,7 @@ static void CopyPicture( picture_t *p_pic, uint8_t *p_in )
         }
     }
 
-    p_dst = p_pic->p[1].p_pixels;
-    p_pic->p[1].p_pixels = p_pic->p[2].p_pixels;
-    p_pic->p[2].p_pixels = p_dst;
+    plane_SwapUV( p_pic->p );
 }
 
 static void *DecoderThread( void *data )
@@ -1035,19 +1019,17 @@ static void *DecoderThread( void *data )
     vlc_mutex_lock( &p_sys->lock );
     for( ;; )
     {
-        while( p_sys->b_ready && !p_sys->pp_input )
+        while( p_sys->b_ready && !p_sys->p_input )
             vlc_cond_wait( &p_sys->wait_input, &p_sys->lock );
         if( !p_sys->b_ready )
             break;
 
-        for( ;; )
-        {
-            void *p_output = DecBlock( p_dec, p_sys->pp_input );
-            if( !p_output )
-                break;
-            TAB_APPEND( p_sys->i_output, p_sys->pp_output, p_output );
-        }
-        p_sys->pp_input = NULL;
+        while( DecBlock( p_dec, &p_sys->p_input ) == 0 );
+
+        if( p_sys->p_input != NULL )
+            block_Release( p_sys->p_input );
+        p_sys->p_input = NULL;
+
         vlc_cond_signal( &p_sys->wait_output );
     }
     vlc_mutex_unlock( &p_sys->lock );
@@ -1456,7 +1438,7 @@ static int EncOpen( vlc_object_t *p_this )
     }
 
     /* Set output properties */
-    p_enc->fmt_out.i_cat = p_enc->fmt_out.i_cat;
+    p_enc->fmt_out.i_cat = p_enc->fmt_in.i_cat;
     if( p_enc->fmt_out.i_cat == AUDIO_ES )
         date_Init( &p_sys->end_date, p_enc->fmt_out.audio.i_rate, 1 );
     else

@@ -693,7 +693,7 @@ static int Scan_Next_DVBT( const scan_parameter_t *p_params, scan_enumeration_t 
             p_cfg->i_bandwidth = i_bandwidth;
 
             int i_current = 0, i_total = 0;
-            for( int i = 0; i < i_band_count; i++ )
+            for( i = 0; i < i_band_count; i++ )
             {
                 const int i_frag = band[i].i_max-band[i].i_min;
 
@@ -1385,7 +1385,7 @@ static void ParseNIT( vlc_object_t *p_obj, scan_t *p_scan,
                 msg_Dbg( p_obj, "           * service_id=%" PRIu16 " type=%" PRIu8,
                                 i_service_id, i_service_type );
 
-                if( p_cfg->i_frequency == 0 )
+                if( !p_cfg || p_cfg->i_frequency == 0 )
                 {
                     msg_Warn( p_obj, "cannot create service_id=%" PRIu16 " ts_id=%" PRIu16 " (no config)",
                                      i_service_id, p_ts->i_ts_id );
@@ -1411,7 +1411,7 @@ static void ParseNIT( vlc_object_t *p_obj, scan_t *p_scan,
                 }
 
                 if ( s->psz_original_network_name == NULL && p_nn )
-                    s->psz_original_network_name = strndup( (const char*) p_nn->p_data, p_dsc->i_length );
+                    s->psz_original_network_name = strndup( (const char*) p_nn->p_data, p_nn->i_length );
 
                 scan_NotifyService( p_scan, s, !b_newservice );
             }
@@ -1607,11 +1607,11 @@ static void scan_session_Destroy( scan_t *p_scan, scan_session_t *p_session )
 
     /* Do the same for all other networks */
     for( size_t i=0; i<p_session->others.i_nit; i++ )
-        ParseNIT( p_scan->p_obj, p_scan, p_nit, NULL );
+        ParseNIT( p_scan->p_obj, p_scan, p_session->others.pp_nit[i], NULL );
 
     /* Map service name for all other ts/networks */
     for( size_t i=0; i<p_session->others.i_sdt; i++ )
-        ParseSDT( p_scan->p_obj, p_scan, p_sdt );
+        ParseSDT( p_scan->p_obj, p_scan, p_session->others.pp_sdt[i] );
 
     /* */
     scan_session_Delete( p_session );
@@ -1712,7 +1712,7 @@ block_t *scan_GetM3U( scan_t *p_scan )
 
     const size_t i_total_services = scan_CountServices( p_scan );
     size_t i_filtered_count = 0;
-    const scan_service_t **pp_filtered_list = malloc( sizeof(scan_service_t *) * i_total_services );
+    const scan_service_t **pp_filtered_list = vlc_alloc( i_total_services, sizeof(scan_service_t *) );
     if( !pp_filtered_list )
     {
         block_Release( p_playlist );

@@ -183,7 +183,7 @@ static const char *const polarization_user[] = { N_("Unspecified (0V)"),
 #define LNB_LOW_TEXT N_("Local oscillator low frequency (kHz)")
 #define LNB_HIGH_TEXT N_("Local oscillator high frequency (kHz)")
 #define LNB_LONGTEXT N_( \
-    "The downconverter (LNB) will substract the local oscillator frequency " \
+    "The downconverter (LNB) will subtract the local oscillator frequency " \
     "from the satellite transmission frequency. " \
     "The intermediate frequency (IF) on the RF cable is the result.")
 #define LNB_SWITCH_TEXT N_("Universal LNB switch frequency (kHz)")
@@ -431,8 +431,8 @@ struct access_sys_t
     tuner_setup_t pf_setup;
 };
 
-static block_t *Read (access_t *);
-static int Control (access_t *, int, va_list);
+static block_t *Read (stream_t *, bool *);
+static int Control (stream_t *, int, va_list);
 static dtv_delivery_t GuessSystem (const char *, dvb_device_t *);
 static dtv_delivery_t GetDeliveryByScheme(const char *psz_scheme);
 static int Tune (vlc_object_t *, dvb_device_t *, tuner_setup_t, uint64_t);
@@ -442,7 +442,7 @@ tuner_setup_t dtv_get_delivery_tuner_setup( dtv_delivery_t d );
 
 static int Open (vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
     access_sys_t *sys = malloc (sizeof (*sys));
     if (unlikely(sys == NULL))
         return VLC_ENOMEM;
@@ -464,7 +464,7 @@ static int Open (vlc_object_t *obj)
     uint64_t freq = var_InheritFrequency (obj);
     if (freq != 0)
     {
-        dtv_delivery_t d = GuessSystem (access->psz_access, dev);
+        dtv_delivery_t d = GuessSystem (access->psz_name, dev);
         if(d != DTV_DELIVERY_NONE)
             sys->pf_setup = dtv_get_delivery_tuner_setup(d);
 
@@ -492,14 +492,14 @@ error:
 
 static void Close (vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
     access_sys_t *sys = access->p_sys;
 
     dvb_close (sys->dev);
     free (sys);
 }
 
-static block_t *Read (access_t *access)
+static block_t *Read (stream_t *access, bool *restrict eof)
 {
 #define BUFSIZE (20*188)
     block_t *block = block_Alloc (BUFSIZE);
@@ -512,7 +512,7 @@ static block_t *Read (access_t *access)
     if (val <= 0)
     {
         if (val == 0)
-            access->info.b_eof = true;
+            *eof = true;
         block_Release (block);
         return NULL;
     }
@@ -522,32 +522,32 @@ static block_t *Read (access_t *access)
     return block;
 }
 
-static int Control (access_t *access, int query, va_list args)
+static int Control (stream_t *access, int query, va_list args)
 {
     access_sys_t *sys = access->p_sys;
     dvb_device_t *dev = sys->dev;
 
     switch (query)
     {
-        case ACCESS_CAN_SEEK:
-        case ACCESS_CAN_FASTSEEK:
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_SEEK:
+        case STREAM_CAN_FASTSEEK:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg (args, bool *) = false;
             break;
 
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
         {
             int64_t *v = va_arg (args, int64_t *);
             *v = var_InheritInteger (access, "live-caching") * INT64_C(1000);
             break;
         }
 
-        case ACCESS_GET_CONTENT_TYPE:
+        case STREAM_GET_CONTENT_TYPE:
             *va_arg (args, char **) = strdup ("video/MP2T");
             break;
 
-        case ACCESS_GET_SIGNAL:
+        case STREAM_GET_SIGNAL:
             /* Fetch the signal levels only every so often to avoid stressing
              * the device bus. */
             if ((sys->signal_poll++))
@@ -557,7 +557,7 @@ static int Control (access_t *access, int query, va_list args)
             *va_arg (args, double *) = dvb_get_signal_strength (dev);
             return VLC_SUCCESS;
 
-        case ACCESS_SET_PRIVATE_ID_STATE:
+        case STREAM_SET_PRIVATE_ID_STATE:
         {
             unsigned pid = va_arg (args, int);
             bool add = va_arg (args, int);
@@ -574,7 +574,7 @@ static int Control (access_t *access, int query, va_list args)
             break;
         }
 
-        case ACCESS_SET_PRIVATE_ID_CA:
+        case STREAM_SET_PRIVATE_ID_CA:
         {
             en50221_capmt_info_t *pmt = va_arg (args, en50221_capmt_info_t *);
 
@@ -583,7 +583,7 @@ static int Control (access_t *access, int query, va_list args)
             break;
         }
 
-        case ACCESS_GET_PRIVATE_ID_STATE:
+        case STREAM_GET_PRIVATE_ID_STATE:
         {
             unsigned pid = va_arg (args, int);
             bool *on = va_arg (args, bool *);
@@ -713,6 +713,7 @@ static unsigned var_InheritGuardInterval (vlc_object_t *obj)
                            "Use \"guard=1/%"PRIu16" instead.", a, a);
             b = a;
             a = 1;
+            /* fall through */
         case 2:
             return VLC_GUARD(a, b);
     }

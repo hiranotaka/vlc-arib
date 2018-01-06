@@ -104,15 +104,6 @@ typedef struct libvlc_audio_output_device_t
 } libvlc_audio_output_device_t;
 
 /**
- * Rectangle type for video geometry
- */
-typedef struct libvlc_rectangle_t
-{
-    int top, left;
-    int bottom, right;
-} libvlc_rectangle_t;
-
-/**
  * Marq options definition
  */
 typedef enum libvlc_video_marquee_option_t {
@@ -156,6 +147,18 @@ typedef enum libvlc_position_t {
     libvlc_position_bottom_left,
     libvlc_position_bottom_right
 } libvlc_position_t;
+
+/**
+ * Enumeration of teletext keys than can be passed via
+ * libvlc_video_set_teletext()
+ */
+typedef enum libvlc_teletext_key_t {
+    libvlc_teletext_key_red = 'r' << 16,
+    libvlc_teletext_key_green = 'g' << 16,
+    libvlc_teletext_key_yellow = 'y' << 16,
+    libvlc_teletext_key_blue = 'b' << 16,
+    libvlc_teletext_key_index = 'i' << 16,
+} libvlc_teletext_key_t;
 
 /**
  * Opaque equalizer handle.
@@ -272,6 +275,22 @@ LIBVLC_API void libvlc_media_player_pause ( libvlc_media_player_t *p_mi );
 LIBVLC_API void libvlc_media_player_stop ( libvlc_media_player_t *p_mi );
 
 /**
+ * Set a renderer to the media player
+ *
+ * \note must be called before the first call of libvlc_media_player_play() to
+ * take effect.
+ *
+ * \see libvlc_renderer_discoverer_new
+ *
+ * \param p_mi the Media Player
+ * \param p_item an item discovered by libvlc_renderer_discoverer_start()
+ * \return 0 on success, -1 on error.
+ * \version LibVLC 3.0.0 or later
+ */
+LIBVLC_API int libvlc_media_player_set_renderer( libvlc_media_player_t *p_mi,
+                                                 libvlc_renderer_item_t *p_item );
+
+/**
  * Callback prototype to allocate and lock a picture buffer.
  *
  * Whenever a new video frame needs to be decoded, the lock callback is
@@ -294,7 +313,7 @@ typedef void *(*libvlc_video_lock_cb)(void *opaque, void **planes);
  * This callback might not be needed at all. It is only an indication that the
  * application can now read the pixel values if it needs to.
  *
- * \warning A picture buffer is unlocked after the picture is decoded,
+ * \note A picture buffer is unlocked after the picture is decoded,
  * but before the picture is displayed.
  *
  * \param opaque private pointer as passed to libvlc_video_set_callbacks() [IN]
@@ -363,6 +382,30 @@ typedef void (*libvlc_video_cleanup_cb)(void *opaque);
  * in memory.
  * Use libvlc_video_set_format() or libvlc_video_set_format_callbacks()
  * to configure the decoded format.
+ *
+ * \warning Rendering video into custom memory buffers is considerably less
+ * efficient than rendering in a custom window as normal.
+ *
+ * For optimal perfomances, VLC media player renders into a custom window, and
+ * does not use this function and associated callbacks. It is <b>highly
+ * recommended</b> that other LibVLC-based application do likewise.
+ * To embed video in a window, use libvlc_media_player_set_xid() or equivalent
+ * depending on the operating system.
+ *
+ * If window embedding does not fit the application use case, then a custom
+ * LibVLC video output display plugin is required to maintain optimal video
+ * rendering performances.
+ *
+ * The following limitations affect performance:
+ * - Hardware video decoding acceleration will either be disabled completely,
+ *   or require (relatively slow) copy from video/DSP memory to main memory.
+ * - Sub-pictures (subtitles, on-screen display, etc.) must be blent into the
+ *   main picture by the CPU instead of the GPU.
+ * - Depending on the video format, pixel format conversion, picture scaling,
+ *   cropping and/or picture re-orientation, must be performed by the CPU
+ *   instead of the GPU.
+ * - Memory copying is required between LibVLC reference picture buffers and
+ *   application buffers (between lock and unlock callbacks).
  *
  * \param mp the media player
  * \param lock callback to lock video memory (must not be NULL)
@@ -537,9 +580,8 @@ LIBVLC_API void *libvlc_media_player_get_hwnd ( libvlc_media_player_t *p_mi );
  * \version LibVLC 3.0.0 and later.
  *
  * \param p_mi the media player
- * \param p_awindow_handler org.videolan.libvlc.IAWindowNativeHandler jobject
- *        implemented by the org.videolan.libvlc.MediaPlayer class from the
- *        libvlc-android project.
+ * \param p_awindow_handler org.videolan.libvlc.AWindow jobject owned by the
+ *        org.videolan.libvlc.MediaPlayer class from the libvlc-android project.
  */
 LIBVLC_API void libvlc_media_player_set_android_context( libvlc_media_player_t *p_mi,
                                                          void *p_awindow_handler );
@@ -572,8 +614,8 @@ LIBVLC_API int libvlc_media_player_set_evas_object( libvlc_media_player_t *p_mi,
  * or libvlc_audio_set_format_callbacks() as is the channels layout.
  *
  * Note that the number of samples is per channel. For instance, if the audio
- * track sampling rate is 48000 Hz, then 1200 samples represent 25 milliseconds
- * of audio signal - regardless of the number of audio channels. 
+ * track sampling rate is 48000 Hz, then 1200 samples represent 25 milliseconds
+ * of audio signal - regardless of the number of audio channels.
  *
  * \param data data pointer as passed to libvlc_audio_set_callbacks() [IN]
  * \param samples pointer to a table of audio samples to play back [IN]
@@ -769,7 +811,7 @@ LIBVLC_API void libvlc_media_player_set_time( libvlc_media_player_t *p_mi, libvl
 LIBVLC_API float libvlc_media_player_get_position( libvlc_media_player_t *p_mi );
 
 /**
- * Set movie position as percentage between 0.0 and 1.0. 
+ * Set movie position as percentage between 0.0 and 1.0.
  * This has no effect if playback is not enabled.
  * This might not work depending on the underlying input format and protocol.
  *
@@ -1136,6 +1178,35 @@ LIBVLC_API char *libvlc_video_get_aspect_ratio( libvlc_media_player_t *p_mi );
 LIBVLC_API void libvlc_video_set_aspect_ratio( libvlc_media_player_t *p_mi, const char *psz_aspect );
 
 /**
+ * Create a video viewpoint structure.
+ *
+ * \version LibVLC 3.0.0 and later
+ *
+ * \return video viewpoint or NULL
+ *         (the result must be released with free() or libvlc_free()).
+ */
+LIBVLC_API libvlc_video_viewpoint_t *libvlc_video_new_viewpoint(void);
+
+/**
+ * Update the video viewpoint information.
+ *
+ * \note It is safe to call this function before the media player is started.
+ *
+ * \version LibVLC 3.0.0 and later
+ *
+ * \param p_mi the media player
+ * \param p_viewpoint video viewpoint allocated via libvlc_video_new_viewpoint()
+ * \param b_absolute if true replace the old viewpoint with the new one. If
+ * false, increase/decrease it.
+ * \return -1 in case of error, 0 otherwise
+ *
+ * \note the values are set asynchronously, it will be used by the next frame displayed.
+ */
+LIBVLC_API int libvlc_video_update_viewpoint( libvlc_media_player_t *p_mi,
+                                              const libvlc_video_viewpoint_t *p_viewpoint,
+                                              bool b_absolute);
+
+/**
  * Get current video subtitle.
  *
  * \param p_mi the media player
@@ -1268,7 +1339,10 @@ LIBVLC_API
 void libvlc_video_set_crop_geometry( libvlc_media_player_t *p_mi, const char *psz_geometry );
 
 /**
- * Get current teletext page requested.
+ * Get current teletext page requested or 0 if it's disabled.
+ *
+ * Teletext is disabled by default, call libvlc_video_set_teletext() to enable
+ * it.
  *
  * \param p_mi the media player
  * \return the current teletext page requested.
@@ -1278,17 +1352,14 @@ LIBVLC_API int libvlc_video_get_teletext( libvlc_media_player_t *p_mi );
 /**
  * Set new teletext page to retrieve.
  *
- * \param p_mi the media player
- * \param i_page teletex page number requested
- */
-LIBVLC_API void libvlc_video_set_teletext( libvlc_media_player_t *p_mi, int i_page );
-
-/**
- * Toggle teletext transparent status on video output.
+ * This function can also be used to send a teletext key.
  *
  * \param p_mi the media player
+ * \param i_page teletex page number requested. This value can be 0 to disable
+ * teletext, a number in the range ]0;1000[ to show the requested page, or a
+ * \ref libvlc_teletext_key_t. 100 is the default teletext page.
  */
-LIBVLC_API void libvlc_toggle_teletext( libvlc_media_player_t *p_mi );
+LIBVLC_API void libvlc_video_set_teletext( libvlc_media_player_t *p_mi, int i_page );
 
 /**
  * Get number of available video tracks.
@@ -1334,7 +1405,7 @@ int libvlc_video_set_track( libvlc_media_player_t *p_mi, int i_track );
  *
  * \param p_mi media player instance
  * \param num number of video output (typically 0 for the first/only one)
- * \param psz_filepath the path where to save the screenshot to
+ * \param psz_filepath the path of a file or a folder to save the screenshot into
  * \param i_width the snapshot's width
  * \param i_height the snapshot's height
  * \return 0 on success, -1 if the video was not found
@@ -1976,16 +2047,16 @@ LIBVLC_API int libvlc_media_player_set_equalizer( libvlc_media_player_t *p_mi, l
  * See \ref libvlc_media_player_set_role()
  */
 typedef enum libvlc_media_player_role {
-    libvlc_role_None = 0 /**< Don't use a media player role */,
-    libvlc_role_Music   /**< Music (or radio) playback */,
-    libvlc_role_Video /**< Video playback */,
-    libvlc_role_Communication /**< Speech, real-time communication */,
-    libvlc_role_Game /**< Video game */,
-    liblvc_role_Notification /**< User interaction feedback */,
-    libvlc_role_Animation /**< Embedded animation (e.g. in web page) */,
-    libvlc_role_Production /**< Audio editting/production */,
-    libvlc_role_Accessibility /**< Accessibility */,
-    libvlc_role_Test /** Testing */,
+    libvlc_role_None = 0, /**< Don't use a media player role */
+    libvlc_role_Music,   /**< Music (or radio) playback */
+    libvlc_role_Video, /**< Video playback */
+    libvlc_role_Communication, /**< Speech, real-time communication */
+    libvlc_role_Game, /**< Video game */
+    libvlc_role_Notification, /**< User interaction feedback */
+    libvlc_role_Animation, /**< Embedded animation (e.g. in web page) */
+    libvlc_role_Production, /**< Audio editting/production */
+    libvlc_role_Accessibility, /**< Accessibility */
+    libvlc_role_Test /** Testing */
 #define libvlc_role_Last libvlc_role_Test
 } libvlc_media_player_role_t;
 
@@ -1994,17 +2065,19 @@ typedef enum libvlc_media_player_role {
  *
  * \version LibVLC 3.0.0 and later.
  *
+ * \param p_mi media player
  * \return the media player role (\ref libvlc_media_player_role_t)
  */
-LIBVLC_API int libvlc_media_player_get_role(libvlc_media_player_t *);
+LIBVLC_API int libvlc_media_player_get_role(libvlc_media_player_t *p_mi);
 
 /**
  * Sets the media role.
  *
+ * \param p_mi media player
  * \param role the media player role (\ref libvlc_media_player_role_t)
  * \return 0 on success, -1 on error
  */
-LIBVLC_API int libvlc_media_player_set_role(libvlc_media_player_t *,
+LIBVLC_API int libvlc_media_player_set_role(libvlc_media_player_t *p_mi,
                                             unsigned role);
 
 /** @} audio */

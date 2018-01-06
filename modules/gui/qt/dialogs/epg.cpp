@@ -32,6 +32,7 @@
 
 #include <QVBoxLayout>
 #include <QSplitter>
+#include <QScrollBar>
 #include <QLabel>
 #include <QGroupBox>
 #include <QPushButton>
@@ -76,8 +77,9 @@ EpgDialog::EpgDialog( intf_thread_t *_p_intf ): QVLCFrame( _p_intf )
     layout->addWidget( descBox );
 
     CONNECT( epg, itemSelectionChanged( EPGItem *), this, displayEvent( EPGItem *) );
-    CONNECT( THEMIM->getIM(), epgChanged(), this, updateInfos() );
-    CONNECT( THEMIM, inputChanged( bool ), this, updateInfos() );
+    CONNECT( epg, programActivated(int), THEMIM->getIM(), changeProgram(int) );
+    CONNECT( THEMIM->getIM(), epgChanged(), this, scheduleUpdate() );
+    CONNECT( THEMIM, inputChanged( bool ), this, inputChanged() );
 
     QDialogButtonBox *buttonsBox = new QDialogButtonBox( this );
 
@@ -94,8 +96,8 @@ EpgDialog::EpgDialog( intf_thread_t *_p_intf ): QVLCFrame( _p_intf )
 
     timer = new QTimer( this );
     timer->setSingleShot( true );
-    timer->setInterval( 1000 * 60 );
-    CONNECT( timer, timeout(), this, updateInfos() );
+    timer->setInterval( 5000 );
+    CONNECT( timer, timeout(), this, timeout() );
 
     updateInfos();
     restoreWidgetPosition( "EPGDialog", QSize( 650, 450 ) );
@@ -106,25 +108,73 @@ EpgDialog::~EpgDialog()
     saveWidgetPosition( "EPGDialog" );
 }
 
+void EpgDialog::showEvent(QShowEvent *)
+{
+    scheduleUpdate();
+}
+
+void EpgDialog::timeout()
+{
+    if( !isVisible() )
+        scheduleUpdate();
+    else
+        updateInfos();
+}
+
+void EpgDialog::inputChanged()
+{
+    epg->reset();
+    timeout();
+}
+
+void EpgDialog::scheduleUpdate()
+{
+    if( !timer->isActive() )
+        timer->start( 5000 );
+}
+
 void EpgDialog::displayEvent( EPGItem *epgItem )
 {
-    if( !epgItem ) return;
+    if( !epgItem )
+    {
+        title->clear();
+        description->clear();
+        return;
+    }
 
-    QDateTime end = epgItem->start().addSecs( epgItem->duration() );
+    QDateTime now = QDateTime::currentDateTime();
+    QDateTime enddate = epgItem->start().addSecs( epgItem->duration() );
+
+    QString start, end;
+    if( epgItem->start().daysTo(now) != 0 )
+        start = epgItem->start().toString( Qt::SystemLocaleLongDate );
+    else
+        start = epgItem->start().time().toString( "hh:mm" );
+
+    end = enddate.time().toString( "hh:mm" );
+
     title->setText( QString("%1 - %2 : %3%4")
-                   .arg( epgItem->start().toString( "hh:mm" ) )
-                   .arg( end.toString( "hh:mm" ) )
+                   .arg( start )
+                   .arg( end )
                    .arg( epgItem->name() )
                    .arg( epgItem->rating() ?
                              qtr(" (%1+ rated)").arg( epgItem->rating() ) :
                              QString() )
                    );
     description->setText( epgItem->description() );
+    const QList<QPair<QString, QString>> items = epgItem->descriptionItems();
+    QList<QPair<QString, QString>>::const_iterator it;
+    for( it=items.begin(); it != items.end(); ++it )
+    {
+        description->append(QString("\n<b>%1:</b> %2")
+                              .arg((*it).first)
+                              .arg((*it).second));
+    }
+    description->verticalScrollBar()->setValue(0);
 }
 
 void EpgDialog::updateInfos()
 {
-    timer->stop();
     input_item_t *p_input_item = NULL;
     playlist_t *p_playlist = THEPL;
     input_thread_t *p_input_thread = playlist_CurrentInput( p_playlist ); /* w/hold */
@@ -132,14 +182,17 @@ void EpgDialog::updateInfos()
     {
         PL_LOCK; /* as input_GetItem still unfixed */
         p_input_item = input_GetItem( p_input_thread );
-        if ( p_input_item ) vlc_gc_incref( p_input_item );
+        if ( p_input_item ) input_item_Hold( p_input_item );
         PL_UNLOCK;
         vlc_object_release( p_input_thread );
         if ( p_input_item )
         {
             epg->updateEPG( p_input_item );
-            vlc_gc_decref( p_input_item );
-            if ( isVisible() ) timer->start();
+            input_item_Release( p_input_item );
+        }
+        else
+        {
+            epg->reset();
         }
     }
 }

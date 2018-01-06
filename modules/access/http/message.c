@@ -24,6 +24,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <stdalign.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,6 +34,7 @@
 #include <vlc_common.h>
 #include <vlc_http.h>
 #include <vlc_strings.h>
+#include <vlc_memstream.h>
 #include "message.h"
 #include "h2frame.h"
 
@@ -47,6 +49,11 @@ struct vlc_http_msg
     unsigned count;
     struct vlc_http_stream *payload;
 };
+
+/* Maximum alignment for safe conversion to/from any specific pointer type */
+static const char alignas (max_align_t) vlc_http_error_loc;
+
+void *const vlc_http_error = (char *)&vlc_http_error_loc;
 
 static bool vlc_http_is_token(const char *);
 
@@ -291,52 +298,33 @@ block_t *vlc_http_msg_read(struct vlc_http_msg *m)
 char *vlc_http_msg_format(const struct vlc_http_msg *m, size_t *restrict lenp,
                           bool proxied)
 {
-    size_t len;
+    struct vlc_memstream stream;
+
+    vlc_memstream_open(&stream);
 
     if (m->status < 0)
     {
-        len = sizeof ("  HTTP/1.1\r\nHost: \r\n\r\n");
-        len += strlen(m->method);
-        len += strlen(m->path ? m->path : m->authority);
-        len += strlen(m->authority);
-
+        vlc_memstream_printf(&stream, "%s ", m->method);
         if (proxied)
-        {
-            assert(m->scheme != NULL && m->path != NULL);
-            len += strlen(m->scheme) + 3 + strlen(m->authority);
-        }
+            vlc_memstream_printf(&stream, "%s://%s", m->scheme, m->authority);
+        vlc_memstream_printf(&stream, "%s HTTP/1.1\r\nHost: %s\r\n",
+                             m->path ? m->path : m->authority, m->authority);
     }
     else
-        len = sizeof ("HTTP/1.1 123 .\r\n\r\n");
+        vlc_memstream_printf(&stream, "HTTP/1.1 %03hd .\r\n", m->status);
 
     for (unsigned i = 0; i < m->count; i++)
-        len += 4 + strlen(m->headers[i][0]) + strlen(m->headers[i][1]);
+        vlc_memstream_printf(&stream, "%s: %s\r\n",
+                             m->headers[i][0], m->headers[i][1]);
 
-    char *buf = malloc(len + 1);
-    if (unlikely(buf == NULL))
+    vlc_memstream_puts(&stream, "\r\n");
+
+    if (vlc_memstream_close(&stream))
         return NULL;
 
-    len = 0;
-
-    if (m->status < 0)
-    {
-        len += sprintf(buf, "%s ", m->method);
-        if (proxied)
-            len += sprintf(buf + len, "%s://%s", m->scheme, m->authority);
-        len += sprintf(buf + len, "%s HTTP/1.1\r\nHost: %s\r\n",
-                       m->path ? m->path : m->authority, m->authority);
-    }
-    else
-        len += sprintf(buf, "HTTP/1.1 %03hd .\r\n", m->status);
-
-    for (unsigned i = 0; i < m->count; i++)
-        len += sprintf(buf + len, "%s: %s\r\n",
-                       m->headers[i][0], m->headers[i][1]);
-
-    len += sprintf(buf + len, "\r\n");
     if (lenp != NULL)
-        *lenp = len;
-    return buf;
+        *lenp = stream.length;
+    return stream.ptr;
 }
 
 struct vlc_http_msg *vlc_http_msg_headers(const char *msg)
@@ -408,7 +396,7 @@ struct vlc_h2_frame *vlc_http_msg_h2_frame(const struct vlc_http_msg *m,
         assert(strcasecmp(m->headers[j][0], "HTTP2-Settings"));
     }
 
-    const char *(*headers)[2] = malloc((m->count + 5) * sizeof (char *[2]));
+    const char *(*headers)[2] = vlc_alloc(m->count + 5, sizeof (char *[2]));
     if (unlikely(headers == NULL))
         return NULL;
 
@@ -613,10 +601,8 @@ const char *vlc_http_next_token(const char *value)
     return value + strspn(value, "\t ,");
 }
 
-const char *vlc_http_msg_get_token(const struct vlc_http_msg *msg,
-                                   const char *field, const char *token)
+static const char *vlc_http_get_token(const char *value, const char *token)
 {
-    const char *value = vlc_http_msg_get_header(msg, field);
     const size_t length = strlen(token);
 
     while (value != NULL)
@@ -629,6 +615,53 @@ const char *vlc_http_msg_get_token(const struct vlc_http_msg *msg,
     }
 
     return NULL;
+}
+
+static char *vlc_http_get_token_value(const char *value, const char *token)
+{
+    value = vlc_http_get_token(value, token);
+    if (value == NULL)
+        return NULL;
+
+    value += vlc_http_token_length(value);
+    value += strspn(value, " \t"); /* BWS */
+
+    if (*value != '=')
+        return NULL;
+
+    value++;
+    value += strspn(value, " \t"); /* BWS */
+
+    size_t len = vlc_http_quoted_length(value);
+    if (len == 0)
+        return NULL;
+
+    assert(len >= 2);
+    value++;
+    len -= 2;
+
+    char *out = malloc(len + 1), *p;
+    if (unlikely(out == NULL))
+        return NULL;
+
+    for (p = out; len > 0; len--)
+    {
+        char c = *(value++);
+        if (c == '\\') /* Quoted pair */
+        {
+            c = *(value++);
+            len--;
+        }
+        *(p++) = c;
+    }
+    *p = '\0';
+    return out;
+}
+
+const char *vlc_http_msg_get_token(const struct vlc_http_msg *msg,
+                                   const char *field, const char *token)
+{
+    return vlc_http_get_token(vlc_http_msg_get_header(msg, field), token);
 }
 
 static size_t vlc_http_comment_length(const char *str)
@@ -851,7 +884,7 @@ uintmax_t vlc_http_msg_get_size(const struct vlc_http_msg *m)
 }
 
 void vlc_http_msg_get_cookies(const struct vlc_http_msg *m,
-                              vlc_http_cookie_jar_t *jar, bool secure,
+                              vlc_http_cookie_jar_t *jar,
                               const char *host, const char *path)
 {
     if (jar == NULL)
@@ -859,7 +892,7 @@ void vlc_http_msg_get_cookies(const struct vlc_http_msg *m,
 
     for (unsigned i = 0; i < m->count; i++)
         if (!strcasecmp(m->headers[i][0], "Set-Cookie"))
-            vlc_http_cookies_store(jar, m->headers[i][1], secure, host, path);
+            vlc_http_cookies_store(jar, m->headers[i][1], host, path);
 }
 
 int vlc_http_msg_add_cookies(struct vlc_http_msg *m,
@@ -901,6 +934,24 @@ int vlc_http_msg_add_cookies(struct vlc_http_msg *m,
         free(cookies);
     }
     return val;
+}
+
+char *vlc_http_msg_get_basic_realm(const struct vlc_http_msg *m)
+{
+    const char *auth;
+
+    /* TODO: Support other authentication schemes. */
+    /* NOTE: In principles, RFC7235 allows for multiple authentication schemes,
+     * including multiple times Basic with a different realm each. There are no
+     * UI paradigms though. */
+    auth = vlc_http_msg_get_token(m, "WWW-Authenticate", "Basic");
+    if (auth == NULL)
+        return NULL;
+
+    auth += 5;
+    auth += strspn(auth, " "); /* 1*SP */
+
+    return vlc_http_get_token_value(auth, "realm");
 }
 
 int vlc_http_msg_add_creds_basic(struct vlc_http_msg *m, bool proxy,

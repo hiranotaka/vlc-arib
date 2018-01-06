@@ -143,7 +143,6 @@ static int vlc_FromWave(const WAVEFORMATEX *restrict wf,
     if (wfe->dwChannelMask & SPEAKER_LOW_FREQUENCY)
         fmt->i_physical_channels |= AOUT_CHAN_LFE;
 
-    fmt->i_original_channels = fmt->i_physical_channels;
     assert(popcount(wfe->dwChannelMask) == wf->nChannels);
 
     if (IsEqualIID(&wfe->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM))
@@ -328,7 +327,7 @@ static unsigned __stdcall Thread(void *data)
 
         pts = mdate() - ((GetQPC() - qpc) / 10);
 
-        es_out_Control(demux->out, ES_OUT_SET_PCR, pts);
+        es_out_SetPCR(demux->out, pts);
 
         size_t bytes = frames * sys->frame_size;
         block_t *block = block_Alloc(bytes);
@@ -385,10 +384,10 @@ static int Open(vlc_object_t *obj)
     demux_t *demux = (demux_t *)obj;
     HRESULT hr;
 
-    if (demux->psz_location != NULL && demux->psz_location != '\0')
+    if (demux->psz_location != NULL && *demux->psz_location != '\0')
         return VLC_EGENERIC; /* TODO non-default device */
 
-    demux_sys_t *sys = malloc(sizeof (*sys));
+    demux_sys_t *sys = vlc_obj_malloc(obj, sizeof (*sys));
     if (unlikely(sys == NULL))
         return VLC_ENOMEM;
 
@@ -460,7 +459,6 @@ error:
     for (unsigned i = 0; i < 2; i++)
         if (sys->events[i] != NULL)
             CloseHandle(sys->events[i]);
-    free(sys);
     return VLC_ENOMEM;
 }
 
@@ -482,7 +480,6 @@ static void Close (vlc_object_t *obj)
     CoUninitialize();
     for (unsigned i = 0; i < 2; i++)
         CloseHandle(sys->events[i]);
-    free(sys);
 }
 
 #define LOOPBACK_TEXT N_("Loopback mode")

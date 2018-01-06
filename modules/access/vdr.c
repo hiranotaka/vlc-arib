@@ -134,20 +134,20 @@ struct access_sys_t
 #define FILE_SIZE(pos)    ARRAY_VAL(p_sys->file_sizes, pos)
 #define FILE_COUNT        (unsigned)p_sys->file_sizes.i_size
 
-static int Control( access_t *, int, va_list );
-static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len );
-static int Seek( access_t *p_access, uint64_t i_pos);
-static void FindSeekpoint( access_t *p_access );
-static bool ScanDirectory( access_t *p_access );
-static char *GetFilePath( access_t *p_access, unsigned i_file );
-static bool ImportNextFile( access_t *p_access );
-static bool SwitchFile( access_t *p_access, unsigned i_file );
+static int Control( stream_t *, int, va_list );
+static ssize_t Read( stream_t *p_access, void *p_buffer, size_t i_len );
+static int Seek( stream_t *p_access, uint64_t i_pos);
+static void FindSeekpoint( stream_t *p_access );
+static bool ScanDirectory( stream_t *p_access );
+static char *GetFilePath( stream_t *p_access, unsigned i_file );
+static bool ImportNextFile( stream_t *p_access );
+static bool SwitchFile( stream_t *p_access, unsigned i_file );
 static void OptimizeForRead( int fd );
-static void UpdateFileSize( access_t *p_access );
-static FILE *OpenRelativeFile( access_t *p_access, const char *psz_file );
+static void UpdateFileSize( stream_t *p_access );
+static FILE *OpenRelativeFile( stream_t *p_access, const char *psz_file );
 static bool ReadLine( char **ppsz_line, size_t *pi_size, FILE *p_file );
-static void ImportMeta( access_t *p_access );
-static void ImportMarks( access_t *p_access );
+static void ImportMeta( stream_t *p_access );
+static void ImportMarks( stream_t *p_access );
 static bool ReadIndexRecord( FILE *p_file, bool b_ts, int64_t i_frame,
                             uint64_t *pi_offset, uint16_t *pi_file_num );
 static int64_t ParseFrameNumber( const char *psz_line, float fps );
@@ -158,7 +158,7 @@ static const char *BaseName( const char *psz_path );
  *****************************************************************************/
 static int Open( vlc_object_t *p_this )
 {
-    access_t *p_access = (access_t*)p_this;
+    stream_t *p_access = (stream_t*)p_this;
 
     if( !p_access->psz_filepath )
         return VLC_EGENERIC;
@@ -166,7 +166,7 @@ static int Open( vlc_object_t *p_this )
     /* Some tests can be skipped if this module was explicitly requested.
      * That way, the user can play "corrupt" recordings if necessary
      * and we can avoid false positives in the general case. */
-    bool b_strict = strcmp( p_access->psz_access, "vdr" );
+    bool b_strict = strcmp( p_access->psz_name, "vdr" );
 
     /* Do a quick test based on the directory name to see if this
      * directory might contain a VDR recording. We can be reasonably
@@ -188,8 +188,12 @@ static int Open( vlc_object_t *p_this )
         !S_ISDIR( st.st_mode ) )
         return VLC_EGENERIC;
 
-    access_sys_t *p_sys;
-    STANDARD_READ_ACCESS_INIT;
+    access_sys_t *p_sys = vlc_obj_calloc( p_this, 1, sizeof( *p_sys ) );
+
+    if( unlikely(p_sys == NULL) )
+        return VLC_ENOMEM;
+
+    p_access->p_sys = p_sys;
     p_sys->fd = -1;
     p_sys->cur_seekpoint = 0;
     p_sys->fps = var_InheritFloat( p_access, "vdr-fps" );
@@ -203,6 +207,7 @@ static int Open( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
+    ACCESS_SET_CALLBACKS( Read, NULL, Control, Seek );
     return VLC_SUCCESS;
 }
 
@@ -211,7 +216,7 @@ static int Open( vlc_object_t *p_this )
  *****************************************************************************/
 static void Close( vlc_object_t * p_this )
 {
-    access_t *p_access = (access_t*)p_this;
+    stream_t *p_access = (stream_t*)p_this;
     access_sys_t *p_sys = p_access->p_sys;
 
     if( p_sys->fd != -1 )
@@ -221,16 +226,14 @@ static void Close( vlc_object_t * p_this )
     if( p_sys->p_meta )
         vlc_meta_Delete( p_sys->p_meta );
 
-    size_t count = p_sys->p_marks->i_seekpoint;
-    TAB_CLEAN( count, p_sys->offsets );
+    free( p_sys->offsets );
     vlc_input_title_Delete( p_sys->p_marks );
-    free( p_sys );
 }
 
 /*****************************************************************************
  * Determine format and import files
  *****************************************************************************/
-static bool ScanDirectory( access_t *p_access )
+static bool ScanDirectory( stream_t *p_access )
 {
     access_sys_t *p_sys = p_access->p_sys;
 
@@ -259,7 +262,7 @@ static bool ScanDirectory( access_t *p_access )
 /*****************************************************************************
  * Control input stream
  *****************************************************************************/
-static int Control( access_t *p_access, int i_query, va_list args )
+static int Control( stream_t *p_access, int i_query, va_list args )
 {
     access_sys_t *p_sys = p_access->p_sys;
     input_title_t ***ppp_title;
@@ -269,28 +272,28 @@ static int Control( access_t *p_access, int i_query, va_list args )
 
     switch( i_query )
     {
-        case ACCESS_CAN_SEEK:
-        case ACCESS_CAN_FASTSEEK:
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_SEEK:
+        case STREAM_CAN_FASTSEEK:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg( args, bool* ) = true;
             break;
 
-        case ACCESS_GET_SIZE:
+        case STREAM_GET_SIZE:
             *va_arg( args, uint64_t* ) = p_sys->size;
             break;
 
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
             pi64 = va_arg( args, int64_t * );
             *pi64 = INT64_C(1000)
                   * var_InheritInteger( p_access, "file-caching" );
             break;
 
-        case ACCESS_SET_PAUSE_STATE:
+        case STREAM_SET_PAUSE_STATE:
             /* nothing to do */
             break;
 
-        case ACCESS_GET_TITLE_INFO:
+        case STREAM_GET_TITLE_INFO:
             /* return a copy of our seek points */
             if( !p_sys->p_marks )
                 return VLC_EGENERIC;
@@ -302,28 +305,28 @@ static int Control( access_t *p_access, int i_query, va_list args )
             **ppp_title = vlc_input_title_Duplicate( p_sys->p_marks );
             break;
 
-        case ACCESS_GET_TITLE:
+        case STREAM_GET_TITLE:
             *va_arg( args, unsigned * ) = 0;
             break;
 
-        case ACCESS_GET_SEEKPOINT:
+        case STREAM_GET_SEEKPOINT:
             *va_arg( args, unsigned * ) = p_sys->cur_seekpoint;
             break;
 
-        case ACCESS_GET_CONTENT_TYPE:
+        case STREAM_GET_CONTENT_TYPE:
             *va_arg( args, char ** ) =
                 strdup( p_sys->b_ts_format ? "video/MP2T" : "video/MP2P" );
             break;
 
-        case ACCESS_SET_TITLE:
+        case STREAM_SET_TITLE:
             /* ignore - only one title */
             break;
 
-        case ACCESS_SET_SEEKPOINT:
+        case STREAM_SET_SEEKPOINT:
             i = va_arg( args, int );
             return Seek( p_access, p_sys->offsets[i] );
 
-        case ACCESS_GET_META:
+        case STREAM_GET_META:
             p_meta = va_arg( args, vlc_meta_t* );
             vlc_meta_Merge( p_meta, p_sys->p_meta );
             break;
@@ -337,16 +340,13 @@ static int Control( access_t *p_access, int i_query, va_list args )
 /*****************************************************************************
  * Read and concatenate files
  *****************************************************************************/
-static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
+static ssize_t Read( stream_t *p_access, void *p_buffer, size_t i_len )
 {
     access_sys_t *p_sys = p_access->p_sys;
 
     if( p_sys->fd == -1 )
-    {
         /* no more data */
-        p_access->info.b_eof = true;
         return 0;
-    }
 
     ssize_t i_ret = read( p_sys->fd, p_buffer, i_len );
 
@@ -387,15 +387,14 @@ static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
 /*****************************************************************************
  * Seek to a specific location in a file
  *****************************************************************************/
-static int Seek( access_t *p_access, uint64_t i_pos )
+static int Seek( stream_t *p_access, uint64_t i_pos )
 {
     access_sys_t *p_sys = p_access->p_sys;
 
-    /* might happen if called by ACCESS_SET_SEEKPOINT */
+    /* might happen if called by STREAM_SET_SEEKPOINT */
     i_pos = __MIN( i_pos, p_sys->size );
 
     p_sys->offset = i_pos;
-    p_access->info.b_eof = false;
 
     /* find correct chapter */
     FindSeekpoint( p_access );
@@ -419,7 +418,7 @@ static int Seek( access_t *p_access, uint64_t i_pos )
 /*****************************************************************************
  * Change the chapter index to match the current position
  *****************************************************************************/
-static void FindSeekpoint( access_t *p_access )
+static void FindSeekpoint( stream_t *p_access )
 {
     access_sys_t *p_sys = p_access->p_sys;
     if( !p_sys->p_marks )
@@ -445,10 +444,12 @@ static void FindSeekpoint( access_t *p_access )
 /*****************************************************************************
  * Returns the path of a certain part
  *****************************************************************************/
-static char *GetFilePath( access_t *p_access, unsigned i_file )
+static char *GetFilePath( stream_t *p_access, unsigned i_file )
 {
+    access_sys_t *sys = p_access->p_sys;
     char *psz_path;
-    if( asprintf( &psz_path, p_access->p_sys->b_ts_format ?
+
+    if( asprintf( &psz_path, sys->b_ts_format ?
         "%s" DIR_SEP "%05u.ts" : "%s" DIR_SEP "%03u.vdr",
         p_access->psz_filepath, i_file + 1 ) == -1 )
         return NULL;
@@ -459,7 +460,7 @@ static char *GetFilePath( access_t *p_access, unsigned i_file )
 /*****************************************************************************
  * Check if another part exists and import it
  *****************************************************************************/
-static bool ImportNextFile( access_t *p_access )
+static bool ImportNextFile( stream_t *p_access )
 {
     access_sys_t *p_sys = p_access->p_sys;
 
@@ -493,7 +494,7 @@ static bool ImportNextFile( access_t *p_access )
 /*****************************************************************************
  * Close the current file and open another
  *****************************************************************************/
-static bool SwitchFile( access_t *p_access, unsigned i_file )
+static bool SwitchFile( stream_t *p_access, unsigned i_file )
 {
     access_sys_t *p_sys = p_access->p_sys;
 
@@ -574,7 +575,7 @@ static void OptimizeForRead( int fd )
 /*****************************************************************************
  * Fix size if the (last) part is still growing
  *****************************************************************************/
-static void UpdateFileSize( access_t *p_access )
+static void UpdateFileSize( stream_t *p_access )
 {
     access_sys_t *p_sys = p_access->p_sys;
     struct stat st;
@@ -596,13 +597,14 @@ static void UpdateFileSize( access_t *p_access )
 /*****************************************************************************
  * Open file relative to base directory for reading.
  *****************************************************************************/
-static FILE *OpenRelativeFile( access_t *p_access, const char *psz_file )
+static FILE *OpenRelativeFile( stream_t *p_access, const char *psz_file )
 {
+    access_sys_t *sys = p_access->p_sys;
+
     /* build path and add extension */
     char *psz_path;
-    if( asprintf( &psz_path, "%s" DIR_SEP "%s%s",
-        p_access->psz_filepath, psz_file,
-        p_access->p_sys->b_ts_format ? "" : ".vdr" ) == -1 )
+    if( asprintf( &psz_path, "%s" DIR_SEP "%s%s", p_access->psz_filepath,
+                  psz_file, sys->b_ts_format ? "" : ".vdr" ) == -1 )
         return NULL;
 
     FILE *file = vlc_fopen( psz_path, "rb" );
@@ -639,7 +641,7 @@ static bool ReadLine( char **ppsz_line, size_t *pi_size, FILE *p_file )
 /*****************************************************************************
  * Import meta data
  *****************************************************************************/
-static void ImportMeta( access_t *p_access )
+static void ImportMeta( stream_t *p_access )
 {
     access_sys_t *p_sys = p_access->p_sys;
 
@@ -782,7 +784,7 @@ static void ImportMeta( access_t *p_access )
 /*****************************************************************************
  * Import cut marks and convert them to seekpoints (chapters).
  *****************************************************************************/
-static void ImportMarks( access_t *p_access )
+static void ImportMarks( stream_t *p_access )
 {
     access_sys_t *p_sys = p_access->p_sys;
 
@@ -819,7 +821,6 @@ static void ImportMarks( access_t *p_access )
     p_marks->i_length = i_frame_count * (int64_t)( CLOCK_FREQ / p_sys->fps );
 
     uint64_t *offsetv = NULL;
-    size_t offsetc = 0;
 
     /* offset for chapter positions */
     int i_chapter_offset = p_sys->fps / 1000 *
@@ -867,10 +868,12 @@ static void ImportMarks( access_t *p_access )
         sp->psz_name = strdup( line );
 
         TAB_APPEND( p_marks->i_seekpoint, p_marks->seekpoint, sp );
-        TAB_APPEND( offsetc, offsetv, i_offset );
+        offsetv = xrealloc(offsetv, p_marks->i_seekpoint * sizeof (*offsetv));
 
         for( int i = 0; i + 1 < i_file_number; ++i )
-            offsetv[offsetc - 1] += FILE_SIZE( i );
+            i_offset += FILE_SIZE(i);
+
+        offsetv[p_marks->i_seekpoint - 1] = i_offset;
     }
 
     /* add a chapter at the beginning if missing */
@@ -882,7 +885,11 @@ static void ImportMarks( access_t *p_access )
             sp->i_time_offset = 0;
             sp->psz_name = strdup( _("Start") );
             TAB_INSERT( p_marks->i_seekpoint, p_marks->seekpoint, sp, 0 );
-            TAB_INSERT( offsetc, offsetv, UINT64_C(0), 0 );
+            offsetv = xrealloc(offsetv,
+                               p_marks->i_seekpoint * sizeof (*offsetv));
+            memmove(offsetv + 1, offsetv,
+                    (p_marks->i_seekpoint - 1) * sizeof (*offsetv));
+            offsetv[0] = 0;
         }
     }
 
@@ -894,7 +901,7 @@ static void ImportMarks( access_t *p_access )
     else
     {
         vlc_input_title_Delete( p_marks );
-        TAB_CLEAN( offsetc, offsetv );
+        free(offsetv);
     }
 
     fclose( marksfile );

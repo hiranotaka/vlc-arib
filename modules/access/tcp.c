@@ -21,10 +21,6 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-/*****************************************************************************
- * Preamble
- *****************************************************************************/
-
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
@@ -34,15 +30,88 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_access.h>
-#include <vlc_network.h>
-#include <vlc_interrupt.h>
+#include <vlc_url.h>
+#include <vlc_tls.h>
+
+static ssize_t Read(stream_t *access, void *buf, size_t len)
+{
+    return vlc_tls_Read(access->p_sys, buf, len, false);
+}
+
+static int Control( stream_t *p_access, int i_query, va_list args )
+{
+    bool    *pb_bool;
+    int64_t *pi_64;
+
+    switch( i_query )
+    {
+        case STREAM_CAN_SEEK:
+        case STREAM_CAN_FASTSEEK:
+            pb_bool = va_arg( args, bool * );
+            *pb_bool = false;
+            break;
+        case STREAM_CAN_PAUSE:
+            pb_bool = va_arg( args, bool * );
+            *pb_bool = true;    /* FIXME */
+            break;
+        case STREAM_CAN_CONTROL_PACE:
+            pb_bool = va_arg( args, bool * );
+            *pb_bool = true;    /* FIXME */
+            break;
+
+        case STREAM_GET_PTS_DELAY:
+            pi_64 = va_arg( args, int64_t * );
+            *pi_64 = INT64_C(1000)
+                   * var_InheritInteger( p_access, "network-caching" );
+            break;
+
+        case STREAM_SET_PAUSE_STATE:
+            /* Nothing to do */
+            break;
+
+        default:
+            return VLC_EGENERIC;
+    }
+    return VLC_SUCCESS;
+}
+
+static int Open(vlc_object_t *obj)
+{
+    stream_t *access = (stream_t *)obj;
+    vlc_tls_t *sock;
+    vlc_url_t url;
+
+    if (vlc_UrlParse(&url, access->psz_url)
+     || url.psz_host == NULL || url.i_port == 0)
+    {
+        msg_Err(access, "invalid location: %s", access->psz_location);
+        vlc_UrlClean(&url);
+        return VLC_EGENERIC;
+    }
+
+    sock = vlc_tls_SocketOpenTCP(obj, url.psz_host, url.i_port);
+    vlc_UrlClean(&url);
+    if (sock == NULL)
+        return VLC_EGENERIC;
+
+    access->p_sys = sock;
+    access->pf_read = Read;
+    access->pf_block = NULL;
+    access->pf_control = Control;
+    access->pf_seek = NULL;
+    return VLC_SUCCESS;
+}
+
+static void Close( vlc_object_t *p_this )
+{
+    stream_t *access = (stream_t *)p_this;
+
+    vlc_tls_SessionDelete(access->p_sys);
+}
 
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
-static int  Open ( vlc_object_t * );
-static void Close( vlc_object_t * );
-
 vlc_module_begin ()
     set_shortname( N_("TCP") )
     set_description( N_("TCP input") )
@@ -53,143 +122,3 @@ vlc_module_begin ()
     add_shortcut( "tcp" )
     set_callbacks( Open, Close )
 vlc_module_end ()
-
-/*****************************************************************************
- * Local prototypes
- *****************************************************************************/
-struct access_sys_t
-{
-    int        fd;
-};
-
-
-static ssize_t Read( access_t *, uint8_t *, size_t );
-static int Control( access_t *, int, va_list );
-
-/*****************************************************************************
- * Open: open the socket
- *****************************************************************************/
-static int Open( vlc_object_t *p_this )
-{
-    access_t     *p_access = (access_t *)p_this;
-    access_sys_t *p_sys;
-
-    char         *psz_dup = strdup(p_access->psz_location);
-    char         *psz_parser = psz_dup;
-
-    /* Parse server:port */
-    if( *psz_parser == '[' )
-    {
-        psz_parser = strchr( psz_parser, ']' );
-        if( psz_parser == NULL )
-            psz_parser = psz_dup;
-    }
-    psz_parser = strchr( psz_parser, ':' );
-
-    if( psz_parser == NULL )
-    {
-        msg_Err( p_access, "missing port number : %s", psz_dup );
-        free( psz_dup );
-        return VLC_EGENERIC;
-    }
-
-    *psz_parser++ = '\0';
-
-    /* Init p_access */
-    access_InitFields( p_access );
-    ACCESS_SET_CALLBACKS( Read, NULL, Control, NULL );
-    p_sys = p_access->p_sys = calloc( 1, sizeof( access_sys_t ) );
-    if( !p_sys )
-    {
-        free( psz_dup );
-        return VLC_ENOMEM;
-    }
-
-    p_sys->fd = net_ConnectTCP( p_access, psz_dup, atoi( psz_parser ) );
-    free( psz_dup );
-
-    if( p_sys->fd < 0 )
-    {
-        free( p_sys );
-        return VLC_EGENERIC;
-    }
-
-    return VLC_SUCCESS;
-}
-
-/*****************************************************************************
- * Close: free unused data structures
- *****************************************************************************/
-static void Close( vlc_object_t *p_this )
-{
-    access_t     *p_access = (access_t *)p_this;
-    access_sys_t *p_sys = p_access->p_sys;
-
-    net_Close( p_sys->fd );
-    free( p_sys );
-}
-
-/*****************************************************************************
- * Read: read on a file descriptor
- *****************************************************************************/
-static ssize_t Read( access_t *p_access, uint8_t *p_buffer, size_t i_len )
-{
-    access_sys_t *p_sys = p_access->p_sys;
-    int i_read;
-
-    if( p_access->info.b_eof )
-        return 0;
-
-    i_read = vlc_recv_i11e( p_sys->fd, p_buffer, i_len, 0 );
-    if( i_read > 0 )
-        ;
-    else if( i_read == 0 )
-        p_access->info.b_eof = true;
-    else if( errno != EINTR && errno != EAGAIN )
-    {
-        msg_Err( p_access, "receive error: %s", vlc_strerror_c(errno) );
-        p_access->info.b_eof = true;
-    }
-
-    return i_read;
-}
-
-/*****************************************************************************
- * Control:
- *****************************************************************************/
-static int Control( access_t *p_access, int i_query, va_list args )
-{
-    bool    *pb_bool;
-    int64_t *pi_64;
-
-    switch( i_query )
-    {
-        case ACCESS_CAN_SEEK:
-        case ACCESS_CAN_FASTSEEK:
-            pb_bool = (bool*)va_arg( args, bool* );
-            *pb_bool = false;
-            break;
-        case ACCESS_CAN_PAUSE:
-            pb_bool = (bool*)va_arg( args, bool* );
-            *pb_bool = true;    /* FIXME */
-            break;
-        case ACCESS_CAN_CONTROL_PACE:
-            pb_bool = (bool*)va_arg( args, bool* );
-            *pb_bool = true;    /* FIXME */
-            break;
-
-        case ACCESS_GET_PTS_DELAY:
-            pi_64 = (int64_t*)va_arg( args, int64_t * );
-            *pi_64 = INT64_C(1000)
-                   * var_InheritInteger( p_access, "network-caching" );
-            break;
-
-        case ACCESS_SET_PAUSE_STATE:
-            /* Nothing to do */
-            break;
-
-        default:
-            return VLC_EGENERIC;
-    }
-    return VLC_SUCCESS;
-}

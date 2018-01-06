@@ -33,9 +33,7 @@
 
 void CmdAddItem::execute()
 {
-    playlist_t *pPlaylist = getIntf()->p_sys->p_playlist;
-    if( !pPlaylist )
-        return;
+    playlist_t *pPlaylist = getPL();
 
     if( strstr( m_name.c_str(), "://" ) == NULL )
     {
@@ -45,7 +43,5 @@ void CmdAddItem::execute()
         m_name = psz_uri;
         free( psz_uri );
     }
-    playlist_Add( pPlaylist, m_name.c_str(), NULL,
-                  m_playNow ? PLAYLIST_APPEND | PLAYLIST_GO : PLAYLIST_APPEND,
-                  PLAYLIST_END, true, false );
+    playlist_Add( pPlaylist, m_name.c_str(), m_playNow );
 }

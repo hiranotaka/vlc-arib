@@ -25,51 +25,6 @@
 #import <Cocoa/Cocoa.h>
 
 /*****************************************************************************
- * NSSound (VLCAdditions)
- *
- * added code to change the system volume, needed for the apple remote code
- * this is simplified code, which won't let you set the exact volume
- * (that's what the audio output is for after all), but just the system volume
- * in steps of 1/16 (matching the default AR or volume key implementation).
- *****************************************************************************/
-
-@interface NSSound (VLCAdditions)
-+ (float)systemVolumeForChannel:(int)channel;
-+ (bool)setSystemVolume:(float)volume forChannel:(int)channel;
-+ (void)increaseSystemVolume;
-+ (void)decreaseSystemVolume;
-@end
-
-/*****************************************************************************
- * NSAnimation (VLCAddition)
- *****************************************************************************/
-
-@interface NSAnimation (VLCAdditions)
-@property (readwrite) void * userInfo;
-
-@end
-
-/*****************************************************************************
- * NSScreen (VLCAdditions)
- *
- *  Missing extension to NSScreen
- *****************************************************************************/
-
-@interface NSScreen (VLCAdditions)
-
-+ (NSScreen *)screenWithDisplayID: (CGDirectDisplayID)displayID;
-- (BOOL)hasMenuBar;
-- (BOOL)hasDock;
-- (BOOL)isScreen: (NSScreen*)screen;
-- (CGDirectDisplayID)displayID;
-- (void)blackoutOtherScreens;
-+ (void)unblackoutScreens;
-
-- (void)setFullscreenPresentationOptions;
-- (void)setNonFullscreenPresentationOptions;
-@end
-
-/*****************************************************************************
  * VLCDragDropView
  *
  * Disables default drag / drop behaviour of an NSImageView.
@@ -94,78 +49,6 @@
 
 @end
 
-
-/*****************************************************************************
- * MPSlider
- *****************************************************************************/
-
-@interface MPSlider : NSSlider
-
-@end
-
-/*****************************************************************************
- * ProgressView
- *****************************************************************************/
-
-@interface VLCProgressView : NSView
-
-- (void)scrollWheel:(NSEvent *)o_event;
-
-@end
-
-
-/*****************************************************************************
- * TimeLineSlider
- *****************************************************************************/
-
-@interface TimeLineSlider : NSSlider
-
-@property (readonly) CGFloat knobPosition;
-
-- (void)drawRect:(NSRect)rect;
-- (void)drawKnobInRect:(NSRect)knobRect;
-
-@end
-
-/*****************************************************************************
- * VLCVolumeSliderCommon
- *****************************************************************************/
-
-@interface VLCVolumeSliderCommon : NSSlider
-
-@property (readwrite, nonatomic) BOOL usesBrightArtwork;
-
-- (void)scrollWheel:(NSEvent *)o_event;
-- (void)drawFullVolumeMarker;
-
-- (CGFloat)fullVolumePos;
-
-@end
-
-@interface VolumeSliderCell : NSSliderCell
-@end
-
-/*****************************************************************************
- * ITSlider
- *****************************************************************************/
-
-@interface ITSlider : VLCVolumeSliderCommon
-
-@end
-
-/*****************************************************************************
- * VLCTimeField interface
- *****************************************************************************
- * we need the implementation to catch our click-event in the controller window
- *****************************************************************************/
-
-@interface VLCTimeField : NSTextField
-
-@property (readonly) BOOL timeRemaining;
-
-- (void)setRemainingIdentifier:(NSString *)o_string;
-
-@end
 
 /*****************************************************************************
  * VLCMainWindowSplitView interface
@@ -232,10 +115,4 @@ typedef NSInteger NSByteCountFormatterCountStyle;
 }
 
 + (NSString *)stringFromByteCount:(long long)byteCount countStyle:(NSByteCountFormatterCountStyle)countStyle;
-@end
-
-extern NSString *const VLCOpenTextFieldWasClicked;
-
-@interface VLCOpenTextField : NSTextField
-- (void)mouseDown:(NSEvent *)theEvent;
 @end

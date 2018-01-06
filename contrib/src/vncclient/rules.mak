@@ -24,6 +24,7 @@ vncclient: LibVNCServer-$(VNCCLIENT_VERSION).tar.gz .sum-vncclient
 	$(APPLY) $(SRC)/vncclient/vnc-gnutls-pkg.patch
 	$(APPLY) $(SRC)/vncclient/gnutls-recent.patch
 	$(APPLY) $(SRC)/vncclient/vnc-gnutls-anon.patch
+	$(call pkg_static,"libvncclient.pc.in")
 	$(UPDATE_AUTOCONFIG)
 	$(MOVE)
 
@@ -34,4 +35,5 @@ DEPS_vncclient = gcrypt $(DEPS_gcrypt) jpeg $(DEPS_jpeg) png $(DEPS_png) gnutls 
 	cd $< && $(HOSTVARS) ./configure $(HOSTCONF) --without-libva
 	cd $< && $(MAKE) -C libvncclient install
 	cd $< && $(MAKE) install-data
+	rm $(PREFIX)/lib/pkgconfig/libvncserver.pc
 	touch $@

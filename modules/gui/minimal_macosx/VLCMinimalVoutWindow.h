@@ -1,7 +1,7 @@
 /*****************************************************************************
- * VLCMinimalVoutWindow.h: MacOS X Minimal window for a vout
+ * VLCMinimalVoutWindow.h: macOS minimal vout window
  *****************************************************************************
- * Copyright (C) 2007-2012 VLC authors and VideoLAN
+ * Copyright (C) 2007-2017 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Pierre d'Herbemont <pdherbemont # videolan.org>
@@ -23,8 +23,6 @@
  *****************************************************************************/
 
 #import <Cocoa/Cocoa.h>
-
-#include <vlc_common.h>
 
 @interface VLCMinimalVoutWindow : NSWindow
 {

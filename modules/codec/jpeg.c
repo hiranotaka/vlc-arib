@@ -27,6 +27,8 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_codec.h>
+#include <vlc_charset.h>
+
 #include <jpeglib.h>
 #include <setjmp.h>
 
@@ -74,7 +76,7 @@ struct decoder_sys_t
 static int  OpenDecoder(vlc_object_t *);
 static void CloseDecoder(vlc_object_t *);
 
-static picture_t *DecodeBlock(decoder_t *, block_t **);
+static int DecodeBlock(decoder_t *, block_t *);
 
 /*
  * jpeg encoder descriptor
@@ -107,7 +109,7 @@ vlc_module_begin()
     set_subcategory(SUBCAT_INPUT_VCODEC)
     /* decoder main module */
     set_description(N_("JPEG image decoder"))
-    set_capability("decoder", 1000)
+    set_capability("video decoder", 1000)
     set_callbacks(OpenDecoder, CloseDecoder)
     add_shortcut("jpeg")
 
@@ -172,11 +174,10 @@ static int OpenDecoder(vlc_object_t *p_this)
     p_sys->err.error_exit = user_error_exit;
     p_sys->err.output_message = user_error_message;
 
-    /* Set output properties */
-    p_dec->fmt_out.i_cat = VIDEO_ES;
-
     /* Set callbacks */
-    p_dec->pf_decode_video = DecodeBlock;
+    p_dec->pf_decode = DecodeBlock;
+
+    p_dec->fmt_out.i_codec = VLC_CODEC_RGB24;
 
     return VLC_SUCCESS;
 }
@@ -247,6 +248,98 @@ de_get32( void * ptr, uint endian ) {
     return val;
 }
 
+static bool getRDFFloat(const char *psz_rdf, float *out, const char *psz_var)
+{
+    char *p_start = strcasestr(psz_rdf, psz_var);
+    if (p_start == NULL)
+        return false;
+
+    size_t varlen = strlen(psz_var);
+    p_start += varlen;
+    char *p_end = NULL;
+    /* XML style */
+    if (p_start[0] == '>')
+    {
+        p_start += 1;
+        p_end = strchr(p_start, '<');
+    }
+    else if (p_start[0] == '=' && p_start[1] == '"')
+    {
+        p_start += 2;
+        p_end = strchr(p_start, '"');
+    }
+    if (unlikely(p_end == NULL || p_end == p_start + 1))
+        return false;
+
+    *out = us_strtof(p_start, NULL);
+    return true;
+}
+
+#define EXIF_JPEG_MARKER    0xE1
+#define EXIF_XMP_STRING     "http://ns.adobe.com/xap/1.0/\000"
+
+/* read XMP metadata for projection according to
+ * https://developers.google.com/streetview/spherical-metadata */
+static void jpeg_GetProjection(j_decompress_ptr cinfo, video_format_t *fmt)
+{
+    jpeg_saved_marker_ptr xmp_marker = NULL;
+    jpeg_saved_marker_ptr cmarker = cinfo->marker_list;
+
+    while (cmarker)
+    {
+        if (cmarker->marker == EXIF_JPEG_MARKER)
+        {
+            if(cmarker->data_length >= 32 &&
+               !memcmp(cmarker->data, EXIF_XMP_STRING, 29))
+            {
+                xmp_marker = cmarker;
+                break;
+            }
+        }
+        cmarker = cmarker->next;
+    }
+
+    if (xmp_marker == NULL)
+        return;
+    char *psz_rdf = malloc(xmp_marker->data_length - 29 + 1);
+    if (unlikely(psz_rdf == NULL))
+        return;
+    memcpy(psz_rdf, xmp_marker->data + 29, xmp_marker->data_length - 29);
+    psz_rdf[xmp_marker->data_length - 29] = '\0';
+
+    /* Try to find the string "GSpherical:Spherical" because the v1
+        spherical video spec says the tag must be there. */
+    if (strcasestr(psz_rdf, "ProjectionType=\"equirectangular\"") ||
+        strcasestr(psz_rdf, "ProjectionType>equirectangular"))
+        fmt->projection_mode = PROJECTION_MODE_EQUIRECTANGULAR;
+
+    /* pose handling */
+    float value;
+    if (getRDFFloat(psz_rdf, &value, "PoseHeadingDegrees"))
+        fmt->pose.yaw = value;
+
+    if (getRDFFloat(psz_rdf, &value, "PosePitchDegrees"))
+        fmt->pose.pitch = value;
+
+    if (getRDFFloat(psz_rdf, &value, "PoseRollDegrees"))
+        fmt->pose.roll = value;
+
+    /* initial view */
+    if (getRDFFloat(psz_rdf, &value, "InitialViewHeadingDegrees"))
+        fmt->pose.yaw = value;
+
+    if (getRDFFloat(psz_rdf, &value, "InitialViewPitchDegrees"))
+        fmt->pose.pitch = value;
+
+    if (getRDFFloat(psz_rdf, &value, "InitialViewRollDegrees"))
+        fmt->pose.roll = value;
+
+    if (getRDFFloat(psz_rdf, &value, "InitialHorizontalFOVDegrees"))
+        fmt->pose.fov = value;
+
+    free(psz_rdf);
+}
+
 /*
  * Look through the meta data in the libjpeg decompress structure to determine
  * if an EXIF Orientation tag is present. If so return its value (1-8),
@@ -276,7 +369,6 @@ jpeg_GetOrientation( j_decompress_ptr cinfo )
     const char leth[] = { 0x49, 0x49, 0x2a, 0x00 }; /* Little endian TIFF header */
     const char beth[] = { 0x4d, 0x4d, 0x00, 0x2a }; /* Big endian TIFF header */
 
-    #define EXIF_JPEG_MARKER    0xE1
     #define EXIF_IDENT_STRING   "Exif\000\000"
     #define EXIF_ORIENT_TAGID   0x112
 
@@ -286,7 +378,8 @@ jpeg_GetOrientation( j_decompress_ptr cinfo )
 
     while ( cmarker )
     {
-        if ( cmarker->marker == EXIF_JPEG_MARKER )
+        if ( cmarker->data_length >= 32 &&
+             cmarker->marker == EXIF_JPEG_MARKER )
         {
             /* The Exif APP1 marker should contain a unique
                identification string ("Exif\0\0"). Check for it. */
@@ -300,10 +393,6 @@ jpeg_GetOrientation( j_decompress_ptr cinfo )
 
     /* Did we find the Exif APP1 marker? */
     if ( exif_marker == NULL )
-        return 0;
-
-    /* Do we have enough data? */
-    if ( exif_marker->data_length < 32 )
         return 0;
 
     /* Check for TIFF header and catch endianess */
@@ -358,7 +447,7 @@ jpeg_GetOrientation( j_decompress_ptr cinfo )
 
     /* Check that we still are within the buffer and can read the tag count */
 
-    if ( ( i + 2 ) > exif_marker->data_length )
+    if ( i > exif_marker->data_length - 2 )
         return 0;
 
     /* Find out how many tags we have in IFD0. As per the TIFF spec, the first
@@ -369,7 +458,7 @@ jpeg_GetOrientation( j_decompress_ptr cinfo )
     /* Check that we still have enough data for all tags to check. The tags
        are listed in consecutive 12-byte blocks. The tag ID, type, size, and
        a pointer to the actual value, are packed into these 12 byte entries. */
-    if ( ( i + tags * 12 ) > exif_marker->data_length )
+    if ( tags * 12U > exif_marker->data_length - i )
         return 0;
 
     /* Check through IFD0 for tags of interest */
@@ -402,26 +491,20 @@ jpeg_GetOrientation( j_decompress_ptr cinfo )
 /*
  * This function must be fed with a complete compressed frame.
  */
-static picture_t *DecodeBlock(decoder_t *p_dec, block_t **pp_block)
+static int DecodeBlock(decoder_t *p_dec, block_t *p_block)
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    block_t *p_block;
     picture_t *p_pic = 0;
 
     JSAMPARRAY p_row_pointers = NULL;
 
-    if (!pp_block || !*pp_block)
-    {
-        return NULL;
-    }
-
-    p_block = *pp_block;
-    *pp_block = NULL;
+    if (!p_block) /* No Drain */
+        return VLCDEC_SUCCESS;
 
     if (p_block->i_flags & BLOCK_FLAG_CORRUPTED )
     {
         block_Release(p_block);
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
     /* libjpeg longjmp's there in case of error */
@@ -440,14 +523,10 @@ static picture_t *DecodeBlock(decoder_t *p_dec, block_t **pp_block)
     jpeg_start_decompress(&p_sys->p_jpeg);
 
     /* Set output properties */
-    p_dec->fmt_out.i_codec = VLC_CODEC_RGB24;
     p_dec->fmt_out.video.i_visible_width  = p_dec->fmt_out.video.i_width  = p_sys->p_jpeg.output_width;
     p_dec->fmt_out.video.i_visible_height = p_dec->fmt_out.video.i_height = p_sys->p_jpeg.output_height;
     p_dec->fmt_out.video.i_sar_num = 1;
     p_dec->fmt_out.video.i_sar_den = 1;
-    p_dec->fmt_out.video.i_rmask = 0x000000ff;
-    p_dec->fmt_out.video.i_gmask = 0x0000ff00;
-    p_dec->fmt_out.video.i_bmask = 0x00ff0000;
 
     int i_otag; /* Orientation tag has valid range of 1-8. 1 is normal orientation, 0 = unspecified = normal */
     i_otag = jpeg_GetOrientation( &p_sys->p_jpeg );
@@ -456,8 +535,13 @@ static picture_t *DecodeBlock(decoder_t *p_dec, block_t **pp_block)
         msg_Dbg( p_dec, "Jpeg orientation is %d", i_otag );
         p_dec->fmt_out.video.orientation = ORIENT_FROM_EXIF( i_otag );
     }
+    jpeg_GetProjection(&p_sys->p_jpeg, &p_dec->fmt_out.video);
 
     /* Get a new picture */
+    if (decoder_UpdateVideoFormat(p_dec))
+    {
+        goto error;
+    }
     p_pic = decoder_NewPicture(p_dec);
     if (!p_pic)
     {
@@ -465,7 +549,7 @@ static picture_t *DecodeBlock(decoder_t *p_dec, block_t **pp_block)
     }
 
     /* Decode picture */
-    p_row_pointers = malloc(sizeof(JSAMPROW) * p_sys->p_jpeg.output_height);
+    p_row_pointers = vlc_alloc(p_sys->p_jpeg.output_height, sizeof(JSAMPROW));
     if (!p_row_pointers)
     {
         goto error;
@@ -488,7 +572,8 @@ static picture_t *DecodeBlock(decoder_t *p_dec, block_t **pp_block)
     p_pic->date = p_block->i_pts > VLC_TS_INVALID ? p_block->i_pts : p_block->i_dts;
 
     block_Release(p_block);
-    return p_pic;
+    decoder_QueueVideo( p_dec, p_pic );
+    return VLCDEC_SUCCESS;
 
 error:
 
@@ -496,7 +581,7 @@ error:
     free(p_row_pointers);
 
     block_Release(p_block);
-    return NULL;
+    return VLCDEC_SUCCESS;
 }
 
 /*
@@ -595,7 +680,7 @@ static block_t *EncodeBlock(encoder_t *p_enc, picture_t *p_pic)
     jpeg_start_compress(&p_sys->p_jpeg, TRUE);
 
     /* Encode picture */
-    p_row_pointers = malloc(sizeof(JSAMPARRAY) * p_pic->i_planes);
+    p_row_pointers = vlc_alloc(p_pic->i_planes, sizeof(JSAMPARRAY));
     if (p_row_pointers == NULL)
     {
         goto error;
@@ -603,7 +688,7 @@ static block_t *EncodeBlock(encoder_t *p_enc, picture_t *p_pic)
 
     for (int i = 0; i < p_pic->i_planes; i++)
     {
-        p_row_pointers[i] = malloc(sizeof(JSAMPROW) * p_sys->p_jpeg.comp_info[i].v_samp_factor * DCTSIZE);
+        p_row_pointers[i] = vlc_alloc(p_sys->p_jpeg.comp_info[i].v_samp_factor, sizeof(JSAMPROW) * DCTSIZE);
     }
 
     while (p_sys->p_jpeg.next_scanline < p_sys->p_jpeg.image_height)

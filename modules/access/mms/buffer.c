@@ -107,7 +107,7 @@ void var_buffer_addmemory( var_buffer_t *p_buf, void *p_mem, int i_mem )
     p_buf->i_data += i_mem;
 }
 
-void var_buffer_addUTF16( access_t  *p_access, var_buffer_t *p_buf, const char *p_str )
+void var_buffer_addUTF16( stream_t  *p_access, var_buffer_t *p_buf, const char *p_str )
 {
     uint16_t *p_out;
     size_t i_out;
@@ -215,14 +215,10 @@ int var_buffer_readempty( var_buffer_t *p_buf )
 
 void var_buffer_getguid( var_buffer_t *p_buf, guid_t *p_guid )
 {
-    int i;
-
     p_guid->Data1 = var_buffer_get32( p_buf );
     p_guid->Data2 = var_buffer_get16( p_buf );
     p_guid->Data3 = var_buffer_get16( p_buf );
 
-    for( i = 0; i < 8; i++ )
-    {
+    for( int i = 0; i < 8; i++ )
         p_guid->Data4[i] = var_buffer_get8( p_buf );
-    }
 }

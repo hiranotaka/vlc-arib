@@ -31,25 +31,25 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_demux.h>
+#include <vlc_access.h>
 
 #include "playlist.h"
 #include <vlc_xml.h>
 #include <vlc_strings.h>
 
 /* duplicate from modules/services_discovery/shout.c */
-#define SHOUTCAST_BASE_URL "http/shout-winamp://www.shoutcast.com/sbin/newxml.phtml"
+#define SHOUTCAST_BASE_URL "http://www.shoutcast.com/sbin/newxml.phtml"
 #define SHOUTCAST_TUNEIN_BASE_URL "http://www.shoutcast.com"
 #define SHOUTCAST_TV_TUNEIN_URL "http://www.shoutcast.com/sbin/tunein-tvstation.pls?id="
 
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
-static int Demux( demux_t *p_demux);
+static int Demux( stream_t *, input_item_node_t * );
 
-static int DemuxGenre( demux_t *p_demux, xml_reader_t *p_xml_reader,
+static int DemuxGenre( stream_t *p_demux, xml_reader_t *p_xml_reader,
                        input_item_node_t *p_input_node );
-static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
+static int DemuxStation( stream_t *p_demux, xml_reader_t *p_xml_reader,
                          input_item_node_t *p_input_node, bool b_adult );
 
 /*****************************************************************************
@@ -57,26 +57,22 @@ static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
  *****************************************************************************/
 int Import_Shoutcast( vlc_object_t *p_this )
 {
-    demux_t *p_demux = (demux_t *)p_this;
+    stream_t *p_demux = (stream_t *)p_this;
 
-    CHECK_FILE();
-    if( !demux_IsForced( p_demux, "shout-winamp" ) )
-        return VLC_EGENERIC;
+    CHECK_FILE(p_demux);
 
-    p_demux->pf_demux = Demux;
-    p_demux->pf_control = Control;
+    p_demux->pf_readdir = Demux;
+    p_demux->pf_control = access_vaDirectoryControlHelper;
     msg_Dbg( p_demux, "using shoutcast playlist reader" );
 
     return VLC_SUCCESS;
 }
 
-static int Demux( demux_t *p_demux )
+static int Demux( stream_t *p_demux, input_item_node_t *p_input_node )
 {
     xml_reader_t *p_xml_reader = NULL;
     const char *node;
-    int i_ret = -1;
-    input_item_t *p_current_input = GetCurrentItem(p_demux);
-    input_item_node_t *p_input_node = NULL;
+    int i_ret = VLC_EGENERIC;
 
     p_xml_reader = xml_ReaderCreate( p_demux, p_demux->s );
     if( !p_xml_reader )
@@ -95,8 +91,6 @@ static int Demux( demux_t *p_demux )
         goto error;
     }
 
-    p_input_node = input_item_node_Create( p_current_input );
-
     if( !strcmp( node, "genrelist" ) )
     {
         /* we're reading a genre list */
@@ -111,16 +105,12 @@ static int Demux( demux_t *p_demux )
             goto error;
     }
 
-    input_item_node_PostAndDelete( p_input_node );
-    p_input_node = NULL;
-
-    i_ret = 0; /* Needed for correct operation of go back */
+    i_ret = VLC_SUCCESS;
 
 error:
     if( p_xml_reader )
         xml_ReaderDelete( p_xml_reader );
     if( p_input_node ) input_item_node_Delete( p_input_node );
-    vlc_gc_decref(p_current_input);
     return i_ret;
 }
 
@@ -129,7 +119,7 @@ error:
  *   ...
  * </genrelist>
  **/
-static int DemuxGenre( demux_t *p_demux, xml_reader_t *p_xml_reader,
+static int DemuxGenre( stream_t *p_demux, xml_reader_t *p_xml_reader,
                        input_item_node_t *p_input_node )
 {
     const char *node;
@@ -174,9 +164,10 @@ static int DemuxGenre( demux_t *p_demux, xml_reader_t *p_xml_reader,
                         vlc_xml_decode( psz_mrl );
                         p_input = input_item_New( psz_mrl, psz_name );
                         input_item_CopyOptions( p_input, p_input_node->p_item );
+                        input_item_AddOption( p_input, "stream-filter=shout-winamp", VLC_INPUT_OPTION_TRUSTED );
                         free( psz_mrl );
                         input_item_node_AppendItem( p_input_node, p_input );
-                        vlc_gc_decref( p_input );
+                        input_item_Release( p_input );
                     }
                     FREENULL( psz_name );
                 }
@@ -213,7 +204,7 @@ static int DemuxGenre( demux_t *p_demux, xml_reader_t *p_xml_reader,
  *            lc="listener count"></station>
  * </stationlist>
  **/
-static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
+static int DemuxStation( stream_t *p_demux, xml_reader_t *p_xml_reader,
                          input_item_node_t *p_input_node, bool b_adult )
 {
     char *psz_base = NULL; /* */
@@ -343,7 +334,7 @@ static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
                         if( psz_rt )
                             input_item_SetRating( p_input, psz_rt );
                         input_item_node_AppendItem( p_input_node, p_input );
-                        vlc_gc_decref( p_input );
+                        input_item_Release( p_input );
                     }
                     FREENULL( psz_base );
                     FREENULL( psz_name );
@@ -359,6 +350,16 @@ static int DemuxStation( demux_t *p_demux, xml_reader_t *p_xml_reader,
                 break;
         }
     }
-    /* FIXME: leaks on missing ENDELEMENT? */
+    /* Free all strings anyway, in case of missing end element */
+    FREENULL( psz_base );
+    FREENULL( psz_name );
+    FREENULL( psz_mt );
+    FREENULL( psz_id );
+    FREENULL( psz_br );
+    FREENULL( psz_genre );
+    FREENULL( psz_ct );
+    FREENULL( psz_lc );
+    FREENULL( psz_rt );
+    FREENULL( psz_load );
     return 0;
 }

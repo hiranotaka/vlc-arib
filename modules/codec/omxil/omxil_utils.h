@@ -21,6 +21,8 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+#include <vlc_es.h>
+
 /*****************************************************************************
  * OMX macros
  *****************************************************************************/
@@ -228,9 +230,10 @@ enum {
     OMXCODEC_NO_QUIRKS = 0,
     OMXCODEC_QUIRKS_NEED_CSD = 0x1,
     OMXCODEC_VIDEO_QUIRKS_IGNORE_PADDING = 0x2,
-    OMXCODEC_AUDIO_QUIRKS_NEED_CHANNELS = 0x4,
+    OMXCODEC_VIDEO_QUIRKS_SUPPORT_INTERLACED = 0x4,
+    OMXCODEC_AUDIO_QUIRKS_NEED_CHANNELS = 0x8,
 };
-int OMXCodec_GetQuirks( int i_cat, vlc_fourcc_t i_codec,
+int OMXCodec_GetQuirks( enum es_format_category_e i_cat, vlc_fourcc_t i_codec,
                         const char *p_name, unsigned int i_name_len );
 
 /*****************************************************************************
@@ -246,7 +249,8 @@ int GetOmxAudioFormat( vlc_fourcc_t i_fourcc,
                        const char **ppsz_name );
 int OmxToVlcAudioFormat( OMX_AUDIO_CODINGTYPE i_omx_codec,
                        vlc_fourcc_t *pi_fourcc, const char **ppsz_name );
-const char *GetOmxRole( vlc_fourcc_t i_fourcc, int i_cat, bool b_enc );
+const char *GetOmxRole( vlc_fourcc_t i_fourcc, enum es_format_category_e i_cat,
+                        bool b_enc );
 int GetOmxChromaFormat( vlc_fourcc_t i_fourcc,
                         OMX_COLOR_FORMATTYPE *pi_omx_codec,
                         const char **ppsz_name );

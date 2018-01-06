@@ -23,6 +23,7 @@
 #endif
 
 #include <assert.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -45,12 +46,10 @@ struct vlc_chunked_stream
     bool error;
 };
 
-static_assert(offsetof(struct vlc_chunked_stream, stream) == 0, "Cast error");
-
 static void *vlc_chunked_fatal(struct vlc_chunked_stream *s)
 {
     s->error = true;
-    return NULL;
+    return vlc_http_error;
 }
 
 static struct vlc_http_msg *vlc_chunked_wait(struct vlc_http_stream *stream)
@@ -63,18 +62,24 @@ static struct vlc_http_msg *vlc_chunked_wait(struct vlc_http_stream *stream)
 
 static block_t *vlc_chunked_read(struct vlc_http_stream *stream)
 {
-    struct vlc_chunked_stream *s = (struct vlc_chunked_stream *)stream;
+    struct vlc_chunked_stream *s =
+        container_of(stream, struct vlc_chunked_stream, stream);
     block_t *block = NULL;
 
-    if (s->eof || s->error)
+    if (s->eof)
         return NULL;
+    if (s->error)
+        return vlc_http_error;
 
     /* Read chunk size (hexadecimal length) */
     if (s->chunk_length == 0)
     {   /* NOTE: This accepts LF in addition to CRLF. No big deal. */
         char *line = vlc_tls_GetLine(s->tls);
         if (line == NULL)
+        {
+            errno = EPROTO;
             return vlc_chunked_fatal(s);
+        }
 
         int end;
 
@@ -85,7 +90,10 @@ static block_t *vlc_chunked_read(struct vlc_http_stream *stream)
         free(line);
 
         if (s->chunk_length == UINTMAX_MAX)
+        {
+            errno = EPROTO;
             return vlc_chunked_fatal(s);
+        }
     }
 
     /* Read chunk data */
@@ -125,7 +133,8 @@ static block_t *vlc_chunked_read(struct vlc_http_stream *stream)
 
 static void vlc_chunked_close(struct vlc_http_stream *stream, bool abort)
 {
-    struct vlc_chunked_stream *s = (struct vlc_chunked_stream *)stream;
+    struct vlc_chunked_stream *s =
+        container_of(stream, struct vlc_chunked_stream, stream);
 
     if (!s->eof) /* Abort connection if stream is closed before end */
         vlc_chunked_fatal(s);

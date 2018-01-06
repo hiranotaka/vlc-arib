@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCPlaylistView.m: MacOS X interface module
+ * VLCPlaylistView.m: OutlineView subclass for the playlist
  *****************************************************************************
 * Copyright (C) 2003-2015 VLC authors and VideoLAN
  * $Id$
@@ -23,7 +23,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#import "intf.h"
+#import "VLCMain.h"
 #import "VLCPlaylistView.h"
 #import "VLCPlaylist.h"
 

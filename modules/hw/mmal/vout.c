@@ -27,9 +27,9 @@
 #endif
 
 #include <math.h>
+#include <stdatomic.h>
 
 #include <vlc_common.h>
-#include <vlc_atomic.h>
 #include <vlc_plugin.h>
 #include <vlc_threads.h>
 #include <vlc_vout_display.h>
@@ -49,6 +49,11 @@
 #define MMAL_LAYER_NAME "mmal-layer"
 #define MMAL_LAYER_TEXT N_("VideoCore layer where the video is displayed.")
 #define MMAL_LAYER_LONGTEXT N_("VideoCore layer where the video is displayed. Subpictures are displayed directly above and a black background directly below.")
+
+#define MMAL_BLANK_BACKGROUND_NAME "mmal-blank-background"
+#define MMAL_BLANK_BACKGROUND_TEXT N_("Blank screen below video.")
+#define MMAL_BLANK_BACKGROUND_LONGTEXT N_("Render blank screen below video. " \
+        "Increases VideoCore load.")
 
 #define MMAL_ADJUST_REFRESHRATE_NAME "mmal-adjust-refreshrate"
 #define MMAL_ADJUST_REFRESHRATE_TEXT N_("Adjust HDMI refresh rate to the video.")
@@ -72,6 +77,8 @@ vlc_module_begin()
     set_capability("vout display", 90)
     add_shortcut("mmal_vout")
     add_integer(MMAL_LAYER_NAME, 1, MMAL_LAYER_TEXT, MMAL_LAYER_LONGTEXT, false)
+    add_bool(MMAL_BLANK_BACKGROUND_NAME, true, MMAL_BLANK_BACKGROUND_TEXT,
+                    MMAL_BLANK_BACKGROUND_LONGTEXT, true);
     add_bool(MMAL_ADJUST_REFRESHRATE_NAME, false, MMAL_ADJUST_REFRESHRATE_TEXT,
                     MMAL_ADJUST_REFRESHRATE_LONGTEXT, false)
     add_bool(MMAL_NATIVE_INTERLACED, false, MMAL_NATIVE_INTERLACE_TEXT,
@@ -196,7 +203,6 @@ static int Open(vlc_object_t *object)
     sys->layer = var_InheritInteger(vd, MMAL_LAYER_NAME);
     bcm_host_init();
 
-    vd->info.has_hide_mouse = true;
     sys->opaque = vd->fmt.i_chroma == VLC_CODEC_MMAL_OPAQUE;
 
     status = mmal_component_create(MMAL_COMPONENT_DEFAULT_VIDEO_RENDERER, &sys->component);
@@ -308,6 +314,8 @@ static int Open(vlc_object_t *object)
 
     sys->dmx_handle = vc_dispmanx_display_open(0);
     vd->info.subpicture_chromas = subpicture_chromas;
+
+    vout_display_DeleteWindow(vd, NULL);
 
 out:
     if (ret != VLC_SUCCESS)
@@ -427,7 +435,7 @@ static int configure_display(vout_display_t *vd, const vout_display_cfg_t *cfg,
         return -EINVAL;
     }
 
-    show_background(vd, cfg->is_fullscreen);
+    show_background(vd, var_InheritBool(vd, MMAL_BLANK_BACKGROUND_NAME));
     sys->adjust_refresh_rate = var_InheritBool(vd, MMAL_ADJUST_REFRESHRATE_NAME);
     sys->native_interlaced = var_InheritBool(vd, MMAL_NATIVE_INTERLACED);
     if (sys->adjust_refresh_rate) {
@@ -610,15 +618,9 @@ static int vd_control(vout_display_t *vd, int query, va_list args)
     vout_display_sys_t *sys = vd->sys;
     vout_display_cfg_t cfg;
     const vout_display_cfg_t *tmp_cfg;
-    const video_format_t *tmp_fmt;
     int ret = VLC_EGENERIC;
 
     switch (query) {
-        case VOUT_DISPLAY_HIDE_MOUSE:
-        case VOUT_DISPLAY_CHANGE_WINDOW_STATE:
-            ret = VLC_SUCCESS;
-            break;
-
         case VOUT_DISPLAY_CHANGE_DISPLAY_SIZE:
             tmp_cfg = va_arg(args, const vout_display_cfg_t *);
             if (tmp_cfg->display.width == sys->display_width &&
@@ -633,14 +635,13 @@ static int vd_control(vout_display_t *vd, int query, va_list args)
 
         case VOUT_DISPLAY_CHANGE_SOURCE_ASPECT:
         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
-            tmp_fmt = va_arg(args, const video_format_t *);
-            if (configure_display(vd, NULL, tmp_fmt) >= 0)
+            if (configure_display(vd, NULL, &vd->source) >= 0)
                 ret = VLC_SUCCESS;
             break;
 
-        case VOUT_DISPLAY_CHANGE_FULLSCREEN:
-        case VOUT_DISPLAY_CHANGE_ZOOM:
         case VOUT_DISPLAY_RESET_PICTURES:
+            vlc_assert_unreachable();
+        case VOUT_DISPLAY_CHANGE_ZOOM:
             msg_Warn(vd, "Unsupported control query %d", query);
             break;
 

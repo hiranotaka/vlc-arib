@@ -82,9 +82,10 @@ static int  OpenDecoder   ( vlc_object_t * );
 static int  OpenPacketizer( vlc_object_t * );
 static void CloseDecoder  ( vlc_object_t * );
 
-static void *DecodeBlock  ( decoder_t *, block_t ** );
+static int DecodeVideo  ( decoder_t *, block_t * );
+static block_t *Packetize  ( decoder_t *, block_t ** );
 static int  ProcessHeaders( decoder_t * );
-static void *ProcessPacket ( decoder_t *, ogg_packet *, block_t ** );
+static void *ProcessPacket ( decoder_t *, ogg_packet *, block_t * );
 static void Flush( decoder_t * );
 
 static picture_t *DecodePacket( decoder_t *, ogg_packet * );
@@ -113,7 +114,7 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_INPUT_VCODEC )
     set_shortname( "Theora" )
     set_description( N_("Theora video decoder") )
-    set_capability( "decoder", 100 )
+    set_capability( "video decoder", 100 )
     set_callbacks( OpenDecoder, CloseDecoder )
     add_shortcut( "theora" )
 #   define DEC_CFG_PREFIX "theora-"
@@ -165,15 +166,12 @@ static int OpenDecoder( vlc_object_t *p_this )
     p_sys->tcx = NULL;
 
     /* Set output properties */
-    p_dec->fmt_out.i_cat = VIDEO_ES;
     p_dec->fmt_out.i_codec = VLC_CODEC_I420;
 
     /* Set callbacks */
-    p_dec->pf_decode_video = (picture_t *(*)(decoder_t *, block_t **))
-        DecodeBlock;
-    p_dec->pf_packetize    = (block_t *(*)(decoder_t *, block_t **))
-        DecodeBlock;
-    p_dec->pf_flush        = Flush;
+    p_dec->pf_decode    = DecodeVideo;
+    p_dec->pf_packetize = Packetize;
+    p_dec->pf_flush     = Flush;
 
     /* Init supporting Theora structures needed in header parsing */
     th_comment_init( &p_sys->tc );
@@ -202,15 +200,10 @@ static int OpenPacketizer( vlc_object_t *p_this )
  ****************************************************************************
  * This function must be fed with ogg packets.
  ****************************************************************************/
-static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
+static void *DecodeBlock( decoder_t *p_dec, block_t *p_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    block_t *p_block;
     ogg_packet oggpacket;
-
-    if( !pp_block || !*pp_block ) return NULL;
-
-    p_block = *pp_block;
 
     /* Block to Ogg packet */
     oggpacket.packet = p_block->p_buffer;
@@ -231,7 +224,28 @@ static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
         p_sys->b_has_headers = true;
     }
 
-    return ProcessPacket( p_dec, &oggpacket, pp_block );
+    return ProcessPacket( p_dec, &oggpacket, p_block );
+}
+
+static int DecodeVideo( decoder_t *p_dec, block_t *p_block )
+{
+    if( p_block == NULL ) /* No Drain */
+        return VLCDEC_SUCCESS;
+
+    picture_t *p_pic = DecodeBlock( p_dec, p_block );
+    if( p_pic != NULL )
+        decoder_QueueVideo( p_dec, p_pic );
+    return VLCDEC_SUCCESS;
+}
+
+static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
+{
+    if( pp_block == NULL ) /* No Drain */
+        return NULL;
+    block_t *p_block = *pp_block; *pp_block = NULL;
+    if( p_block == NULL )
+        return NULL;
+    return DecodeBlock( p_dec, p_block );
 }
 
 /*****************************************************************************
@@ -318,10 +332,10 @@ static int ProcessHeaders( decoder_t *p_dec )
         p_dec->fmt_out.video.i_frame_rate_base = p_sys->ti.fps_denominator;
     }
 
-    msg_Dbg( p_dec, "%dx%d %.02f fps video, frame content "
+    msg_Dbg( p_dec, "%dx%d %u/%u fps video, frame content "
              "is %dx%d with offset (%d,%d)",
              p_sys->ti.frame_width, p_sys->ti.frame_height,
-             (double)p_sys->ti.fps_numerator/p_sys->ti.fps_denominator,
+             p_sys->ti.fps_numerator, p_sys->ti.fps_denominator,
              p_sys->ti.pic_width, p_sys->ti.pic_height,
              p_sys->ti.pic_x, p_sys->ti.pic_y );
 
@@ -437,27 +451,22 @@ static void Flush( decoder_t *p_dec )
  * ProcessPacket: processes a theora packet.
  *****************************************************************************/
 static void *ProcessPacket( decoder_t *p_dec, ogg_packet *p_oggpacket,
-                            block_t **pp_block )
+                            block_t *p_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    block_t *p_block = *pp_block;
     void *p_buf;
 
-    *pp_block = NULL; /* To avoid being fed the same packet again */
-
-    if( !p_block )
-        return NULL;
-
-    if( ( p_block->i_flags & BLOCK_FLAG_DISCONTINUITY ) != 0 )
-        p_sys->i_pts = p_block->i_pts;
-
-    if( ( p_block->i_flags & BLOCK_FLAG_CORRUPTED ) != 0 )
+    if( p_block->i_flags & (BLOCK_FLAG_DISCONTINUITY|BLOCK_FLAG_CORRUPTED) )
     {
-        /* Don't send the a corrupted packet to
-         * theora_decode, otherwise we get purple/green display artifacts
-         * appearing in the video output */
-        block_Release(p_block);
-        return NULL;
+        Flush( p_dec );
+        if( p_block->i_flags & BLOCK_FLAG_CORRUPTED )
+        {
+            /* Don't send the a corrupted packet to
+             * theora_decode, otherwise we get purple/green display artifacts
+             * appearing in the video output */
+            block_Release(p_block);
+            return NULL;
+        }
     }
 
     /* Date management */
@@ -521,6 +530,8 @@ static picture_t *DecodePacket( decoder_t *p_dec, ogg_packet *p_oggpacket )
         return NULL;
 
     /* Get a new picture */
+    if( decoder_UpdateVideoFormat( p_dec ) )
+        return NULL;
     p_pic = decoder_NewPicture( p_dec );
     if( !p_pic ) return NULL;
 

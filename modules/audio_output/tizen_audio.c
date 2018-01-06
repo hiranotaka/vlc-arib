@@ -27,11 +27,11 @@
 #include <assert.h>
 #include <dlfcn.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_aout.h>
-#include <vlc_atomic.h>
 
 #include "audio_io.h"
 #include "sound_manager.h"
@@ -62,7 +62,7 @@ struct aout_sys_t {
 
 vlc_module_begin ()
     set_shortname( "Tizen audio" )
-    set_description( N_( "Tizen audio output" ) )
+    set_description( "Tizen audio output" )
     set_capability( "audio output", 180 )
     set_category( CAT_AUDIO )
     set_subcategory( SUBCAT_AUDIO_AOUT )
@@ -196,6 +196,9 @@ Start( audio_output_t *p_aout, audio_sample_format_t *restrict p_fmt )
 {
     aout_sys_t *p_sys = p_aout->sys;
 
+    if( aout_FormatNbChannels( p_fmt ) == 0 )
+        return VLC_EGENERIC;
+
     aout_FormatPrint( p_aout, "Tizen audio is looking for:", p_fmt );
 
     /* Sample rate: tizen accept rate between 8000 and 48000 Hz */
@@ -229,6 +232,8 @@ Start( audio_output_t *p_aout, audio_sample_format_t *restrict p_fmt )
 
     if( AudioIO_Start( p_aout ) != VLC_SUCCESS )
         return VLC_EGENERIC;
+
+    p_fmt->channel_type = AUDIO_CHANNEL_TYPE_BITMAP;
 
     aout_FormatPrepare( p_fmt );
     aout_SoftVolumeStart( p_aout );

@@ -26,7 +26,7 @@
 #include "mkv.hpp"
 
 #ifdef HAVE_ZLIB_H
-int32_t zlib_decompress_extra( demux_t * p_demux, mkv_track_t * tk );
+int32_t zlib_decompress_extra( demux_t * p_demux, mkv_track_t & tk );
 block_t *block_zlib_decompress( vlc_object_t *p_this, block_t *p_in_block );
 #endif
 
@@ -89,7 +89,7 @@ public:
     size_t   i_subpacket;
 };
 
-block_t * packetize_wavpack( mkv_track_t *, uint8_t *, size_t);
+block_t * packetize_wavpack( const mkv_track_t &, uint8_t *, size_t);
 
 /* helper functions to print the mkv parse tree */
 void MkvTree_va( demux_t& demuxer, int i_level, const char* fmt, va_list args);

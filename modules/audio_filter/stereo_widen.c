@@ -41,15 +41,13 @@ static int paramCallback( vlc_object_t *, char const *, vlc_value_t ,
 
 struct filter_sys_t
 {
-    float *pf_begin;    /* circular buffer to store samples */
+    float *pf_ringbuf;  /* circular buffer to store samples */
     float *pf_write;    /* where to write current sample    */
-    int   i_len;        /* delay in number of samples       */
+    size_t i_len;       /* delay in number of samples       */
     float f_delay;      /* delay in milliseconds            */
     float f_feedback;
     float f_crossfeed;
     float f_dry_mix;
-    bool  b_free_buf;   /* used if callback to delay fails to       *
-                         * allocate buffer, then dont free it twice */
 };
 
 #define HELP_TEXT N_("This filter enhances the stereo effect by "\
@@ -70,6 +68,8 @@ struct filter_sys_t
 #define DRYMIX_TEXT N_("Dry mix")
 #define DRYMIX_LONGTEXT N_("Level of input signal of original channel.")
 
+#define CONFIG_PREFIX "stereowiden-"
+
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -82,21 +82,42 @@ vlc_module_begin ()
     set_capability( "audio filter", 0 )
     set_callbacks( Open, Close )
 
-    add_float( "delay", 20, DELAY_TEXT, DELAY_LONGTEXT, true )
-    add_float_with_range( "feedback", 0.3, 0.0, 0.9,
+    add_float_with_range( CONFIG_PREFIX "delay", 20, 1, 100,
+        DELAY_TEXT, DELAY_LONGTEXT, true )
+    add_float_with_range( CONFIG_PREFIX "feedback", 0.3, 0.0, 0.9,
         FEEDBACK_TEXT, FEEDBACK_LONGTEXT, true )
-    add_float_with_range( "crossfeed", 0.3, 0.0, 0.8,
+    add_float_with_range( CONFIG_PREFIX "crossfeed", 0.3, 0.0, 0.8,
         CROSSFEED_TEXT, CROSSFEED_LONGTEXT, true )
-    add_float_with_range( "dry-mix", 0.8, 0.0, 1.0,
+    add_float_with_range( CONFIG_PREFIX "dry-mix", 0.8, 0.0, 1.0,
         DRYMIX_TEXT, DRYMIX_LONGTEXT, true )
 vlc_module_end ()
 
 /*****************************************************************************
  * Open: Allocate buffer
  *****************************************************************************/
+static int MakeRingBuffer( float **pp_buffer, size_t *pi_buffer,
+                           float **pp_write, float f_delay, unsigned i_rate )
+{
+    const size_t i_size = (2 * (size_t)(1 + f_delay * i_rate / 1000));
+
+    if( unlikely(SIZE_MAX / sizeof(float) < i_size) )
+        return VLC_EGENERIC;
+
+    float *p_realloc = realloc( *pp_buffer, i_size * sizeof(float) );
+    if( !p_realloc )
+        return VLC_ENOMEM;
+
+    memset( p_realloc, 0, i_size * sizeof(float) );
+    *pp_write = *pp_buffer = p_realloc;
+    *pi_buffer = i_size;
+
+    return VLC_SUCCESS;
+}
+
 static int Open( vlc_object_t *obj )
 {
     filter_t *p_filter  = (filter_t *)obj;
+    vlc_object_t *p_aout = p_filter->obj.parent;
     filter_sys_t *p_sys;
 
     if( p_filter->fmt_in.audio.i_format != VLC_CODEC_FL32 ||
@@ -114,28 +135,27 @@ static int Open( vlc_object_t *obj )
         return VLC_ENOMEM;
 
 #define CREATE_VAR( stor, var ) \
-    p_sys->stor = var_CreateGetFloat( obj, var ); \
-    var_AddCallback( p_filter, var, paramCallback, p_sys );
+    p_sys->stor = var_CreateGetFloat( p_aout, var ); \
+    var_AddCallback( p_aout, var, paramCallback, p_sys );
 
-    CREATE_VAR( f_delay, "delay" )
-    CREATE_VAR( f_feedback, "feedback" )
-    CREATE_VAR( f_crossfeed, "crossfeed" )
-    CREATE_VAR( f_dry_mix, "dry-mix" )
+    CREATE_VAR( f_delay,     CONFIG_PREFIX "delay" )
+    CREATE_VAR( f_feedback,  CONFIG_PREFIX "feedback" )
+    CREATE_VAR( f_crossfeed, CONFIG_PREFIX "crossfeed" )
+    CREATE_VAR( f_dry_mix,   CONFIG_PREFIX "dry-mix" )
 
     /* Compute buffer length and allocate space */
-    p_sys->i_len = 2 * p_sys->f_delay * p_filter->fmt_in.audio.i_rate / 1000;
-    p_sys->pf_begin = calloc( p_sys->i_len + 2, sizeof(float) );
-    if( unlikely(!p_sys->pf_begin) )
+    p_sys->pf_ringbuf = NULL;
+    p_sys->i_len = 0;
+    if( MakeRingBuffer( &p_sys->pf_ringbuf, &p_sys->i_len, &p_sys->pf_write,
+                        p_sys->f_delay, p_filter->fmt_in.audio.i_rate ) != VLC_SUCCESS )
     {
-        free( p_sys );
+        Close( obj );
         return VLC_ENOMEM;
     }
-    p_sys->b_free_buf = true;
-    p_sys->pf_write = p_sys->pf_begin;
+
     p_filter->pf_audio_filter = Filter;
     return VLC_SUCCESS;
 }
-
 
 /*****************************************************************************
  * Filter: process each sample
@@ -150,8 +170,8 @@ static block_t *Filter( filter_t *p_filter, block_t *p_block )
     {
         pf_read = p_sys->pf_write + 2;
         /* if at end of buffer put read ptr at begin */
-        if( pf_read > p_sys->pf_begin + p_sys->i_len )
-            pf_read = p_sys->pf_begin;
+        if( pf_read >= p_sys->pf_ringbuf + p_sys->i_len )
+            pf_read = p_sys->pf_ringbuf;
 
         float left  = p_out[0];
         float right = p_out[1];
@@ -160,14 +180,12 @@ static block_t *Filter( filter_t *p_filter, block_t *p_block )
                         - p_sys->f_feedback * pf_read[1];
         *(p_out++) = p_sys->f_dry_mix * right - p_sys->f_crossfeed * left
                         - p_sys->f_feedback * pf_read[0];
-        p_sys->pf_write[0] = left ;
-        p_sys->pf_write[1] = right;
+        *(p_sys->pf_write++) = left ;
+        *(p_sys->pf_write++) = right;
 
         /* if at end of buffer place pf_write at begin */
-        if( p_sys->pf_write  == p_sys->pf_begin + p_sys->i_len )
-            p_sys->pf_write  =  p_sys->pf_begin;
-        else
-            p_sys->pf_write += 2;
+        if( p_sys->pf_write  == p_sys->pf_ringbuf + p_sys->i_len )
+            p_sys->pf_write  =  p_sys->pf_ringbuf;
     }
 
     return p_block;
@@ -179,18 +197,19 @@ static block_t *Filter( filter_t *p_filter, block_t *p_block )
 static void Close( vlc_object_t *obj )
 {
     filter_t *p_filter  = (filter_t *)obj;
+    vlc_object_t *p_aout = p_filter->obj.parent;
     filter_sys_t *p_sys = p_filter->p_sys;
 
 #define DEL_VAR(var) \
-    var_DelCallback( p_filter, var, paramCallback, p_sys ); \
-    var_Destroy( p_filter, var );
+    var_DelCallback( p_aout, var, paramCallback, p_sys ); \
+    var_Destroy( p_aout, var );
 
-    DEL_VAR( "feedback" );
-    DEL_VAR( "crossfeed" );
-    DEL_VAR( "dry-mix" );
-    var_Destroy( p_filter, "delay" );
-    if( p_sys->b_free_buf )
-        free( p_sys->pf_begin );
+    DEL_VAR( CONFIG_PREFIX "feedback" );
+    DEL_VAR( CONFIG_PREFIX "crossfeed" );
+    DEL_VAR( CONFIG_PREFIX "dry-mix" );
+    DEL_VAR( CONFIG_PREFIX "delay" );
+
+    free( p_sys->pf_ringbuf );
     free( p_sys );
 }
 
@@ -208,25 +227,23 @@ static int paramCallback( vlc_object_t *p_this, char const *psz_var,
     VLC_UNUSED(oldval);
     VLC_UNUSED(p_this);
 
-    if( !strcmp( psz_var, "delay" ) )
+    if( !strcmp( psz_var, CONFIG_PREFIX "delay" ) )
     {
-        p_sys->f_delay = newval.f_float;
-        /* Free previous buffer and allocate new circular buffer */
-        free( p_sys->pf_begin );
-        p_sys->i_len = 2 * p_sys->f_delay * p_filter->fmt_in.audio.i_rate /1000;
-        p_sys->pf_begin = calloc( p_sys->i_len + 2, sizeof(float) );
-        if( unlikely(!p_sys->pf_begin) )
+        if( MakeRingBuffer( &p_sys->pf_ringbuf, &p_sys->i_len, &p_sys->pf_write,
+                            newval.f_float, p_filter->fmt_in.audio.i_rate ) != VLC_SUCCESS )
         {
-            p_sys->b_free_buf = false;
             msg_Dbg( p_filter, "Couldnt allocate buffer for delay" );
-            Close( p_this );
+        }
+        else
+        {
+            p_sys->f_delay = newval.f_float;
         }
     }
-    else if( !strcmp( psz_var, "feedback" ) )
+    else if( !strcmp( psz_var, CONFIG_PREFIX "feedback" ) )
         p_sys->f_feedback = newval.f_float;
-    else if( !strcmp( psz_var, "crossfeed" ) )
+    else if( !strcmp( psz_var, CONFIG_PREFIX "crossfeed" ) )
         p_sys->f_feedback = newval.f_float;
-    else if( !strcmp( psz_var, "dry-mix" ) )
+    else if( !strcmp( psz_var, CONFIG_PREFIX "dry-mix" ) )
         p_sys->f_dry_mix = newval.f_float;
 
     return VLC_SUCCESS;

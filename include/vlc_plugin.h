@@ -56,10 +56,10 @@ enum vlc_module_properties
     /* command line name (args=const char *) */
 
     VLC_CONFIG_VALUE,
-    /* actual value (args=int/double/const char *) */
+    /* actual value (args=int64_t/double/const char *) */
 
     VLC_CONFIG_RANGE,
-    /* minimum value (args=int/double/const char * twice) */
+    /* minimum value (args=int64_t/double/const char * twice) */
 
     VLC_CONFIG_ADVANCED,
     /* enable advanced flag (args=none) */
@@ -103,7 +103,7 @@ enum vlc_module_properties
 
     VLC_CONFIG_LIST_CB,
     /* callback for suggested values
-     * (args=size_t (*)(vlc_object_t *, <type> **, char ***)) */
+     * (args=const char *, size_t (*)(vlc_object_t *, <type> **, char ***)) */
 
     /* Insert new VLC_CONFIG_* here */
 };
@@ -188,8 +188,8 @@ enum vlc_module_properties
 /**
  * Current plugin ABI version
  */
-# define MODULE_SYMBOL 3_0_0b
-# define MODULE_SUFFIX "__3_0_0b"
+# define MODULE_SYMBOL 4_0_0
+# define MODULE_SUFFIX "__4_0_0"
 
 /*****************************************************************************
  * Add a few defines. You do not want to read this section. Really.
@@ -210,9 +210,12 @@ enum vlc_module_properties
 /* If the module is built-in, then we need to define foo_InitModule instead
  * of InitModule. Same for Activate- and DeactivateModule. */
 #ifdef __PLUGIN__
-#   define __VLC_SYMBOL( symbol  ) CONCATENATE( symbol, MODULE_SYMBOL )
+# define __VLC_SYMBOL( symbol  ) CONCATENATE( symbol, MODULE_SYMBOL )
+# define VLC_MODULE_NAME_HIDDEN_SYMBOL \
+    const char vlc_module_name[] = MODULE_STRING;
 #else
-#   define __VLC_SYMBOL( symbol )  CONCATENATE( symbol, MODULE_NAME )
+# define __VLC_SYMBOL( symbol )  CONCATENATE( symbol, MODULE_NAME )
+# define VLC_MODULE_NAME_HIDDEN_SYMBOL
 #endif
 
 #define CDECL_SYMBOL
@@ -221,7 +224,7 @@ enum vlc_module_properties
 #   define DLL_SYMBOL              __declspec(dllexport)
 #   undef CDECL_SYMBOL
 #   define CDECL_SYMBOL            __cdecl
-# elif VLC_GCC_VERSION(4,0)
+# elif defined (__GNUC__)
 #   define DLL_SYMBOL              __attribute__((visibility("default")))
 # else
 #  define DLL_SYMBOL
@@ -267,6 +270,7 @@ int CDECL_SYMBOL __VLC_SYMBOL(vlc_entry) (vlc_set_cb vlc_set, void *opaque) \
 error: \
     return -1; \
 } \
+VLC_MODULE_NAME_HIDDEN_SYMBOL \
 VLC_METADATA_EXPORTS
 
 #define add_submodule( ) \
@@ -299,8 +303,9 @@ VLC_METADATA_EXPORTS
         goto error;
 
 #define set_callbacks( activate, deactivate ) \
-    if (vlc_module_set (VLC_MODULE_CB_OPEN, activate) \
-     || vlc_module_set (VLC_MODULE_CB_CLOSE, deactivate)) \
+    if (vlc_module_set(VLC_MODULE_CB_OPEN, #activate, (void *)(activate)) \
+     || vlc_module_set(VLC_MODULE_CB_CLOSE, #deactivate, \
+                       (void *)(deactivate))) \
         goto error;
 
 #define cannot_unload_broken_library( ) \
@@ -470,7 +475,7 @@ VLC_METADATA_EXPORTS
                     (const char *const *)(list_text));
 
 #define change_string_cb( cb ) \
-    vlc_config_set (VLC_CONFIG_LIST_CB, (cb));
+    vlc_config_set (VLC_CONFIG_LIST_CB, #cb, (void *)(cb));
 
 #define change_integer_list( list, list_text ) \
     vlc_config_set (VLC_CONFIG_LIST, \
@@ -479,7 +484,7 @@ VLC_METADATA_EXPORTS
                     (const char *const *)(list_text));
 
 #define change_integer_cb( cb ) \
-    vlc_config_set (VLC_CONFIG_LIST_CB, (cb));
+    vlc_config_set (VLC_CONFIG_LIST_CB, #cb, (cb));
 
 #define change_integer_range( minv, maxv ) \
     vlc_config_set (VLC_CONFIG_RANGE, (int64_t)(minv), (int64_t)(maxv));

@@ -1,6 +1,5 @@
 AUTOMAKE_OPTIONS = subdir-objects
 pkgconfigdir = $(libdir)/pkgconfig
-AM_CPPFLAGS = -DMODULE_STRING=\"libvlc\"
 AM_CFLAGS = $(CFLAGS_libvlc)
 
 SUFFIXES = .pc.in .pc
@@ -20,6 +19,7 @@ pkginclude_HEADERS = \
 	../include/vlc/libvlc_media_list_player.h \
 	../include/vlc/libvlc_media_player.h \
 	../include/vlc/libvlc_vlm.h \
+	../include/vlc/libvlc_renderer_discoverer.h \
 	../include/vlc/vlc.h
 
 nodist_pkginclude_HEADERS = ../include/vlc/libvlc_version.h
@@ -35,8 +35,10 @@ libvlc_la_SOURCES = \
 	media_internal.h \
 	media_list_internal.h \
 	media_player_internal.h \
+	renderer_discoverer_internal.h \
 	core.c \
 	dialog.c \
+	renderer_discoverer.c \
 	error.c \
 	log.c \
 	playlist.c \
@@ -58,7 +60,7 @@ libvlc_la_LIBADD = \
 libvlc_la_LDFLAGS = \
 	$(LDFLAGS_libvlc) \
 	-no-undefined \
-	-version-info 10:0:5 \
+	-version-info 11:0:6 \
 	-export-symbols $(srcdir)/libvlc.sym
 libvlc_la_DEPENDENCIES = libvlc.sym
 if HAVE_WIN32
@@ -67,6 +69,9 @@ libvlc_la_LDFLAGS += -Wl,../src/libvlc_win32_rc.$(OBJEXT) -avoid-version -Wc,-st
 endif
 if HAVE_OS2
 libvlc_la_LDFLAGS += -avoid-version
+endif
+if HAVE_DARWIN
+libvlc_la_LDFLAGS += -Xlinker -install_name -Xlinker @rpath/libvlc.dylib
 endif
 
 pkgconfig_DATA = libvlc.pc

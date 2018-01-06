@@ -33,7 +33,7 @@
 
 static int Open (vlc_object_t *);
 
-VLC_SD_PROBE_HELPER("disc", "Discs", SD_CAT_DEVICES)
+VLC_SD_PROBE_HELPER("disc", N_("Discs"), SD_CAT_DEVICES)
 
 /*
  * Module descriptor
@@ -66,6 +66,8 @@ static int Open (vlc_object_t *obj)
     ULONG ulDataLen;
     ULONG rc;
 
+    sd->description = _("Discs");
+
     if (DosOpen ((PSZ)"CD-ROM2$", (PHFILE)&hcd2, &ulAction, 0, FILE_NORMAL,
                  OPEN_ACTION_OPEN_IF_EXISTS | OPEN_ACTION_FAIL_IF_NEW,
                  OPEN_ACCESS_READONLY | OPEN_SHARE_DENYNONE, NULL))
@@ -93,7 +95,7 @@ static int Open (vlc_object_t *obj)
             if (item == NULL)
                 break;
 
-            services_discovery_AddItem (sd, item, _("Local drives"));
+            services_discovery_AddItem (sd, item);
         }
     }
 

@@ -45,13 +45,6 @@ static ssize_t Read(stream_t *stream, void *buf, size_t buflen)
     if (sys->eof || unlikely(buflen == 0))
         return 0;
 
-    if (buf == NULL)
-    {
-        char dummy[buflen > 4096 ? 4096 : buflen];
-
-        return Read(stream, dummy, sizeof (dummy));
-    }
-
     sys->zstream.next_out = buf;
     sys->zstream.avail_out = buflen;
 
@@ -63,7 +56,7 @@ static ssize_t Read(stream_t *stream, void *buf, size_t buflen)
 
     if (val > 0)
     {   /* Fill input buffer if there is space left */
-        val = stream_Read(stream->p_source,
+        val = vlc_stream_Read(stream->s,
                           sys->zstream.next_in + sys->zstream.avail_in, val);
         if (val >= 0)
             sys->zstream.avail_in += val;
@@ -128,7 +121,7 @@ static int Control(stream_t *stream, int query, va_list args)
         case STREAM_GET_CONTENT_TYPE:
         case STREAM_GET_SIGNAL:
         case STREAM_SET_PAUSE_STATE:
-            return stream_vaControl(stream->p_source, query, args);
+            return vlc_stream_vaControl(stream->s, query, args);
         case STREAM_IS_DIRECTORY:
         case STREAM_GET_SIZE:
         case STREAM_GET_TITLE_INFO:
@@ -154,13 +147,13 @@ static int Open(vlc_object_t *obj)
     int bits;
 
     /* See IETF RFC6713 */
-    if (stream_Peek(stream->p_source, &peek, 2) < 2)
+    if (vlc_stream_Peek(stream->s, &peek, 2) < 2)
         return VLC_EGENERIC;
 
     if ((peek[0] & 0xF) == 8 && (peek[0] >> 4) < 8 && (U16_AT(peek) % 31) == 0)
         bits = 15; /* zlib */
     else
-    if (!memcmp(peek, "\x1F\x08B", 2))
+    if (!memcmp(peek, "\x1F\x8B", 2))
         bits = 15 + 32; /* gzip */
     else
         return VLC_EGENERIC;

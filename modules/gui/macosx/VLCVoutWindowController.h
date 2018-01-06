@@ -25,7 +25,7 @@
 #import <Cocoa/Cocoa.h>
 
 #import <vlc_vout_window.h>
-#import "KeyboardBacklight.h"
+#import "VLCKeyboardBacklightControl.h"
 
 @class VLCControlsBarCommon;
 @class VLCVideoWindowCommon;
@@ -33,12 +33,10 @@
 
 @interface VLCVoutWindowController : NSObject
 
-@property (readonly, atomic) NSLock *lock;
-
 @property (readonly, nonatomic) NSInteger currentStatusWindowLevel;
 
 - (VLCVoutView *)setupVoutForWindow:(vout_window_t *)p_wnd withProposedVideoViewPosition:(NSRect)videoViewPosition;
-- (void)removeVoutforDisplay:(NSValue *)o_key;
+- (void)removeVoutForDisplay:(NSValue *)o_key;
 - (void)setNativeVideoSize:(NSSize)size forWindow:(vout_window_t *)p_wnd;
 - (void)setWindowLevel:(NSInteger)i_level forWindow:(vout_window_t *)p_wnd;
 - (void)setFullscreen:(int)i_full forWindow:(vout_window_t *)p_wnd withAnimation:(BOOL)b_animation;
@@ -47,5 +45,7 @@
 - (void)updateWindowsUsingBlock:(void (^)(VLCVideoWindowCommon *o_window))windowUpdater;
 
 - (void)updateWindowLevelForHelperWindows:(NSInteger)i_level;
+
+- (void)hideMouseForWindow:(vout_window_t *)p_wnd;
 
 @end

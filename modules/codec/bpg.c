@@ -37,7 +37,7 @@ struct decoder_sys_t
 static int  OpenDecoder(vlc_object_t *);
 static void CloseDecoder(vlc_object_t *);
 
-static picture_t *DecodeBlock(decoder_t *, block_t **);
+static int DecodeBlock(decoder_t *, block_t *);
 
 /*
  * Module descriptor
@@ -47,7 +47,7 @@ vlc_module_begin()
     set_subcategory( SUBCAT_INPUT_VCODEC )
     /* decoder main module */
     set_description( N_("BPG image decoder") )
-    set_capability( "decoder", 60 )
+    set_capability( "video decoder", 60 )
     set_callbacks( OpenDecoder, CloseDecoder )
     add_shortcut( "bpg" )
 vlc_module_end()
@@ -76,11 +76,8 @@ static int OpenDecoder(vlc_object_t *p_this)
         return VLC_EGENERIC;
     }
 
-    /* Set output properties */
-    p_dec->fmt_out.i_cat = VIDEO_ES;
-
     /* Set callbacks */
-    p_dec->pf_decode_video = DecodeBlock;
+    p_dec->pf_decode = DecodeBlock;
 
     return VLC_SUCCESS;
 }
@@ -88,18 +85,14 @@ static int OpenDecoder(vlc_object_t *p_this)
 /*
  * This function must be fed with a complete compressed frame.
  */
-static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
+static int DecodeBlock( decoder_t *p_dec, block_t *p_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    block_t *p_block;
     picture_t *p_pic = 0;
     BPGImageInfo img_info;
 
-    if( !pp_block || !*pp_block )
-        return NULL;
-
-    p_block = *pp_block;
-    *pp_block = NULL;
+    if( p_block == NULL ) /* No Drain */
+        return VLCDEC_SUCCESS;
 
     if( p_block->i_flags & BLOCK_FLAG_CORRUPTED )
         goto error;
@@ -132,11 +125,12 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     p_dec->fmt_out.video.i_visible_height = p_dec->fmt_out.video.i_height = img_info.height;
     p_dec->fmt_out.video.i_sar_num = 1;
     p_dec->fmt_out.video.i_sar_den = 1;
-    p_dec->fmt_out.video.i_rmask = 0x000000ff;
-    p_dec->fmt_out.video.i_gmask = 0x0000ff00;
-    p_dec->fmt_out.video.i_bmask = 0x00ff0000;
 
     /* Get a new picture */
+    if( decoder_UpdateVideoFormat( p_dec ) )
+    {
+        goto error;
+    }
     p_pic = decoder_NewPicture( p_dec );
     if( !p_pic )
     {
@@ -157,12 +151,10 @@ static picture_t *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
 
     p_pic->date = p_block->i_pts > VLC_TS_INVALID ? p_block->i_pts : p_block->i_dts;
 
-    block_Release( p_block );
-    return p_pic;
-
+    decoder_QueueVideo( p_dec, p_pic );
 error:
     block_Release( p_block );
-    return NULL;
+    return VLCDEC_SUCCESS;
 }
 
 static void CloseDecoder( vlc_object_t *p_this )

@@ -183,6 +183,9 @@ public:
 class mkv_track_t
 {
     public:
+        mkv_track_t(enum es_format_category_e es_cat);
+        ~mkv_track_t();
+
         typedef unsigned int track_id_t;
 
         bool         b_default;
@@ -193,7 +196,7 @@ class mkv_track_t
         unsigned int i_extra_data;
         uint8_t      *p_extra_data;
 
-        char         *psz_codec;
+        std::string  codec;
         bool         b_dts_only;
         bool         b_pts_only;
 
@@ -217,10 +220,7 @@ class mkv_track_t
         /* Private track paramters */
         PrivateTrackData *p_sys;
 
-        bool            b_inited;
-        /* data to be send first */
-        int             i_data_init;
-        uint8_t         *p_data_init;
+        bool            b_discontinuity;
 
         /* informative */
         std::string str_codec_name;

@@ -59,7 +59,7 @@ ForgedInitSegment::ForgedInitSegment(ICanonicalUrl *parent,
     formatex.wFormatTag = 0;
     width = height = 0;
     fourcc = 0;
-    es_type = 0;
+    es_type = UNKNOWN_ES;
     track_id = 1;
 }
 
@@ -206,18 +206,17 @@ void ForgedInitSegment::setLanguage(const std::string &lang)
 
 block_t * ForgedInitSegment::buildMoovBox()
 {
+    const Timescale &trackTimescale = inheritTimescale();
     mp4mux_trackinfo_t trackinfo;
-    mp4mux_trackinfo_Init(&trackinfo);
-
-    trackinfo.i_track_id = 0x01; /* Will always be 1st and unique track; tfhd patched on block read */
-    trackinfo.i_timescale = inheritTimescale();
+    mp4mux_trackinfo_Init(&trackinfo,
+                          0x01, /* Will always be 1st and unique track; tfhd patched on block read */
+                          (uint32_t) trackTimescale);
     trackinfo.i_read_duration = duration.Get();
     trackinfo.i_trex_default_length = 1;
     trackinfo.i_trex_default_size = 1;
 
-    trackinfo.fmt.i_cat = es_type;
+    es_format_Init(&trackinfo.fmt, es_type, vlc_fourcc_GetCodec(es_type, fourcc));
     trackinfo.fmt.i_original_fourcc = fourcc;
-    trackinfo.fmt.i_codec = vlc_fourcc_GetCodec(es_type, fourcc);
     switch(es_type)
     {
         case VIDEO_ES:
@@ -273,7 +272,13 @@ block_t * ForgedInitSegment::buildMoovBox()
         trackinfo.fmt.psz_language = strdup(language.c_str());
 
     mp4mux_trackinfo_t *p_tracks = &trackinfo;
-    bo_t *box = GetMoovBox(NULL, &p_tracks, 1, true, false, false, false);
+    bo_t *box = NULL;
+
+    if(mp4mux_CanMux( NULL, &trackinfo.fmt ))
+       box = mp4mux_GetMoovBox(NULL, &p_tracks, 1,
+                               trackTimescale.ToTime(duration.Get()),
+                               true, false, false, false);
+
     mp4mux_trackinfo_Clear(&trackinfo);
 
     block_t *moov = NULL;
@@ -287,7 +292,7 @@ block_t * ForgedInitSegment::buildMoovBox()
         return NULL;
 
     vlc_fourcc_t extra[] = {MAJOR_isom, VLC_FOURCC('p','i','f','f'), VLC_FOURCC('i','s','o','2'), VLC_FOURCC('s','m','o','o')};
-    box = GetFtyp(VLC_FOURCC('i','s','m','l'), 1, extra, ARRAY_SIZE(extra));
+    box = mp4mux_GetFtyp(VLC_FOURCC('i','s','m','l'), 1, extra, ARRAY_SIZE(extra));
 
     if(box)
     {
@@ -299,7 +304,7 @@ block_t * ForgedInitSegment::buildMoovBox()
     return moov;
 }
 
-SegmentChunk* ForgedInitSegment::toChunk(size_t, BaseRepresentation *rep, HTTPConnectionManager *)
+SegmentChunk* ForgedInitSegment::toChunk(size_t, BaseRepresentation *rep, AbstractConnectionManager *)
 {
     block_t *moov = buildMoovBox();
     if(moov)

@@ -32,12 +32,11 @@
 using namespace adaptive;
 
 ChunksSourceStream::ChunksSourceStream(vlc_object_t *p_obj_, ChunksSource *source_)
-{
-    p_block = NULL;
-    b_eof = false;
-    p_obj = p_obj_;
-    source = source_;
-}
+    : p_block( NULL )
+    , b_eof( false )
+    , p_obj( p_obj_ )
+    , source( source_ )
+{ }
 
 ChunksSourceStream::~ChunksSourceStream()
 {
@@ -54,7 +53,7 @@ void ChunksSourceStream::Reset()
 
 stream_t * ChunksSourceStream::makeStream()
 {
-    stream_t *p_stream = stream_CustomNew( p_obj, delete_Callback );
+    stream_t *p_stream = vlc_stream_CommonNew( p_obj, delete_Callback );
     if(p_stream)
     {
         p_stream->pf_control = control_Callback;

@@ -135,19 +135,28 @@ LIBVLC_API const char *libvlc_printerr (const char *fmt, ...);
  * - on Microsoft Windows, SetErrorMode().
  * - sigprocmask() shall never be invoked; pthread_sigmask() can be used.
  *
- * On POSIX systems, the SIGCHLD signal must <b>not</b> be ignored, i.e. the
+ * On POSIX systems, the SIGCHLD signal <b>must not</b> be ignored, i.e. the
  * signal handler must set to SIG_DFL or a function pointer, not SIG_IGN.
  * Also while LibVLC is active, the wait() function shall not be called, and
  * any call to waitpid() shall use a strictly positive value for the first
  * parameter (i.e. the PID). Failure to follow those rules may lead to a
  * deadlock or a busy loop.
- *
  * Also on POSIX systems, it is recommended that the SIGPIPE signal be blocked,
- * even if it is not, in principles, necessary.
+ * even if it is not, in principles, necessary, e.g.:
+ * @code
+   sigset_t set;
+
+   signal(SIGCHLD, SIG_DFL);
+   sigemptyset(&set);
+   sigaddset(&set, SIGPIPE);
+   pthread_sigmask(SIG_BLOCK, &set, NULL);
+ * @endcode
  *
- * On Microsoft Windows Vista/2008, the process error mode
- * SEM_FAILCRITICALERRORS flag <b>must</b> with the SetErrorMode() function
- * before using LibVLC. On later versions, it is optional and unnecessary.
+ * On Microsoft Windows, setting the default DLL directories to SYSTEM32
+ * exclusively is strongly recommended for security reasons:
+ * @code
+   SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+ * @endcode
  *
  * \version
  * Arguments are meant to be passed from the command line to LibVLC, just like
@@ -307,7 +316,7 @@ typedef int libvlc_event_type_t;
  * Callback function notification
  * \param p_event the event triggering the callback
  */
-typedef void ( *libvlc_callback_t )( const struct libvlc_event_t *, void * );
+typedef void ( *libvlc_callback_t )( const struct libvlc_event_t *p_event, void *p_data );
 
 /**
  * Register for an event notification.
@@ -368,8 +377,12 @@ enum libvlc_log_level
 typedef struct vlc_log_t libvlc_log_t;
 
 /**
- * Gets debugging information about a log message: the name of the VLC module
- * emitting the message and the message location within the source code.
+ * Gets log message debug infos.
+ *
+ * This function retrieves self-debug information about a log message:
+ * - the name of the VLC module emitting the message,
+ * - the name of the source code module (i.e. file) and
+ * - the line number within the source code module.
  *
  * The returned module name and file name will be NULL if unknown.
  * The returned line number will similarly be zero if unknown.
@@ -387,10 +400,14 @@ LIBVLC_API void libvlc_log_get_context(const libvlc_log_t *ctx,
                        const char **module, const char **file, unsigned *line);
 
 /**
- * Gets VLC object information about a log message: the type name of the VLC
- * object emitting the message, the object header if any and a temporaly-unique
- * object identifier. This information is mainly meant for <b>manual</b>
- * troubleshooting.
+ * Gets log message info.
+ *
+ * This function retrieves meta-information about a log message:
+ * - the type name of the VLC object emitting the message,
+ * - the object header if any, and
+ * - a temporaly-unique object identifier.
+ *
+ * This information is mainly meant for <b>manual</b> troubleshooting.
  *
  * The returned type name may be "generic" if unknown, but it cannot be NULL.
  * The returned header will be NULL if unset; in current versions, the header
@@ -412,6 +429,7 @@ LIBVLC_API void libvlc_log_get_object(const libvlc_log_t *ctx,
 
 /**
  * Callback prototype for LibVLC log message handler.
+ *
  * \param data data pointer as given to libvlc_log_set()
  * \param level message level (@ref libvlc_log_level)
  * \param ctx message context (meta-information about the message)
@@ -425,18 +443,23 @@ typedef void (*libvlc_log_cb)(void *data, int level, const libvlc_log_t *ctx,
                               const char *fmt, va_list args);
 
 /**
- * Unsets the logging callback for a LibVLC instance. This is rarely needed:
- * the callback is implicitly unset when the instance is destroyed.
- * This function will wait for any pending callbacks invocation to complete
- * (causing a deadlock if called from within the callback).
+ * Unsets the logging callback.
+ *
+ * This function deregisters the logging callback for a LibVLC instance.
+ * This is rarely needed as the callback is implicitly unset when the instance
+ * is destroyed.
+ *
+ * \note This function will wait for any pending callbacks invocation to
+ * complete (causing a deadlock if called from within the callback).
  *
  * \param p_instance libvlc instance
  * \version LibVLC 2.1.0 or later
  */
-LIBVLC_API void libvlc_log_unset( libvlc_instance_t * );
+LIBVLC_API void libvlc_log_unset( libvlc_instance_t *p_instance );
 
 /**
  * Sets the logging callback for a LibVLC instance.
+ *
  * This function is thread-safe: it will wait for any pending callbacks
  * invocation to complete.
  *
@@ -451,7 +474,7 @@ LIBVLC_API void libvlc_log_unset( libvlc_instance_t * );
  * \param p_instance libvlc instance
  * \version LibVLC 2.1.0 or later
  */
-LIBVLC_API void libvlc_log_set( libvlc_instance_t *,
+LIBVLC_API void libvlc_log_set( libvlc_instance_t *p_instance,
                                 libvlc_log_cb cb, void *data );
 
 
@@ -462,7 +485,7 @@ LIBVLC_API void libvlc_log_set( libvlc_instance_t *,
  *         (the FILE pointer must remain valid until libvlc_log_unset())
  * \version LibVLC 2.1.0 or later
  */
-LIBVLC_API void libvlc_log_set_file( libvlc_instance_t *, FILE *stream );
+LIBVLC_API void libvlc_log_set_file( libvlc_instance_t *p_instance, FILE *stream );
 
 /** @} */
 
@@ -514,7 +537,7 @@ libvlc_module_description_t *libvlc_audio_filter_list_get( libvlc_instance_t *p_
 LIBVLC_API
 libvlc_module_description_t *libvlc_video_filter_list_get( libvlc_instance_t *p_instance );
 
-/** @} */
+/** @} */
 
 /** \defgroup libvlc_clock LibVLC time
  * These functions provide access to the LibVLC time/clock.
@@ -543,7 +566,7 @@ static inline int64_t libvlc_delay(int64_t pts)
     return pts - libvlc_clock();
 }
 
-/** @} */
+/** @} */
 
 # ifdef __cplusplus
 }

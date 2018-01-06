@@ -35,7 +35,9 @@ using namespace adaptive;
 AbstractDemuxer::AbstractDemuxer()
 {
     b_startsfromzero = false;
-    b_reinitsonseek =true;
+    b_reinitsonseek = true;
+    b_candetectswitches = true;
+    b_alwaysrestarts = false;
 }
 
 AbstractDemuxer::~AbstractDemuxer()
@@ -48,7 +50,27 @@ bool AbstractDemuxer::alwaysStartsFromZero() const
     return b_startsfromzero;
 }
 
-bool AbstractDemuxer::reinitsOnSeek() const
+bool AbstractDemuxer::needsRestartOnSwitch() const
+{
+    return !b_candetectswitches;
+}
+
+bool AbstractDemuxer::needsRestartOnEachSegment() const
+{
+    return b_alwaysrestarts;
+}
+
+void AbstractDemuxer::setCanDetectSwitches( bool b )
+{
+    b_candetectswitches = b;
+}
+
+void AbstractDemuxer::setRestartsOnEachSegment( bool b )
+{
+    b_alwaysrestarts = b;
+}
+
+bool AbstractDemuxer::needsRestartOnSeek() const
 {
     return b_reinitsonseek;
 }
@@ -65,7 +87,12 @@ Demuxer::Demuxer(demux_t *p_realdemux_, const std::string &name_, es_out_t *out,
 
     if(name == "mp4")
     {
+        b_candetectswitches = false;
         b_startsfromzero = true;
+    }
+    else if(name == "aac")
+    {
+        b_candetectswitches = false;
     }
 }
 
@@ -85,24 +112,26 @@ bool Demuxer::create()
                          p_newstream, p_es_out );
     if(!p_demux)
     {
-        stream_Delete(p_newstream);
+        vlc_stream_Delete(p_newstream);
         b_eof = true;
         return false;
     }
+    else
+    {
+        b_eof = false;
+    }
+
     return true;
 }
 
-bool Demuxer::restart(CommandsQueue &queue)
+void Demuxer::destroy()
 {
     if(p_demux)
     {
-        queue.setDrop(true);
         demux_Delete(p_demux);
         p_demux = NULL;
-        queue.setDrop(false);
     }
     sourcestream->Reset();
-    return create();
 }
 
 void Demuxer::drain()
@@ -147,12 +176,14 @@ bool SlaveDemuxer::create()
 
 int SlaveDemuxer::demux(mtime_t nz_deadline)
 {
-    if( demux_Control(p_demux, DEMUX_SET_NEXT_DEMUX_TIME, VLC_TS_0 + nz_deadline) != VLC_SUCCESS )
+    /* Always call with increment or buffering will get slow stuck */
+    mtime_t i_next_demux_time = VLC_TS_0 + nz_deadline + CLOCK_FREQ / 4;
+    if( demux_Control(p_demux, DEMUX_SET_NEXT_DEMUX_TIME, i_next_demux_time ) != VLC_SUCCESS )
     {
         b_eof = true;
         return VLC_DEMUXER_EOF;
     }
-    int ret = Demuxer::demux(nz_deadline);
-    es_out_Control(p_es_out, ES_OUT_SET_GROUP_PCR, 0, VLC_TS_0 + nz_deadline);
+    int ret = Demuxer::demux(i_next_demux_time);
+    es_out_Control(p_es_out, ES_OUT_SET_GROUP_PCR, 0, i_next_demux_time);
     return ret;
 }

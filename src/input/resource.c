@@ -28,10 +28,10 @@
 # include "config.h"
 #endif
 
+#include <stdatomic.h>
 #include <assert.h>
 
 #include <vlc_common.h>
-#include <vlc_atomic.h>
 #include <vlc_vout.h>
 #include <vlc_spu.h>
 #include <vlc_aout.h>
@@ -92,8 +92,10 @@ static sout_instance_t *RequestSout( input_resource_t *p_resource,
     if( !p_sout && !psz_sout )
     {
         if( p_resource->p_sout )
+        {
             msg_Dbg( p_resource->p_sout, "destroying useless sout" );
-        DestroySout( p_resource );
+            DestroySout( p_resource );
+        }
         return NULL;
     }
 
@@ -193,7 +195,7 @@ static void DisplayVoutTitle( input_resource_t *p_resource,
 }
 static vout_thread_t *RequestVout( input_resource_t *p_resource,
                                    vout_thread_t *p_vout,
-                                   video_format_t *p_fmt, unsigned dpb_size,
+                                   const video_format_t *p_fmt, unsigned dpb_size,
                                    bool b_recycle )
 {
     vlc_assert_locked( &p_resource->lock );
@@ -241,6 +243,11 @@ static vout_thread_t *RequestVout( input_resource_t *p_resource,
             return NULL;
 
         DisplayVoutTitle( p_resource, p_vout );
+
+        /* Send original viewpoint to the input in order to update other ESes */
+        if( p_resource->p_input != NULL )
+            input_Control( p_resource->p_input, INPUT_SET_INITIAL_VIEWPOINT,
+                           &p_fmt->pose );
 
         vlc_mutex_lock( &p_resource->lock_hold );
         TAB_APPEND( p_resource->i_vout, p_resource->pp_vout, p_vout );
@@ -308,7 +315,7 @@ static void HoldVouts( input_resource_t *p_resource, vout_thread_t ***ppp_vout,
     if( p_resource->i_vout <= 0 )
         goto exit;
 
-    pp_vout = malloc( p_resource->i_vout * sizeof(*pp_vout) );
+    pp_vout = vlc_alloc( p_resource->i_vout, sizeof(*pp_vout) );
     if( !pp_vout )
         goto exit;
 
@@ -458,7 +465,7 @@ void input_resource_SetInput( input_resource_t *p_resource, input_thread_t *p_in
 
 vout_thread_t *input_resource_RequestVout( input_resource_t *p_resource,
                                             vout_thread_t *p_vout,
-                                            video_format_t *p_fmt, unsigned dpb_size,
+                                            const video_format_t *p_fmt, unsigned dpb_size,
                                             bool b_recycle )
 {
     vlc_mutex_lock( &p_resource->lock );

@@ -50,19 +50,17 @@ struct access_sys_t
     vlc_v4l2_ctrl_t *controls;
 };
 
-static block_t *MMapBlock (access_t *);
-static block_t *ReadBlock (access_t *);
-static int AccessControl( access_t *, int, va_list );
-static int InitVideo(access_t *, int, uint32_t);
+static block_t *MMapBlock (stream_t *, bool *);
+static block_t *ReadBlock (stream_t *, bool *);
+static int AccessControl( stream_t *, int, va_list );
+static int InitVideo(stream_t *, int, uint32_t);
 
 int AccessOpen( vlc_object_t *obj )
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
 
     if( access->b_preparsing )
         return VLC_EGENERIC;
-
-    access_InitFields( access );
 
     access_sys_t *sys = calloc (1, sizeof (*sys));
     if( unlikely(sys == NULL) )
@@ -97,7 +95,7 @@ error:
     return VLC_EGENERIC;
 }
 
-int InitVideo (access_t *access, int fd, uint32_t caps)
+int InitVideo (stream_t *access, int fd, uint32_t caps)
 {
     access_sys_t *sys = access->p_sys;
 
@@ -189,7 +187,7 @@ int InitVideo (access_t *access, int fd, uint32_t caps)
 
 void AccessClose( vlc_object_t *obj )
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
     access_sys_t *sys = access->p_sys;
 
     if (sys->bufv != NULL)
@@ -200,7 +198,7 @@ void AccessClose( vlc_object_t *obj )
 }
 
 /* Wait for data */
-static int AccessPoll (access_t *access)
+static int AccessPoll (stream_t *access)
 {
     access_sys_t *sys = access->p_sys;
     struct pollfd ufd;
@@ -212,7 +210,7 @@ static int AccessPoll (access_t *access)
 }
 
 
-static block_t *MMapBlock (access_t *access)
+static block_t *MMapBlock (stream_t *access, bool *restrict eof)
 {
     access_sys_t *sys = access->p_sys;
 
@@ -225,10 +223,11 @@ static block_t *MMapBlock (access_t *access)
         block->i_pts = block->i_dts = mdate();
         block->i_flags |= sys->block_flags;
     }
+    (void) eof;
     return block;
 }
 
-static block_t *ReadBlock (access_t *access)
+static block_t *ReadBlock (stream_t *access, bool *restrict eof)
 {
     access_sys_t *sys = access->p_sys;
 
@@ -244,7 +243,7 @@ static block_t *ReadBlock (access_t *access)
     {
         block_Release (block);
         msg_Err (access, "cannot read buffer: %s", vlc_strerror_c(errno));
-        access->info.b_eof = true;
+        *eof = true;
         return NULL;
     }
 
@@ -252,23 +251,23 @@ static block_t *ReadBlock (access_t *access)
     return block;
 }
 
-static int AccessControl( access_t *access, int query, va_list args )
+static int AccessControl( stream_t *access, int query, va_list args )
 {
     switch( query )
     {
-        case ACCESS_CAN_SEEK:
-        case ACCESS_CAN_FASTSEEK:
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_SEEK:
+        case STREAM_CAN_FASTSEEK:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg( args, bool* ) = false;
             break;
 
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
             *va_arg(args,int64_t *) = INT64_C(1000)
                 * var_InheritInteger( access, "live-caching" );
             break;
 
-        case ACCESS_SET_PAUSE_STATE:
+        case STREAM_SET_PAUSE_STATE:
             /* Nothing to do */
             break;
 

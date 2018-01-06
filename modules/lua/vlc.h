@@ -91,6 +91,9 @@ void Close_Extension( vlc_object_t * );
 int Open_LuaSD( vlc_object_t * );
 void Close_LuaSD( vlc_object_t * );
 
+// Script probe
+int vlclua_probe_sd( vlc_object_t *, const char *name );
+
 /*****************************************************************************
  * Lua debug
  *****************************************************************************/
@@ -101,6 +104,12 @@ static inline void lua_Dbg( vlc_object_t * p_this, const char * ppz_fmt, ... )
     msg_GenericVa( p_this, VLC_MSG_DBG, ppz_fmt, ap );
     va_end( ap );
 }
+
+static inline bool lua_Disabled( vlc_object_t *p_this )
+{
+    return !var_InheritBool( p_this, "lua" );
+}
+#define lua_Disabled( x ) lua_Disabled( VLC_OBJECT( x ) )
 
 /*****************************************************************************
  * Functions that should be in lua ... but aren't for some obscure reason
@@ -177,9 +186,8 @@ void vlclua_read_meta_data( vlc_object_t *, lua_State *, input_item_t * );
 void vlclua_read_custom_meta_data( vlc_object_t *, lua_State *,
                                    input_item_t *);
 #define vlclua_read_custom_meta_data( a, b, c ) vlclua_read_custom_meta_data( VLC_OBJECT( a ), b, c )
-int vlclua_playlist_add_internal( vlc_object_t *, lua_State *, playlist_t *,
-                                  input_item_t *, bool );
-#define vlclua_playlist_add_internal( a, b, c, d, e ) vlclua_playlist_add_internal( VLC_OBJECT( a ), b, c, d, e )
+
+input_item_t *vlclua_read_input_item(vlc_object_t *, lua_State *);
 
 int vlclua_add_modules_path( lua_State *, const char *psz_filename );
 
@@ -199,17 +207,6 @@ int vlclua_fd_init( lua_State *, vlclua_dtable_t * );
 void vlclua_fd_interrupt( vlclua_dtable_t * );
 void vlclua_fd_cleanup( vlclua_dtable_t * );
 struct vlc_interrupt *vlclua_set_interrupt( lua_State *L );
-
-/**
- * Per-interface private state
- */
-struct intf_sys_t
-{
-    char *psz_filename;
-    lua_State *L;
-    vlc_thread_t thread;
-    vlclua_dtable_t dtable;
-};
 
 #endif /* VLC_LUA_H */
 

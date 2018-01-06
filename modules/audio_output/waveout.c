@@ -32,7 +32,9 @@
 
 #include <math.h>
 
-#define UNICODE
+#ifndef UNICODE
+# define UNICODE
+#endif
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_aout.h>
@@ -167,6 +169,9 @@ vlc_module_end ()
  *****************************************************************************/
 static int Start( audio_output_t *p_aout, audio_sample_format_t *restrict fmt )
 {
+    if( aout_FormatNbChannels( fmt ) == 0 )
+        return VLC_EGENERIC;
+
     p_aout->time_get = WaveOutTimeGet;
     p_aout->play = Play;
     p_aout->pause = WaveOutPause;
@@ -322,6 +327,8 @@ static int Start( audio_output_t *p_aout, audio_sample_format_t *restrict fmt )
     p_aout->sys->i_frames = 0;
     p_aout->sys->i_played_length = 0;
     p_aout->sys->p_free_list = NULL;
+
+    fmt->channel_type = AUDIO_CHANNEL_TYPE_BITMAP;
 
     return VLC_SUCCESS;
 }

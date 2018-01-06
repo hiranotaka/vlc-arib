@@ -36,7 +36,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_interface.h>
-#include <vlc_keys.h>
+#include <vlc_actions.h>
 
 #ifdef HAVE_POLL
 # include <poll.h>
@@ -195,7 +195,7 @@ static void Process( intf_thread_t *p_intf )
         {
             if( !strncmp( "key-", c, 4 ) )
             {
-                vlc_action_t i_key = vlc_GetActionId( c );
+                vlc_action_id_t i_key = vlc_actions_get_id( c );
                 if( i_key )
                     var_SetInteger( p_intf->obj.libvlc, "key-action", i_key );
                 else

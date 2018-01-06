@@ -145,9 +145,6 @@ public:
     void setMuted( bool ); /* Set Mute status */
 
 protected:
-    const static int paddingL = 3;
-    const static int paddingR = 2;
-
     void paintEvent( QPaintEvent *) Q_DECL_OVERRIDE;
     void wheelEvent( QWheelEvent *event ) Q_DECL_OVERRIDE;
     void mousePressEvent( QMouseEvent * ) Q_DECL_OVERRIDE;
@@ -162,8 +159,6 @@ private:
     int i_oldvalue; /* Store the old Value before changing */
     float f_step; /* How much do we increase each time we wheel */
     bool b_isMuted;
-    int wlength;
-    int wheight;
 
     QPixmap pixGradient; /* Gradient pix storage */
     QPixmap pixGradient2; /* Muted Gradient pix storage */

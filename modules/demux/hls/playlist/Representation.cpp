@@ -140,10 +140,13 @@ bool Representation::needsUpdate() const
 bool Representation::runLocalUpdates(mtime_t, uint64_t number, bool prune)
 {
     const time_t now = time(NULL);
-    const AbstractPlaylist *playlist = getPlaylist();
+    AbstractPlaylist *playlist = getPlaylist();
     if(!b_loaded || (isLive() && nextUpdateTime < now))
     {
-        M3U8Parser parser;
+        /* ugly hack */
+        M3U8 *m3u = dynamic_cast<M3U8 *>(playlist);
+        M3U8Parser parser((m3u) ? m3u->getAuth() : NULL);
+        /* !ugly hack */
         parser.appendSegmentsFromPlaylistURI(playlist->getVLCObject(), this);
         b_loaded = true;
 
@@ -160,7 +163,7 @@ uint64_t Representation::translateSegmentNumber(uint64_t num, const SegmentInfor
 {
     if(consistentSegmentNumber())
         return num;
-    ISegment *fromSeg = from->getSegment(SegmentInfoType::INFOTYPE_MEDIA, num);
+    ISegment *fromSeg = from->getSegment(INFOTYPE_MEDIA, num);
     HLSSegment *fromHlsSeg = dynamic_cast<HLSSegment *>(fromSeg);
     if(!fromHlsSeg)
         return 1;
@@ -168,7 +171,7 @@ uint64_t Representation::translateSegmentNumber(uint64_t num, const SegmentInfor
 
     std::vector<ISegment *> list;
     std::vector<ISegment *>::const_iterator it;
-    getSegments(SegmentInfoType::INFOTYPE_MEDIA, list);
+    getSegments(INFOTYPE_MEDIA, list);
     for(it=list.begin(); it != list.end(); ++it)
     {
         const HLSSegment *hlsSeg = dynamic_cast<HLSSegment *>(*it);

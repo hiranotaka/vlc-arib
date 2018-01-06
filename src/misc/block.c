@@ -21,9 +21,6 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-/*****************************************************************************
- * Preamble
- *****************************************************************************/
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
@@ -37,10 +34,6 @@
 #include <vlc_common.h>
 #include <vlc_block.h>
 #include <vlc_fs.h>
-
-/**
- * @section Block handling functions.
- */
 
 #ifndef NDEBUG
 static void BlockNoRelease( block_t *b )
@@ -126,6 +119,12 @@ static void BlockMetaCopy( block_t *restrict out, const block_t *in )
 
 block_t *block_Alloc (size_t size)
 {
+    if (unlikely(size >> 27))
+    {
+        errno = ENOBUFS;
+        return NULL;
+    }
+
     /* 2 * BLOCK_PADDING: pre + post padding */
     const size_t alloc = sizeof (block_t) + BLOCK_ALIGN + (2 * BLOCK_PADDING)
                        + size;
@@ -252,18 +251,6 @@ static void block_heap_Release (block_t *block)
     free (block);
 }
 
-/**
- * Creates a block from a heap allocation.
- * This is provided by LibVLC so that manually heap-allocated blocks can safely
- * be deallocated even after the origin plugin has been unloaded from memory.
- *
- * When block_Release() is called, VLC will free() the specified pointer.
- *
- * @param addr base address of the heap allocation (will be free()'d)
- * @param length bytes length of the heap allocation
- * @return NULL in case of error (ptr free()'d in that case), or a valid
- * block_t pointer.
- */
 block_t *block_heap_Alloc (void *addr, size_t length)
 {
     block_t *block = malloc (sizeof (*block));
@@ -288,16 +275,6 @@ static void block_mmap_Release (block_t *block)
     free (block);
 }
 
-/**
- * Creates a block from a virtual address memory mapping (mmap).
- * This is provided by LibVLC so that mmap blocks can safely be deallocated
- * even after the allocating plugin has been unloaded from memory.
- *
- * @param addr base address of the mapping (as returned by mmap)
- * @param length length (bytes) of the mapping (as passed to mmap)
- * @return NULL if addr is MAP_FAILED, or an error occurred (in the later
- * case, munmap(addr, length) is invoked before returning).
- */
 block_t *block_mmap_Alloc (void *addr, size_t length)
 {
     if (addr == MAP_FAILED)
@@ -344,16 +321,6 @@ static void block_shm_Release (block_t *block)
     free (p_sys);
 }
 
-/**
- * Creates a block from a System V shared memory segment (shmget()).
- * This is provided by LibVLC so that segments can safely be deallocated
- * even after the allocating plugin has been unloaded from memory.
- *
- * @param addr base address of the segment (as returned by shmat())
- * @param length length (bytes) of the segment (as passed to shmget())
- * @return NULL if an error occurred (in that case, shmdt(addr) is invoked
- * before returning NULL).
- */
 block_t *block_shm_Alloc (void *addr, size_t length)
 {
     block_shm_t *block = malloc (sizeof (*block));
@@ -387,7 +354,7 @@ ssize_t pread (int fd, void *buf, size_t count, off_t offset)
     if (handle == INVALID_HANDLE_VALUE)
         return -1;
 
-    OVERLAPPED olap; olap.Offset = offset; olap.OffsetHigh = (offset >> 32);
+    OVERLAPPED olap = {.Offset = offset, .OffsetHigh = (offset >> 32)};
     DWORD written;
     /* This braindead API will override the file pointer even if we specify
      * an explicit read offset... So do not expect this to mix well with
@@ -398,20 +365,7 @@ ssize_t pread (int fd, void *buf, size_t count, off_t offset)
 }
 #endif
 
-/**
- * Loads a file into a block of memory through a file descriptor.
- * If possible a private file mapping is created. Otherwise, the file is read
- * normally. This function is a cancellation point.
- *
- * @note On 32-bits platforms,
- * this function will not work for very large files,
- * due to memory space constraints.
- *
- * @param fd file descriptor to load from
- * @return a new block with the file content at p_buffer, and file length at
- * i_buffer (release it with block_Release()), or NULL upon error (see errno).
- */
-block_t *block_File (int fd)
+block_t *block_File(int fd, bool write)
 {
     size_t length;
     struct stat st;
@@ -448,9 +402,10 @@ block_t *block_File (int fd)
 #ifdef HAVE_MMAP
     if (length > 0)
     {
-        void *addr;
+        int prot = PROT_READ | (write ? PROT_WRITE : 0);
+        int flags = write ? MAP_PRIVATE : MAP_SHARED;
+        void *addr = mmap(NULL, length, prot, flags, fd, 0);
 
-        addr = mmap (NULL, length, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
         if (addr != MAP_FAILED)
             return block_mmap_Alloc (addr, length);
     }
@@ -477,17 +432,15 @@ block_t *block_File (int fd)
     return block;
 }
 
-/**
- * Loads a file into a block of memory from the file path.
- * See also block_File().
- */
-block_t *block_FilePath (const char *path)
+block_t *block_FilePath(const char *path, bool write)
 {
+    /* NOTE: Writeable shared mappings are not supported here. So there are no
+     * needs to open the file for writing (even if the mapping is writable). */
     int fd = vlc_open (path, O_RDONLY);
     if (fd == -1)
         return NULL;
 
-    block_t *block = block_File (fd);
+    block_t *block = block_File(fd, write);
     vlc_close (fd);
     return block;
 }

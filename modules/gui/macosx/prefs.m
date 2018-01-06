@@ -54,12 +54,12 @@
 #include <vlc_config_cat.h>
 
 #import "CompatibilityFixes.h"
-#import "intf.h"
+#import "VLCMain.h"
 #import "prefs.h"
-#import "simple_prefs.h"
+#import "VLCSimplePrefsController.h"
 #import "prefs_widgets.h"
-#import "CoreInteraction.h"
-#import <vlc_keys.h>
+#import "VLCCoreInteraction.h"
+#import <vlc_actions.h>
 #import <vlc_modules.h>
 #import <vlc_plugin.h>
 
@@ -87,7 +87,7 @@
     NSMutableArray *_options;
     NSMutableArray *_subviews;
 }
-@property (readwrite, weak) VLCPrefs *prefsViewController;
+@property (readwrite, unsafe_unretained) VLCPrefs *prefsViewController;
 
 - (id)initWithName:(NSString*)name;
 
@@ -170,6 +170,10 @@
 - (id)init
 {
     self = [super initWithWindowNibName:@"Preferences"];
+    if (self) {
+        o_emptyView = [[NSView alloc] init];
+        _rootTreeItem = [[VLCTreeMainItem alloc] init];
+    }
 
     return self;
 }
@@ -177,9 +181,6 @@
 - (void)windowDidLoad
 
 {
-    o_emptyView = [[NSView alloc] init];
-    _rootTreeItem = [[VLCTreeMainItem alloc] init];
-
     [self.window setCollectionBehavior: NSWindowCollectionBehaviorFullScreenAuxiliary];
     [self.window setHidesOnDeactivate:YES];
 
@@ -213,7 +214,7 @@
 {
     /* TODO: call savePrefs on Root item */
     [_rootTreeItem applyChanges];
-    [[VLCCoreInteraction sharedInstance] fixPreferences];
+    [[VLCCoreInteraction sharedInstance] fixIntfSettings];
     config_SaveConfigFile(getIntf());
     [self.window orderOut:self];
 }
@@ -231,7 +232,7 @@
 
 - (IBAction)resetPrefs:(id)sender
 {
-#warning implement me
+    [[[VLCMain sharedInstance] simplePreferences] resetPreferences:sender];
 }
 
 - (void)loadConfigTree

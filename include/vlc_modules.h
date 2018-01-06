@@ -21,6 +21,9 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
+#ifndef VLC_MODULES_H
+#define VLC_MODULES_H 1
+
 /**
  * \file
  * This file defines functions for modules in vlc
@@ -36,7 +39,10 @@ typedef void (*vlc_deactivate_t)(void *func, va_list args);
 VLC_API module_t * vlc_module_load( vlc_object_t *obj, const char *cap, const char *name, bool strict, vlc_activate_t probe, ... ) VLC_USED;
 #define vlc_module_load(o,c,n,s,...) \
         vlc_module_load(VLC_OBJECT(o),c,n,s,__VA_ARGS__)
-VLC_API void vlc_module_unload( module_t *, vlc_deactivate_t deinit, ... );
+VLC_API void vlc_module_unload( vlc_object_t *obj, module_t *,
+                                vlc_deactivate_t deinit, ... );
+#define vlc_module_unload(o,m,d,...) \
+        vlc_module_unload(VLC_OBJECT(o),m,d,__VA_ARGS__)
 
 VLC_API module_t * module_need( vlc_object_t *, const char *, const char *, bool ) VLC_USED;
 #define module_need(a,b,c,d) module_need(VLC_OBJECT(a),b,c,d)
@@ -75,3 +81,5 @@ VLC_USED static inline bool module_is_main( const module_t * p_module )
 {
     return !strcmp( module_get_object( p_module ), "core" );
 }
+
+#endif /* VLC_MODULES_H */

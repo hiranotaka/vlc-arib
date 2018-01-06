@@ -27,6 +27,7 @@
 #include "SegmentTemplate.h"
 #include "SegmentTimeline.h"
 #include "SegmentInformation.hpp"
+#include "AbstractPlaylist.hpp"
 
 using namespace adaptive::playlist;
 
@@ -44,6 +45,7 @@ MediaSegmentTemplate::MediaSegmentTemplate( SegmentInformation *parent ) :
     startNumber.Set( 1 );
     initialisationSegment.Set( NULL );
     templated = true;
+    parentSegmentInformation = parent;
 }
 
 void MediaSegmentTemplate::mergeWith(MediaSegmentTemplate *updated, mtime_t prunebarrier)
@@ -75,12 +77,32 @@ size_t MediaSegmentTemplate::pruneBySequenceNumber(uint64_t number)
     return 0;
 }
 
+uint64_t MediaSegmentTemplate::getCurrentLiveTemplateNumber() const
+{
+    uint64_t number = startNumber.Get();
+    /* live streams / templated */
+    const stime_t dur = duration.Get();
+    if(dur)
+    {
+        /* compute, based on current time */
+        const time_t playbacktime = time(NULL);
+        const Timescale timescale = inheritTimescale();
+        time_t streamstart = parentSegmentInformation->getPlaylist()->availabilityStartTime.Get();
+        streamstart += parentSegmentInformation->getPeriodStart();
+        stime_t elapsed = timescale.ToScaled(CLOCK_FREQ * (playbacktime - streamstart));
+        number += elapsed / dur - 2;
+    }
+
+    return number;
+}
+
 stime_t MediaSegmentTemplate::getMinAheadScaledTime(uint64_t number) const
 {
     if( segmentTimeline.Get() )
         return segmentTimeline.Get()->getMinAheadScaledTime(number);
 
-    return duration.Get(); /* FIXME: use stream end time */
+    uint64_t current = getCurrentLiveTemplateNumber();
+    return (current - number) * duration.Get();
 }
 
 uint64_t MediaSegmentTemplate::getSequenceNumber() const

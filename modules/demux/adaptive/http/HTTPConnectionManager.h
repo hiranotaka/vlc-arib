@@ -28,6 +28,7 @@
 #include "../logic/IDownloadRateObserver.h"
 
 #include <vlc_common.h>
+
 #include <vector>
 #include <string>
 
@@ -38,27 +39,48 @@ namespace adaptive
         class ConnectionParams;
         class ConnectionFactory;
         class AbstractConnection;
+        class AuthStorage;
         class Downloader;
+        class AbstractChunkSource;
 
-        class HTTPConnectionManager : public IDownloadRateObserver
+        class AbstractConnectionManager : public IDownloadRateObserver
         {
             public:
-                HTTPConnectionManager           (vlc_object_t *p_object, ConnectionFactory * = NULL);
+                AbstractConnectionManager(vlc_object_t *);
+                ~AbstractConnectionManager();
+                virtual void    closeAllConnections () = 0;
+                virtual AbstractConnection * getConnection(ConnectionParams &) = 0;
+                virtual void start(AbstractChunkSource *) = 0;
+                virtual void cancel(AbstractChunkSource *) = 0;
+
+                virtual void updateDownloadRate(const ID &, size_t, mtime_t); /* impl */
+                void setDownloadRateObserver(IDownloadRateObserver *);
+
+            protected:
+                vlc_object_t                                       *p_object;
+
+            private:
+                IDownloadRateObserver                              *rateObserver;
+        };
+
+        class HTTPConnectionManager : public AbstractConnectionManager
+        {
+            public:
+                HTTPConnectionManager           (vlc_object_t *p_object, ConnectionFactory *);
+                HTTPConnectionManager           (vlc_object_t *p_object, AuthStorage *);
                 virtual ~HTTPConnectionManager  ();
 
-                void    closeAllConnections ();
-                AbstractConnection * getConnection(ConnectionParams &);
+                virtual void    closeAllConnections () /* impl */;
+                virtual AbstractConnection * getConnection(ConnectionParams &) /* impl */;
 
-                virtual void updateDownloadRate(size_t, mtime_t); /* reimpl */
-                void setDownloadRateObserver(IDownloadRateObserver *);
-                Downloader *downloader;
+                virtual void start(AbstractChunkSource *) /* impl */;
+                virtual void cancel(AbstractChunkSource *) /* impl */;
 
             private:
                 void    releaseAllConnections ();
+                Downloader                                         *downloader;
                 vlc_mutex_t                                         lock;
                 std::vector<AbstractConnection *>                   connectionPool;
-                vlc_object_t                                       *p_object;
-                IDownloadRateObserver                              *rateObserver;
                 ConnectionFactory                                  *factory;
                 AbstractConnection * reuseConnection(ConnectionParams &);
         };

@@ -36,6 +36,13 @@
 
 #include <libprojectM/projectM.hpp>
 
+#ifndef _WIN32
+# include <locale.h>
+#endif
+#ifdef HAVE_XLOCALE_H
+# include <xlocale.h>
+#endif
+
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -280,7 +287,11 @@ static void *Thread( void *p_data )
     projectM::Settings settings;
 #endif
 
-    vlc_gl_MakeCurrent( gl );
+    if( vlc_gl_MakeCurrent( gl ) != VLC_SUCCESS )
+    {
+        msg_Err( p_filter, "Can't attach gl context" );
+        return NULL;
+    }
 
     /* Work-around the projectM locale bug */
     loc = newlocale (LC_NUMERIC_MASK, "C", NULL);
@@ -368,11 +379,7 @@ static void *Thread( void *p_data )
         /* */
         mwait( i_deadline );
 
-        if( !vlc_gl_Lock(gl) )
-        {
-            vlc_gl_Swap( gl );
-            vlc_gl_Unlock( gl );
-        }
+        vlc_gl_Swap( gl );
     }
 
     delete p_projectm;

@@ -40,6 +40,7 @@
 #include <vlc_demux.h>
 #include <vlc_es.h>
 #include <vlc_es_out.h>
+#include <vlc_input.h>
 
 #include "sections.h"
 #include "ts_pid.h"
@@ -70,6 +71,7 @@ ts_pat_t *ts_pat_New( demux_t *p_demux )
 
     pat->i_version  = -1;
     pat->i_ts_id    = -1;
+    pat->b_generated = false;
     ARRAY_INIT( pat->programs );
 
     return pat;
@@ -121,6 +123,7 @@ ts_pmt_t *ts_pmt_New( demux_t *p_demux )
     ARRAY_INIT( pmt->od.objects );
 
     pmt->i_last_dts = -1;
+    pmt->i_last_dts_byte = 0;
 
     pmt->p_atsc_si_basepid      = NULL;
     pmt->p_si_sdt_pid = NULL;
@@ -135,6 +138,9 @@ ts_pmt_t *ts_pmt_New( demux_t *p_demux )
 
     pmt->eit.i_event_length = 0;
     pmt->eit.i_event_start = 0;
+
+    pmt->arib.i_download_id = -1;
+    pmt->arib.i_logo_id = -1;
 
     pmt->p_ecm = NULL;
 
@@ -160,41 +166,47 @@ void ts_pmt_Del( demux_t *p_demux, ts_pmt_t *pmt )
     ARRAY_RESET( pmt->od.objects );
     if( pmt->i_number > -1 )
         es_out_Control( p_demux->out, ES_OUT_DEL_GROUP, pmt->i_number );
+
     free( pmt );
 }
 
-ts_pes_es_t * ts_pes_es_New( ts_pmt_t *p_program )
+ts_es_t * ts_es_New( ts_pmt_t *p_program )
 {
-    ts_pes_es_t *p_es = malloc( sizeof(*p_es) );
+    ts_es_t *p_es = malloc( sizeof(*p_es) );
     if( p_es )
     {
         p_es->p_program = p_program;
         p_es->id = NULL;
         p_es->i_sl_es_id = 0;
+        p_es->i_next_block_flags = 0;
         p_es->p_extraes = NULL;
         p_es->p_next = NULL;
         p_es->b_interlaced = false;
         es_format_Init( &p_es->fmt, UNKNOWN_ES, 0 );
         p_es->fmt.i_group = p_program->i_number;
+        p_es->metadata.i_format = 0;
+        p_es->metadata.i_service_id = 0;
     }
     return p_es;
 }
 
-static void ts_pes_es_Clean( demux_t *p_demux, ts_pes_es_t *p_es )
+static void ts_pes_es_Clean( demux_t *p_demux, ts_es_t *p_es )
 {
-    if( p_es && p_es->id )
+    demux_sys_t *p_sys = p_demux->p_sys;
+
+    if( p_es->id )
     {
         /* Ensure we don't wait for overlap hacks #14257 */
         es_out_Control( p_demux->out, ES_OUT_SET_ES_STATE, p_es->id, false );
         es_out_Del( p_demux->out, p_es->id );
-        p_demux->p_sys->i_pmt_es--;
+        p_sys->i_pmt_es--;
     }
     es_format_Clean( &p_es->fmt );
 }
 
-void ts_pes_Add_es( ts_pes_t *p_pes, ts_pes_es_t *p_es, bool b_extra )
+void ts_stream_Add_es( ts_stream_t *p_pes, ts_es_t *p_es, bool b_extra )
 {
-    ts_pes_es_t **pp_es = (b_extra && p_pes->p_es) ?  /* Ensure extra has main es */
+    ts_es_t **pp_es = (b_extra && p_pes->p_es) ?  /* Ensure extra has main es */
                            &p_pes->p_es->p_extraes :
                            &p_pes->p_es;
     if( likely(!*pp_es) )
@@ -203,15 +215,15 @@ void ts_pes_Add_es( ts_pes_t *p_pes, ts_pes_es_t *p_es, bool b_extra )
     }
     else
     {
-        ts_pes_es_t *p_next = (*pp_es)->p_next;
+        ts_es_t *p_next = (*pp_es)->p_next;
         (*pp_es)->p_next = p_es;
         p_es->p_next = p_next;
     }
 }
 
-ts_pes_es_t * ts_pes_Find_es( ts_pes_t *p_pes, const ts_pmt_t *p_pmt )
+ts_es_t * ts_stream_Find_es( ts_stream_t *p_pes, const ts_pmt_t *p_pmt )
 {
-    for( ts_pes_es_t *p_es = p_pes->p_es; p_es; p_es = p_es->p_next )
+    for( ts_es_t *p_es = p_pes->p_es; p_es; p_es = p_es->p_next )
     {
         if( p_es->p_program == p_pmt )
             return p_es;
@@ -219,10 +231,10 @@ ts_pes_es_t * ts_pes_Find_es( ts_pes_t *p_pes, const ts_pmt_t *p_pmt )
     return NULL;
 }
 
-ts_pes_es_t * ts_pes_Extract_es( ts_pes_t *p_pes, const ts_pmt_t *p_pmt )
+ts_es_t * ts_stream_Extract_es( ts_stream_t *p_pes, const ts_pmt_t *p_pmt )
 {
-    ts_pes_es_t **pp_prev = &p_pes->p_es;
-    for( ts_pes_es_t *p_es = p_pes->p_es; p_es; p_es = p_es->p_next )
+    ts_es_t **pp_prev = &p_pes->p_es;
+    for( ts_es_t *p_es = p_pes->p_es; p_es; p_es = p_es->p_next )
     {
         if( p_es->p_program == p_pmt )
         {
@@ -235,22 +247,22 @@ ts_pes_es_t * ts_pes_Extract_es( ts_pes_t *p_pes, const ts_pmt_t *p_pmt )
     return NULL;
 }
 
-size_t ts_pes_Count_es( const ts_pes_es_t *p_es, bool b_active, const ts_pmt_t *p_pmt )
+size_t ts_Count_es( const ts_es_t *p_es, bool b_active, const ts_pmt_t *p_pmt )
 {
     size_t i=0;
     for( ; p_es; p_es = p_es->p_next )
     {
         i += ( b_active ) ? !!p_es->id : ( ( !p_pmt || p_pmt == p_es->p_program ) ? 1 : 0 );
-        i += ts_pes_Count_es( p_es->p_extraes, b_active, p_pmt );
+        i += ts_Count_es( p_es->p_extraes, b_active, p_pmt );
     }
     return i;
 }
 
-static void ts_pes_ChainDelete_es( demux_t *p_demux, ts_pes_es_t *p_es )
+static void ts_pes_ChainDelete_es( demux_t *p_demux, ts_es_t *p_es )
 {
     while( p_es )
     {
-        ts_pes_es_t *p_next = p_es->p_next;
+        ts_es_t *p_next = p_es->p_next;
         ts_pes_ChainDelete_es( p_demux, p_es->p_extraes );
         ts_pes_es_Clean( p_demux, p_es );
         free( p_es );
@@ -258,14 +270,14 @@ static void ts_pes_ChainDelete_es( demux_t *p_demux, ts_pes_es_t *p_es )
     }
 }
 
-ts_pes_t *ts_pes_New( demux_t *p_demux, ts_pmt_t *p_program )
+ts_stream_t *ts_stream_New( demux_t *p_demux, ts_pmt_t *p_program )
 {
     VLC_UNUSED(p_demux);
-    ts_pes_t *pes = malloc( sizeof( ts_pes_t ) );
+    ts_stream_t *pes = malloc( sizeof( ts_stream_t ) );
     if( !pes )
         return NULL;
 
-    pes->p_es = ts_pes_es_New( p_program );
+    pes->p_es = ts_es_New( p_program );
     if( !pes->p_es )
     {
         free( pes );
@@ -273,31 +285,36 @@ ts_pes_t *ts_pes_New( demux_t *p_demux, ts_pmt_t *p_program )
     }
     pes->i_stream_type = 0;
     pes->transport = TS_TRANSPORT_PES;
-    pes->i_data_size = 0;
-    pes->i_data_gathered = 0;
-    pes->p_data = NULL;
-    pes->pp_last = &pes->p_data;
+    pes->gather.i_data_size = 0;
+    pes->gather.i_gathered = 0;
+    pes->gather.p_data = NULL;
+    pes->gather.pp_last = &pes->gather.p_data;
+    pes->gather.i_saved = 0;
+    pes->b_broken_PUSI_conformance = false;
     pes->b_always_receive = false;
     pes->p_sections_proc = NULL;
-    pes->p_prepcr_outqueue = NULL;
-    pes->sl.p_data = NULL;
-    pes->sl.pp_last = &pes->sl.p_data;
+    pes->p_proc = NULL;
+    pes->prepcr.p_head = NULL;
+    pes->prepcr.pp_last = &pes->prepcr.p_head;
 
     return pes;
 }
 
-void ts_pes_Del( demux_t *p_demux, ts_pes_t *pes )
+void ts_stream_Del( demux_t *p_demux, ts_stream_t *pes )
 {
     ts_pes_ChainDelete_es( p_demux, pes->p_es );
 
-    if( pes->p_data )
-        block_ChainRelease( pes->p_data );
+    if( pes->gather.p_data )
+        block_ChainRelease( pes->gather.p_data );
 
     if( pes->p_sections_proc )
         ts_sections_processor_ChainDelete( pes->p_sections_proc );
 
-    if( pes->p_prepcr_outqueue )
-        block_ChainRelease( pes->p_prepcr_outqueue );
+    if( pes->p_proc )
+        ts_stream_processor_Delete( pes->p_proc );
+
+    if( pes->prepcr.p_head )
+        block_ChainRelease( pes->prepcr.p_head );
 
     free( pes );
 }
@@ -317,6 +334,7 @@ ts_si_t *ts_si_New( demux_t *p_demux )
     si->i_version  = -1;
     si->eitpid = NULL;
     si->tdtpid = NULL;
+    si->cdtpid = NULL;
 
     return si;
 }
@@ -330,6 +348,8 @@ void ts_si_Del( demux_t *p_demux, ts_si_t *si )
         PIDRelease( p_demux, si->eitpid );
     if( si->tdtpid )
         PIDRelease( p_demux, si->tdtpid );
+    if( si->cdtpid )
+        PIDRelease( p_demux, si->cdtpid );
     free( si );
 }
 

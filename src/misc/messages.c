@@ -45,7 +45,7 @@
 
 struct vlc_logger_t
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
     vlc_rwlock_t lock;
     vlc_log_cb log;
     void *sys;
@@ -145,7 +145,7 @@ void vlc_vaLog (vlc_object_t *obj, int type, const char *module,
  * \param obj VLC object emitting the message or NULL
  * \param type VLC_MSG_* message type (info, error, warning or debug)
  * \param module name of module from which the message come
- *               (normally MODULE_STRING)
+ *               (normally vlc_module_name)
  * \param file source module file name (normally __FILE__) or NULL
  * \param line function call source line number (normally __LINE__) or 0
  * \param func calling function name (normally __func__) or NULL
@@ -410,7 +410,7 @@ void vlc_LogSet(libvlc_int_t *vlc, vlc_log_cb cb, void *opaque)
     vlc_rwlock_unlock(&logger->lock);
 
     if (module != NULL)
-        vlc_module_unload(module, vlc_logger_unload, sys);
+        vlc_module_unload(vlc, module, vlc_logger_unload, sys);
 
     /* Announce who we are */
     msg_Dbg (vlc, "VLC media player - %s", VERSION_MESSAGE);
@@ -427,7 +427,7 @@ void vlc_LogDeinit(libvlc_int_t *vlc)
         return;
 
     if (logger->module != NULL)
-        vlc_module_unload(logger->module, vlc_logger_unload, logger->sys);
+        vlc_module_unload(vlc, logger->module, vlc_logger_unload, logger->sys);
     else
     /* Flush early log messages (corner case: no call to vlc_LogInit()) */
     if (logger->log == vlc_vaLogEarly)

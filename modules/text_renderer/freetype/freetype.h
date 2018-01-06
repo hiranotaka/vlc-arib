@@ -137,6 +137,10 @@ struct filter_sys_t
      */
     vlc_family_t * (*pf_get_fallbacks) ( filter_t *p_filter, const char *psz_family,
                                          uni_char_t codepoint );
+
+#if defined( _WIN32 )
+    void *p_dw_sys;
+#endif
 };
 
 /**
@@ -148,5 +152,22 @@ struct filter_sys_t
  */
 FT_Face SelectAndLoadFace( filter_t *p_filter, const text_style_t *p_style,
                            uni_char_t codepoint );
+
+static inline void BBoxInit( FT_BBox *p_box )
+{
+    p_box->xMin = INT_MAX;
+    p_box->yMin = INT_MAX;
+    p_box->xMax = INT_MIN;
+    p_box->yMax = INT_MIN;
+}
+
+static inline void BBoxEnlarge( FT_BBox *p_max, const FT_BBox *p )
+{
+    p_max->xMin = __MIN(p_max->xMin, p->xMin);
+    p_max->yMin = __MIN(p_max->yMin, p->yMin);
+    p_max->xMax = __MAX(p_max->xMax, p->xMax);
+    p_max->yMax = __MAX(p_max->yMax, p->yMax);
+}
+
 
 #endif

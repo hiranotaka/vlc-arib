@@ -220,7 +220,7 @@ void FileOpenPanel::dropEvent( QDropEvent *event )
 
 void FileOpenPanel::browseFile()
 {
-    QStringList files = QFileDialog::getOpenFileNames( this, qtr( "Select one or multiple files" ), p_intf->p_sys->filepath) ;
+    QStringList files = THEDP->showSimpleOpen( qtr( "Select one or multiple files" ) );
     foreach( const QString &file, files )
     {
         QListWidgetItem *item =
@@ -249,12 +249,18 @@ void FileOpenPanel::removeFile()
 /* Show a fileBrowser to select a subtitle */
 void FileOpenPanel::browseFileSub()
 {
-    // TODO Handle selection of more than one subtitles file
-    QStringList files = THEDP->showSimpleOpen( qtr("Open subtitle file"),
+    QStringList urls = THEDP->showSimpleOpen( qtr("Open subtitle file"),
                            EXT_FILTER_SUBTITLE, p_intf->p_sys->filepath );
 
-    if( files.isEmpty() ) return;
-    ui.subInput->setText( toNativeSeparators( files.join(" ") ) );
+    if( urls.isEmpty() ) return;
+
+    // TODO Handle selection of more than one subtitles file
+    char *path = vlc_uri2path( qtu(urls[0]) );
+    if( path == NULL )
+        return;
+
+    ui.subInput->setText( qfu(path) );
+    free( path );
     updateMRL();
 }
 
@@ -273,9 +279,9 @@ void FileOpenPanel::updateMRL()
         }
     else
     {
-        fileList = dialogBox->selectedFiles();
-        for( int i = 0; i < fileList.count(); i++ )
-            fileList[i] = toURI( fileList[i] );
+        QList<QUrl> urls = dialogBox->selectedUrls();
+        foreach( const QUrl &url, urls )
+            fileList.append( url.toEncoded() );
     }
 
     /* Options */
@@ -374,11 +380,12 @@ void DiscOpenPanel::onFocus()
 {
     ui.deviceCombo->clear();
     wchar_t szDrives[512];
-    szDrives[0] = '\0';
-    if( GetLogicalDriveStringsW( sizeof( szDrives ) - 1, szDrives ) )
+    szDrives[0] = L'\0';
+    if( GetLogicalDriveStringsW( sizeof( szDrives ) / sizeof( *szDrives ) - 1, szDrives ) )
     {
         wchar_t *drive = szDrives;
-        UINT oldMode = SetErrorMode( SEM_FAILCRITICALERRORS );
+        DWORD oldMode;
+        SetThreadErrorMode( SEM_FAILCRITICALERRORS, &oldMode );
         while( *drive )
         {
             if( GetDriveTypeW(drive) == DRIVE_CDROM )
@@ -401,7 +408,7 @@ void DiscOpenPanel::onFocus()
             /* go to next drive */
             while( *(drive++) );
         }
-        SetErrorMode(oldMode);
+        SetThreadErrorMode(oldMode, NULL);
     }
 
     char *psz_config = config_GetPsz( p_intf, "dvd" );
@@ -770,14 +777,13 @@ void CaptureOpenPanel::initialize()
 
     /* dshow Main */
     int line = 0;
-    module_config_t *p_config =
-        config_FindConfig( VLC_OBJECT(p_intf), "dshow-vdev" );
+    module_config_t *p_config = config_FindConfig( "dshow-vdev" );
     vdevDshowW = new StringListConfigControl(
         VLC_OBJECT(p_intf), p_config, this );
     vdevDshowW->insertIntoExistingGrid( dshowDevLayout, line );
     line++;
 
-    p_config = config_FindConfig( VLC_OBJECT(p_intf), "dshow-adev" );
+    p_config = config_FindConfig( "dshow-adev" );
     adevDshowW = new StringListConfigControl(
         VLC_OBJECT(p_intf), p_config, this );
     adevDshowW->insertIntoExistingGrid( dshowDevLayout, line );

@@ -25,10 +25,9 @@
 #include "avcommon.h"
 
 /* VLC <-> avcodec tables */
-int GetFfmpegCodec( vlc_fourcc_t i_fourcc, int *pi_cat,
-                    unsigned *pi_ffmpeg_codec, const char **ppsz_name );
-int GetVlcFourcc( unsigned i_ffmpeg_codec, int *pi_cat,
-                  vlc_fourcc_t *pi_fourcc, const char **ppsz_name );
+bool GetFfmpegCodec( enum es_format_category_e cat, vlc_fourcc_t i_fourcc,
+                     unsigned *pi_ffmpeg_codec, const char **ppsz_name );
+vlc_fourcc_t GetVlcFourcc( unsigned i_ffmpeg_codec );
 vlc_fourcc_t GetVlcAudioFormat( int i_sample_fmt );
 
 /* Video encoder module */
@@ -36,24 +35,29 @@ int  OpenEncoder ( vlc_object_t * );
 void CloseEncoder( vlc_object_t * );
 
 /* Video Decoder */
-int InitVideoDec( decoder_t *, AVCodecContext *, const AVCodec * );
-void EndVideoDec( decoder_t *p_dec );
+int InitVideoDec( vlc_object_t * );
+void EndVideoDec( vlc_object_t * );
 
 /* Audio Decoder */
-int InitAudioDec( decoder_t *, AVCodecContext *, const AVCodec * );
+int InitAudioDec( vlc_object_t * );
+void EndAudioDec( vlc_object_t * );
 
 /* Subtitle Decoder */
-int InitSubtitleDec( decoder_t *, AVCodecContext *, const AVCodec * );
+int InitSubtitleDec( vlc_object_t * );
+void EndSubtitleDec( vlc_object_t * );
 
 /* Initialize decoder */
-int ffmpeg_OpenCodec( decoder_t *p_dec );
-void ffmpeg_CloseCodec( decoder_t *p_dec );
+AVCodecContext *ffmpeg_AllocContext( decoder_t *, const AVCodec ** );
+int ffmpeg_OpenCodec( decoder_t *p_dec, AVCodecContext *, const AVCodec * );
 
 /*****************************************************************************
  * Module descriptor help strings
  *****************************************************************************/
 #define DR_TEXT N_("Direct rendering")
 /* FIXME Does somebody who knows what it does, explain */
+
+#define CORRUPTED_TEXT N_("Show corrupted frames")
+#define CORRUPTED_LONGTEXT N_("Prefer visual artifacts instead of missing frames")
 
 #define ERROR_TEXT N_("Error resilience")
 #define ERROR_LONGTEXT N_( \
@@ -108,9 +112,6 @@ void ffmpeg_CloseCodec( decoder_t *p_dec );
 
 #define HW_TEXT N_("Hardware decoding")
 #define HW_LONGTEXT N_("This allows hardware decoding when available.")
-
-#define VDA_PIX_FMT_TEXT N_("VDA output pixel format")
-#define VDA_PIX_FMT_LONGTEXT N_("The pixel format for output image buffers.")
 
 #define THREADS_TEXT N_( "Threads" )
 #define THREADS_LONGTEXT N_( "Number of threads used for decoding, 0 meaning auto" )
@@ -232,16 +233,7 @@ void ffmpeg_CloseCodec( decoder_t *p_dec );
    "main, low, ssr (not supported),ltp, hev1, hev2 (default: low). " \
    "hev1 and hev2 are currently supported only with libfdk-aac enabled libavcodec" )
 
-#define AVCODEC_COMMON_MEMBERS   \
-    AVCodecContext *p_context;  \
-    const AVCodec  *p_codec;    \
-    bool b_delayed_open;
-
 #ifndef AV_VERSION_INT
 #   define AV_VERSION_INT(a, b, c) ((a)<<16 | (b)<<8 | (c))
-#endif
-
-#if defined(FF_THREAD_FRAME)
-#   define HAVE_AVCODEC_MT
 #endif
 

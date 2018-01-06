@@ -49,4 +49,7 @@ void luaopen_equalizer( lua_State *L );
 void luaopen_win( lua_State *L );
 #endif
 
+int vlclua_url_parse( lua_State *L );
+int vlclua_input_item_get( lua_State *L, input_item_t *p_item );
+
 #endif

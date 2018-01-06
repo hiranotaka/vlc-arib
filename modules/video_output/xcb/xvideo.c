@@ -72,7 +72,7 @@ vlc_module_begin ()
     add_integer ("xvideo-format-id", 0,
                  FORMAT_TEXT, FORMAT_LONGTEXT, true)
     add_obsolete_bool ("xvideo-shm") /* removed in 2.0.0 */
-    add_shortcut ("xcb-xv", "xv", "xvideo", "xid")
+    add_shortcut ("xcb-xv", "xv", "xvideo")
 vlc_module_end ()
 
 #define MAX_PICTURES (128)
@@ -82,7 +82,6 @@ struct vout_display_sys_t
     xcb_connection_t *conn;
     vout_window_t *embed;/* VLC window */
 
-    xcb_cursor_t cursor; /* blank cursor */
     xcb_window_t window; /* drawable X window */
     xcb_gcontext_t gc;   /* context to put images */
     xcb_xv_port_t port;  /* XVideo port */
@@ -101,7 +100,6 @@ struct vout_display_sys_t
 static picture_pool_t *Pool (vout_display_t *, unsigned);
 static void Display (vout_display_t *, picture_t *, subpicture_t *subpicture);
 static int Control (vout_display_t *, int, va_list);
-static void Manage (vout_display_t *);
 
 /**
  * Check that the X server supports the XVideo extension.
@@ -371,7 +369,7 @@ static int Open (vlc_object_t *obj)
     /* Connect to X */
     xcb_connection_t *conn;
     const xcb_screen_t *screen;
-    p_sys->embed = XCB_parent_Create (vd, &conn, &screen);
+    p_sys->embed = vlc_xcb_parent_Create(vd, &conn, &screen);
     if (p_sys->embed == NULL)
     {
         free (p_sys);
@@ -495,7 +493,7 @@ static int Open (vlc_object_t *obj)
                  f->visual, mask, list);
             xcb_map_window (conn, p_sys->window);
 
-            if (!XCB_error_Check (vd, conn, "cannot create X11 window", c))
+            if (!vlc_xcb_error_Check(vd, conn, "cannot create X11 window", c))
             {
                 msg_Dbg (vd, "using X11 visual ID 0x%"PRIx32
                          " (depth: %"PRIu8")", f->visual, f->depth);
@@ -549,16 +547,12 @@ static int Open (vlc_object_t *obj)
         free(r);
     }
 
-    /* Create cursor */
-    p_sys->cursor = XCB_cursor_Create (conn, screen);
-
     p_sys->shm = XCB_shm_Check (obj, conn);
     p_sys->visible = false;
 
     /* */
     vout_display_info_t info = vd->info;
     info.has_pictures_invalid = false;
-    info.has_event_thread = true;
 
     /* Setup vout_display_t once everything is fine */
     p_sys->swap_uv = vlc_fourcc_AreUVPlanesSwapped (fmt.i_chroma,
@@ -572,7 +566,6 @@ static int Open (vlc_object_t *obj)
     vd->prepare = NULL;
     vd->display = Display;
     vd->control = Control;
-    vd->manage = Manage;
 
     return VLC_SUCCESS;
 
@@ -592,11 +585,6 @@ static void Close (vlc_object_t *obj)
 
     if (p_sys->pool)
         picture_pool_Release (p_sys->pool);
-
-    /* show the default cursor */
-    xcb_change_window_attributes (p_sys->conn, p_sys->embed->handle.xid, XCB_CW_CURSOR,
-                                  &(uint32_t) { XCB_CURSOR_NONE });
-    xcb_flush (p_sys->conn);
 
     free (p_sys->att);
     xcb_disconnect (p_sys->conn);
@@ -640,11 +628,8 @@ static void PoolAlloc (vout_display_t *vd, unsigned requested_count)
             res.p[i].p_pixels = res.p[0].p_pixels + offsets[i];
 
         if (p_sys->swap_uv)
-        {   /* YVU: swap U and V planes */
-            uint8_t *buf = res.p[2].p_pixels;
-            res.p[2].p_pixels = res.p[1].p_pixels;
-            res.p[1].p_pixels = buf;
-        }
+            /* YVU: swap U and V planes */
+            plane_SwapUV( res.p );
 
         pic_array[count] = XCB_picture_NewFromResource (&vd->fmt, &res,
                                                         p_sys->conn);
@@ -684,6 +669,8 @@ static void Display (vout_display_t *vd, picture_t *pic, subpicture_t *subpictur
     xcb_shm_seg_t segment = XCB_picture_GetSegment(pic);
     xcb_void_cookie_t ck;
     video_format_t fmt;
+
+    vlc_xcb_Manage(vd, p_sys->conn, &p_sys->visible);
 
     if (!p_sys->visible)
         goto out;
@@ -733,22 +720,19 @@ static int Control (vout_display_t *vd, int query, va_list ap)
     case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
     {
         const vout_display_cfg_t *cfg;
-        const video_format_t *source;
 
         if (query == VOUT_DISPLAY_CHANGE_SOURCE_ASPECT
          || query == VOUT_DISPLAY_CHANGE_SOURCE_CROP)
         {
-            source = (const video_format_t *)va_arg (ap, const video_format_t *);
             cfg = vd->cfg;
         }
         else
         {
-            source = &vd->source;
-            cfg = (const vout_display_cfg_t*)va_arg (ap, const vout_display_cfg_t *);
+            cfg = va_arg(ap, const vout_display_cfg_t *);
         }
 
         vout_display_place_t place;
-        vout_display_PlacePicture (&place, source, cfg, false);
+        vout_display_PlacePicture (&place, &vd->source, cfg, false);
         p_sys->width  = place.width;
         p_sys->height = place.height;
 
@@ -763,26 +747,12 @@ static int Control (vout_display_t *vd, int query, va_list ap)
         return VLC_SUCCESS;
     }
 
-    /* Hide the mouse. It will be send when
-     * vout_display_t::info.b_hide_mouse is false */
-    case VOUT_DISPLAY_HIDE_MOUSE:
-        xcb_change_window_attributes (p_sys->conn, p_sys->embed->handle.xid,
-                                  XCB_CW_CURSOR, &(uint32_t){ p_sys->cursor });
-        xcb_flush (p_sys->conn);
-        return VLC_SUCCESS;
     case VOUT_DISPLAY_RESET_PICTURES:
         vlc_assert_unreachable();
     default:
         msg_Err (vd, "Unknown request in XCB vout display");
         return VLC_EGENERIC;
     }
-}
-
-static void Manage (vout_display_t *vd)
-{
-    vout_display_sys_t *p_sys = vd->sys;
-
-    XCB_Manage (vd, p_sys->conn, &p_sys->visible);
 }
 
 static int EnumAdaptors (vlc_object_t *obj, const char *var,

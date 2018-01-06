@@ -1,6 +1,6 @@
 # LIBBLURAY
 
-BLURAY_VERSION := 0.9.3
+BLURAY_VERSION := 1.0.2
 BLURAY_URL := $(VIDEOLAN)/libbluray/$(BLURAY_VERSION)/libbluray-$(BLURAY_VERSION).tar.bz2
 
 ifdef BUILD_DISCS
@@ -13,7 +13,7 @@ endif
 ifdef HAVE_ANDROID
 WITH_FONTCONFIG = 0
 else
-ifdef HAVE_IOS
+ifdef HAVE_DARWIN_OS
 WITH_FONTCONFIG = 0
 else
 ifdef HAVE_WIN32
@@ -37,6 +37,10 @@ else
 BLURAY_CONF += --without-fontconfig
 endif
 
+ifndef WITH_OPTIMIZATION
+BLURAY_CONF += --disable-optimizations
+endif
+
 $(TARBALLS)/libbluray-$(BLURAY_VERSION).tar.bz2:
 	$(call download,$(BLURAY_URL))
 
@@ -44,6 +48,7 @@ $(TARBALLS)/libbluray-$(BLURAY_VERSION).tar.bz2:
 
 bluray: libbluray-$(BLURAY_VERSION).tar.bz2 .sum-bluray
 	$(UNPACK)
+	$(call pkg_static,"src/libbluray.pc.in")
 	$(MOVE)
 
 .bluray: bluray

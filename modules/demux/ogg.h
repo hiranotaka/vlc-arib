@@ -183,7 +183,6 @@ struct demux_sys_t
      * the sub-streams */
     mtime_t i_pcr;
     mtime_t i_nzpcr_offset;
-    mtime_t i_nzlast_pts;
     /* informative only */
     mtime_t i_pcr_jitter;
     int64_t i_access_delay;
@@ -212,6 +211,7 @@ struct demux_sys_t
 
     /* */
     vlc_meta_t          *p_meta;
+    int                 cur_seekpoint;
     int                 i_seekpoints;
     seekpoint_t         **pp_seekpoints;
 
@@ -232,6 +232,8 @@ struct demux_sys_t
 
     /* Length, if available. */
     int64_t i_length;
+
+    bool b_slave;
 
 };
 

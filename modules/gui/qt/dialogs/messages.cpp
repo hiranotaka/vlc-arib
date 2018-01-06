@@ -98,7 +98,7 @@ MessagesDialog::MessagesDialog( intf_thread_t *_p_intf)
     ui.filterEdit->setText( getSettings()->value( "messages-filter" ).toString() );
     getSettings()->endGroup();
 
-    updateButton = new QPushButton( QIcon(":/update"), "" );
+    updateButton = new QPushButton( QIcon(":/update.svg"), "" );
     updateButton->setFlat( true );
     ui.mainTab->setCornerWidget( updateButton );
 
@@ -258,7 +258,7 @@ bool MessagesDialog::save()
     QString saveLogFileName = QFileDialog::getSaveFileName(
             this, qtr( "Save log file as..." ),
             QVLCUserDir( VLC_DOCUMENTS_DIR ),
-            qtr( "Texts / Logs (*.log *.txt);; All (*.*) ") );
+            qtr( "Texts/Logs (*.log *.txt);; All (*.*)") );
 
     if( !saveLogFileName.isNull() )
     {
@@ -330,7 +330,7 @@ void MessagesDialog::updateOrClear()
 
 void MessagesDialog::tabChanged( int i )
 {
-    updateButton->setIcon( i != 0 ? QIcon(":/update") : QIcon(":/toolbar/clear") );
+    updateButton->setIcon( i != 0 ? QIcon(":/update.svg") : QIcon(":/toolbar/clear.svg") );
     updateButton->setToolTip( i != 0 ? qtr("Update the tree")
                                      : qtr("Clear the messages") );
 }
@@ -340,11 +340,7 @@ void MessagesDialog::MsgCallback( void *self, int type, const vlc_log_t *item,
 {
     MessagesDialog *dialog = (MessagesDialog *)self;
     char *str;
-#if HAS_QT5
     int verbosity = dialog->verbosity.load();
-#else
-    int verbosity = dialog->verbosity;
-#endif
 
     if( verbosity < 0 || verbosity < (type - VLC_MSG_ERR)
      || unlikely(vasprintf( &str, format, ap ) == -1) )
@@ -360,12 +356,15 @@ void MessagesDialog::MsgCallback( void *self, int type, const vlc_log_t *item,
 static QTreeWidgetItem * PLWalk( playlist_item_t *p_node )
 {
     QTreeWidgetItem *current = new QTreeWidgetItem();
-    current->setText( 0, qfu( p_node->p_input->psz_name ) );
-    current->setToolTip( 0, qfu( p_node->p_input->psz_uri ) );
-    current->setText( 1, QString("%1").arg( p_node->i_id ) );
-    current->setText( 2, QString("%1").arg( p_node->p_input->i_id ) );
-    current->setText( 3, QString("0x%1").arg( p_node->i_flags, 0, 16 ) );
-    current->setText( 4, QString("0x%1").arg(  p_node->p_input->i_type, 0, 16 ) );
+    if(p_node->p_input)
+    {
+        current->setText( 0, qfu( p_node->p_input->psz_name ) );
+        current->setToolTip( 0, qfu( p_node->p_input->psz_uri ) );
+        current->setText( 1, QString("%1").arg( p_node->i_id ) );
+        current->setText( 2, QString("%1").arg( (uintptr_t)p_node->p_input ) );
+        current->setText( 3, QString("0x%1").arg( p_node->i_flags, 0, 16 ) );
+        current->setText( 4, QString("0x%1").arg(  p_node->p_input->i_type, 0, 16 ) );
+    }
     for ( int i = 0; p_node->i_children > 0 && i < p_node->i_children; i++ )
         current->addChild( PLWalk( p_node->pp_children[ i ] ) );
     return current;
@@ -375,9 +374,12 @@ void MessagesDialog::updatePLTree()
 {
     playlist_t *p_playlist = THEPL;
     pldebugTree->clear();
-    PL_LOCK;
-    pldebugTree->addTopLevelItem( PLWalk( p_playlist->p_root_category ) );
-    PL_UNLOCK;
+
+    {
+        vlc_playlist_locker pl_lock ( THEPL );
+        pldebugTree->addTopLevelItem( PLWalk( &p_playlist->root ) );
+    }
+
     pldebugTree->expandAll();
     for ( int i=0; i< 5; i++ )
         pldebugTree->resizeColumnToContents( i );

@@ -36,18 +36,22 @@
 #include <vlc_interface.h>
 #include <vlc_input.h>
 #include <vlc_aout.h>
-#include <vlc_vout.h>
+#include <vlc_viewpoint.h>
 #include <vlc_vout_osd.h>
 #include <vlc_playlist.h>
-#include <vlc_keys.h>
+#include <vlc_actions.h>
 #include "math.h"
+
+#include <assert.h>
 
 /*****************************************************************************
  * intf_sys_t: description and status of FB interface
  *****************************************************************************/
 struct intf_sys_t
 {
-    vout_thread_t      *p_last_vout;
+    vlc_mutex_t         lock;
+    vout_thread_t      *p_vout;
+    input_thread_t     *p_input;
     int slider_chan;
 
     /*subtitle_delaybookmarks: placeholder for storing subtitle sync timestamps*/
@@ -56,6 +60,13 @@ struct intf_sys_t
         int64_t i_time_subtitle;
         int64_t i_time_audio;
     } subtitle_delaybookmarks;
+
+    struct
+    {
+        bool b_can_change;
+        bool b_button_pressed;
+        int x, y;
+    } vrnav;
 };
 
 /*****************************************************************************
@@ -67,19 +78,19 @@ static int  ActionEvent( vlc_object_t *, char const *,
                          vlc_value_t, vlc_value_t, void * );
 static void PlayBookmark( intf_thread_t *, int );
 static void SetBookmark ( intf_thread_t *, int );
-static void DisplayPosition( intf_thread_t *, vout_thread_t *, input_thread_t * );
-static void DisplayVolume( intf_thread_t *, vout_thread_t *, float );
+static void DisplayPosition( vout_thread_t *, int,  input_thread_t * );
+static void DisplayVolume( vout_thread_t *, int, float );
 static void DisplayRate ( vout_thread_t *, float );
 static float AdjustRateFine( vlc_object_t *, const int );
-static void ClearChannels  ( intf_thread_t *, vout_thread_t * );
+static void ClearChannels  ( vout_thread_t *, int );
 
 #define DisplayMessage(vout, ...) \
     do { \
         if (vout) \
-            vout_OSDMessage(vout, SPU_DEFAULT_CHANNEL, __VA_ARGS__); \
+            vout_OSDMessage(vout, VOUT_SPU_CHANNEL_OSD, __VA_ARGS__); \
     } while(0)
 #define DisplayIcon(vout, icon) \
-    do { if(vout) vout_OSDIcon(vout, SPU_DEFAULT_CHANNEL, icon); } while(0)
+    do { if(vout) vout_OSDIcon(vout, VOUT_SPU_CHANNEL_OSD, icon); } while(0)
 
 /*****************************************************************************
  * Module descriptor
@@ -95,6 +106,193 @@ vlc_module_begin ()
 
 vlc_module_end ()
 
+static int MovedEvent( vlc_object_t *p_this, char const *psz_var,
+                       vlc_value_t oldval, vlc_value_t newval, void *p_data )
+{
+    intf_thread_t *p_intf = (intf_thread_t *)p_data;
+    intf_sys_t    *p_sys = p_intf->p_sys;
+
+    (void) p_this; (void) psz_var; (void) oldval;
+
+    if( p_sys->vrnav.b_button_pressed )
+    {
+        int i_horizontal = newval.coords.x - p_sys->vrnav.x;
+        int i_vertical   = newval.coords.y - p_sys->vrnav.y;
+
+        vlc_viewpoint_t viewpoint = {
+            .yaw   = -i_horizontal * 0.05f,
+            .pitch = -i_vertical   * 0.05f,
+        };
+
+        input_UpdateViewpoint( p_sys->p_input, &viewpoint, false );
+
+        p_sys->vrnav.x = newval.coords.x;
+        p_sys->vrnav.y = newval.coords.y;
+    }
+
+    return VLC_SUCCESS;
+}
+
+static int ViewpointMovedEvent( vlc_object_t *p_this, char const *psz_var,
+                                vlc_value_t oldval, vlc_value_t newval,
+                                void *p_data )
+{
+    intf_thread_t *p_intf = (intf_thread_t *)p_data;
+    intf_sys_t    *p_sys = p_intf->p_sys;
+
+    (void) p_this; (void) psz_var; (void) oldval;
+
+    input_UpdateViewpoint( p_sys->p_input, newval.p_address, false );
+
+    return VLC_SUCCESS;
+}
+
+static int ButtonEvent( vlc_object_t *p_this, char const *psz_var,
+                        vlc_value_t oldval, vlc_value_t newval, void *p_data )
+{
+    intf_thread_t *p_intf = p_data;
+    intf_sys_t *p_sys = p_intf->p_sys;
+
+    (void) psz_var; (void) oldval;
+
+    if( newval.i_int & 0x01 )
+    {
+        if( !p_sys->vrnav.b_button_pressed )
+        {
+            p_sys->vrnav.b_button_pressed = true;
+            var_GetCoords( p_this, "mouse-moved",
+                           &p_sys->vrnav.x, &p_sys->vrnav.y );
+        }
+    }
+    else
+        p_sys->vrnav.b_button_pressed = false;
+
+    return VLC_SUCCESS;
+}
+
+static void ChangeVout( intf_thread_t *p_intf, vout_thread_t *p_vout )
+{
+    intf_sys_t *p_sys = p_intf->p_sys;
+
+    int slider_chan;
+    bool b_vrnav_can_change;
+    if( p_vout != NULL )
+    {
+        slider_chan = vout_RegisterSubpictureChannel( p_vout );
+        b_vrnav_can_change = var_GetBool( p_vout, "viewpoint-changeable" );
+    }
+
+    vlc_mutex_lock( &p_sys->lock );
+    vout_thread_t *p_old_vout = p_sys->p_vout;
+    bool b_vrnav_could_change = p_sys->vrnav.b_can_change;
+    p_sys->p_vout = p_vout;
+    if( p_vout != NULL )
+    {
+        p_sys->slider_chan = slider_chan;
+        p_sys->vrnav.b_can_change = b_vrnav_can_change;
+    }
+    else
+        p_sys->vrnav.b_can_change = false;
+    vlc_mutex_unlock( &p_sys->lock );
+
+    if( p_old_vout != NULL )
+    {
+        if( b_vrnav_could_change )
+        {
+            var_DelCallback( p_old_vout, "mouse-moved", MovedEvent,
+                             p_intf );
+            var_DelCallback( p_old_vout, "mouse-button-down", ButtonEvent,
+                             p_intf );
+            var_DelCallback( p_old_vout, "viewpoint-moved", ViewpointMovedEvent,
+                             p_intf );
+        }
+        vlc_object_release( p_old_vout );
+    }
+
+    if( p_sys->vrnav.b_can_change )
+    {
+        assert( p_sys->p_vout != NULL );
+        var_AddCallback( p_sys->p_vout, "mouse-moved", MovedEvent,
+                         p_intf );
+        var_AddCallback( p_sys->p_vout, "mouse-button-down", ButtonEvent,
+                         p_intf );
+        var_AddCallback( p_sys->p_vout, "viewpoint-moved", ViewpointMovedEvent,
+                         p_intf );
+    }
+}
+
+static int InputEvent( vlc_object_t *p_this, char const *psz_var,
+                       vlc_value_t oldval, vlc_value_t val, void *p_data )
+{
+    input_thread_t *p_input = (input_thread_t *)p_this;
+    intf_thread_t *p_intf = p_data;
+
+    (void) psz_var; (void) oldval;
+
+    if( val.i_int == INPUT_EVENT_VOUT )
+        ChangeVout( p_intf, input_GetVout( p_input ) );
+
+    return VLC_SUCCESS;
+}
+
+static void ChangeInput( intf_thread_t *p_intf, input_thread_t *p_input )
+{
+    intf_sys_t *p_sys = p_intf->p_sys;
+
+    input_thread_t *p_old_input = p_sys->p_input;
+    vout_thread_t *p_old_vout = NULL;
+    if( p_old_input != NULL )
+    {
+        /* First, remove callbacks from previous input. It's safe to access it
+         * unlocked, since it's written from this thread */
+        var_DelCallback( p_old_input, "intf-event", InputEvent, p_intf );
+
+        p_old_vout = p_sys->p_vout;
+        /* Remove mouse events before setting new input, since callbacks may
+         * access it */
+        if( p_old_vout != NULL && p_sys->vrnav.b_can_change )
+        {
+            var_DelCallback( p_old_vout, "mouse-moved", MovedEvent,
+                             p_intf );
+            var_DelCallback( p_old_vout, "mouse-button-down", ButtonEvent,
+                             p_intf );
+            var_DelCallback( p_old_vout, "viewpoint-moved", ViewpointMovedEvent,
+                             p_intf );
+        }
+    }
+
+    /* Replace input and vout locked */
+    vlc_mutex_lock( &p_sys->lock );
+    p_sys->p_input = p_input ? vlc_object_hold( p_input ) : NULL;
+    p_sys->p_vout = NULL;
+    p_sys->vrnav.b_can_change = false;
+    vlc_mutex_unlock( &p_sys->lock );
+
+    /* Release old input and vout objects unlocked */
+    if( p_old_input != NULL )
+    {
+        if( p_old_vout != NULL )
+            vlc_object_release( p_old_vout );
+        vlc_object_release( p_old_input );
+    }
+
+    /* Register input events */
+    if( p_input != NULL )
+        var_AddCallback( p_input, "intf-event", InputEvent, p_intf );
+}
+
+static int PlaylistEvent( vlc_object_t *p_this, char const *psz_var,
+                          vlc_value_t oldval, vlc_value_t val, void *p_data )
+{
+    intf_thread_t *p_intf = p_data;
+
+    (void) p_this; (void) psz_var; (void) oldval;
+
+    ChangeInput( p_intf, val.p_address );
+
+    return VLC_SUCCESS;
+}
+
 /*****************************************************************************
  * Open: initialize interface
  *****************************************************************************/
@@ -108,11 +306,19 @@ static int Open( vlc_object_t *p_this )
 
     p_intf->p_sys = p_sys;
 
-    p_sys->p_last_vout = NULL;
+    p_sys->p_vout = NULL;
+    p_sys->p_input = NULL;
+    p_sys->vrnav.b_can_change = false;
+    p_sys->vrnav.b_button_pressed = false;
     p_sys->subtitle_delaybookmarks.i_time_audio = 0;
     p_sys->subtitle_delaybookmarks.i_time_subtitle = 0;
 
+    vlc_mutex_init( &p_sys->lock );
+
     var_AddCallback( p_intf->obj.libvlc, "key-action", ActionEvent, p_intf );
+
+    var_AddCallback( pl_Get(p_intf), "input-current", PlaylistEvent, p_intf );
+
     return VLC_SUCCESS;
 }
 
@@ -124,30 +330,25 @@ static void Close( vlc_object_t *p_this )
     intf_thread_t *p_intf = (intf_thread_t *)p_this;
     intf_sys_t *p_sys = p_intf->p_sys;
 
+    var_DelCallback( pl_Get(p_intf), "input-current", PlaylistEvent, p_intf );
+
     var_DelCallback( p_intf->obj.libvlc, "key-action", ActionEvent, p_intf );
+
+    ChangeInput( p_intf, NULL );
+
+    vlc_mutex_destroy( &p_sys->lock );
 
     /* Destroy structure */
     free( p_sys );
 }
 
-static int PutAction( intf_thread_t *p_intf, int i_action )
+static int PutAction( intf_thread_t *p_intf, input_thread_t *p_input,
+                      vout_thread_t *p_vout, int slider_chan, bool b_vrnav,
+                      int i_action )
 {
+#define DO_ACTION(x) PutAction( p_intf, p_input, p_vout, slider_chan, b_vrnav, x)
     intf_sys_t *p_sys = p_intf->p_sys;
     playlist_t *p_playlist = pl_Get( p_intf );
-
-    /* Update the input */
-    input_thread_t *p_input = playlist_CurrentInput( p_playlist );
-
-    /* Update the vout */
-    vout_thread_t *p_vout = p_input ? input_GetVout( p_input ) : NULL;
-
-    /* Register OSD channels */
-    /* FIXME: this check can fail if the new vout is reallocated at the same
-     * address as the old one... We should rather listen to vout events.
-     * Alternatively, we should keep a reference to the vout thread. */
-    if( p_vout && p_vout != p_sys->p_last_vout )
-        p_sys->slider_chan = vout_RegisterSubpictureChannel( p_vout );
-    p_sys->p_last_vout = p_vout;
 
     /* Quit */
     switch( i_action )
@@ -156,7 +357,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
         case ACTIONID_QUIT:
             libvlc_Quit( p_intf->obj.libvlc );
 
-            ClearChannels( p_intf, p_vout );
+            ClearChannels( p_vout, slider_chan );
             DisplayMessage( p_vout, _( "Quit" ) );
             break;
 
@@ -267,23 +468,20 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
             SetBookmark( p_intf, i_action - ACTIONID_SET_BOOKMARK1 + 1 );
             break;
         case ACTIONID_PLAY_CLEAR:
-        {
-            playlist_t *p_playlist = pl_Get( p_intf );
             playlist_Clear( p_playlist, pl_Unlocked );
             break;
-        }
         case ACTIONID_VOL_UP:
         {
             float vol;
             if( playlist_VolumeUp( p_playlist, 1, &vol ) == 0 )
-                DisplayVolume( p_intf, p_vout, vol );
+                DisplayVolume( p_vout, slider_chan, vol );
             break;
         }
         case ACTIONID_VOL_DOWN:
         {
             float vol;
             if( playlist_VolumeDown( p_playlist, 1, &vol ) == 0 )
-                DisplayVolume( p_intf, p_vout, vol );
+                DisplayVolume( p_vout, slider_chan, vol );
             break;
         }
         case ACTIONID_VOL_MUTE:
@@ -298,11 +496,11 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
             float vol = playlist_VolumeGet( p_playlist );
             if( mute || vol == 0.f )
             {
-                ClearChannels( p_intf, p_vout );
+                ClearChannels( p_vout, slider_chan );
                 DisplayIcon( p_vout, OSD_MUTE_ICON );
             }
             else
-                DisplayVolume( p_intf, p_vout, vol );
+                DisplayVolume( p_vout, slider_chan, vol );
             break;
         }
 
@@ -346,7 +544,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
         case ACTIONID_PLAY_PAUSE:
             if( p_input )
             {
-                ClearChannels( p_intf, p_vout );
+                ClearChannels( p_vout, slider_chan );
 
                 int state = var_GetInteger( p_input, "state" );
                 DisplayIcon( p_vout, state != PAUSE_S ? OSD_PAUSE_ICON : OSD_PLAY_ICON );
@@ -360,7 +558,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                 var_SetFloat( p_input, "rate", 1.f );
             else
             {
-                ClearChannels( p_intf, p_vout );
+                ClearChannels( p_vout, slider_chan );
                 DisplayIcon( p_vout, OSD_PLAY_ICON );
                 playlist_Play( p_playlist );
             }
@@ -379,7 +577,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
         case ACTIONID_PAUSE:
             if( p_input && var_GetInteger( p_input, "state" ) != PAUSE_S )
             {
-                ClearChannels( p_intf, p_vout );
+                ClearChannels( p_vout, slider_chan );
                 DisplayIcon( p_vout, OSD_PAUSE_ICON );
                 var_SetInteger( p_input, "state", PAUSE_S );
             }
@@ -454,7 +652,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                     int64_t i_additional_subdelay = p_sys->subtitle_delaybookmarks.i_time_audio - p_sys->subtitle_delaybookmarks.i_time_subtitle;
                     int64_t i_total_subdelay = i_current_subdelay + i_additional_subdelay;
                     var_SetInteger( p_input, "spu-delay", i_total_subdelay);
-                    ClearChannels( p_intf, p_vout );
+                    ClearChannels( p_vout, slider_chan );
                     DisplayMessage( p_vout, _( "Sub sync: corrected %i ms (total delay = %i ms)" ),
                                             (int)(i_additional_subdelay / 1000),
                                             (int)(i_total_subdelay / 1000) );
@@ -467,7 +665,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
         case ACTIONID_SUBSYNC_RESET:
         {
             var_SetInteger( p_input, "spu-delay", 0);
-            ClearChannels( p_intf, p_vout );
+            ClearChannels( p_vout, slider_chan );
             DisplayMessage( p_vout, _( "Sub sync: delay reset" ) );
             p_sys->subtitle_delaybookmarks.i_time_audio = 0;
             p_sys->subtitle_delaybookmarks.i_time_subtitle = 0;
@@ -496,7 +694,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                 int64_t i_delay = var_GetInteger( p_input, "spu-delay" ) + diff;
 
                 var_SetInteger( p_input, "spu-delay", i_delay );
-                ClearChannels( p_intf, p_vout );
+                ClearChannels( p_vout, slider_chan );
                 DisplayMessage( p_vout, _( "Subtitle delay %i ms" ),
                                 (int)(i_delay/1000) );
                 var_FreeList( &list, &list2 );
@@ -513,7 +711,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                                   + diff;
 
                 var_SetInteger( p_input, "audio-delay", i_delay );
-                ClearChannels( p_intf, p_vout );
+                ClearChannels( p_vout, slider_chan );
                 DisplayMessage( p_vout, _( "Audio delay %i ms" ),
                                  (int)(i_delay/1000) );
             }
@@ -556,7 +754,9 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                 var_FreeList( &list, &list2 );
             }
             break;
+
         case ACTIONID_SUBTITLE_TRACK:
+        case ACTIONID_SUBTITLE_REVERSE_TRACK:
             if( p_input )
             {
                 vlc_value_t val, list, list2;
@@ -587,10 +787,12 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                               "invalid current subtitle track, selecting 0" );
                     i = 0;
                 }
-                else if( i == i_count - 1 )
+                else if ((i == i_count - 1) && (i_action == ACTIONID_SUBTITLE_TRACK))
                     i = 0;
+                else if ((i == 0) && (i_action == ACTIONID_SUBTITLE_REVERSE_TRACK))
+                    i = i_count - 1;
                 else
-                    i++;
+                    i = (i_action == ACTIONID_SUBTITLE_TRACK) ? i+1 : i-1;
                 var_SetInteger( p_input, "spu-es", list.p_list->p_values[i].i_int );
                 var_SetInteger( p_input, "spu-choice", list.p_list->p_values[i].i_int );
                 DisplayMessage( p_vout, _("Subtitle track: %s"),
@@ -717,21 +919,25 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
             {
                 case ACTIONID_JUMP_BACKWARD_EXTRASHORT:
                     sign = -1;
+                    /* fall through */
                 case ACTIONID_JUMP_FORWARD_EXTRASHORT:
                     varname = "extrashort-jump-size";
                     break;
                 case ACTIONID_JUMP_BACKWARD_SHORT:
                     sign = -1;
+                    /* fall through */
                 case ACTIONID_JUMP_FORWARD_SHORT:
                     varname = "short-jump-size";
                     break;
                 case ACTIONID_JUMP_BACKWARD_MEDIUM:
                     sign = -1;
+                    /* fall through */
                 case ACTIONID_JUMP_FORWARD_MEDIUM:
                     varname = "medium-jump-size";
                     break;
                 case ACTIONID_JUMP_BACKWARD_LONG:
                     sign = -1;
+                    /* fall through */
                 case ACTIONID_JUMP_FORWARD_LONG:
                     varname = "long-jump-size";
                     break;
@@ -741,7 +947,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
             if( it < 0 )
                 break;
             var_SetInteger( p_input, "time-offset", it * sign * CLOCK_FREQ );
-            DisplayPosition( p_intf, p_vout, p_input );
+            DisplayPosition( p_vout, slider_chan, p_input );
             break;
         }
 
@@ -767,13 +973,24 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                 var_SetInteger( p_input, "title  0", 2 );
             break;
         case ACTIONID_NAV_ACTIVATE:
+            if( p_input )
+                input_Control( p_input, INPUT_NAV_ACTIVATE, NULL );
+            break;
         case ACTIONID_NAV_UP:
+            if( p_input )
+                input_Control( p_input, INPUT_NAV_UP, NULL );
+            break;
         case ACTIONID_NAV_DOWN:
+            if( p_input )
+                input_Control( p_input, INPUT_NAV_DOWN, NULL );
+            break;
         case ACTIONID_NAV_LEFT:
+            if( p_input )
+                input_Control( p_input, INPUT_NAV_LEFT, NULL );
+            break;
         case ACTIONID_NAV_RIGHT:
             if( p_input )
-                input_Control( p_input, i_action - ACTIONID_NAV_ACTIVATE
-                               + INPUT_NAV_ACTIVATE, NULL );
+                input_Control( p_input, INPUT_NAV_RIGHT, NULL );
             break;
 
         /* Video Output actions */
@@ -890,6 +1107,32 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
         case ACTIONID_UNCROP_RIGHT:
             if( p_vout )
                 var_DecInteger( p_vout, "crop-right" );
+            break;
+
+        case ACTIONID_VIEWPOINT_FOV_IN:
+            if( p_vout )
+                input_UpdateViewpoint( p_input,
+                                       &(vlc_viewpoint_t) { .fov = -1.f },
+                                       false );
+            break;
+        case ACTIONID_VIEWPOINT_FOV_OUT:
+            if( p_vout )
+                input_UpdateViewpoint( p_input,
+                                       &(vlc_viewpoint_t) { .fov = 1.f },
+                                       false );
+            break;
+
+        case ACTIONID_VIEWPOINT_ROLL_CLOCK:
+            if( p_vout )
+                input_UpdateViewpoint( p_input,
+                                       &(vlc_viewpoint_t) { .roll = -1.f },
+                                       false );
+            break;
+        case ACTIONID_VIEWPOINT_ROLL_ANTICLOCK:
+            if( p_vout )
+                input_UpdateViewpoint( p_input,
+                                       &(vlc_viewpoint_t) { .roll = 1.f },
+                                       false );
             break;
 
          case ACTIONID_TOGGLE_AUTOSCALE:
@@ -1085,7 +1328,7 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                 else
                     i_pos = var_IncInteger( p_vout, "sub-margin" );
 
-                ClearChannels( p_intf, p_vout );
+                ClearChannels( p_vout, slider_chan );
                 DisplayMessage( p_vout, _( "Subtitle position %d px" ), i_pos );
                 var_FreeList( &list, &list2 );
             }
@@ -1095,7 +1338,6 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
         case ACTIONID_SUBTITLE_TEXT_SCALE_DOWN:
         case ACTIONID_SUBTITLE_TEXT_SCALE_UP:
         case ACTIONID_SUBTITLE_TEXT_SCALE_NORMAL:
-        {
             if( p_vout )
             {
                 int i_scale;
@@ -1105,26 +1347,35 @@ static int PutAction( intf_thread_t *p_intf, int i_action )
                 }
                 else
                 {
-                    i_scale = var_GetInteger( p_vout, "sub-text-scale" );
+                    i_scale = var_GetInteger( p_playlist, "sub-text-scale" );
                     i_scale += ((i_action == ACTIONID_SUBTITLE_TEXT_SCALE_UP) ? 1 : -1) * 25;
                     i_scale = VLC_CLIP( i_scale, 10, 500 );
                 }
-                var_SetInteger( p_vout, "sub-text-scale", i_scale );
+                var_SetInteger( p_playlist, "sub-text-scale", i_scale );
                 DisplayMessage( p_vout, _( "Subtitle text scale %d%%" ), i_scale );
             }
-        }
+            break;
 
         /* Input + video output */
         case ACTIONID_POSITION:
             if( p_vout && vout_OSDEpg( p_vout, input_GetItem( p_input ) ) )
-                DisplayPosition( p_intf, p_vout, p_input );
+                DisplayPosition( p_vout, slider_chan, p_input );
+            break;
+
+        case ACTIONID_COMBO_VOL_FOV_UP:
+            if( b_vrnav )
+                DO_ACTION( ACTIONID_VIEWPOINT_FOV_IN );
+            else
+                DO_ACTION( ACTIONID_VOL_UP );
+            break;
+        case ACTIONID_COMBO_VOL_FOV_DOWN:
+            if( b_vrnav )
+                DO_ACTION( ACTIONID_VIEWPOINT_FOV_OUT );
+            else
+                DO_ACTION( ACTIONID_VOL_DOWN );
             break;
     }
 
-    if( p_vout )
-        vlc_object_release( p_vout );
-    if( p_input )
-        vlc_object_release( p_input );
     return VLC_SUCCESS;
 }
 
@@ -1135,12 +1386,30 @@ static int ActionEvent( vlc_object_t *libvlc, char const *psz_var,
                         vlc_value_t oldval, vlc_value_t newval, void *p_data )
 {
     intf_thread_t *p_intf = (intf_thread_t *)p_data;
+    intf_sys_t *p_sys = p_intf->p_sys;
 
     (void)libvlc;
     (void)psz_var;
     (void)oldval;
 
-    return PutAction( p_intf, newval.i_int );
+    vlc_mutex_lock( &p_intf->p_sys->lock );
+    input_thread_t *p_input = p_sys->p_input ? vlc_object_hold( p_sys->p_input )
+                                             : NULL;
+    vout_thread_t *p_vout = p_sys->p_vout ? vlc_object_hold( p_sys->p_vout )
+                                          : NULL;
+    int slider_chan = p_sys->slider_chan;
+    bool b_vrnav = p_sys->vrnav.b_can_change;
+    vlc_mutex_unlock( &p_intf->p_sys->lock );
+
+    int i_ret = PutAction( p_intf, p_input, p_vout, slider_chan, b_vrnav,
+                           newval.i_int );
+
+    if( p_input != NULL )
+        vlc_object_release( p_input );
+    if( p_vout != NULL )
+        vlc_object_release( p_vout );
+
+    return i_ret;
 }
 
 static void PlayBookmark( intf_thread_t *p_intf, int i_num )
@@ -1158,8 +1427,7 @@ static void PlayBookmark( intf_thread_t *p_intf, int i_num )
         if( !strcmp( psz_bookmark, psz_uri ) )
         {
             free( psz_uri );
-            playlist_Control( p_playlist, PLAYLIST_VIEWPLAY, pl_Locked,
-                              NULL, p_item );
+            playlist_ViewPlay( p_playlist, NULL, p_item );
             break;
         }
         else
@@ -1197,7 +1465,7 @@ static void SetBookmark( intf_thread_t *p_intf, int i_num )
     free( psz_bookmark_name );
 }
 
-static void DisplayPosition( intf_thread_t *p_intf, vout_thread_t *p_vout,
+static void DisplayPosition( vout_thread_t *p_vout, int slider_chan,
                              input_thread_t *p_input )
 {
     char psz_duration[MSTRTIME_MAX_SIZE];
@@ -1205,7 +1473,7 @@ static void DisplayPosition( intf_thread_t *p_intf, vout_thread_t *p_vout,
 
     if( p_vout == NULL ) return;
 
-    ClearChannels( p_intf, p_vout );
+    ClearChannels( p_vout, slider_chan );
 
     int64_t t = var_GetInteger( p_input, "time" ) / CLOCK_FREQ;
     int64_t l = var_GetInteger( p_input, "length" ) / CLOCK_FREQ;
@@ -1226,20 +1494,19 @@ static void DisplayPosition( intf_thread_t *p_intf, vout_thread_t *p_vout,
     {
         vlc_value_t pos;
         var_Get( p_input, "position", &pos );
-        vout_OSDSlider( p_vout, p_intf->p_sys->slider_chan,
+        vout_OSDSlider( p_vout, slider_chan,
                         pos.f_float * 100, OSD_HOR_SLIDER );
     }
 }
 
-static void DisplayVolume( intf_thread_t *p_intf, vout_thread_t *p_vout,
-                           float vol )
+static void DisplayVolume( vout_thread_t *p_vout, int slider_chan, float vol )
 {
     if( p_vout == NULL )
         return;
-    ClearChannels( p_intf, p_vout );
+    ClearChannels( p_vout, slider_chan );
 
     if( var_GetBool( p_vout, "fullscreen" ) )
-        vout_OSDSlider( p_vout, p_intf->p_sys->slider_chan,
+        vout_OSDSlider( p_vout, slider_chan,
                         lroundf(vol * 100.f), OSD_VERT_SLIDER );
     DisplayMessage( p_vout, _( "Volume %ld%%" ), lroundf(vol * 100.f) );
 }
@@ -1268,11 +1535,11 @@ static float AdjustRateFine( vlc_object_t *p_obj, const int i_dir )
     return f_rate;
 }
 
-static void ClearChannels( intf_thread_t *p_intf, vout_thread_t *p_vout )
+static void ClearChannels( vout_thread_t *p_vout, int slider_chan )
 {
     if( p_vout )
     {
-        vout_FlushSubpictureChannel( p_vout, SPU_DEFAULT_CHANNEL );
-        vout_FlushSubpictureChannel( p_vout, p_intf->p_sys->slider_chan );
+        vout_FlushSubpictureChannel( p_vout, VOUT_SPU_CHANNEL_OSD );
+        vout_FlushSubpictureChannel( p_vout, slider_chan );
     }
 }

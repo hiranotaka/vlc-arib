@@ -106,7 +106,7 @@ typedef struct addons_finder_t addons_finder_t;
 typedef struct addons_finder_sys_t addons_finder_sys_t;
 struct addons_finder_t
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
 
     int ( * pf_find )( addons_finder_t * );
     int ( * pf_retrieve )( addons_finder_t *, addon_entry_t * );
@@ -120,7 +120,7 @@ typedef struct addons_storage_t addons_storage_t;
 typedef struct addons_storage_sys_t addons_storage_sys_t;
 struct addons_storage_t
 {
-    VLC_COMMON_MEMBERS
+    struct vlc_common_members obj;
 
     int ( * pf_install )( addons_storage_t *, addon_entry_t * );
     int ( * pf_remove )( addons_storage_t *, addon_entry_t * );
@@ -129,14 +129,22 @@ struct addons_storage_t
     addons_storage_sys_t *p_sys;
 };
 
+typedef struct addons_manager_t addons_manager_t;
+
+struct addons_manager_owner
+{
+    void *sys;
+    void (*addon_found)(struct addons_manager_t *, struct addon_entry_t *);
+    void (*discovery_ended)(struct addons_manager_t *);
+    void (*addon_changed)(struct addons_manager_t *, struct addon_entry_t *);
+};
+
 typedef struct addons_manager_private_t addons_manager_private_t;
 struct addons_manager_t
 {
-    vlc_event_manager_t * p_event_manager;
-
+    struct addons_manager_owner owner;
     addons_manager_private_t *p_priv;
 };
-typedef struct addons_manager_t addons_manager_t;
 
 /**
  *  addon entry lifecycle
@@ -148,7 +156,8 @@ VLC_API void addon_entry_Release(addon_entry_t *);
 /**
  * addons manager lifecycle
  */
-VLC_API addons_manager_t *addons_manager_New( vlc_object_t * );
+VLC_API addons_manager_t *addons_manager_New( vlc_object_t *,
+    const struct addons_manager_owner * );
 VLC_API void addons_manager_Delete( addons_manager_t * );
 
 /**

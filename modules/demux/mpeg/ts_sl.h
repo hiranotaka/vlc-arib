@@ -29,4 +29,7 @@ void SLPackets_Section_Handler( demux_t *p_demux,
                                 void * );
 bool SetupISO14496LogicalStream( demux_t *, const decoder_config_descriptor_t *,
                                   es_format_t * );
+
+ts_stream_processor_t *SL_stream_processor_New( ts_stream_t * );
+
 #endif

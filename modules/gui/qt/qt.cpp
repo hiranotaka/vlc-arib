@@ -36,7 +36,11 @@
 
 #include "input_manager.hpp"    /* THEMIM destruction */
 #include "dialogs_provider.hpp" /* THEDP creation */
-#include "main_interface.hpp"   /* MainInterface creation */
+#ifdef _WIN32
+# include "main_interface_win32.hpp"
+#else
+# include "main_interface.hpp"   /* MainInterface creation */
+#endif
 #include "extensions_manager.hpp" /* Extensions manager */
 #include "managers/addons_manager.hpp" /* Addons manager */
 #include "dialogs/help.hpp"     /* Launch Update */
@@ -44,25 +48,19 @@
 #include "util/qvlcapp.hpp"     /* QVLCApplication definition */
 #include "components/playlist/playlist_model.hpp" /* for ~PLModel() */
 
-#if defined (QT5_HAS_X11) || defined (Q_WS_X11)
- #include <vlc_xlib.h>
-#endif
-
 #include <vlc_plugin.h>
 #include <vlc_vout_window.h>
 
 #ifdef _WIN32 /* For static builds */
  #include <QtPlugin>
- #if HAS_QT5
-  #ifdef QT_STATICPLUGIN
-   Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
-   #if !HAS_QT56
-    Q_IMPORT_PLUGIN(AccessibleFactory)
-   #endif
+
+ #ifdef QT_STATICPLUGIN
+  Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
+  Q_IMPORT_PLUGIN(QSvgIconPlugin)
+  Q_IMPORT_PLUGIN(QSvgPlugin)
+  #if !HAS_QT56
+   Q_IMPORT_PLUGIN(AccessibleFactory)
   #endif
- #else
-  Q_IMPORT_PLUGIN(qjpeg)
-  Q_IMPORT_PLUGIN(qtaccessiblewidgets)
  #endif
 #endif
 
@@ -75,7 +73,6 @@ static int  Open         ( vlc_object_t *, bool );
 static void Close        ( vlc_object_t * );
 static int  WindowOpen   ( vout_window_t *, const vout_window_cfg_t * );
 static void WindowClose  ( vout_window_t * );
-static void *Thread      ( void * );
 static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 
 /*****************************************************************************
@@ -93,7 +90,7 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 
 #define MINIMIZED_TEXT N_( "Start VLC with only a systray icon" )
 #define MINIMIZED_LONGTEXT N_( "VLC will start with just an icon in " \
-                               "your taskbar" )
+                               "your taskbar." )
 
 #define KEEPSIZE_TEXT N_( "Resize interface to the native video size" )
 #define KEEPSIZE_LONGTEXT N_( "You have two choices:\n" \
@@ -122,7 +119,6 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
                              " This option only works with Windows and " \
                              "X11 with composite extensions." )
 
-
 #define ERROR_TEXT N_( "Show unimportant error and warnings dialogs" )
 
 #define UPDATER_TEXT N_( "Activate the updates availability notification" )
@@ -137,15 +133,15 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 
 #define RECENTPLAY_FILTER_TEXT N_( "List of words separated by | to filter" )
 #define RECENTPLAY_FILTER_LONGTEXT N_( "Regular expression used to filter " \
-        "the recent items played in the player" )
+        "the recent items played in the player." )
 
-#define SLIDERCOL_TEXT N_( "Define the colors of the volume slider " )
+#define SLIDERCOL_TEXT N_( "Define the colors of the volume slider" )
 #define SLIDERCOL_LONGTEXT N_( "Define the colors of the volume slider\n" \
                        "By specifying the 12 numbers separated by a ';'\n" \
             "Default is '255;255;255;20;226;20;255;176;15;235;30;20'\n" \
-            "An alternative can be '30;30;50;40;40;100;50;50;160;150;150;255' ")
+            "An alternative can be '30;30;50;40;40;100;50;50;160;150;150;255'")
 
-#define QT_MODE_TEXT N_( "Selection of the starting mode and look " )
+#define QT_MODE_TEXT N_( "Selection of the starting mode and look" )
 #define QT_MODE_LONGTEXT N_( "Start VLC with:\n" \
                              " - normal mode\n"  \
                              " - a zone always present to show information " \
@@ -157,11 +153,11 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 
 #define FULLSCREEN_NUMBER_TEXT N_( "Define which screen fullscreen goes" )
 #define FULLSCREEN_NUMBER_LONGTEXT N_( "Screennumber of fullscreen, instead of " \
-                                       "same screen where interface is" )
+                                       "same screen where interface is." )
 
 #define QT_AUTOLOAD_EXTENSIONS_TEXT N_( "Load extensions on startup" )
 #define QT_AUTOLOAD_EXTENSIONS_LONGTEXT N_( "Automatically load the "\
-                                            "extensions module on startup" )
+                                            "extensions module on startup." )
 
 #define QT_MINIMAL_MODE_TEXT N_("Start in minimal view (without menus)" )
 
@@ -169,8 +165,8 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 #define QT_BGCONE_LONGTEXT N_( "Display background cone or current album art " \
                             "when not playing. " \
                             "Can be disabled to prevent burning screen." )
-#define QT_BGCONE_EXPANDS_TEXT N_( "Expanding background cone or art." )
-#define QT_BGCONE_EXPANDS_LONGTEXT N_( "Background art fits window's size" )
+#define QT_BGCONE_EXPANDS_TEXT N_( "Expanding background cone or art" )
+#define QT_BGCONE_EXPANDS_LONGTEXT N_( "Background art fits window's size." )
 
 #define QT_DISABLE_VOLUME_KEYS_TEXT N_( "Ignore keyboard volume buttons." )
 #define QT_DISABLE_VOLUME_KEYS_LONGTEXT N_(                                             \
@@ -189,6 +185,10 @@ static void ShowDialog   ( intf_thread_t *, int, int, intf_dialog_args_t * );
 
 #define VOLUME_MAX_TEXT N_( "Maximum Volume displayed" )
 
+#define AUTORAISE_ON_PLAYBACK_TEXT N_( "When to raise the interface" )
+#define AUTORAISE_ON_PLAYBACK_LONGTEXT N_( "This option allows the interface to be raised automatically " \
+    "when a video/audio playback starts, or never." )
+
 #define FULLSCREEN_CONTROL_PIXELS N_( "Fullscreen controller mouse sensitivity" )
 
 #define CONTINUE_PLAYBACK_TEXT N_("Continue playback?")
@@ -205,6 +205,12 @@ static const int i_continue_list[] =
 static const char *const psz_continue_list_text[] =
     { N_("Never"), N_("Ask"), N_("Always") };
 
+static const int i_raise_list[] =
+    { MainInterface::RAISE_NEVER, MainInterface::RAISE_VIDEO, \
+      MainInterface::RAISE_AUDIO, MainInterface::RAISE_AUDIOVIDEO,  };
+
+static const char *const psz_raise_list_text[] =
+    { N_( "Never" ), N_( "Video" ), N_( "Audio" ), _( "Audio/Video" ) };
 
 /**********************************************************************/
 vlc_module_begin ()
@@ -307,6 +313,10 @@ vlc_module_begin ()
     add_obsolete_bool( "qt-volume-complete" ) /* Since 2.0.0 */
     add_obsolete_integer( "qt-startvolume" )  /* Since 2.0.0 */
 
+    add_integer( "qt-auto-raise", MainInterface::RAISE_VIDEO, AUTORAISE_ON_PLAYBACK_TEXT,
+                 AUTORAISE_ON_PLAYBACK_LONGTEXT, false )
+            change_integer_list( i_raise_list, psz_raise_list_text )
+
     cannot_unload_broken_library()
 
     add_submodule ()
@@ -333,6 +343,13 @@ static bool active = false;
  * Module callbacks
  *****************************************************************************/
 
+static void *ThreadPlatform( void *, char * );
+
+static void *Thread( void *data )
+{
+    return ThreadPlatform( data, NULL );
+}
+
 #ifdef Q_OS_MAC
 /* Used to abort the app.exec() on OSX after libvlc_Quit is called */
 #include "../../../lib/libvlc_internal.h" /* libvlc_SetExitHandler */
@@ -342,31 +359,67 @@ static void Abort( void *obj )
 }
 #endif
 
-static void RegisterIntf( intf_thread_t *p_this )
+#if defined (QT5_HAS_X11)
+# include <vlc_xlib.h>
+
+static void *ThreadXCB( void *data )
 {
-    playlist_t *pl = p_this->p_sys->p_playlist;
-    var_Create (pl, "qt4-iface", VLC_VAR_ADDRESS);
-    var_SetAddress (pl, "qt4-iface", p_this);
-    var_Create (pl, "window", VLC_VAR_STRING);
-    var_SetString (pl, "window", "qt,any");
+    char platform_name[] = "xcb";
+    return ThreadPlatform( data, platform_name );
 }
+
+static bool HasX11( vlc_object_t *obj )
+{
+    if( !vlc_xlib_init( obj ) )
+        return false;
+
+    Display *dpy = XOpenDisplay( NULL );
+    if( dpy == NULL )
+        return false;
+
+    XCloseDisplay( dpy );
+    return true;
+}
+#endif
+
+#ifdef QT5_HAS_WAYLAND
+# include <wayland-client.h>
+
+static void *ThreadWayland( void *data )
+{
+    char platform_name[] = "wayland";
+    return ThreadPlatform( data, platform_name );
+}
+
+static bool HasWayland( void )
+{
+    struct wl_display *dpy = wl_display_connect( NULL );
+    if( dpy == NULL )
+        return false;
+
+    wl_display_disconnect( dpy );
+    return true;
+}
+#endif
 
 /* Open Interface */
 static int Open( vlc_object_t *p_this, bool isDialogProvider )
 {
     intf_thread_t *p_intf = (intf_thread_t *)p_this;
+    void *(*thread)(void *) = Thread;
 
-#if defined (QT5_HAS_X11) || defined (Q_WS_X11)
-    if( !vlc_xlib_init( p_this ) )
+#ifdef QT5_HAS_WAYLAND
+    if( HasWayland() )
+        thread = ThreadWayland;
+    else
+#endif
+#ifdef QT5_HAS_X11
+    if( HasX11( p_this ) )
+        thread = ThreadXCB;
+    else
+#endif
+#if defined (QT5_HAS_X11) || defined (QT5_HAS_WAYLAND)
         return VLC_EGENERIC;
-
-    Display *p_display = XOpenDisplay( NULL );
-    if( !p_display )
-    {
-        msg_Err( p_intf, "Could not connect to X server" );
-        return VLC_EGENERIC;
-    }
-    XCloseDisplay( p_display );
 #endif
 
     QMutexLocker locker (&lock);
@@ -378,24 +431,24 @@ static int Open( vlc_object_t *p_this, bool isDialogProvider )
 
     /* Allocations of p_sys */
     intf_sys_t *p_sys = p_intf->p_sys = new intf_sys_t;
-    p_intf->p_sys->b_isDialogProvider = isDialogProvider;
+    p_sys->b_isDialogProvider = isDialogProvider;
     p_sys->p_mi = NULL;
     p_sys->pl_model = NULL;
 
     /* set up the playlist to work on */
     if( isDialogProvider )
-        p_intf->p_sys->p_playlist = pl_Get( (intf_thread_t *)p_intf->obj.parent );
+        p_sys->p_playlist = pl_Get( (intf_thread_t *)p_intf->obj.parent );
     else
-        p_intf->p_sys->p_playlist = pl_Get( p_intf );
+        p_sys->p_playlist = pl_Get( p_intf );
 
     /* */
     vlc_sem_init (&ready, 0);
 #ifdef Q_OS_MAC
     /* Run mainloop on the main thread as Cocoa requires */
     libvlc_SetExitHandler( p_intf->obj.libvlc, Abort, p_intf );
-    Thread( (void *)p_intf );
+    thread( (void *)p_intf );
 #else
-    if( vlc_clone( &p_sys->thread, Thread, p_intf, VLC_THREAD_PRIORITY_LOW ) )
+    if( vlc_clone( &p_sys->thread, thread, p_intf, VLC_THREAD_PRIORITY_LOW ) )
     {
         delete p_sys;
         return VLC_ENOMEM;
@@ -408,11 +461,6 @@ static int Open( vlc_object_t *p_this, bool isDialogProvider )
     vlc_sem_wait (&ready);
     vlc_sem_destroy (&ready);
     busy = active = true;
-
-#ifndef Q_OS_MAC
-    if( !isDialogProvider )
-        RegisterIntf( p_intf );
-#endif
 
     return VLC_SUCCESS;
 }
@@ -438,8 +486,6 @@ static void Close( vlc_object_t *p_this )
     {
         playlist_t *pl = THEPL;
 
-        var_Destroy (pl, "window");
-        var_Destroy (pl, "qt4-iface");
         playlist_Deactivate (pl); /* release window provider if needed */
     }
 
@@ -458,25 +504,29 @@ static void Close( vlc_object_t *p_this )
     busy = false;
 }
 
-static void *Thread( void *obj )
+static void *ThreadPlatform( void *obj, char *platform_name )
 {
     intf_thread_t *p_intf = (intf_thread_t *)obj;
-    MainInterface *p_mi;
+    intf_sys_t *p_sys = p_intf->p_sys;
     char vlc_name[] = "vlc"; /* for WM_CLASS */
-#ifdef QT5_HAS_X11
     char platform_parm[] = "-platform";
-    char platform_value[] = "xcb";
-#endif
-    char *argv[] = {
-        vlc_name,
-#ifdef QT5_HAS_X11
-        platform_parm, platform_value,
-#endif
-        NULL,
-    };
-    int argc = sizeof(argv) / sizeof(argv[0]) - 1;
+    char *argv[4];
+    int argc = 0;
+
+    argv[argc++] = vlc_name;
+    if( platform_name != NULL )
+    {
+        argv[argc++] = platform_parm;
+        argv[argc++] = platform_name;
+    }
+    argv[argc] = NULL;
 
     Q_INIT_RESOURCE( vlc );
+
+#if HAS_QT56
+    QApplication::setAttribute( Qt::AA_EnableHighDpiScaling );
+    QApplication::setAttribute( Qt::AA_UseHighDpiPixmaps );
+#endif
 
     /* Start the QApplication here */
     QVLCApp app( argc, argv );
@@ -485,7 +535,7 @@ static void *Thread( void *obj )
      * necessary for  RTL locales */
     app.setLayoutDirection(QLocale().textDirection());
 
-    p_intf->p_sys->p_app = &app;
+    p_sys->p_app = &app;
 
 
     /* All the settings are in the .conf/.ini style */
@@ -498,7 +548,7 @@ static void *Thread( void *obj )
     QSettings::setPath( QSettings::IniFormat, QSettings::UserScope, configDir );
 #endif
 
-    p_intf->p_sys->mainSettings = new QSettings(
+    p_sys->mainSettings = new QSettings(
 #ifdef _WIN32
             QSettings::IniFormat,
 #else
@@ -506,13 +556,10 @@ static void *Thread( void *obj )
 #endif
             QSettings::UserScope, "vlc", "vlc-qt-interface" );
 
-    /* Icon setting, Mac uses icon from .icns */
-#ifndef Q_OS_MAC
     if( QDate::currentDate().dayOfYear() >= QT_XMAS_JOKE_DAY && var_InheritBool( p_intf, "qt-icon-change" ) )
         app.setWindowIcon( QIcon::fromTheme( "vlc-xmas", QIcon( ":/logo/vlc128-xmas.png" ) ) );
     else
         app.setWindowIcon( QIcon::fromTheme( "vlc", QIcon( ":/logo/vlc256.png" ) ) );
-#endif
 
     /* Initialize the Dialog Provider and the Main Input Manager */
     DialogsProvider::getInstance( p_intf );
@@ -536,54 +583,55 @@ static void *Thread( void *obj )
 #endif
 
     /* Create the normal interface in non-DP mode */
-    if( !p_intf->p_sys->b_isDialogProvider )
+    MainInterface *p_mi = NULL;
+
+    if( !p_sys->b_isDialogProvider )
     {
+#ifdef _WIN32
+        p_mi = new MainInterfaceWin32( p_intf );
+#else
         p_mi = new MainInterface( p_intf );
-        p_intf->p_sys->p_mi = p_mi;
+#endif
+        p_sys->p_mi = p_mi;
+
+        /* Check window type from the Qt platform back-end */
+        p_sys->voutWindowType = VOUT_WINDOW_TYPE_INVALID;
+        QString platform = app.platformName();
+        if( platform == qfu("xcb") )
+            p_sys->voutWindowType = VOUT_WINDOW_TYPE_XID;
+        else if( platform == qfu("wayland") )
+            p_sys->voutWindowType = VOUT_WINDOW_TYPE_WAYLAND;
+        else if( platform == qfu("windows") )
+            p_sys->voutWindowType = VOUT_WINDOW_TYPE_HWND;
+        else if( platform == qfu("cocoa" ) )
+            p_sys->voutWindowType = VOUT_WINDOW_TYPE_NSOBJECT;
+        else
+            msg_Err( p_intf, "unknown Qt platform: %s", qtu(platform) );
+
+        var_Create( THEPL, "qt4-iface", VLC_VAR_ADDRESS );
+        var_SetAddress( THEPL, "qt4-iface", p_intf );
+        var_Create( THEPL, "window", VLC_VAR_STRING );
+        if( p_sys->voutWindowType != VOUT_WINDOW_TYPE_INVALID )
+            var_SetString( THEPL, "window", "qt,any" );
     }
-    else
-        p_mi = NULL;
 
     /* Explain how to show a dialog :D */
     p_intf->pf_show_dialog = ShowDialog;
-
-    /* Check window type from the Qt platform back-end */
-    p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_INVALID;
-#if HAS_QT5 || defined (Q_WS_QPA)
-    QString platform = app.platformName();
-    if( platform == qfu("xcb") )
-        p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_XID;
-    else if( platform == qfu("windows") )
-        p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_HWND;
-    else if( platform == qfu("cocoa" ) )
-        p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_NSOBJECT;
-    else
-        msg_Err( p_intf, "unknown Qt platform: %s", qtu(platform) );
-#elif defined (Q_WS_X11)
-    p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_XID;
-#elif defined (Q_WS_WIN) || defined (Q_WS_PM)
-    p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_HWND;
-#elif defined (Q_WS_MAC)
-    p_intf->p_sys->voutWindowType = VOUT_WINDOW_TYPE_NSOBJECT;
-#endif
 
     /* Tell the main LibVLC thread we are ready */
     vlc_sem_post (&ready);
 
 #ifdef Q_OS_MAC
     /* We took over main thread, register and start here */
-    if( !p_intf->p_sys->b_isDialogProvider )
-    {
-        RegisterIntf( p_intf );
+    if( !p_sys->b_isDialogProvider )
         playlist_Play( THEPL );
-    }
 #endif
 
     /* Last settings */
     app.setQuitOnLastWindowClosed( false );
 
     /* Retrieve last known path used in file browsing */
-    p_intf->p_sys->filepath =
+    p_sys->filepath =
          getSettings()->value( "filedialog-path", QVLCUserDir( VLC_HOME_DIR ) ).toString();
 
     /* Loads and tries to apply the preferred QStyle */
@@ -597,10 +645,13 @@ static void *Thread( void *obj )
     msg_Dbg( p_intf, "QApp exec() finished" );
     if (p_mi != NULL)
     {
+        var_Destroy( THEPL, "window" );
+        var_Destroy( THEPL, "qt4-iface" );
+
         QMutexLocker locker (&lock);
         active = false;
 
-        p_intf->p_sys->p_mi = NULL;
+        p_sys->p_mi = NULL;
         /* Destroy first the main interface because it is connected to some
            slots in the MainInputManager */
         delete p_mi;
@@ -622,18 +673,18 @@ static void *Thread( void *obj )
 
     /* Save the path or delete if recent play are disabled */
     if( var_InheritBool( p_intf, "qt-recentplay" ) )
-        getSettings()->setValue( "filedialog-path", p_intf->p_sys->filepath );
+        getSettings()->setValue( "filedialog-path", p_sys->filepath );
     else
         getSettings()->remove( "filedialog-path" );
 
     /* */
-    delete p_intf->p_sys->pl_model;
+    delete p_sys->pl_model;
 
     /* Destroy the MainInputManager */
     MainInputManager::killInstance();
 
     /* Delete the configuration. Application has to be deleted after that. */
-    delete p_intf->p_sys->mainSettings;
+    delete p_sys->mainSettings;
 
     /* Delete the application automatically */
     return NULL;
@@ -689,31 +740,10 @@ static int WindowOpen( vout_window_t *p_wnd, const vout_window_cfg_t *cfg )
     MainInterface *p_mi = p_intf->p_sys->p_mi;
     msg_Dbg( p_wnd, "requesting video window..." );
 
-    unsigned i_width = cfg->width;
-    unsigned i_height = cfg->height;
-
-    WId wid = p_mi->getVideo( p_wnd, &i_width, &i_height, cfg->is_fullscreen );
-    if( !wid )
+    if( !p_mi->getVideo( p_wnd, cfg->width, cfg->height, cfg->is_fullscreen ) )
         return VLC_EGENERIC;
 
-    p_wnd->type = p_intf->p_sys->voutWindowType;
-
-    switch( p_wnd->type )
-    {
-        case VOUT_WINDOW_TYPE_XID:
-            p_wnd->handle.xid = (uintptr_t)wid;
-            p_wnd->display.x11 = NULL;
-            break;
-        case VOUT_WINDOW_TYPE_HWND:
-            p_wnd->handle.hwnd = (void *)wid;
-            break;
-        case VOUT_WINDOW_TYPE_NSOBJECT:
-            p_wnd->handle.nsobject = (void *)wid;
-            break;
-        default:
-            vlc_assert_unreachable();
-    }
-
+    p_wnd->info.has_double_click = true;
     p_wnd->control = WindowControl;
     p_wnd->sys = (vout_window_sys_t*)p_mi;
     return VLC_SUCCESS;

@@ -1,31 +1,58 @@
-/*****************************************************************************
- * VLCHUDButtonCell.m: Custom button cell UI for dark HUD Panels
- *****************************************************************************
- * Copyright (C) 2016 VLC authors and VideoLAN
- * $Id$
- *
- * Authors: Marvin Scholz <epirat07 -at- gmail -dot- com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
- *****************************************************************************/
+//
+//  VLCHUDButtonCell.m
+//  BGHUDAppKit
+//
+//  Created by BinaryGod on 5/25/08.
+//
+//  Copyright (c) 2008, Tim Davis (BinaryMethod.com, binary.god@gmail.com)
+//  All rights reserved.
+//
+//  Redistribution and use in source and binary forms, with or without modification,
+//  are permitted provided that the following conditions are met:
+//
+//		Redistributions of source code must retain the above copyright notice, this
+//	list of conditions and the following disclaimer.
+//
+//		Redistributions in binary form must reproduce the above copyright notice,
+//	this list of conditions and the following disclaimer in the documentation and/or
+//	other materials provided with the distribution.
+//
+//		Neither the name of the BinaryMethod.com nor the names of its contributors
+//	may be used to endorse or promote products derived from this software without
+//	specific prior written permission.
+//
+//	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND
+//	ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+//	WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+//	IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+//	INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+//	BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+//	OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+//	WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+//	ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+//	POSSIBILITY OF SUCH DAMAGE.
 
 #import "VLCHUDButtonCell.h"
+#import "CompatibilityFixes.h"
 
 @implementation VLCHUDButtonCell
 
-- (instancetype) initWithCoder:(NSCoder *)coder
+
++ (void)load
+{
+    /* On 10.10+ we do not want custom drawing, therefore we swap out the implementation
+     * of the selectors below with their original implementations.
+     * Just calling super is not enough, as it would still result in different drawing
+     * due to lack of vibrancy.
+     */
+    if (OSX_YOSEMITE_AND_HIGHER) {
+        swapoutOverride([VLCHUDButtonCell class], @selector(initWithCoder:));
+        swapoutOverride([VLCHUDButtonCell class], @selector(drawBezelWithFrame:inView:));
+        swapoutOverride([VLCHUDButtonCell class], @selector(drawTitle:withFrame:inView:));
+    }
+}
+
+- (instancetype)initWithCoder:(NSCoder *)coder
 {
     self = [super initWithCoder:coder];
     if (self) {
@@ -43,7 +70,7 @@
     return self;
 }
 
-- (void) drawBezelWithFrame:(NSRect)frame inView:(NSView *)controlView
+- (void)drawBezelWithFrame:(NSRect)frame inView:(NSView *)controlView
 {
     // Set frame to the correct size
     frame.size.height = self.cellSize.height;
@@ -74,9 +101,15 @@
     return [super drawTitle:coloredTitle withFrame:frame inView:controlView];
 }
 
-- (void) drawRoundRectButtonBezelInRect:(NSRect)rect
+- (void)drawRoundRectButtonBezelInRect:(NSRect)rect
 {
-    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:rect xRadius:8.0 yRadius:8.0];
+    NSBezierPath *path;
+    if (self.controlSize == NSMiniControlSize) {
+        rect = NSInsetRect(rect, 1.0, 2.0);
+        path = [NSBezierPath bezierPathWithRoundedRect:rect xRadius:3.0 yRadius:3.0];
+    } else {
+        path = [NSBezierPath bezierPathWithRoundedRect:rect xRadius:8.0 yRadius:8.0];
+    }
     if (self.highlighted) {
         [_pushedGradient drawInBezierPath:path angle:90.0f];
     } else if (!self.enabled) {
@@ -85,7 +118,7 @@
         [_normalGradient drawInBezierPath:path angle:90.0f];
     }
     [[NSColor colorWithCalibratedWhite:1.0 alpha:1.0] setStroke];
-    [path setLineWidth:0.5];
+    [path setLineWidth:1.0];
     [path stroke];
 }
 

@@ -31,7 +31,7 @@
 #include "BaseAdaptationSet.h"
 #include "SegmentTemplate.h"
 #include "SegmentTimeline.h"
-#include "ID.hpp"
+#include "../ID.hpp"
 
 using namespace adaptive;
 using namespace adaptive::playlist;
@@ -51,6 +51,11 @@ BaseRepresentation::~BaseRepresentation ()
 StreamFormat BaseRepresentation::getStreamFormat() const
 {
     return StreamFormat();
+}
+
+BaseAdaptationSet * BaseRepresentation::getAdaptationSet()
+{
+    return adaptationSet;
 }
 
 uint64_t     BaseRepresentation::getBandwidth            () const
@@ -149,6 +154,12 @@ std::string BaseRepresentation::contextualize(size_t, const std::string &compone
                                               const BaseSegmentTemplate *) const
 {
     return component;
+}
+
+bool BaseRepresentation::bwCompare(const BaseRepresentation *a,
+                                   const BaseRepresentation *b)
+{
+    return a->getBandwidth() < b->getBandwidth();
 }
 
 bool BaseRepresentation::validateCodec(const std::string &) const

@@ -31,7 +31,7 @@
 extern "C" {
 # endif
 
-static const char *CC_SHARED_VAR_NAME = "cc_sout";
+#define CC_SHARED_VAR_NAME "cc_sout"
 
 typedef struct
 {
@@ -40,6 +40,7 @@ typedef struct
     void (*pf_set_length)(void*, mtime_t length);
     mtime_t (*pf_get_time)(void*);
     double (*pf_get_position)(void*);
+    void (*pf_set_initial_time)( void*, mtime_t time );
 
     void (*pf_wait_app_started)(void*);
 

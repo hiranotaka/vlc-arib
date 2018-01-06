@@ -172,6 +172,39 @@ typedef struct libvlc_audio_track_t
     unsigned    i_rate;
 } libvlc_audio_track_t;
 
+typedef enum libvlc_video_orient_t
+{
+    libvlc_video_orient_top_left,       /**< Normal. Top line represents top, left column left. */
+    libvlc_video_orient_top_right,      /**< Flipped horizontally */
+    libvlc_video_orient_bottom_left,    /**< Flipped vertically */
+    libvlc_video_orient_bottom_right,   /**< Rotated 180 degrees */
+    libvlc_video_orient_left_top,       /**< Transposed */
+    libvlc_video_orient_left_bottom,    /**< Rotated 90 degrees clockwise (or 270 anti-clockwise) */
+    libvlc_video_orient_right_top,      /**< Rotated 90 degrees anti-clockwise */
+    libvlc_video_orient_right_bottom    /**< Anti-transposed */
+} libvlc_video_orient_t;
+
+typedef enum libvlc_video_projection_t
+{
+    libvlc_video_projection_rectangular,
+    libvlc_video_projection_equirectangular, /**< 360 spherical */
+
+    libvlc_video_projection_cubemap_layout_standard = 0x100,
+} libvlc_video_projection_t;
+
+/**
+ * Viewpoint
+ *
+ * \warning allocate using libvlc_video_new_viewpoint()
+ */
+typedef struct libvlc_video_viewpoint_t
+{
+    float f_yaw;           /**< view point yaw in degrees  ]-180;180] */
+    float f_pitch;         /**< view point pitch in degrees  ]-90;90] */
+    float f_roll;          /**< view point roll in degrees ]-180;180] */
+    float f_field_of_view; /**< field of view in degrees ]0;180[ (default 80.)*/
+} libvlc_video_viewpoint_t;
+
 typedef struct libvlc_video_track_t
 {
     unsigned    i_height;
@@ -180,6 +213,10 @@ typedef struct libvlc_video_track_t
     unsigned    i_sar_den;
     unsigned    i_frame_rate_num;
     unsigned    i_frame_rate_den;
+
+    libvlc_video_orient_t       i_orientation;
+    libvlc_video_projection_t   i_projection;
+    libvlc_video_viewpoint_t    pose; /**< Initial view point */
 } libvlc_video_track_t;
 
 typedef struct libvlc_subtitle_track_t
@@ -274,7 +311,7 @@ typedef enum libvlc_media_parsed_status_t
 /**
  * Type of a media slave: subtitle or audio.
  */
-typedef enum
+typedef enum libvlc_media_slave_type_t
 {
     libvlc_media_slave_type_subtitle,
     libvlc_media_slave_type_audio,
@@ -284,7 +321,7 @@ typedef enum
  * A slave of a libvlc_media_t
  * \see libvlc_media_slaves_get
  */
-typedef struct
+typedef struct libvlc_media_slave_t
 {
     char *                          psz_uri;
     libvlc_media_slave_type_t       i_type;
@@ -635,21 +672,6 @@ LIBVLC_API libvlc_time_t
    libvlc_media_get_duration( libvlc_media_t *p_md );
 
 /**
- * Parse a media.
- *
- * This fetches (local) art, meta data and tracks information.
- * The method is synchronous.
- *
- * \see libvlc_media_parse_with_options
- * \see libvlc_media_get_meta
- * \see libvlc_media_get_tracks_info
- *
- * \param p_md media descriptor object
- */
-LIBVLC_API void
-libvlc_media_parse( libvlc_media_t *p_md );
-
-/**
  * Parse the media asynchronously with options.
  *
  * This fetches (local or network) art, meta data and/or tracks information.
@@ -662,6 +684,8 @@ libvlc_media_parse( libvlc_media_t *p_md );
  * It uses a flag to specify parse options (see libvlc_media_parse_flag_t). All
  * these flags can be combined. By default, media is parsed if it's a local
  * file.
+ *
+ * \note Parsing can be aborted with libvlc_media_parse_stop().
  *
  * \see libvlc_MediaParsedChanged
  * \see libvlc_media_get_meta
@@ -681,6 +705,20 @@ LIBVLC_API int
 libvlc_media_parse_with_options( libvlc_media_t *p_md,
                                  libvlc_media_parse_flag_t parse_flag,
                                  int timeout );
+
+/**
+ * Stop the parsing of the media
+ *
+ * When the media parsing is stopped, the libvlc_MediaParsedChanged event will
+ * be sent with the libvlc_media_parsed_status_timeout status.
+ *
+ * \see libvlc_media_parse_with_options
+ *
+ * \param p_md media descriptor object
+ * \version LibVLC 3.0.0 or later
+ */
+LIBVLC_API void
+libvlc_media_parse_stop( libvlc_media_t *p_md );
 
 /**
  * Get Parsed status for media descriptor object.

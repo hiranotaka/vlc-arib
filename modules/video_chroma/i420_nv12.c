@@ -31,6 +31,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 #include "copy.h"
 
 /*****************************************************************************
@@ -88,7 +89,8 @@ static int Create( vlc_object_t *p_this )
             return -1;
     }
 
-    filter_sys_t *p_sys = calloc(1, sizeof(filter_sys_t));
+    filter_sys_t *p_sys = vlc_obj_malloc( VLC_OBJECT( p_filter ),
+                                          sizeof(*p_sys) );
     if (!p_sys)
          return VLC_ENOMEM;
 
@@ -118,22 +120,21 @@ static void I420_YUV( filter_sys_t *p_sys, picture_t *p_src, picture_t *p_dst, b
     const size_t u_plane = invertUV ? V_PLANE : U_PLANE;
     const size_t v_plane = invertUV ? U_PLANE : V_PLANE;
 
-    size_t pitch[3] = {
+    const size_t pitch[3] = {
         p_src->p[Y_PLANE].i_pitch,
         p_src->p[u_plane].i_pitch,
         p_src->p[v_plane].i_pitch,
     };
 
-    uint8_t *plane[3] = {
+    const uint8_t *plane[3] = {
         (uint8_t*)p_src->p[Y_PLANE].p_pixels,
         (uint8_t*)p_src->p[u_plane].p_pixels,
         (uint8_t*)p_src->p[v_plane].p_pixels,
     };
 
-    CopyFromI420ToNv12( p_dst, plane, pitch,
-                        p_src->format.i_x_offset + p_src->format.i_visible_width,
-                        p_src->format.i_y_offset + p_src->format.i_visible_height,
-                        &p_sys->cache );
+    Copy420_P_to_SP( p_dst, plane, pitch,
+                     p_src->format.i_y_offset + p_src->format.i_visible_height,
+                     &p_sys->cache );
 }
 
 /*****************************************************************************
@@ -160,6 +161,6 @@ static void YV12_NV12( filter_t *p_filter, picture_t *p_src,
  *****************************************************************************/
 vlc_module_begin ()
     set_description( N_("YUV planar to semiplanar conversions") )
-    set_capability( "video filter2", 160 )
+    set_capability( "video converter", 160 )
     set_callbacks( Create, Delete )
 vlc_module_end ()

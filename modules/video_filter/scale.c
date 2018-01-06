@@ -33,6 +33,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 
 /****************************************************************************
  * Local prototypes
@@ -45,7 +46,7 @@ static picture_t *Filter( filter_t *, picture_t * );
  *****************************************************************************/
 vlc_module_begin ()
     set_description( N_("Video scaling filter") )
-    set_capability( "video filter2", 10 )
+    set_capability( "video converter", 10 )
     set_callbacks( OpenFilter, NULL )
 vlc_module_end ()
 
@@ -71,6 +72,7 @@ static int OpenFilter( vlc_object_t *p_this )
     if( p_filter->fmt_in.video.orientation != p_filter->fmt_out.video.orientation )
         return VLC_EGENERIC;
 
+#warning Converter cannot (really) change output format.
     video_format_ScaleCropAr( &p_filter->fmt_out.video, &p_filter->fmt_in.video );
     p_filter->pf_video_filter = Filter;
 
@@ -90,14 +92,7 @@ static picture_t *Filter( filter_t *p_filter, picture_t *p_pic )
 
     if( !p_pic ) return NULL;
 
-    if( (p_filter->fmt_in.video.i_height == 0) ||
-        (p_filter->fmt_in.video.i_width == 0) )
-        return NULL;
-
-    if( (p_filter->fmt_out.video.i_height == 0) ||
-        (p_filter->fmt_out.video.i_width == 0) )
-        return NULL;
-
+#warning Converter cannot (really) change output format.
     video_format_ScaleCropAr( &p_filter->fmt_out.video, &p_filter->fmt_in.video );
 
     /* Request output picture */

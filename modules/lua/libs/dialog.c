@@ -282,6 +282,7 @@ static int vlclua_dialog_delete( lua_State *L )
             free( p_value->psz_text );
             free( p_value );
         }
+        free( p_widget );
     }
     FOREACH_END()
 
@@ -290,6 +291,7 @@ static int vlclua_dialog_delete( lua_State *L )
     /* Note: At this point, the UI must not use these resources */
     vlc_mutex_destroy( &p_dlg->lock );
     vlc_cond_destroy( &p_dlg->cond );
+    free( p_dlg );
 
     return 1;
 }
@@ -380,7 +382,7 @@ static int lua_GetDialogUpdate( lua_State *L )
     /* Read entry in the Lua registry */
     lua_pushlightuserdata( L, (void*) &key_update );
     lua_gettable( L, LUA_REGISTRYINDEX );
-    return luaL_checkinteger( L, -1 );
+    return luaL_checkint( L, -1 );
 }
 
 /** Manually update a dialog
@@ -571,22 +573,22 @@ static int vlclua_create_widget_inner( lua_State *L, int i_args,
 
     /* Set common arguments: col, row, hspan, vspan, width, height */
     if( lua_isnumber( L, arg ) )
-        p_widget->i_column = luaL_checkinteger( L, arg );
+        p_widget->i_column = luaL_checkint( L, arg );
     else goto end_of_args;
     if( lua_isnumber( L, ++arg ) )
-        p_widget->i_row = luaL_checkinteger( L, arg );
+        p_widget->i_row = luaL_checkint( L, arg );
     else goto end_of_args;
     if( lua_isnumber( L, ++arg ) )
-        p_widget->i_horiz_span = luaL_checkinteger( L, arg );
+        p_widget->i_horiz_span = luaL_checkint( L, arg );
     else goto end_of_args;
     if( lua_isnumber( L, ++arg ) )
-        p_widget->i_vert_span = luaL_checkinteger( L, arg );
+        p_widget->i_vert_span = luaL_checkint( L, arg );
     else goto end_of_args;
     if( lua_isnumber( L, ++arg ) )
-        p_widget->i_width = luaL_checkinteger( L, arg );
+        p_widget->i_width = luaL_checkint( L, arg );
     else goto end_of_args;
     if( lua_isnumber( L, ++arg ) )
-        p_widget->i_height = luaL_checkinteger( L, arg );
+        p_widget->i_height = luaL_checkint( L, arg );
     else goto end_of_args;
 
 end_of_args:

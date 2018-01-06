@@ -22,11 +22,14 @@
 #endif
 
 #include "mp4.h"
-
-#include "id3genres.h"                             /* for ATOM_gnre */
+#include "../meta_engine/ID3Genres.h"  /* for ATOM_gnre */
+#include "languages.h"
 
 #include <vlc_meta.h>
 #include <vlc_charset.h>
+
+#include "../meta_engine/ID3Tag.h"
+#include "../meta_engine/ID3Meta.h"
 
 #include <assert.h>
 
@@ -52,9 +55,9 @@ static const struct
     { ATOM_0xa9enc, vlc_meta_EncodedBy }, /* Encoded By */
     { ATOM_0xa9pub, vlc_meta_Publisher },
     { ATOM_0xa9dir, vlc_meta_Director },
+    { ATOM_desc,    vlc_meta_Description },
     { ATOM_MCPS,    vlc_meta_EncodedBy }, /* Cleaner Pro */
     { ATOM_aART,    vlc_meta_AlbumArtist },
-    { 0, 0 },
 };
 
 static const struct
@@ -99,13 +102,12 @@ static const struct
     { ATOM_flvr,    N_("Encoding Params") },
     { ATOM_vndr,    N_("Vendor") },
     { ATOM_xid_,    N_("Catalog Number") },
-    { ATOM_gshh,    N_("YouTube Host") },
-    { ATOM_gspm,    N_("YouTube Ping Message") },
-    { ATOM_gspu,    N_("YouTube Ping Url") },
-    { ATOM_gssd,    N_("YouTube Source Data") },
-    { ATOM_gsst,    N_("YouTube Start Time") },
-    { ATOM_gstd,    N_("YouTube Track Duration") },
-    { 0, "" },
+    { ATOM_gshh,    "YouTube Host" },
+    { ATOM_gspm,    "YouTube Ping Message" },
+    { ATOM_gspu,    "YouTube Ping Url" },
+    { ATOM_gssd,    "YouTube Source Data" },
+    { ATOM_gsst,    "YouTube Start Time" },
+    { ATOM_gstd,    "YouTube Track Duration" },
 };
 
 static const struct
@@ -125,7 +127,6 @@ static const struct
     { "director",        vlc_meta_Director },
     { "genre",           vlc_meta_Genre },
     { "publisher",       vlc_meta_Publisher },
-    { NULL,              0 },
 };
 
 static const struct
@@ -136,7 +137,6 @@ static const struct
     { "information",     N_("Information") },
     { "keywords",        N_("Keywords") },
     { "make",            N_("Vendor") },
-    { NULL,              NULL },
 };
 
 inline static char * StringConvert( const MP4_Box_data_data_t *p_data )
@@ -167,9 +167,10 @@ static char * ExtractString( MP4_Box_t *p_box )
     MP4_Box_t *p_data = MP4_BoxGet( p_box, "data" );
     if ( p_data )
         return StringConvert( BOXDATA(p_data) );
-    else if ( p_box->data.p_string && p_box->data.p_string->psz_text )
+    else if ( p_box->data.p_binary && p_box->data.p_binary->p_blob )
     {
-        char *psz_utf = strdup( p_box->data.p_string->psz_text );
+        char *psz_utf = strndup( p_box->data.p_binary->p_blob,
+                                 p_box->data.p_binary->i_blob );
         if (likely( psz_utf ))
             EnsureUTF8( psz_utf );
         return psz_utf;
@@ -178,138 +179,242 @@ static char * ExtractString( MP4_Box_t *p_box )
         return NULL;
 }
 
-static bool MatchXA9Type( vlc_meta_t *p_meta, uint32_t i_type, MP4_Box_t *p_box )
+static bool AppleNameToMeta( char const* name,
+    vlc_meta_type_t const** meta_type, char const** meta_key )
 {
-    bool b_matched = false;
+    *meta_type = NULL;
+    *meta_key = NULL;
 
-    for( unsigned i = 0; !b_matched && xa9typetometa[i].xa9_type; i++ )
+    for( size_t i = 0; *meta_type == NULL &&
+                       i < ARRAY_SIZE( com_apple_quicktime_tometa ); ++i )
     {
-        if( i_type == xa9typetometa[i].xa9_type )
-        {
-            b_matched = true;
-            char *psz_utf = ExtractString( p_box );
-            if( psz_utf )
-            {
-                 vlc_meta_Set( p_meta, xa9typetometa[i].meta_type, psz_utf );
-                 free( psz_utf );
-            }
-            break;
-        }
+        if( !strcmp( name, com_apple_quicktime_tometa[i].psz_naming ) )
+            *meta_type = &com_apple_quicktime_tometa[i].meta_type;
     }
 
-    for( unsigned i = 0; !b_matched && xa9typetoextrameta[i].xa9_type; i++ )
+    for( size_t i = 0; *meta_key == NULL &&
+                       i < ARRAY_SIZE( com_apple_quicktime_toextrameta ); ++i )
     {
-        if( i_type == xa9typetoextrameta[i].xa9_type )
-        {
-            b_matched = true;
-            char *psz_utf = ExtractString( p_box );
-            if( psz_utf )
-            {
-                 vlc_meta_AddExtra( p_meta, _(xa9typetoextrameta[i].metadata), psz_utf );
-                 free( psz_utf );
-            }
-            break;
-        }
+        if( !strcmp( name, com_apple_quicktime_toextrameta[i].psz_naming ) )
+            *meta_key = com_apple_quicktime_toextrameta[i].psz_metadata;
     }
 
-    return b_matched;
+    return *meta_type || *meta_key;
 }
 
-static bool Matchcom_apple_quicktime( vlc_meta_t *p_meta, const char *psz_naming, MP4_Box_t *p_box )
+static bool AtomXA9ToMeta( uint32_t i_type,
+    vlc_meta_type_t const** meta_type, char const** meta_key )
 {
-    bool b_matched = false;
+    *meta_type = NULL;
+    *meta_key = NULL;
 
-    for( unsigned i = 0; !b_matched && com_apple_quicktime_tometa[i].psz_naming; i++ )
+    for( size_t i = 0; !*meta_type && i < ARRAY_SIZE( xa9typetometa ); ++i )
+        if( xa9typetometa[i].xa9_type == i_type )
+            *meta_type = &xa9typetometa[i].meta_type;
+
+    for( size_t i = 0; !*meta_key && i < ARRAY_SIZE( xa9typetoextrameta ); ++i )
+        if( xa9typetoextrameta[i].xa9_type == i_type )
+            *meta_key = xa9typetoextrameta[i].metadata;
+
+    return *meta_type || *meta_key;
+}
+
+static bool SetMeta( vlc_meta_t* p_meta, int i_type, char const* name, MP4_Box_t* p_box )
+{
+    vlc_meta_type_t const* type;
+    char const* key;
+
+    if( ( name != NULL && !AppleNameToMeta( name, &type, &key ) ) ||
+        ( name == NULL && !AtomXA9ToMeta( i_type, &type, &key ) ) )
     {
-        if( !strcmp( psz_naming, com_apple_quicktime_tometa[i].psz_naming ) )
-        {
-            b_matched = true;
-            char *psz_utf = ExtractString( p_box );
-            if( psz_utf )
-            {
-                 vlc_meta_Set( p_meta, com_apple_quicktime_tometa[i].meta_type, psz_utf );
-                 free( psz_utf );
-            }
-            break;
-        }
+        return false;
     }
 
-    for( unsigned i = 0; !b_matched && com_apple_quicktime_toextrameta[i].psz_naming; i++ )
+    char* psz_utf = ExtractString( p_box );
+
+    if( psz_utf )
     {
-        if( !strcmp( psz_naming, com_apple_quicktime_toextrameta[i].psz_naming ) )
-        {
-            b_matched = true;
-            char *psz_utf = ExtractString( p_box );
-            if( psz_utf )
-            {
-                 vlc_meta_AddExtra( p_meta, _(com_apple_quicktime_toextrameta[i].psz_metadata), psz_utf );
-                 free( psz_utf );
-            }
-            break;
-        }
+        if( type ) vlc_meta_Set( p_meta, *type, psz_utf );
+        else       vlc_meta_AddExtra( p_meta, key, psz_utf );
+
+        free( psz_utf );
     }
 
-    return b_matched;
+    return true;
+}
+
+static int ExtractIntlStrings( vlc_meta_t *p_meta, MP4_Box_t *p_box )
+{
+    if( MP4_BoxGet( p_box, "data" ) )
+        return false;
+
+    vlc_meta_type_t const* meta_type;
+    char const* meta_key;
+
+    if( AtomXA9ToMeta( p_box->i_type, &meta_type, &meta_key ) == false )
+        return false;
+
+    if( p_box->p_father == NULL              ||
+        p_box->p_father->i_type != ATOM_udta ||
+        p_box->data.p_binary == NULL         ||
+        p_box->data.p_binary->p_blob == NULL )
+    {
+        return false;
+    }
+
+    vlc_meta_t* p_meta_intl = vlc_meta_New();
+
+    if( unlikely( !p_meta_intl ) )
+        return false;
+
+    char const* p_peek = p_box->data.p_binary->p_blob;
+    uint64_t i_read = p_box->data.p_binary->i_blob;
+
+    while( i_read >= 4 )
+    {
+        uint16_t i_len = GetWBE( p_peek );
+        uint16_t i_lang = GetWBE( p_peek + 2 );
+        p_peek += 4;
+        i_read -= 4;
+
+        if( i_len > i_read )
+            break;
+
+        char charset[15] = "MACINTOSH//";
+
+        decodeQtLanguageCode( i_lang, charset+11, &(bool){0} );
+
+        if( i_lang >= 0x400 && i_lang != 0x7fff )
+        {
+            strcpy( charset, i_len < 2 || memcmp( p_peek, "\xFE\xFF", 2 )
+                ? "UTF-8" : "UTF-16BE" );
+        }
+
+        char* data = FromCharset( charset, p_peek, i_len );
+        if( data )
+        {
+            if( meta_type )
+            {
+                vlc_meta_Set( p_meta_intl, *meta_type, data );
+
+                meta_key = vlc_meta_TypeToLocalizedString( *meta_type );
+                meta_type = NULL;
+            }
+            else
+            {
+                char* key;
+                if( asprintf( &key, "%s (%s)", meta_key, charset+11 ) != -1 )
+                {
+                    vlc_meta_AddExtra( p_meta_intl, key, data );
+                    free( key );
+                }
+            }
+            free( data );
+        }
+
+        p_peek += i_len;
+        i_read -= i_len;
+    }
+
+    if( i_read == 0 )
+        vlc_meta_Merge( p_meta, p_meta_intl );
+
+    vlc_meta_Delete( p_meta_intl );
+    return i_read == 0;
+}
+
+static void ExtractItunesInfoTriplets( vlc_meta_t *p_meta, MP4_Box_t *p_box )
+{
+    if( p_box->i_type != ATOM_ITUN )
+        return;
+    MP4_Box_t *p_mean = MP4_BoxGet( p_box, "mean" );
+    MP4_Box_t *p_name = MP4_BoxGet( p_box, "name" );
+    MP4_Box_t *p_data = MP4_BoxGet( p_box, "data" );
+    if( !p_mean || p_mean->data.p_binary->i_blob < 4 + 16 ||
+        !p_name || p_name->data.p_binary->i_blob < 5 ||
+        !p_data || !BOXDATA(p_data) )
+        return;
+
+    if( !strncmp( &((char*)p_mean->data.p_binary->p_blob)[4], "com.apple.iTunes",
+                  p_mean->data.p_binary->i_blob - 4 ) )
+    {
+        char *psz_name = strndup( &((char*)p_name->data.p_binary->p_blob)[4],
+                                 p_name->data.p_binary->i_blob - 4 );
+        char *psz_value = ExtractString( p_data );
+        if( psz_name && psz_value )
+            vlc_meta_AddExtra( p_meta, psz_name, psz_value );
+        free( psz_name );
+        free( psz_value );
+    }
 }
 
 static void SetupmdirMeta( vlc_meta_t *p_meta, MP4_Box_t *p_box )
 {
-    bool b_matched = true;
     const MP4_Box_t *p_data = MP4_BoxGet( p_box, "data" );
+
+    if( p_data == NULL || !BOXDATA(p_data) )
+    {
+        if( ExtractIntlStrings( p_meta, p_box ) )
+            return;
+
+        SetMeta( p_meta, p_box->i_type, NULL, p_box );
+        return;
+    }
+
     /* XXX Becarefull p_udta can have box that are not 0xa9xx */
     switch( p_box->i_type )
     {
     case ATOM_atID:
     {
-        if ( p_data && BOXDATA(p_data) && BOXDATA(p_data)->i_blob >= 4 &&
+        if ( BOXDATA(p_data)->i_blob >= 4 &&
              BOXDATA(p_data)->e_wellknowntype == DATA_WKT_BE_SIGNED )
         {
             char psz_utf[11];
             snprintf( psz_utf, sizeof( psz_utf ), "%"PRId32,
                       GetDWBE(BOXDATA(p_data)->p_blob) );
-            vlc_meta_AddExtra( p_meta, N_("iTunes Account ID"), psz_utf );
+            vlc_meta_AddExtra( p_meta, "iTunes Account ID", psz_utf );
         }
         break;
     }
     case ATOM_cnID:
     {
-        if ( p_data && BOXDATA(p_data) && BOXDATA(p_data)->i_blob >= 4 &&
+        if ( BOXDATA(p_data)->i_blob >= 4 &&
              BOXDATA(p_data)->e_wellknowntype == DATA_WKT_BE_SIGNED )
         {
             char psz_utf[11];
             snprintf( psz_utf, sizeof( psz_utf ), "%"PRId32,
                       GetDWBE(BOXDATA(p_data)->p_blob) );
-            vlc_meta_AddExtra( p_meta, N_("iTunes Catalog ID"), psz_utf );
+            vlc_meta_AddExtra( p_meta, "iTunes Catalog ID", psz_utf );
         }
         break;
     }
     case ATOM_disk:
     {
-        if ( p_data && BOXDATA(p_data) && BOXDATA(p_data)->i_blob >= 6 &&
+        if ( BOXDATA(p_data)->i_blob >= 6 &&
              BOXDATA(p_data)->e_wellknowntype == DATA_WKT_RESERVED )
         {
-            char psz_utf[5 + 5 + 4];
-            snprintf( psz_utf, sizeof( psz_utf ), "%"PRIu16" / %"PRIu16,
-                      GetWBE(&BOXDATA(p_data)->p_blob[2]),
-                      GetWBE(&BOXDATA(p_data)->p_blob[4]) );
-            vlc_meta_AddExtra( p_meta, N_("Disc"), psz_utf );
+            char psz_number[5];
+            snprintf( psz_number, sizeof( psz_number ), "%"PRIu16, GetWBE(&BOXDATA(p_data)->p_blob[2]) );
+            vlc_meta_Set( p_meta, vlc_meta_DiscNumber, psz_number );
+            snprintf( psz_number, sizeof( psz_number ), "%"PRIu16, GetWBE(&BOXDATA(p_data)->p_blob[4]) );
+            vlc_meta_Set( p_meta, vlc_meta_DiscTotal, psz_number );
         }
         break;
     }
     case ATOM_gnre:
     {
-        if ( p_data && BOXDATA(p_data) && BOXDATA(p_data)->i_blob >= 2 &&
+        if ( BOXDATA(p_data)->i_blob >= 2 &&
              BOXDATA(p_data)->e_wellknowntype == DATA_WKT_RESERVED )
         {
             const uint16_t i_genre = GetWBE(BOXDATA(p_data)->p_blob);
-            if( i_genre && i_genre <= NUM_GENRES )
-                vlc_meta_SetGenre( p_meta, ppsz_genres[i_genre - 1] );
+            if( i_genre && i_genre <= ID3_GENRES_COUNT )
+                vlc_meta_SetGenre( p_meta, ID3_ppsz_genres[i_genre - 1] );
         }
         break;
     }
     case ATOM_rtng:
     {
-        if ( p_data && BOXDATA(p_data) && BOXDATA(p_data)->i_blob >= 1 )
+        if ( BOXDATA(p_data)->i_blob >= 1 )
         {
             const char *psz_rating;
             switch( *BOXDATA(p_data)->p_blob )
@@ -331,7 +436,7 @@ static void SetupmdirMeta( vlc_meta_t *p_meta, MP4_Box_t *p_box )
     }
     case ATOM_trkn:
     {
-        if ( p_data && BOXDATA(p_data) && BOXDATA(p_data)->i_blob >= 4 &&
+        if ( BOXDATA(p_data)->i_blob >= 4 &&
              BOXDATA(p_data)->e_wellknowntype == DATA_WKT_RESERVED )
         {
             char psz_trck[6];
@@ -345,14 +450,13 @@ static void SetupmdirMeta( vlc_meta_t *p_meta, MP4_Box_t *p_box )
         }
         break;
     }
-
+    case ATOM_ITUN:
+        ExtractItunesInfoTriplets( p_meta, p_box );
+        break;
     default:
-        b_matched = false;
+        SetMeta( p_meta, p_box->i_type, NULL, p_box );
         break;
     }
-
-    if ( !b_matched )
-        MatchXA9Type( p_meta, p_box->i_type, p_box );
 }
 
 static void SetupmdtaMeta( vlc_meta_t *p_meta, MP4_Box_t *p_box, MP4_Box_t *p_keys )
@@ -368,9 +472,7 @@ static void SetupmdtaMeta( vlc_meta_t *p_meta, MP4_Box_t *p_box, MP4_Box_t *p_ke
     if( i_namespace == HANDLER_mdta )
     {
         if ( !strncmp( "com.apple.quicktime.", psz_naming, 20 ) )
-        {
-            Matchcom_apple_quicktime( p_meta, psz_naming + 20, p_box );
-        }
+            SetMeta( p_meta, 0, psz_naming + 20, p_box );
     }
     else if ( i_namespace == ATOM_udta )
     {
@@ -380,13 +482,34 @@ static void SetupmdtaMeta( vlc_meta_t *p_meta, MP4_Box_t *p_box, MP4_Box_t *p_ke
         {
             if ( strlen(psz_utf) == 4 )
             {
-                MatchXA9Type( p_meta,
-                              VLC_FOURCC(psz_utf[0],psz_utf[1],psz_utf[2],psz_utf[3]),
-                              p_box );
+                SetMeta( p_meta,
+                         VLC_FOURCC(psz_utf[0],psz_utf[1],psz_utf[2],psz_utf[3]),
+                         NULL, p_box );
             }
             free( psz_utf );
         }
     }
+}
+
+static int ID3TAG_Parse_Handler( uint32_t i_tag, const uint8_t *p_payload,
+                                 size_t i_payload, void *p_priv )
+{
+    vlc_meta_t *p_meta = (vlc_meta_t *) p_priv;
+
+    (void) ID3HandleTag( p_payload, i_payload, i_tag, p_meta, NULL );
+
+    return VLC_SUCCESS;
+}
+
+static void SetupID3v2Meta( vlc_meta_t *p_meta, MP4_Box_t *p_box )
+{
+    const MP4_Box_t *p_binary = MP4_BoxGet( p_box, "ID32" );
+    if( p_binary == NULL || !BOXDATA(p_binary) || BOXDATA(p_binary)->i_blob < 6 + 20 + 1 )
+        return;
+
+    /* ID3v2 in 3GPP / ETSI TS 126 244 8.3, Header size 4 + 2 */
+    ID3TAG_Parse( &((uint8_t *)BOXDATA(p_binary)->p_blob)[6], BOXDATA(p_binary)->i_blob - 6,
+                  ID3TAG_Parse_Handler, p_meta );
 }
 
 void SetupMeta( vlc_meta_t *p_meta, MP4_Box_t *p_udta )
@@ -405,6 +528,10 @@ void SetupMeta( vlc_meta_t *p_meta, MP4_Box_t *p_udta )
                 SetupmdtaMeta( p_meta, p_box, p_keys );
                 break;
             }
+
+            case HANDLER_ID32:
+                SetupID3v2Meta( p_meta, p_box );
+                break;
 
             case HANDLER_mdir:
             default:

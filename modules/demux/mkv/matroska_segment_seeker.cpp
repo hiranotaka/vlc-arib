@@ -68,7 +68,9 @@ SegmentSeeker::add_cluster( KaxCluster * const p_cluster )
         /* fpos     */ p_cluster->GetElementPosition(),
         /* pts      */ mtime_t( p_cluster->GlobalTimecode() / INT64_C( 1000 ) ),
         /* duration */ mtime_t( -1 ),
-        /* size     */ p_cluster->GetEndPosition() - p_cluster->GetElementPosition()
+        /* size     */ p_cluster->IsFiniteSize()
+            ? p_cluster->GetEndPosition() - p_cluster->GetElementPosition()
+            : UINT64_MAX
     };
 
     add_cluster_position( cinfo.fpos );
@@ -110,15 +112,16 @@ SegmentSeeker::add_cluster( KaxCluster * const p_cluster )
 }
 
 void
-SegmentSeeker::add_seekpoint( track_id_t track_id, int trust_level, fptr_t fpos, mtime_t pts )
+SegmentSeeker::add_seekpoint( track_id_t track_id, Seekpoint sp )
 {
-    Seekpoint sp ( trust_level, fpos, pts );
-
     seekpoints_t&  seekpoints = _tracks_seekpoints[ track_id ];
     seekpoints_t::iterator it = std::lower_bound( seekpoints.begin(), seekpoints.end(), sp );
 
     if( it != seekpoints.end() && it->pts == sp.pts )
     {
+        if (sp.trust_level <= it->trust_level)
+            return;
+
         *it = sp;
     }
     else
@@ -128,13 +131,16 @@ SegmentSeeker::add_seekpoint( track_id_t track_id, int trust_level, fptr_t fpos,
 }
 
 SegmentSeeker::tracks_seekpoint_t
-SegmentSeeker::find_greatest_seekpoints_in_range( fptr_t start_fpos, mtime_t end_pts )
+SegmentSeeker::find_greatest_seekpoints_in_range( fptr_t start_fpos, mtime_t end_pts, track_ids_t const& filter_tracks )
 {
     tracks_seekpoint_t tpoints;
 
     for( tracks_seekpoints_t::const_iterator it = _tracks_seekpoints.begin(); it != _tracks_seekpoints.end(); ++it )
     {
-        Seekpoint sp = get_seekpoints_around( end_pts, it->second, Seekpoint::TRUSTED ).first;
+        if ( std::find( filter_tracks.begin(), filter_tracks.end(), it->first ) == filter_tracks.end() )
+            continue;
+
+        Seekpoint sp = get_first_seekpoint_around( end_pts, it->second );
 
         if( sp.fpos < start_fpos )
             continue;
@@ -148,8 +154,36 @@ SegmentSeeker::find_greatest_seekpoints_in_range( fptr_t start_fpos, mtime_t end
     return tpoints;
 }
 
+SegmentSeeker::Seekpoint
+SegmentSeeker::get_first_seekpoint_around( mtime_t pts, seekpoints_t const& seekpoints,
+                                           Seekpoint::TrustLevel trust_level )
+{
+    if( seekpoints.empty() )
+    {
+        return Seekpoint();
+    }
+
+    typedef seekpoints_t::const_iterator iterator;
+
+    Seekpoint const needle ( std::numeric_limits<fptr_t>::max(), pts );
+
+    iterator const it_begin  = seekpoints.begin();
+    iterator const it_end    = seekpoints.end();
+    iterator const it_middle = greatest_lower_bound( it_begin, it_end, needle );
+
+    iterator it_before;
+
+    // rewrind to _previous_ seekpoint with appropriate trust
+    for( it_before = it_middle; it_before != it_begin; --it_before )
+    {
+        if( it_before->trust_level >= trust_level )
+            return *it_before;
+    }
+    return *it_begin;
+}
+
 SegmentSeeker::seekpoint_pair_t
-SegmentSeeker::get_seekpoints_around( mtime_t pts, seekpoints_t const& seekpoints, int trust_level )
+SegmentSeeker::get_seekpoints_around( mtime_t pts, seekpoints_t const& seekpoints )
 {
     if( seekpoints.empty() )
     {
@@ -158,28 +192,14 @@ SegmentSeeker::get_seekpoints_around( mtime_t pts, seekpoints_t const& seekpoint
 
     typedef seekpoints_t::const_iterator iterator;
 
-    Seekpoint const needle ( Seekpoint::DISABLED, -1, pts );
+    Seekpoint const needle ( std::numeric_limits<fptr_t>::max(), pts );
 
     iterator const it_begin  = seekpoints.begin();
     iterator const it_end    = seekpoints.end();
     iterator const it_middle = greatest_lower_bound( it_begin, it_end, needle );
 
-    iterator it_before;
-    iterator it_after;
-
-    // rewrind to _previous_ seekpoint with appropriate trust
-    for( it_before = it_middle; it_before != it_begin; --it_before )
-    {
-        if( it_before->trust_level >= trust_level )
-            break;
-    }
-
-    // forward to following seekpoint with appropriate trust
-    for( it_after = next_( it_middle ); it_after != it_end; ++it_after )
-    {
-        if( it_after->trust_level >= trust_level )
-            break;
-    }
+    iterator it_before = it_middle;
+    iterator it_after = it_middle == it_end ? it_middle : next_( it_middle ) ;
 
     return seekpoint_pair_t( *it_before,
       it_after == it_end ? Seekpoint() : *it_after
@@ -210,10 +230,12 @@ SegmentSeeker::get_seekpoints_around( mtime_t target_pts, track_ids_t const& pri
                 continue;
             }
 
-            if( points.first.fpos > track_points.first.fpos )
+            if( track_points.first.trust_level > Seekpoint::DISABLED &&
+                points.first.fpos > track_points.first.fpos )
                 points.first = track_points.first;
 
-            if( points.second.fpos < track_points.second.fpos )
+            if( track_points.second.trust_level > Seekpoint::DISABLED &&
+                points.second.fpos < track_points.second.fpos )
                 points.second = track_points.second;
         }
     }
@@ -246,7 +268,8 @@ SegmentSeeker::get_seekpoints_around( mtime_t target_pts, track_ids_t const& pri
 }
 
 SegmentSeeker::tracks_seekpoint_t
-SegmentSeeker::get_seekpoints( matroska_segment_c& ms, mtime_t target_pts, track_ids_t const& priority_tracks )
+SegmentSeeker::get_seekpoints( matroska_segment_c& ms, mtime_t target_pts,
+                               track_ids_t const& priority_tracks, track_ids_t const& filter_tracks )
 {
     struct contains_all_of_t {
         bool operator()( tracks_seekpoint_t const& haystack, track_ids_t const& track_ids )
@@ -267,10 +290,13 @@ SegmentSeeker::get_seekpoints( matroska_segment_c& ms, mtime_t target_pts, track
         Seekpoint const& start = seekpoints.first;
         Seekpoint const& end   = seekpoints.second;
 
+        if (start.fpos == std::numeric_limits<fptr_t>::max() )
+            return tracks_seekpoint_t();
+
         index_range( ms, Range( start.fpos, end.fpos ), needle_pts );
 
         {
-            tracks_seekpoint_t tpoints = find_greatest_seekpoints_in_range( start.fpos, target_pts );
+            tracks_seekpoint_t tpoints = find_greatest_seekpoints_in_range( start.fpos, target_pts, filter_tracks );
 
             if( contains_all_of_t() ( tpoints, priority_tracks ) )
                 return tpoints;
@@ -299,7 +325,7 @@ SegmentSeeker::index_unsearched_range( matroska_segment_c& ms, Range search_area
     search_area.start = ms.es.I_O().getFilePointer();
 
     fptr_t  block_pos = search_area.start;
-    mtime_t block_pts = std::numeric_limits<mtime_t>::max();
+    mtime_t block_pts;
 
     while( block_pos < search_area.end )
     {
@@ -309,35 +335,34 @@ SegmentSeeker::index_unsearched_range( matroska_segment_c& ms, Range search_area
         bool     b_key_picture;
         bool     b_discardable_picture;
         int64_t  i_block_duration;
-
-        matroska_segment_c::tracks_map_t::iterator i_track = ms.tracks.end();
+        track_id_t track_id;
 
         if( ms.BlockGet( block, simpleblock, &b_key_picture, &b_discardable_picture, &i_block_duration ) )
-        {
-            throw std::runtime_error( "Unable to BlockGet in SegmentSeeker::index_unsearched_range, EOF?" );
-        }
+            break;
 
         if( simpleblock ) {
             block_pos = simpleblock->GetElementPosition();
             block_pts = simpleblock->GlobalTimecode() / 1000;
+            track_id  = simpleblock->TrackNum();
         }
         else {
             block_pos = block->GetElementPosition();
             block_pts = block->GlobalTimecode() / 1000;
+            track_id  = block->TrackNum();
         }
 
-        if( ! ms.FindTrackByBlock( &i_track, block, simpleblock ) )
+        bool const b_valid_track = ms.FindTrackByBlock( block, simpleblock ) != NULL;
+
+        delete block;
+
+        if( b_valid_track )
         {
             if( b_key_picture )
-            {
-                add_seekpoint( i_track->first, Seekpoint::TRUSTED, block_pos, block_pts );
-            }
+                add_seekpoint( track_id, Seekpoint( block_pos, block_pts ) );
 
             if( max_pts < block_pts )
                 break;
         }
-
-        delete block;
     }
 
     search_area.end = ms.es.I_O().getFilePointer();
@@ -414,30 +439,35 @@ void
 SegmentSeeker::mkv_jump_to( matroska_segment_c& ms, fptr_t fpos )
 {
     fptr_t i_cluster_pos = -1;
-    ms.cluster = NULL;
 
+    if ( fpos != std::numeric_limits<SegmentSeeker::fptr_t>::max() )
     {
-        cluster_positions_t::iterator cluster_it = greatest_lower_bound(
-          _cluster_positions.begin(), _cluster_positions.end(), fpos
-        );
-
-        ms.es.I_O().setFilePointer( *cluster_it );
-        ms.ep->reconstruct( &ms.es, ms.segment, &ms.sys.demuxer );
-    }
-
-    while( ms.cluster == NULL || ms.cluster->GetEndPosition() < fpos )
-    {
-        if( !( ms.cluster = static_cast<KaxCluster*>( ms.ep->Get() ) ) )
+        ms.cluster = NULL;
+        if ( !_cluster_positions.empty() )
         {
-            msg_Err( &ms.sys.demuxer, "unable to read KaxCluster during seek, giving up" );
-            return;
+            cluster_positions_t::iterator cluster_it = greatest_lower_bound(
+              _cluster_positions.begin(), _cluster_positions.end(), fpos
+            );
+
+            ms.es.I_O().setFilePointer( *cluster_it );
+            ms.ep->reconstruct( &ms.es, ms.segment, &ms.sys.demuxer );
         }
 
-        i_cluster_pos = ms.cluster->GetElementPosition();
+        while( ms.cluster == NULL || (
+              ms.cluster->IsFiniteSize() && ms.cluster->GetEndPosition() < fpos ) )
+        {
+            if( !( ms.cluster = static_cast<KaxCluster*>( ms.ep->Get() ) ) )
+            {
+                msg_Err( &ms.sys.demuxer, "unable to read KaxCluster during seek, giving up" );
+                return;
+            }
 
-        add_cluster_position( i_cluster_pos );
+            i_cluster_pos = ms.cluster->GetElementPosition();
 
-        mark_range_as_searched( Range( i_cluster_pos, ms.es.I_O().getFilePointer() ) );
+            add_cluster_position( i_cluster_pos );
+
+            mark_range_as_searched( Range( i_cluster_pos, ms.es.I_O().getFilePointer() ) );
+        }
     }
 
     ms.ep->Down();
@@ -452,6 +482,10 @@ SegmentSeeker::mkv_jump_to( matroska_segment_c& ms, fptr_t fpos )
             ms.cluster->InitTimecode( static_cast<uint64>( *p_tc ), ms.i_timescale );
             break;
         }
+        else if( MKV_CHECKED_PTR_DECL( p_tc, EbmlCrc32, el ) )
+        {
+            p_tc->ReadData( ms.es.I_O(), SCOPE_ALL_DATA ); /* avoid a skip that may fail */
+        }
     }
 
     /* TODO: add error handling; what if we never get a KaxCluster and/or KaxClusterTimecode? */
@@ -460,6 +494,7 @@ SegmentSeeker::mkv_jump_to( matroska_segment_c& ms, fptr_t fpos )
 
     /* jump to desired position */
 
-    ms.es.I_O().setFilePointer( fpos );
+    if ( fpos != std::numeric_limits<SegmentSeeker::fptr_t>::max() )
+        ms.es.I_O().setFilePointer( fpos );
 }
 

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * caopengllayer.m: CAOpenGLLayer (Mac OS X) video output
  *****************************************************************************
- * Copyright (C) 2014-2016 VLC authors and VideoLAN
+ * Copyright (C) 2014-2017 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: David Fuhrmann <david dot fuhrmann at googlemail dot com>
@@ -41,9 +41,9 @@
 #import <OpenGL/OpenGL.h>
 #import <dlfcn.h>               /* dlsym */
 
-#include "opengl.h"
+#include "opengl/vout_helper.h"
 
-#define OSX_EL_CAPITAN (NSAppKitVersionNumber >= 1404)
+#define OSX_SIERRA_AND_HIGHER (NSAppKitVersionNumber >= 1485)
 
 /*****************************************************************************
  * Vout interface
@@ -78,6 +78,7 @@ static void OpenglSwap         (vlc_gl_t *gl);
 @interface VLCCAOpenGLLayer : CAOpenGLLayer
 
 @property (nonatomic, readwrite) vout_display_t* voutDisplay;
+@property (nonatomic, readwrite) CGLContextObj glContext;
 
 @end
 
@@ -91,16 +92,18 @@ struct vout_display_sys_t {
     vout_window_t *embed;
     VLCCAOpenGLLayer *cgLayer;
 
-    CGColorSpaceRef cgColorSpace;
-
-    CGLContextObj glContext;
-
-    vlc_gl_t gl;
+    vlc_gl_t *gl;
     vout_display_opengl_t *vgl;
 
     vout_display_place_t place;
 
     bool  b_frame_available;
+};
+
+struct gl_sys
+{
+    CGLContextObj locked_ctx;
+    VLCCAOpenGLLayer *cgLayer;
 };
 
 /*****************************************************************************
@@ -161,29 +164,40 @@ static int Open (vlc_object_t *p_this)
         if (!sys->cgLayer)
             goto bailout;
 
-        if (!sys->glContext)
+        if (![sys->cgLayer glContext])
             msg_Warn(vd, "we might not have an OpenGL context yet");
 
         /* Initialize common OpenGL video display */
-        sys->gl.lock = OpenglLock;
-        sys->gl.unlock = OpenglUnlock;
-        sys->gl.swap = OpenglSwap;
-        sys->gl.getProcAddress = OurGetProcAddress;
-        sys->gl.sys = sys;
+        sys->gl = vlc_object_create(vd, sizeof(*sys->gl));
+        if (unlikely(!sys->gl))
+            goto bailout;
+        sys->gl->makeCurrent = OpenglLock;
+        sys->gl->releaseCurrent = OpenglUnlock;
+        sys->gl->swap = OpenglSwap;
+        sys->gl->getProcAddress = OurGetProcAddress;
+
+        struct gl_sys *glsys = sys->gl->sys = malloc(sizeof(*glsys));
+        if (!sys->gl->sys)
+            goto bailout;
+        glsys->locked_ctx = NULL;
+        glsys->cgLayer = sys->cgLayer;
 
         const vlc_fourcc_t *subpicture_chromas;
         video_format_t fmt = vd->fmt;
-        sys->vgl = vout_display_opengl_New(&vd->fmt, &subpicture_chromas, &sys->gl);
+        if (!OpenglLock(sys->gl)) {
+            sys->vgl = vout_display_opengl_New(&vd->fmt, &subpicture_chromas,
+                                               sys->gl, &vd->cfg->viewpoint);
+            OpenglUnlock(sys->gl);
+        } else
+            sys->vgl = NULL;
         if (!sys->vgl) {
             msg_Err(vd, "Error while initializing opengl display.");
-            sys->gl.sys = NULL;
             goto bailout;
         }
 
         /* setup vout display */
         vout_display_info_t info = vd->info;
         info.subpicture_chromas = subpicture_chromas;
-        info.has_hide_mouse = true;
         vd->info = info;
 
         vd->pool    = Pool;
@@ -191,67 +205,11 @@ static int Open (vlc_object_t *p_this)
         vd->display = PictureDisplay;
         vd->control = Control;
 
-        /* handle color space if supported by the OS */
-        if ([sys->cgLayer respondsToSelector:@selector(setColorspace:)]) {
-
-            /* support for BT.709 and BT.2020 color spaces was introduced with OS X 10.11
-             * on older OS versions, we can't show correct colors, so we fallback on linear RGB */
-            if (OSX_EL_CAPITAN) {
-                switch (fmt.primaries) {
-                    case COLOR_PRIMARIES_BT601_525:
-                    case COLOR_PRIMARIES_BT601_625:
-                    {
-                        msg_Dbg(vd, "Using BT.601 color space");
-                        sys->cgColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-                        break;
-                    }
-                    case COLOR_PRIMARIES_BT709:
-                    {
-                        msg_Dbg(vd, "Using BT.709 color space");
-                        sys->cgColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceITUR_709);
-                        break;
-                    }
-                    case COLOR_PRIMARIES_BT2020:
-                    {
-                        msg_Dbg(vd, "Using BT.2020 color space");
-                        sys->cgColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceITUR_709);
-                        break;
-                    }
-                    case COLOR_PRIMARIES_DCI_P3:
-                    {
-                        msg_Dbg(vd, "Using DCI P3 color space");
-                        sys->cgColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceDCIP3);
-                        break;
-                    }
-                    default:
-                    {
-                        msg_Dbg(vd, "Guessing color space based on video dimensions (%ix%i)", fmt.i_visible_width, fmt.i_visible_height);
-                        if (fmt.i_visible_height >= 2000 || fmt.i_visible_width >= 3800) {
-                            msg_Dbg(vd, "Using BT.2020 color space");
-                            sys->cgColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceITUR_2020);
-                        } else if (fmt.i_height > 576) {
-                            msg_Dbg(vd, "Using BT.709 color space");
-                            sys->cgColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceITUR_709);
-                        } else {
-                            msg_Dbg(vd, "SD content, using linear RGB color space");
-                            sys->cgColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-                        }
-                        break;
-                    }
-                }
-            } else {
-                msg_Dbg(vd, "OS does not support BT.709 or BT.2020 color spaces, output may vary");
-                sys->cgColorSpace = CGColorSpaceCreateWithName(kCGColorSpaceGenericRGBLinear);
+        if (OSX_SIERRA_AND_HIGHER) {
+            /* request our screen's HDR mode (introduced in OS X 10.11, but correctly supported in 10.12 only) */
+            if ([sys->cgLayer respondsToSelector:@selector(setWantsExtendedDynamicRangeContent:)]) {
+                [sys->cgLayer setWantsExtendedDynamicRangeContent:YES];
             }
-
-            [sys->cgLayer setColorspace: sys->cgColorSpace];
-        } else {
-            msg_Dbg(vd, "OS does not support custom color spaces, output may be undefined");
-        }
-
-        /* request our screen's HDR mode (introduced in OS X 10.11) */
-        if ([sys->cgLayer respondsToSelector:@selector(setWantsExtendedDynamicRangeContent:)]) {
-            [sys->cgLayer setWantsExtendedDynamicRangeContent:YES];
         }
 
         /* setup initial state */
@@ -260,11 +218,10 @@ static int Open (vlc_object_t *p_this)
             outputSize = [container currentOutputSize];
         else
             outputSize = [sys->container visibleRect].size;
-        vout_display_SendEventFullscreen(vd, false);
         vout_display_SendEventDisplaySize(vd, (int)outputSize.width, (int)outputSize.height);
-        
+
         return VLC_SUCCESS;
-        
+
     bailout:
         Close(p_this);
         return VLC_EGENERIC;
@@ -290,14 +247,23 @@ static void Close (vlc_object_t *p_this)
     if (sys->embed)
         vout_display_DeleteWindow(vd, sys->embed);
 
-    if (sys->gl.sys != NULL)
+    if (sys->vgl != NULL && !OpenglLock(sys->gl)) {
         vout_display_opengl_Delete(sys->vgl);
+        OpenglUnlock(sys->gl);
+    }
 
-    if (sys->glContext)
-        CGLReleaseContext(sys->glContext);
+    if (sys->gl != NULL)
+    {
+        if (sys->gl->sys != NULL)
+        {
+            assert(((struct gl_sys *)sys->gl->sys)->locked_ctx == NULL);
+            free(sys->gl->sys);
+        }
+        vlc_object_release(sys->gl);
+    }
 
-    if (sys->cgColorSpace != nil)
-        CGColorSpaceRelease(sys->cgColorSpace);
+    if ([sys->cgLayer glContext])
+        CGLReleaseContext([sys->cgLayer glContext]);
 
     free(sys);
 }
@@ -306,9 +272,11 @@ static picture_pool_t *Pool (vout_display_t *vd, unsigned count)
 {
     vout_display_sys_t *sys = vd->sys;
 
-    if (!sys->pool)
+    if (!sys->pool && !OpenglLock(sys->gl)) {
         sys->pool = vout_display_opengl_GetPool(sys->vgl, count);
-    assert(sys->pool);
+        OpenglUnlock(sys->gl);
+        assert(sys->pool);
+    }
     return sys->pool;
 }
 
@@ -322,7 +290,10 @@ static void PictureRender (vout_display_t *vd, picture_t *pic, subpicture_t *sub
     }
 
     @synchronized (sys->cgLayer) {
-        vout_display_opengl_Prepare(sys->vgl, pic, subpicture);
+        if (!OpenglLock(sys->gl)) {
+            vout_display_opengl_Prepare(sys->vgl, pic, subpicture);
+            OpenglUnlock(sys->gl);
+        }
     }
 }
 
@@ -362,13 +333,10 @@ static int Control (vout_display_t *vd, int query, va_list ap)
         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
         {
             const vout_display_cfg_t *cfg;
-            const video_format_t *source;
 
             if (query == VOUT_DISPLAY_CHANGE_SOURCE_ASPECT || query == VOUT_DISPLAY_CHANGE_SOURCE_CROP) {
-                source = (const video_format_t *)va_arg (ap, const video_format_t *);
                 cfg = vd->cfg;
             } else {
-                source = &vd->source;
                 cfg = (const vout_display_cfg_t*)va_arg (ap, const vout_display_cfg_t *);
             }
 
@@ -380,29 +348,42 @@ static int Control (vout_display_t *vd, int query, va_list ap)
             cfg_tmp.display.width = bounds.size.width;
             cfg_tmp.display.height = bounds.size.height;
 
+            /* Reverse vertical alignment as the GL tex are Y inverted */
+            if (cfg_tmp.align.vertical == VOUT_DISPLAY_ALIGN_TOP)
+                cfg_tmp.align.vertical = VOUT_DISPLAY_ALIGN_BOTTOM;
+            else if (cfg_tmp.align.vertical == VOUT_DISPLAY_ALIGN_BOTTOM)
+                cfg_tmp.align.vertical = VOUT_DISPLAY_ALIGN_TOP;
+
             vout_display_place_t place;
-            vout_display_PlacePicture (&place, source, &cfg_tmp, false);
+            vout_display_PlacePicture (&place, &vd->source, &cfg_tmp, false);
+            if (OpenglLock(sys->gl))
+                return VLC_EGENERIC;
+
+            vout_display_opengl_SetWindowAspectRatio(sys->vgl, (float)place.width / place.height);
+            OpenglUnlock(sys->gl);
+
             sys->place = place;
 
             return VLC_SUCCESS;
         }
 
-        case VOUT_DISPLAY_HIDE_MOUSE:
+        case VOUT_DISPLAY_CHANGE_VIEWPOINT:
         {
-            [NSCursor setHiddenUntilMouseMoves: YES];
-            return VLC_SUCCESS;
-        }
+            int ret;
 
-        case VOUT_DISPLAY_CHANGE_WINDOW_STATE:
-        {
-            return VLC_SUCCESS;
+            if (OpenglLock(sys->gl))
+                return VLC_EGENERIC;
+
+            ret = vout_display_opengl_SetViewpoint(sys->vgl,
+                &va_arg (ap, const vout_display_cfg_t* )->viewpoint);
+            OpenglUnlock(sys->gl);
+            return ret;
         }
 
         case VOUT_DISPLAY_RESET_PICTURES:
             vlc_assert_unreachable ();
         default:
             msg_Err (vd, "Unhandled request %d", query);
-        case VOUT_DISPLAY_CHANGE_FULLSCREEN:
             return VLC_EGENERIC;
     }
 
@@ -414,15 +395,18 @@ static int Control (vout_display_t *vd, int query, va_list ap)
 
 static int OpenglLock (vlc_gl_t *gl)
 {
-    vout_display_sys_t *sys = (vout_display_sys_t *)gl->sys;
+    struct gl_sys *sys = gl->sys;
+    assert(sys->locked_ctx == NULL);
 
-    if(!sys->glContext) {
+    CGLContextObj ctx = [sys->cgLayer glContext];
+    if(!ctx) {
         return 1;
     }
 
-    CGLError err = CGLLockContext(sys->glContext);
+    CGLError err = CGLLockContext(ctx);
     if (kCGLNoError == err) {
-        CGLSetCurrentContext(sys->glContext);
+        sys->locked_ctx = ctx;
+        CGLSetCurrentContext(ctx);
         return 0;
     }
     return 1;
@@ -430,13 +414,9 @@ static int OpenglLock (vlc_gl_t *gl)
 
 static void OpenglUnlock (vlc_gl_t *gl)
 {
-    vout_display_sys_t *sys = (vout_display_sys_t *)gl->sys;
-
-    if (!sys->glContext) {
-        return;
-    }
-
-    CGLUnlockContext(sys->glContext);
+    struct gl_sys *sys = gl->sys;
+    CGLUnlockContext(sys->locked_ctx);
+    sys->locked_ctx = NULL;
 }
 
 static void OpenglSwap (vlc_gl_t *gl)
@@ -509,7 +489,9 @@ static void *OurGetProcAddress (vlc_gl_t *gl, const char *name)
     CGRect bounds = [self visibleRect];
 
     // x / y are top left corner, but we need the lower left one
-    glViewport (sys->place.x, bounds.size.height - (sys->place.y + sys->place.height), sys->place.width, sys->place.height);
+    vout_display_opengl_Viewport(sys->vgl, sys->place.x,
+                                 bounds.size.height - (sys->place.y + sys->place.height),
+                                 sys->place.width, sys->place.height);
 
     // flush is also done by this method, no need to call super
     vout_display_opengl_Display (sys->vgl, &_voutDisplay->source);
@@ -525,9 +507,9 @@ static void *OurGetProcAddress (vlc_gl_t *gl, const char *name)
 - (CGLContextObj)copyCGLContextForPixelFormat:(CGLPixelFormatObj)pixelFormat
 {
     // Only one opengl context is allowed for the module lifetime
-    if(_voutDisplay->sys->glContext) {
-        msg_Dbg(_voutDisplay, "Return existing context: %p", _voutDisplay->sys->glContext);
-        return _voutDisplay->sys->glContext;
+    if(_glContext) {
+        msg_Dbg(_voutDisplay, "Return existing context: %p", _glContext);
+        return _glContext;
     }
 
     CGLContextObj context = [super copyCGLContextForPixelFormat:pixelFormat];
@@ -541,7 +523,7 @@ static void *OurGetProcAddress (vlc_gl_t *gl, const char *name)
                      &params );
 
     @synchronized (self) {
-        _voutDisplay->sys->glContext = context;
+        _glContext = context;
     }
 
     return context;

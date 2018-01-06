@@ -34,6 +34,7 @@
 
 #include <vlc_network.h>
 #include <vlc_url.h>
+#include <vlc_memstream.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -47,14 +48,14 @@
 #define DEST_TEXT N_("Output destination")
 #define DEST_LONGTEXT N_( \
     "Destination (URL) to use for the stream. Overrides path and bind parameters" )
-#define BIND_TEXT N_("address to bind to (helper setting for dst)")
+#define BIND_TEXT N_("Address to bind to (helper setting for dst)")
 #define BIND_LONGTEXT N_( \
-  "address:port to bind vlc to listening incoming streams "\
-  "helper setting for dst,dst=bind+'/'+path. dst-parameter overrides this" )
-#define PATH_TEXT N_("filename for stream (helper setting for dst)")
+  "address:port to bind vlc to listening incoming streams. "\
+  "Helper setting for dst, dst=bind+'/'+path. dst-parameter overrides this." )
+#define PATH_TEXT N_("Filename for stream (helper setting for dst)")
 #define PATH_LONGTEXT N_( \
-  "Filename for stream "\
-  "helper setting for dst, dst=bind+'/'+path, dst-parameter overrides this" )
+  "Filename for stream. "\
+  "Helper setting for dst, dst=bind+'/'+path. dst-parameter overrides this." )
 #define NAME_TEXT N_("Session name")
 #define NAME_LONGTEXT N_( \
     "This is the name of the session that will be announced in the SDP " \
@@ -72,11 +73,6 @@
 #define EMAIL_LONGTEXT N_( \
     "This allows you to give a contact mail address for the stream, that will " \
     "be announced in the SDP (Session Descriptor)." )
-#define PHONE_TEXT N_("Session phone number")
-#define PHONE_LONGTEXT N_( \
-    "This allows you to give a contact telephone number for the stream, that will " \
-    "be announced in the SDP (Session Descriptor)." )
-
 
 #define SAP_TEXT N_("SAP announcing")
 #define SAP_LONGTEXT N_("Announce this session with SAP.")
@@ -86,11 +82,17 @@ static void     Close   ( vlc_object_t * );
 
 #define SOUT_CFG_PREFIX "sout-standard-"
 
+#ifdef ENABLE_SRT
+#define SRT_SHORTCUT "srt"
+#else
+#define SRT_SHORTCUT
+#endif
+
 vlc_module_begin ()
     set_shortname( N_("Standard"))
     set_description( N_("Standard stream output") )
     set_capability( "sout stream", 50 )
-    add_shortcut( "standard", "std", "file", "http", "udp" )
+    add_shortcut( "standard", "std", "file", "http", "udp", SRT_SHORTCUT )
     set_category( CAT_SOUT )
     set_subcategory( SUBCAT_SOUT_STREAM )
 
@@ -105,7 +107,7 @@ vlc_module_begin ()
     add_string( SOUT_CFG_PREFIX "description", "", DESC_TEXT, DESC_LONGTEXT, true )
     add_string( SOUT_CFG_PREFIX "url", "", URL_TEXT, URL_LONGTEXT, true )
     add_string( SOUT_CFG_PREFIX "email", "", EMAIL_TEXT, EMAIL_LONGTEXT, true )
-    add_string( SOUT_CFG_PREFIX "phone", "", PHONE_TEXT, PHONE_LONGTEXT, true )
+    add_obsolete_string( SOUT_CFG_PREFIX "phone" ) /* since 3.0.0 */
 
     set_callbacks( Open, Close )
 vlc_module_end ()
@@ -116,7 +118,7 @@ vlc_module_end ()
  *****************************************************************************/
 static const char *const ppsz_sout_options[] = {
     "access", "mux", "url", "dst",
-    "sap", "name", "description", "url", "email", "phone",
+    "sap", "name", "description", "url", "email",
     "bind", "path", NULL
 };
 
@@ -179,29 +181,25 @@ static void create_SDP(sout_stream_t *p_stream, sout_access_out_t *p_access)
         freeaddrinfo (res);
     }
 
-    char *head = vlc_sdp_Start (VLC_OBJECT (p_stream), SOUT_CFG_PREFIX,
-            (struct sockaddr *)&src, srclen,
-            (struct sockaddr *)&dst, dstlen);
-    free (shost);
+    struct vlc_memstream sdp;
 
-    if (head != NULL)
+    if (vlc_sdp_Start(&sdp, VLC_OBJECT (p_stream), SOUT_CFG_PREFIX,
+                      (struct sockaddr *)&src, srclen,
+                      (struct sockaddr *)&dst, dstlen) == 0)
     {
-        char *psz_sdp = NULL;
-        if (asprintf (&psz_sdp, "%s"
-                    "m=video %d udp mpeg\r\n", head, dport) == -1)
-            psz_sdp = NULL;
-        free (head);
+        vlc_memstream_printf(&sdp, "m=video %d udp mpeg\r\n", dport);
 
         /* Register the SDP with the SAP thread */
-        if (psz_sdp)
+        if (vlc_memstream_close(&sdp) == 0)
         {
-            msg_Dbg (p_stream, "Generated SDP:\n%s", psz_sdp);
+            msg_Dbg(p_stream, "Generated SDP:\n%s", sdp.ptr);
             p_sys->p_session =
-                sout_AnnounceRegisterSDP (p_stream, psz_sdp, dhost);
-            free( psz_sdp );
+                sout_AnnounceRegisterSDP(p_stream, sdp.ptr, dhost);
+            free(sdp.ptr);
         }
     }
-    free (dhost);
+    free(shost);
+    free(dhost);
 }
 
 static const char *getMuxFromAlias( const char *psz_alias )

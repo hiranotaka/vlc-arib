@@ -3,7 +3,7 @@
  * @brief Wayland shared memory video output module for VLC media player
  */
 /*****************************************************************************
- * Copyright © 2014 Rémi Denis-Courmont
+ * Copyright © 2014, 2017 Rémi Denis-Courmont
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -34,7 +34,7 @@
 #include <unistd.h>
 
 #include <wayland-client.h>
-#include "scaler-client-protocol.h"
+#include "viewporter-client-protocol.h"
 
 #include <vlc_common.h>
 #include <vlc_plugin.h>
@@ -49,14 +49,16 @@ struct vout_display_sys_t
     vout_window_t *embed; /* VLC window */
     struct wl_event_queue *eventq;
     struct wl_shm *shm;
-    struct wl_scaler *scaler;
-    struct wl_viewport *viewport;
+    struct wp_viewporter *viewporter;
+    struct wp_viewport *viewport;
 
     picture_pool_t *pool; /* picture pool */
 
     int x;
     int y;
     bool use_buffer_transform;
+
+    video_format_t curr_aspect;
 };
 
 static void PictureDestroy(picture_t *pic)
@@ -72,8 +74,13 @@ static void buffer_release_cb(void *data, struct wl_buffer *buffer)
 {
     picture_t *pic = data;
 
-    picture_Release(pic);
+#ifndef NDEBUG
+    assert(pic != NULL);
+    wl_buffer_set_user_data(buffer, NULL);
+#else
     (void) buffer;
+#endif
+    picture_Release(pic);
 }
 
 static const struct wl_buffer_listener buffer_cbs =
@@ -81,17 +88,14 @@ static const struct wl_buffer_listener buffer_cbs =
     buffer_release_cb,
 };
 
-static void PictureAttach(void *data, picture_t *pic)
-{
-    struct wl_buffer *buf = (struct wl_buffer *)pic->p_sys;
-
-    wl_buffer_add_listener(buf, &buffer_cbs, pic);
-    (void) data;
-}
-
 static void PictureDetach(void *data, picture_t *pic)
 {
     struct wl_buffer *buf = (struct wl_buffer *)pic->p_sys;
+
+    /* Detach the buffer if it is attached */
+    pic = wl_buffer_get_user_data(buf);
+    if (pic != NULL)
+        buffer_release_cb(pic, buf);
 
     wl_buffer_destroy(buf);
     (void) data;
@@ -187,6 +191,7 @@ static picture_pool_t *Pool(vout_display_t *vd, unsigned req)
             break;
         }
 
+        wl_buffer_add_listener(buf, &buffer_cbs, NULL);
         pics[count++] = pic;
     }
 
@@ -203,10 +208,7 @@ static picture_pool_t *Pool(vout_display_t *vd, unsigned req)
     {
         while (count > 0)
             picture_Release(pics[--count]);
-        return NULL;
     }
-
-    picture_pool_Enum(sys->pool, PictureAttach, NULL);
     return sys->pool;
 }
 
@@ -217,6 +219,7 @@ static void Prepare(vout_display_t *vd, picture_t *pic, subpicture_t *subpic)
     struct wl_surface *surface = sys->embed->handle.wl;
     struct wl_buffer *buf = (struct wl_buffer *)pic->p_sys;
 
+    wl_buffer_set_user_data(buf, pic);
     wl_surface_attach(surface, buf, sys->x, sys->y);
     wl_surface_damage(surface, 0, 0,
                       vd->cfg->display.width, vd->cfg->display.height);
@@ -258,10 +261,6 @@ static int Control(vout_display_t *vd, int query, va_list ap)
 
     switch (query)
     {
-        case VOUT_DISPLAY_HIDE_MOUSE:
-            /* TODO */
-            return VLC_EGENERIC;
-
         case VOUT_DISPLAY_RESET_PICTURES:
         {
             vout_display_place_t place;
@@ -283,6 +282,7 @@ static int Control(vout_display_t *vd, int query, va_list ap)
             vd->fmt.i_y_offset = src.i_y_offset * place.height
                                                 / src.i_visible_height;
             ResetPictures(vd);
+            sys->curr_aspect = vd->source;
             break;
         }
 
@@ -293,27 +293,24 @@ static int Control(vout_display_t *vd, int query, va_list ap)
         case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
         {
             const vout_display_cfg_t *cfg;
-            const video_format_t *src;
 
             if (query == VOUT_DISPLAY_CHANGE_SOURCE_ASPECT
              || query == VOUT_DISPLAY_CHANGE_SOURCE_CROP)
             {
-                src = va_arg(ap, const video_format_t *);
                 cfg = vd->cfg;
             }
             else
             {
-                src = &vd->source;
                 cfg = va_arg(ap, const vout_display_cfg_t *);
             }
 
             vout_display_place_t place;
 
-            vout_display_PlacePicture(&place, &vd->source, vd->cfg, false);
+            vout_display_PlacePicture(&place, &sys->curr_aspect, vd->cfg, false);
             sys->x += place.width / 2;
             sys->y += place.height / 2;
 
-            vout_display_PlacePicture(&place, src, cfg, false);
+            vout_display_PlacePicture(&place, &vd->source, cfg, false);
             sys->x -= place.width / 2;
             sys->y -= place.height / 2;
 
@@ -321,16 +318,18 @@ static int Control(vout_display_t *vd, int query, va_list ap)
             {
                 video_format_t fmt;
 
-                video_format_ApplyRotation(&fmt, src);
-                wl_viewport_set(sys->viewport,
+                video_format_ApplyRotation(&fmt, &vd->source);
+                wp_viewport_set_source(sys->viewport,
                                 wl_fixed_from_int(fmt.i_x_offset),
                                 wl_fixed_from_int(fmt.i_y_offset),
                                 wl_fixed_from_int(fmt.i_visible_width),
-                                wl_fixed_from_int(fmt.i_visible_height),
+                                wl_fixed_from_int(fmt.i_visible_height));
+                wp_viewport_set_destination(sys->viewport,
                                 place.width, place.height);
             }
             else
                 vout_display_SendEventPicturesInvalid(vd);
+            sys->curr_aspect = vd->source;
             break;
         }
         default:
@@ -370,9 +369,9 @@ static void registry_global_cb(void *data, struct wl_registry *registry,
     if (!strcmp(iface, "wl_shm"))
         sys->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
     else
-    if (!strcmp(iface, "wl_scaler"))
-        sys->scaler = wl_registry_bind(registry, name, &wl_scaler_interface,
-                                       1);
+    if (!strcmp(iface, "wp_viewporter"))
+        sys->viewporter = wl_registry_bind(registry, name,
+                                           &wp_viewporter_interface, 1);
     else
     if (!strcmp(iface, "wl_compositor"))
         sys->use_buffer_transform = vers >= 2;
@@ -404,7 +403,7 @@ static int Open(vlc_object_t *obj)
     sys->embed = NULL;
     sys->eventq = NULL;
     sys->shm = NULL;
-    sys->scaler = NULL;
+    sys->viewporter = NULL;
     sys->pool = NULL;
     sys->x = 0;
     sys->y = 0;
@@ -437,8 +436,8 @@ static int Open(vlc_object_t *obj)
     wl_display_roundtrip_queue(display, sys->eventq);
 
     struct wl_surface *surface = sys->embed->handle.wl;
-    if (sys->scaler != NULL)
-        sys->viewport = wl_scaler_get_viewport(sys->scaler, surface);
+    if (sys->viewporter != NULL)
+        sys->viewport = wp_viewporter_get_viewport(sys->viewporter, surface);
     else
         sys->viewport = NULL;
 
@@ -465,16 +464,16 @@ static int Open(vlc_object_t *obj)
         video_format_ApplyRotation(&vd->fmt, &fmt);
     }
 
+    sys->curr_aspect = vd->source;
+
     vd->fmt.i_chroma = VLC_CODEC_RGB32;
 
     vd->info.has_pictures_invalid = sys->viewport == NULL;
-    vd->info.has_event_thread = true;
 
     vd->pool = Pool;
     vd->prepare = Prepare;
     vd->display = Display;
     vd->control = Control;
-    vd->manage = NULL;
 
     return VLC_SUCCESS;
 
@@ -495,9 +494,9 @@ static void Close(vlc_object_t *obj)
     ResetPictures(vd);
 
     if (sys->viewport != NULL)
-        wl_viewport_destroy(sys->viewport);
-    if (sys->scaler != NULL)
-        wl_scaler_destroy(sys->scaler);
+        wp_viewport_destroy(sys->viewport);
+    if (sys->viewporter != NULL)
+        wp_viewporter_destroy(sys->viewporter);
     wl_shm_destroy(sys->shm);
     wl_display_flush(sys->embed->display.wl);
     wl_event_queue_destroy(sys->eventq);

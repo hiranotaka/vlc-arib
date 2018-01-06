@@ -29,43 +29,27 @@
 #include <vlc_charset.h>
 
 #include "substext.h"
+#include "../demux/mp4/minibox.h"
 
 /*****************************************************************************
  * Module descriptor.
  *****************************************************************************/
-static int  Open ( vlc_object_t * );
-static subpicture_t *Decode( decoder_t *, block_t ** );
+static int Open ( vlc_object_t * );
+static void Close ( vlc_object_t * );
+static int Decode( decoder_t *, block_t * );
 
 vlc_module_begin ()
     set_description( N_("tx3g subtitles decoder") )
     set_shortname( N_("tx3g subtitles") )
-    set_capability( "decoder", 100 )
+    set_capability( "spu decoder", 100 )
     set_category( CAT_INPUT )
     set_subcategory( SUBCAT_INPUT_SCODEC )
-    set_callbacks( Open, NULL )
+    set_callbacks( Open, Close )
 vlc_module_end ()
 
 /****************************************************************************
  * Local structs
  ****************************************************************************/
-
-/*****************************************************************************
- * Open: probe the decoder and return score
- *****************************************************************************/
-static int Open( vlc_object_t *p_this )
-{
-    decoder_t     *p_dec = (decoder_t *) p_this;
-
-    if( p_dec->fmt_in.i_codec != VLC_CODEC_TX3G )
-        return VLC_EGENERIC;
-
-    p_dec->pf_decode_sub = Decode;
-
-    p_dec->fmt_out.i_cat = SPU_ES;
-    p_dec->fmt_out.i_codec = 0;
-
-    return VLC_SUCCESS;
-}
 
 /*****************************************************************************
  * Local:
@@ -236,8 +220,10 @@ static bool SegmentSplit( tx3g_segment_t *p_prev, tx3g_segment_t **pp_segment,
     else
         p_segment_middle->p_next3g = p_next3g;
 
-    text_style_Delete( p_segment_middle->s->style );
-    p_segment_middle->s->style = text_style_Duplicate( p_styles );
+    if( p_segment_middle->s->style )
+        text_style_Merge( p_segment_middle->s->style, p_styles, true );
+    else
+        p_segment_middle->s->style = text_style_Duplicate( p_styles );
 
     return true;
 }
@@ -272,29 +258,53 @@ static void ApplySegmentStyle( tx3g_segment_t **pp_segment, const uint16_t i_abs
     }
 }
 
+/* Do relative size conversion using default style size (from stsd),
+   as the line should always be 5%. Apply to each segment specific text size */
+static void FontSizeConvert( const text_style_t *p_reference, text_style_t *p_style )
+{
+    if( unlikely(!p_style) )
+    {
+        return;
+    }
+    else if( unlikely(!p_reference) || p_reference->i_font_size == 0 )
+    {
+        p_style->i_font_size = 0;
+        p_style->f_font_relsize = 5.0;
+    }
+    else
+    {
+        p_style->f_font_relsize = 5.0 * (float) p_style->i_font_size / p_reference->i_font_size;
+        p_style->i_font_size = 0;
+    }
+}
+
 /*****************************************************************************
  * Decode:
  *****************************************************************************/
-static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
+static int Decode( decoder_t *p_dec, block_t *p_block )
 {
-    block_t       *p_block;
     subpicture_t  *p_spu = NULL;
 
-    if( ( pp_block == NULL ) || ( *pp_block == NULL ) ) return NULL;
-    p_block = *pp_block;
-    *pp_block = NULL;
+    if( p_block == NULL ) /* No Drain */
+        return VLCDEC_SUCCESS;
 
     if( ( p_block->i_flags & (BLOCK_FLAG_CORRUPTED) ) ||
           p_block->i_buffer < sizeof(uint16_t) )
     {
         block_Release( p_block );
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
     uint8_t *p_buf = p_block->p_buffer;
 
     /* Read our raw string and create the styled segment for HTML */
     uint16_t i_psz_bytelength = GetWBE( p_buf );
+    if( p_block->i_buffer < i_psz_bytelength + 2U )
+    {
+        block_Release( p_block );
+        return VLCDEC_SUCCESS;
+    }
+
     const uint8_t *p_pszstart = p_block->p_buffer + sizeof(uint16_t);
     char *psz_subtitle;
     if ( i_psz_bytelength > 2 &&
@@ -302,14 +312,14 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
        )
     {
         psz_subtitle = FromCharset( "UTF-16", p_pszstart, i_psz_bytelength );
-        if ( !psz_subtitle ) return NULL;
+        if ( !psz_subtitle )
+            return VLCDEC_SUCCESS;
     }
     else
     {
-        psz_subtitle = malloc( i_psz_bytelength + 1 );
-        if ( !psz_subtitle ) return NULL;
-        memcpy( psz_subtitle, p_pszstart, i_psz_bytelength );
-        psz_subtitle[ i_psz_bytelength ] = '\0';
+        psz_subtitle = strndup( (const char*) p_pszstart, i_psz_bytelength );
+        if ( !psz_subtitle )
+            return VLCDEC_SUCCESS;
     }
     p_buf += i_psz_bytelength + sizeof(uint16_t);
 
@@ -318,16 +328,13 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
 
     tx3g_segment_t *p_segment3g = tx3g_segment_New( psz_subtitle );
     p_segment3g->i_size = str8len( psz_subtitle );
-    if ( p_dec->fmt_in.subs.p_style )
-        p_segment3g->s->style = text_style_Duplicate( p_dec->fmt_in.subs.p_style );
-
     free( psz_subtitle );
 
     if ( !p_segment3g->s->psz_text )
     {
         text_segment_Delete( p_segment3g->s );
         free( p_segment3g );
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
 
     /* Create the subpicture unit */
@@ -336,73 +343,57 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     {
         text_segment_Delete( p_segment3g->s );
         free( p_segment3g );
-        return NULL;
+        return VLCDEC_SUCCESS;
     }
-    subpicture_updater_sys_t *p_spu_sys = p_spu->updater.p_sys;
 
+    subpicture_updater_sys_t *p_spu_sys = p_spu->updater.p_sys;
+    const text_style_t *p_root_style = (text_style_t *) p_dec->p_sys;
+
+    mp4_box_iterator_t it;
+    mp4_box_iterator_Init( &it, p_buf,
+                           p_block->i_buffer - (p_buf - p_block->p_buffer) );
     /* Parse our styles */
-    while( (size_t)(p_buf - p_block->p_buffer) + 8 < p_block->i_buffer )
+    while( mp4_box_iterator_Next( &it ) )
     {
-        uint32_t i_atomsize = GetDWBE( p_buf );
-        vlc_fourcc_t i_atomtype = VLC_FOURCC(p_buf[4],p_buf[5],p_buf[6],p_buf[7]);
-        p_buf += 8;
-        switch( i_atomtype )
+        switch( it.i_type )
         {
 
         case VLC_FOURCC('s','t','y','l'):
         {
-            if ( (size_t)(p_buf - p_block->p_buffer) < 14 ) break;
-            uint16_t i_nbrecords = GetWBE(p_buf);
+            if( it.i_payload < 14 )
+                break;
+
+            uint16_t i_nbrecords = GetWBE(it.p_payload);
             uint16_t i_cur_record = 0;
-            p_buf += 2;
-            while( i_cur_record++ < i_nbrecords )
+
+            it.p_payload += 2; it.i_payload -= 2;
+            while( i_cur_record++ < i_nbrecords && it.i_payload >= 12 )
             {
-                if ( (size_t)(p_buf - p_block->p_buffer) < 12 ) break;
-                uint16_t i_start = __MIN( GetWBE(p_buf), i_psz_bytelength - 1 );
-                uint16_t i_end =  __MIN( GetWBE(p_buf + 2), i_psz_bytelength - 1 );
+                uint16_t i_start = __MIN( GetWBE(it.p_payload), i_psz_bytelength - 1 );
+                uint16_t i_end =  __MIN( GetWBE(it.p_payload + 2), i_psz_bytelength - 1 );
 
-                text_style_t style;
-                memset( &style, 0, sizeof(text_style_t) );
-                style.i_style_flags = ConvertFlags( p_buf[6] );
-                style.f_font_relsize = p_buf[7] * 5 / 100; /* in % units of 0.05 height */
-                style.i_font_color = GetDWBE(p_buf+8) >> 8;// RGBA -> RGB
-                style.i_font_alpha = GetDWBE(p_buf+8) & 0xFF;
-                style.i_features = STYLE_HAS_FONT_COLOR | STYLE_HAS_FONT_ALPHA;
-                ApplySegmentStyle( &p_segment3g, i_start, i_end, &style );
-
-                if ( i_nbrecords == 1 )
+                text_style_t *p_style = text_style_Create( STYLE_NO_DEFAULTS );
+                if( p_style )
                 {
-                    if ( p_buf[6] )
-                    {
-                        if( (p_spu_sys->p_default_style->i_style_flags = ConvertFlags( p_buf[6] )) )
-                            p_spu_sys->p_default_style->i_features |= STYLE_HAS_FLAGS;
-                    }
-                    p_spu_sys->p_default_style->f_font_relsize = p_buf[7] * 5 / 100;
-                    p_spu_sys->p_default_style->i_font_color = GetDWBE(p_buf+8) >> 8;// RGBA -> ARGB
-                    p_spu_sys->p_default_style->i_font_alpha = (GetDWBE(p_buf+8) & 0xFF) << 24;
-                    p_spu_sys->p_default_style->i_features |= (STYLE_HAS_FONT_COLOR | STYLE_HAS_FONT_ALPHA);
+                    if( (p_style->i_style_flags = ConvertFlags( it.p_payload[6] )) )
+                        p_style->i_features |= STYLE_HAS_FLAGS;
+                    p_style->i_font_size = it.p_payload[7];
+                    p_style->i_font_color = GetDWBE(&it.p_payload[8]) >> 8;// RGBA -> RGB
+                    p_style->i_font_alpha = GetDWBE(&it.p_payload[8]) & 0xFF;
+                    p_style->i_features |= STYLE_HAS_FONT_COLOR | STYLE_HAS_FONT_ALPHA;
+                    ApplySegmentStyle( &p_segment3g, i_start, i_end, p_style );
+                    text_style_Delete( p_style );
                 }
 
-                p_buf += 12;
+                it.p_payload += 12; it.i_payload -= 12;
             }
         }   break;
 
-        case VLC_FOURCC('d','r','p','o'):
-            if ( (size_t)(p_buf - p_block->p_buffer) < 4 ) break;
-            p_spu_sys->p_default_style->i_shadow_width = __MAX( GetWBE(p_buf), GetWBE(p_buf+2) );
-            break;
-
-        case VLC_FOURCC('d','r','p','t'):
-            if ( (size_t)(p_buf - p_block->p_buffer) < 2 ) break;
-            p_spu_sys->p_default_style->i_shadow_alpha = GetWBE(p_buf);
-            p_spu_sys->p_default_style->i_features |= STYLE_HAS_SHADOW_ALPHA;
-            break;
 
         default:
             break;
 
         }
-        p_buf += i_atomsize;
     }
 
     p_spu->i_start    = p_block->i_pts;
@@ -410,13 +401,18 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
     p_spu->b_ephemer  = (p_block->i_length == 0);
     p_spu->b_absolute = false;
 
-    p_spu_sys->align = SUBPICTURE_ALIGN_BOTTOM;
+    p_spu_sys->region.align = SUBPICTURE_ALIGN_BOTTOM;
+
+    text_style_Merge( p_spu_sys->p_default_style, p_root_style, true );
+    FontSizeConvert( p_root_style, p_spu_sys->p_default_style );
 
     /* Unwrap */
     text_segment_t *p_text_segments = p_segment3g->s;
     text_segment_t *p_cur = p_text_segments;
     while( p_segment3g )
     {
+        FontSizeConvert( p_root_style, p_segment3g->s->style );
+
         tx3g_segment_t * p_old = p_segment3g;
         p_segment3g = p_segment3g->p_next3g;
         free( p_old );
@@ -425,9 +421,75 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
         p_cur = p_cur->p_next;
     }
 
-    p_spu_sys->p_segments = p_text_segments;
+    p_spu_sys->region.p_segments = p_text_segments;
 
     block_Release( p_block );
 
-    return p_spu;
+    decoder_QueueSub( p_dec, p_spu );
+    return VLCDEC_SUCCESS;
+}
+
+/*****************************************************************************
+ * Extradata Parsing
+ *****************************************************************************/
+static void ParseExtradata( decoder_t *p_dec )
+{
+    text_style_t *p_style = (text_style_t *) p_dec->p_sys;
+    const uint8_t *p_extra = p_dec->fmt_in.p_extra;
+
+    if( p_dec->fmt_in.i_extra < 32 )
+        return;
+
+    /* DF @0 */
+    /* Just @4 */
+
+    /* BGColor @6 */
+    p_style->i_background_color = GetDWBE(&p_extra[6]) >> 8;
+    p_style->i_background_alpha = p_extra[9];
+    p_style->i_features |= STYLE_HAS_BACKGROUND_COLOR|STYLE_HAS_BACKGROUND_ALPHA;
+
+    /* BoxRecord @10 */
+
+    /* StyleRecord @18 */
+    p_style->i_style_flags = ConvertFlags( p_extra[24] );
+    if( p_style->i_style_flags )
+        p_style->i_features |= STYLE_HAS_FLAGS;
+    p_style->i_font_size = p_extra[25];
+    p_style->i_font_color = GetDWBE(&p_extra[26]) >> 8;// RGBA -> RGB
+    p_style->i_font_alpha = p_extra[29];
+    p_style->i_features |= STYLE_HAS_FONT_COLOR | STYLE_HAS_FONT_ALPHA;
+
+    /* FontTableBox @30 */
+}
+
+/*****************************************************************************
+ * Close: clean decoder
+ *****************************************************************************/
+static void Close( vlc_object_t *p_this )
+{
+    decoder_t     *p_dec = (decoder_t *) p_this;
+    text_style_Delete( (text_style_t *) p_dec->p_sys );
+}
+
+/*****************************************************************************
+ * Open: probe the decoder and return score
+ *****************************************************************************/
+static int Open( vlc_object_t *p_this )
+{
+    decoder_t     *p_dec = (decoder_t *) p_this;
+
+    if( p_dec->fmt_in.i_codec != VLC_CODEC_TX3G )
+        return VLC_EGENERIC;
+
+    p_dec->pf_decode = Decode;
+
+    p_dec->p_sys = (decoder_sys_t *) text_style_Create( STYLE_NO_DEFAULTS );
+    if( !p_dec->p_sys )
+        return VLC_ENOMEM;
+
+    ParseExtradata( p_dec );
+
+    p_dec->fmt_out.i_codec = VLC_CODEC_TEXT;
+
+    return VLC_SUCCESS;
 }

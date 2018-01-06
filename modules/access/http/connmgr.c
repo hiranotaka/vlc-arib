@@ -26,7 +26,7 @@
 #include <vlc_common.h>
 #include <vlc_network.h>
 #include <vlc_tls.h>
-#include <vlc_interrupt.h>
+#include <vlc_url.h>
 #include "transport.h"
 #include "conn.h"
 #include "connmgr.h"
@@ -34,127 +34,61 @@
 
 #pragma GCC visibility push(default)
 
-struct vlc_https_connecting
+void vlc_http_err(void *ctx, const char *fmt, ...)
 {
-    vlc_tls_creds_t *creds;
-    const char *host;
-    unsigned port;
-    bool *http2;
-    vlc_sem_t done;
-};
+    va_list ap;
 
-static char *vlc_https_proxy_find(const char *hostname, unsigned port)
+    va_start(ap, fmt);
+    vlc_vaLog(ctx, VLC_MSG_ERR, "http", __FILE__, __LINE__, __func__, fmt, ap);
+    va_end(ap);
+}
+
+void vlc_http_dbg(void *ctx, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    vlc_vaLog(ctx, VLC_MSG_DBG, "http", __FILE__, __LINE__, __func__, fmt, ap);
+    va_end(ap);
+}
+
+vlc_tls_t *vlc_https_connect(vlc_tls_creds_t *creds, const char *name,
+                             unsigned port, bool *restrict two)
+{
+    if (port == 0)
+        port = 443;
+
+    /* TLS with ALPN */
+    const char *alpn[] = { "h2", "http/1.1", NULL };
+    char *alp;
+
+    vlc_tls_t *tls = vlc_tls_SocketOpenTLS(creds, name, port, "https",
+                                           alpn + !*two, &alp);
+    if (tls != NULL)
+    {
+        *two = (alp != NULL) && !strcmp(alp, "h2");
+        free(alp);
+    }
+    return tls;
+}
+
+static char *vlc_http_proxy_find(const char *hostname, unsigned port,
+                                 bool secure)
 {
     const char *fmt;
     char *url, *proxy = NULL;
-    int canc = vlc_savecancel();
 
     if (strchr(hostname, ':') != NULL)
-        fmt = port ? "https://[%s]:%u" : "https://[%s]";
+        fmt = port ? "http%s://[%s]:%u" : "http%s://[%s]";
     else
-        fmt = port ? "https://%s:%u" : "https://%s";
+        fmt = port ? "http%s://%s:%u" : "http%s://%s";
 
-    if (likely(asprintf(&url, fmt, hostname, port) >= 0))
+    if (likely(asprintf(&url, fmt, secure ? "s" : "", hostname, port) >= 0))
     {
         proxy = vlc_getProxyUrl(url);
         free(url);
     }
-    vlc_restorecancel(canc);
     return proxy;
-}
-
-static void *vlc_https_connect_thread(void *data)
-{
-    struct vlc_https_connecting *c = data;
-    vlc_tls_t *tls;
-
-    char *proxy = vlc_https_proxy_find(c->host, c->port);
-    if (proxy != NULL)
-    {
-        tls = vlc_https_connect_proxy(c->creds, c->host, c->port, c->http2,
-                                      proxy);
-        free(proxy);
-    }
-    else
-        tls = vlc_https_connect(c->creds, c->host, c->port, c->http2);
-    vlc_sem_post(&c->done);
-    return tls;
-}
-
-/** Interruptible vlc_https_connect() */
-static vlc_tls_t *vlc_https_connect_i11e(vlc_tls_creds_t *creds,
-                                         const char *host, unsigned port,
-                                         bool *restrict http_two)
-{
-    struct vlc_https_connecting c;
-    vlc_thread_t th;
-
-    c.creds = creds;
-    c.host = host;
-    c.port = port;
-    c.http2 = http_two;
-    vlc_sem_init(&c.done, 0);
-
-    if (vlc_clone(&th, vlc_https_connect_thread, &c,
-                  VLC_THREAD_PRIORITY_INPUT))
-        return NULL;
-
-    /* This would be much simpler if vlc_join_i11e() existed. */
-    void *res;
-
-    if (vlc_sem_wait_i11e(&c.done))
-        vlc_cancel(th);
-    vlc_join(th, &res);
-    vlc_sem_destroy(&c.done);
-
-    if (res == VLC_THREAD_CANCELED)
-        res = NULL;
-    return res;
-}
-
-struct vlc_http_connecting
-{
-    vlc_object_t *obj;
-    const char *host;
-    unsigned port;
-    vlc_sem_t done;
-};
-
-static void *vlc_http_connect_thread(void *data)
-{
-    struct vlc_http_connecting *c = data;
-    vlc_tls_t *tls;
-
-    tls = vlc_http_connect(c->obj, c->host, c->port);
-    vlc_sem_post(&c->done);
-    return tls;
-}
-
-/** Interruptible vlc_http_connect() */
-static vlc_tls_t *vlc_http_connect_i11e(vlc_object_t *obj,
-                                        const char *host, unsigned port)
-{
-    struct vlc_http_connecting c;
-    vlc_thread_t th;
-
-    c.obj = obj;
-    c.host = host;
-    c.port = port;
-    vlc_sem_init(&c.done, 0);
-
-    if (vlc_clone(&th, vlc_http_connect_thread, &c, VLC_THREAD_PRIORITY_INPUT))
-        return NULL;
-
-    void *res;
-
-    if (vlc_sem_wait_i11e(&c.done))
-        vlc_cancel(th);
-    vlc_join(th, &res);
-    vlc_sem_destroy(&c.done);
-
-    if (res == VLC_THREAD_CANCELED)
-        res = NULL;
-    return res;
 }
 
 
@@ -164,7 +98,6 @@ struct vlc_http_mgr
     vlc_tls_creds_t *creds;
     struct vlc_http_cookie_jar_t *jar;
     struct vlc_http_conn *conn;
-    bool use_h2c;
 };
 
 static struct vlc_http_conn *vlc_http_mgr_find(struct vlc_http_mgr *mgr,
@@ -213,6 +146,9 @@ static struct vlc_http_msg *vlc_https_request(struct vlc_http_mgr *mgr,
                                               const char *host, unsigned port,
                                               const struct vlc_http_msg *req)
 {
+    vlc_tls_t *tls;
+    bool http2 = true;
+
     if (mgr->creds == NULL && mgr->conn != NULL)
         return NULL; /* switch from HTTP to HTTPS not implemented */
 
@@ -228,8 +164,16 @@ static struct vlc_http_msg *vlc_https_request(struct vlc_http_mgr *mgr,
     if (resp != NULL)
         return resp; /* existing connection reused */
 
-    bool http2 = true;
-    vlc_tls_t *tls = vlc_https_connect_i11e(mgr->creds, host, port, &http2);
+    char *proxy = vlc_http_proxy_find(host, port, true);
+    if (proxy != NULL)
+    {
+        tls = vlc_https_connect_proxy(mgr->creds, mgr->creds,
+                                      host, port, &http2, proxy);
+        free(proxy);
+    }
+    else
+        tls = vlc_https_connect(mgr->creds, host, port, &http2);
+
     if (tls == NULL)
         return NULL;
 
@@ -243,9 +187,9 @@ static struct vlc_http_msg *vlc_https_request(struct vlc_http_mgr *mgr,
      * NOTE: We do not enforce TLS version 1.2 for HTTP 2.0 explicitly.
      */
     if (http2)
-        conn = vlc_h2_conn_create(tls);
+        conn = vlc_h2_conn_create(mgr->obj, tls);
     else
-        conn = vlc_h1_conn_create(tls, false);
+        conn = vlc_h1_conn_create(mgr->obj, tls, false);
 
     if (unlikely(conn == NULL))
     {
@@ -269,26 +213,42 @@ static struct vlc_http_msg *vlc_http_request(struct vlc_http_mgr *mgr,
     if (resp != NULL)
         return resp;
 
-    vlc_tls_t *tls = vlc_http_connect_i11e(mgr->obj, host, port);
-    if (tls == NULL)
+    struct vlc_http_conn *conn;
+    struct vlc_http_stream *stream;
+
+    char *proxy = vlc_http_proxy_find(host, port, false);
+    if (proxy != NULL)
+    {
+        vlc_url_t url;
+
+        vlc_UrlParse(&url, proxy);
+        free(proxy);
+
+        if (url.psz_host != NULL)
+            stream = vlc_h1_request(mgr->obj, url.psz_host,
+                                    url.i_port ? url.i_port : 80, true, req,
+                                    true, &conn);
+        else
+            stream = NULL;
+
+        vlc_UrlClean(&url);
+    }
+    else
+        stream = vlc_h1_request(mgr->obj, host, port ? port : 80, false, req,
+                                true, &conn);
+
+    if (stream == NULL)
         return NULL;
 
-    struct vlc_http_conn *conn;
-
-    if (mgr->use_h2c)
-        conn = vlc_h2_conn_create(tls);
-    else
-        conn = vlc_h1_conn_create(tls, false);
-
-    if (unlikely(conn == NULL))
+    resp = vlc_http_msg_get_initial(stream);
+    if (resp == NULL)
     {
-        vlc_tls_Close(tls);
+        vlc_http_conn_release(conn);
         return NULL;
     }
 
     mgr->conn = conn;
-
-    return vlc_http_mgr_reuse(mgr, host, port, req);
+    return resp;
 }
 
 struct vlc_http_msg *vlc_http_mgr_request(struct vlc_http_mgr *mgr, bool https,
@@ -304,8 +264,7 @@ struct vlc_http_cookie_jar_t *vlc_http_mgr_get_jar(struct vlc_http_mgr *mgr)
 }
 
 struct vlc_http_mgr *vlc_http_mgr_create(vlc_object_t *obj,
-                                         struct vlc_http_cookie_jar_t *jar,
-                                         bool h2c)
+                                         struct vlc_http_cookie_jar_t *jar)
 {
     struct vlc_http_mgr *mgr = malloc(sizeof (*mgr));
     if (unlikely(mgr == NULL))
@@ -315,7 +274,6 @@ struct vlc_http_mgr *vlc_http_mgr_create(vlc_object_t *obj,
     mgr->creds = NULL;
     mgr->jar = jar;
     mgr->conn = NULL;
-    mgr->use_h2c = h2c;
     return mgr;
 }
 

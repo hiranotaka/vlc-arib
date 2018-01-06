@@ -27,6 +27,7 @@
 
 #include "BytesRange.hpp"
 #include "ConnectionParams.hpp"
+#include "../ID.hpp"
 #include <vector>
 #include <string>
 #include <stdint.h>
@@ -38,7 +39,7 @@ namespace adaptive
     namespace http
     {
         class AbstractConnection;
-        class HTTPConnectionManager;
+        class AbstractConnectionManager;
         class AbstractChunk;
 
         class AbstractChunkSource
@@ -82,7 +83,8 @@ namespace adaptive
         class HTTPChunkSource : public AbstractChunkSource
         {
             public:
-                HTTPChunkSource(const std::string &url, HTTPConnectionManager *);
+                HTTPChunkSource(const std::string &url, AbstractConnectionManager *,
+                                const ID &);
                 virtual ~HTTPChunkSource();
 
                 virtual block_t *   readBlock       (); /* impl */
@@ -92,12 +94,13 @@ namespace adaptive
                 static const size_t CHUNK_SIZE = 32768;
 
             protected:
-                virtual bool      prepare();
+                virtual bool      prepare(int = 0);
                 AbstractConnection    *connection;
-                HTTPConnectionManager *connManager;
+                AbstractConnectionManager *connManager;
                 size_t              consumed; /* read pointer */
                 bool                prepared;
                 bool                eof;
+                ID                  sourceid;
 
             private:
                 bool init(const std::string &);
@@ -109,11 +112,14 @@ namespace adaptive
             friend class Downloader;
 
             public:
-                HTTPChunkBufferedSource(const std::string &url, HTTPConnectionManager *);
+                HTTPChunkBufferedSource(const std::string &url, AbstractConnectionManager *,
+                                        const ID &);
                 virtual ~HTTPChunkBufferedSource();
                 virtual block_t *  readBlock       (); /* reimpl */
                 virtual block_t *  read            (size_t); /* reimpl */
                 virtual bool       hasMoreData     () const; /* impl */
+                void               hold();
+                void               release();
 
             protected:
                 virtual bool       prepare(); /* reimpl */
@@ -127,14 +133,16 @@ namespace adaptive
                 bool                done;
                 bool                eof;
                 mtime_t             downloadstart;
-                vlc_mutex_t         lock;
+                mutable vlc_mutex_t lock;
                 vlc_cond_t          avail;
+                bool                held;
         };
 
         class HTTPChunk : public AbstractChunk
         {
             public:
-                HTTPChunk(const std::string &url, HTTPConnectionManager *);
+                HTTPChunk(const std::string &url, AbstractConnectionManager *,
+                          const ID &);
                 virtual ~HTTPChunk();
 
                 virtual void        onDownload      (block_t **) {} /* impl */

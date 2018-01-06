@@ -1,4 +1,5 @@
 noinst_LTLIBRARIES =
+check_LTLIBRARIES =
 pkglib_LTLIBRARIES =
 noinst_HEADERS =
 check_PROGRAMS =
@@ -15,7 +16,7 @@ endif
 
 TESTS =
 
-dist_noinst_SCRIPTS = genmf list.sh module.rc.in
+dist_noinst_SCRIPTS = list.sh module.rc.in
 dist_noinst_DATA = MODULES_LIST
 EXTRA_LTLIBRARIES =
 
@@ -31,6 +32,9 @@ include codec/Makefile.am
 include control/Makefile.am
 include demux/Makefile.am
 include gui/Makefile.am
+include hw/d3d9/Makefile.am
+include hw/d3d11/Makefile.am
+include hw/vaapi/Makefile.am
 include hw/vdpau/Makefile.am
 include keystore/Makefile.am
 include logger/Makefile.am
@@ -40,7 +44,9 @@ include misc/Makefile.am
 include notify/Makefile.am
 include packetizer/Makefile.am
 include services_discovery/Makefile.am
+include spu/Makefile.am
 include stream_filter/Makefile.am
+include stream_extractor/Makefile.am
 include text_renderer/Makefile.am
 include video_chroma/Makefile.am
 include video_filter/Makefile.am

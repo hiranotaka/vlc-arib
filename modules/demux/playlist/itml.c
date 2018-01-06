@@ -30,56 +30,50 @@
 #endif
 
 #include <vlc_common.h>
-#include <vlc_demux.h>
+#include <vlc_access.h>
 #include <vlc_xml.h>
 #include <vlc_strings.h>
 #include <vlc_url.h>
-#include <vlc_fixups.h>
 
 #include "itml.h"
 #include "playlist.h"
 
-struct demux_sys_t
-{
-    int i_ntracks;
-};
-
-static int Demux( demux_t * );
+static int ReadDir( stream_t *, input_item_node_t * );
 
 /**
  * \brief iTML submodule initialization function
  */
 int Import_iTML( vlc_object_t *p_this )
 {
-    DEMUX_BY_EXTENSION_OR_FORCED_MSG( ".xml", "itml",
-                                      "using iTunes Media Library reader" );
+    stream_t *p_demux = (stream_t *)p_this;
+    CHECK_FILE(p_demux);
+    if( !stream_HasExtension( p_demux, ".xml" )
+     && !p_demux->obj.force )
+        return VLC_EGENERIC;
+
     const uint8_t *p_peek;
-    const ssize_t i_peek = stream_Peek( p_demux->s, &p_peek, 128 );
+    const ssize_t i_peek = vlc_stream_Peek( p_demux->s, &p_peek, 128 );
     if ( i_peek < 32 ||
          !strnstr( (const char *) p_peek, "<!DOCTYPE plist ", i_peek ) )
-    {
-        Close_iTML( p_this );
         return VLC_EGENERIC;
-    }
-    return VLC_SUCCESS;
-}
 
-void Close_iTML( vlc_object_t *p_this )
-{
-    demux_t *p_demux = (demux_t *)p_this;
-    free( p_demux->p_sys );
+    msg_Dbg( p_demux, "using iTunes Media Library reader" );
+
+    p_demux->pf_readdir = ReadDir;
+    p_demux->pf_control = access_vaDirectoryControlHelper;
+
+    return VLC_SUCCESS;
 }
 
 /**
  * \brief demuxer function for iTML parsing
  */
-int Demux( demux_t *p_demux )
+static int ReadDir( stream_t *p_demux, input_item_node_t *p_subitems )
 {
     xml_reader_t *p_xml_reader;
     const char *node;
 
-    input_item_t *p_current_input = GetCurrentItem(p_demux);
-    p_demux->p_sys->i_ntracks = 0;
+    p_demux->p_sys = (void *)(uintptr_t)0;
 
     /* create new xml parser from stream */
     p_xml_reader = xml_ReaderCreate( p_demux, p_demux->s );
@@ -106,14 +100,10 @@ int Demux( demux_t *p_demux )
         goto end;
     }
 
-    input_item_node_t *p_subitems = input_item_node_Create( p_current_input );
     xml_elem_hnd_t pl_elements[] =
         { {"dict",    COMPLEX_CONTENT, {.cmplx = parse_plist_dict} } };
     parse_plist_node( p_demux, p_subitems, NULL, p_xml_reader, "plist",
                       pl_elements );
-    input_item_node_PostAndDelete( p_subitems );
-
-    vlc_gc_decref(p_current_input);
 
 end:
     if( p_xml_reader )
@@ -126,7 +116,7 @@ end:
 /**
  * \brief parse the root node of the playlist
  */
-static bool parse_plist_node( demux_t *p_demux, input_item_node_t *p_input_node,
+static bool parse_plist_node( stream_t *p_demux, input_item_node_t *p_input_node,
                               track_elem_t *p_track, xml_reader_t *p_xml_reader,
                               const char *psz_element,
                               xml_elem_hnd_t *p_handlers )
@@ -162,7 +152,7 @@ static bool parse_plist_node( demux_t *p_demux, input_item_node_t *p_input_node,
  * \brief parse a <dict>
  * \param COMPLEX_INTERFACE
  */
-static bool parse_dict( demux_t *p_demux, input_item_node_t *p_input_node,
+static bool parse_dict( stream_t *p_demux, input_item_node_t *p_input_node,
                         track_elem_t *p_track, xml_reader_t *p_xml_reader,
                         const char *psz_element, xml_elem_hnd_t *p_handlers )
 {
@@ -179,11 +169,6 @@ static bool parse_dict( demux_t *p_demux, input_item_node_t *p_input_node,
         {
         /*  element start tag  */
         case XML_READER_STARTELEM:
-            if( !*node )
-            {
-                msg_Err( p_demux, "invalid XML stream" );
-                goto end;
-            }
             /* choose handler */
             for( p_handler = p_handlers;
                      p_handler->name && strcmp( node, p_handler->name );
@@ -201,7 +186,8 @@ static bool parse_dict( demux_t *p_demux, input_item_node_t *p_input_node,
                                                  NULL ) )
                 {
                     p_handler = NULL;
-                    FREE_ATT_KEY();
+                    FREENULL( psz_key );
+                    FREENULL( psz_value );
                 }
                 else
                     goto end;
@@ -241,9 +227,9 @@ static bool parse_dict( demux_t *p_demux, input_item_node_t *p_input_node,
             /* call the simple handler */
             else if( p_handler->pf_handler.smpl )
             {
-                p_handler->pf_handler.smpl( p_track, psz_key, psz_value );
+                p_handler->pf_handler.smpl( p_track, psz_key, psz_value, p_demux->p_sys );
             }
-            FREE_ATT();
+            FREENULL(psz_value);
             p_handler = NULL;
             break;
         }
@@ -256,7 +242,7 @@ end:
     return b_ret;
 }
 
-static bool parse_plist_dict( demux_t *p_demux, input_item_node_t *p_input_node,
+static bool parse_plist_dict( stream_t *p_demux, input_item_node_t *p_input_node,
                               track_elem_t *p_track, xml_reader_t *p_xml_reader,
                               const char *psz_element,
                               xml_elem_hnd_t *p_handlers )
@@ -278,7 +264,7 @@ static bool parse_plist_dict( demux_t *p_demux, input_item_node_t *p_input_node,
                        "dict", pl_elements );
 }
 
-static bool parse_tracks_dict( demux_t *p_demux, input_item_node_t *p_input_node,
+static bool parse_tracks_dict( stream_t *p_demux, input_item_node_t *p_input_node,
                                track_elem_t *p_track, xml_reader_t *p_xml_reader,
                                const char *psz_element,
                                xml_elem_hnd_t *p_handlers )
@@ -293,13 +279,13 @@ static bool parse_tracks_dict( demux_t *p_demux, input_item_node_t *p_input_node
     parse_dict( p_demux, p_input_node, NULL, p_xml_reader,
                 "dict", tracks_elements );
 
-    msg_Info( p_demux, "added %i tracks successfully",
-              p_demux->p_sys->i_ntracks );
+    msg_Info( p_demux, "added %zi tracks successfully",
+              (size_t)p_demux->p_sys );
 
     return true;
 }
 
-static bool parse_track_dict( demux_t *p_demux, input_item_node_t *p_input_node,
+static bool parse_track_dict( stream_t *p_demux, input_item_node_t *p_input_node,
                               track_elem_t *p_track, xml_reader_t *p_xml_reader,
                               const char *psz_element,
                               xml_elem_hnd_t *p_handlers )
@@ -328,9 +314,9 @@ static bool parse_track_dict( demux_t *p_demux, input_item_node_t *p_input_node,
 
     if( !p_track->location )
     {
-        msg_Err( p_demux, "Track needs Location" );
+        msg_Warn( p_demux, "ignoring track without Location entry" );
         free_track( p_track );
-        return false;
+        return true;
     }
 
     msg_Info( p_demux, "Adding '%s'", p_track->location );
@@ -339,9 +325,9 @@ static bool parse_track_dict( demux_t *p_demux, input_item_node_t *p_input_node,
 
     /* add meta info */
     add_meta( p_new_input, p_track );
-    vlc_gc_decref( p_new_input );
+    input_item_Release( p_new_input );
 
-    p_demux->p_sys->i_ntracks++;
+    p_demux->p_sys = (void *)((uintptr_t)p_demux->p_sys + 1);
 
     free_track( p_track );
     return i_ret;
@@ -349,9 +335,8 @@ static bool parse_track_dict( demux_t *p_demux, input_item_node_t *p_input_node,
 
 static track_elem_t *new_track()
 {
-    track_elem_t *p_track;
-    p_track = malloc( sizeof( track_elem_t ) );
-    if( p_track )
+    track_elem_t *p_track = malloc( sizeof *p_track );
+    if( likely( p_track ) )
     {
         p_track->name = NULL;
         p_track->artist = NULL;
@@ -366,23 +351,22 @@ static track_elem_t *new_track()
 
 static void free_track( track_elem_t *p_track )
 {
-    fprintf( stderr, "free track\n" );
     if ( !p_track )
         return;
 
-    FREENULL( p_track->name );
-    FREENULL( p_track->artist );
-    FREENULL( p_track->album );
-    FREENULL( p_track->genre );
-    FREENULL( p_track->trackNum );
-    FREENULL( p_track->location );
-    p_track->duration = 0;
+    free( p_track->name );
+    free( p_track->artist );
+    free( p_track->album );
+    free( p_track->genre );
+    free( p_track->trackNum );
+    free( p_track->location );
     free( p_track );
 }
 
 static bool save_data( track_elem_t *p_track, const char *psz_name,
-                       char *psz_value)
+                       char *psz_value, void *opaque )
 {
+    VLC_UNUSED(opaque);
     /* exit if setting is impossible */
     if( !psz_name || !psz_value || !p_track )
         return false;
@@ -432,7 +416,7 @@ static bool add_meta( input_item_t *p_input_item, track_elem_t *p_track )
 /**
  * \brief skips complex element content that we can't manage
  */
-static bool skip_element( demux_t *p_demux, input_item_node_t *p_input_node,
+static bool skip_element( stream_t *p_demux, input_item_node_t *p_input_node,
                           track_elem_t *p_track, xml_reader_t *p_xml_reader,
                           const char *psz_element, xml_elem_hnd_t *p_handlers )
 {

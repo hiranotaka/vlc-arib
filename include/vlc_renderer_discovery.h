@@ -22,7 +22,6 @@
 #define VLC_RENDERER_DISCOVERY_H 1
 
 #include <vlc_input.h>
-#include <vlc_events.h>
 #include <vlc_probe.h>
 #include <vlc_url.h>
 
@@ -37,74 +36,76 @@
  * @{
  */
 
-typedef struct vlc_renderer_item vlc_renderer_item;
-
 #define VLC_RENDERER_CAN_AUDIO 0x0001
 #define VLC_RENDERER_CAN_VIDEO 0x0002
 
 /**
  * Create a new renderer item
  *
+ * @param psz_type type of the item
  * @param psz_name name of the item
  * @param psz_uri uri of the renderer item, must contains a valid protocol and
  * a valid host
  * @param psz_extra_sout extra sout options
+ * @param psz_demux_filter demux filter to use with the renderer
  * @param psz_icon_uri icon uri of the renderer item
  * @param i_flags flags for the item
  * @return a renderer item or NULL in case of error
  */
-VLC_API vlc_renderer_item *
-vlc_renderer_item_new(const char *psz_name, const char *psz_uri,
-                      const char *psz_extra_sout, const char *psz_icon_uri,
+VLC_API vlc_renderer_item_t *
+vlc_renderer_item_new(const char *psz_type, const char *psz_name,
+                      const char *psz_uri, const char *psz_extra_sout,
+                      const char *psz_demux_filter, const char *psz_icon_uri,
                       int i_flags) VLC_USED;
 
 /**
  * Hold a renderer item, i.e. creates a new reference
  */
-VLC_API vlc_renderer_item *
-vlc_renderer_item_hold(vlc_renderer_item *p_item);
+VLC_API vlc_renderer_item_t *
+vlc_renderer_item_hold(vlc_renderer_item_t *p_item);
 
 /**
  * Releases a renderer item, i.e. decrements its reference counter
  */
 VLC_API void
-vlc_renderer_item_release(vlc_renderer_item *p_item);
+vlc_renderer_item_release(vlc_renderer_item_t *p_item);
 
 /**
  * Get the human readable name of a renderer item
  */
 VLC_API const char *
-vlc_renderer_item_name(const vlc_renderer_item *p_item);
+vlc_renderer_item_name(const vlc_renderer_item_t *p_item);
+
+/**
+ * Get the type (not translated) of a renderer item. For now, the type can only
+ * be "chromecast" ("upnp", "airplay" may come later).
+ */
+VLC_API const char *
+vlc_renderer_item_type(const vlc_renderer_item_t *p_item);
+
+/**
+ * Get the demux filter to use with a renderer item
+ */
+VLC_API const char *
+vlc_renderer_item_demux_filter(const vlc_renderer_item_t *p_item);
 
 /**
  * Get the sout command of a renderer item
  */
 VLC_API const char *
-vlc_renderer_item_sout(const vlc_renderer_item *p_item);
+vlc_renderer_item_sout(const vlc_renderer_item_t *p_item);
 
 /**
  * Get the icon uri of a renderer item
  */
 VLC_API const char *
-vlc_renderer_item_icon_uri(const vlc_renderer_item *p_item);
+vlc_renderer_item_icon_uri(const vlc_renderer_item_t *p_item);
 
 /**
  * Get the flags of a renderer item
  */
 VLC_API int
-vlc_renderer_item_flags(const vlc_renderer_item *p_item);
-
-/**
- * Set an opaque context
- */
-VLC_API void
-vlc_renderer_item_set_ctx(vlc_renderer_item *p_item, void *p_ctx);
-
-/**
- * Get the opaque context previously set
- */
-VLC_API void*
-vlc_renderer_item_ctx(const vlc_renderer_item *p_item);
+vlc_renderer_item_flags(const vlc_renderer_item_t *p_item);
 
 /**
  * @}
@@ -112,8 +113,8 @@ vlc_renderer_item_ctx(const vlc_renderer_item *p_item);
  * @{
  */
 
-typedef struct vlc_renderer_discovery vlc_renderer_discovery;
 typedef struct vlc_renderer_discovery_sys vlc_renderer_discovery_sys;
+struct vlc_renderer_discovery_owner;
 
 /**
  * Return a list of renderer discovery modules
@@ -139,34 +140,11 @@ vlc_rd_get_names(vlc_object_t *p_obj, char ***pppsz_names,
  * @return a valid vlc_renderer_discovery, need to be released with
  * vlc_rd_release()
  */
-VLC_API vlc_renderer_discovery *
-vlc_rd_new(vlc_object_t *p_obj, const char *psz_name) VLC_USED;
+VLC_API vlc_renderer_discovery_t *
+vlc_rd_new(vlc_object_t *p_obj, const char *psz_name,
+           const struct vlc_renderer_discovery_owner *owner) VLC_USED;
 
-#define vlc_rd_release(p_rd) vlc_object_release(p_rd)
-
-/**
- * Get the event manager of the renderer discovery module
- *
- * @see vlc_RendererDiscoveryItemAdded
- * @see vlc_RendererDiscoveryItemRemoved
- */
-VLC_API vlc_event_manager_t *
-vlc_rd_event_manager(vlc_renderer_discovery *p_rd);
-
-/**
- * Start the renderer discovery module
- *
- * Once started, the module can send new vlc_renderer_item via the
- * vlc_RendererDiscoveryItemAdded event.
- */
-VLC_API int
-vlc_rd_start(vlc_renderer_discovery *p_rd);
-
-/**
- * Stop the renderer discovery module
- */
-VLC_API void
-vlc_rd_stop(vlc_renderer_discovery *p_rd);
+VLC_API void vlc_rd_release(vlc_renderer_discovery_t *p_rd);
 
 /**
  * @}
@@ -174,12 +152,21 @@ vlc_rd_stop(vlc_renderer_discovery *p_rd);
  * @{
  */
 
-struct vlc_renderer_discovery
+struct vlc_renderer_discovery_owner
 {
-    VLC_COMMON_MEMBERS
+    void *sys;
+    void (*item_added)(struct vlc_renderer_discovery_t *,
+                       struct vlc_renderer_item_t *);
+    void (*item_removed)(struct vlc_renderer_discovery_t *,
+                         struct vlc_renderer_item_t *);
+};
+
+struct vlc_renderer_discovery_t
+{
+    struct vlc_common_members obj;
     module_t *          p_module;
 
-    vlc_event_manager_t event_manager;
+    struct vlc_renderer_discovery_owner owner;
 
     char *              psz_name;
     config_chain_t *    p_cfg;
@@ -192,16 +179,22 @@ struct vlc_renderer_discovery
  *
  * This will send the vlc_RendererDiscoveryItemAdded event
  */
-VLC_API void
-vlc_rd_add_item(vlc_renderer_discovery * p_rd, vlc_renderer_item * p_item);
+static inline void vlc_rd_add_item(vlc_renderer_discovery_t * p_rd,
+                                   vlc_renderer_item_t * p_item)
+{
+    p_rd->owner.item_added(p_rd, p_item);
+}
 
 /**
  * Add a new renderer item
  *
  * This will send the vlc_RendererDiscoveryItemRemoved event
  */
-VLC_API void
-vlc_rd_remove_item(vlc_renderer_discovery * p_rd, vlc_renderer_item * p_item);
+static inline void vlc_rd_remove_item(vlc_renderer_discovery_t * p_rd,
+                                      vlc_renderer_item_t * p_item)
+{
+    p_rd->owner.item_removed(p_rd, p_item);
+}
 
 /**
  * Renderer Discovery proble helpers

@@ -34,6 +34,7 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_filter.h>
+#include <vlc_picture.h>
 
 /*****************************************************************************
  * Local and extern prototypes.
@@ -103,7 +104,7 @@ static picture_t *Filter( filter_t *, picture_t * );
 vlc_module_begin ()
     set_shortname( N_("Canvas") )
     set_description( N_("Canvas video filter") )
-    set_capability( "video filter2", 0 )
+    set_capability( "video filter", 0 )
     set_help( CANVAS_HELP )
     set_callbacks( Activate, Destroy )
 
@@ -329,7 +330,7 @@ static int Activate( vlc_object_t *p_this )
 
     filter_chain_Reset( p_sys->p_chain, &p_filter->fmt_in, &fmt );
     /* Append scaling module */
-    if ( !filter_chain_AppendFilter( p_sys->p_chain, NULL, NULL, NULL, NULL ) )
+    if ( filter_chain_AppendConverter( p_sys->p_chain, NULL, NULL ) )
     {
         msg_Err( p_filter, "Could not append scaling filter" );
         free( p_sys );
@@ -348,8 +349,8 @@ static int Activate( vlc_object_t *p_this )
         }
     }
 
-    fmt = *filter_chain_GetFmtOut( p_sys->p_chain );
-    es_format_Copy( &p_filter->fmt_out, &fmt );
+    es_format_Copy( &p_filter->fmt_out,
+                    filter_chain_GetFmtOut( p_sys->p_chain ) );
 
     vlc_ureduce( &p_filter->fmt_out.video.i_sar_num,
         &p_filter->fmt_out.video.i_sar_den,

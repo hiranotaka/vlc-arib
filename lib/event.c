@@ -43,21 +43,21 @@
  * struct libvlc_cool_object_t
  * {
  *        ...
- *        libvlc_event_manager_t * p_event_manager;
+ *        libvlc_event_manager_t event_manager;
  *        ...
  * }
  *
  * libvlc_my_cool_object_new()
  * {
  *        ...
- *        p_self->p_event_manager = libvlc_event_manager_new( p_self )
+ *        libvlc_event_manager_init(&p_self->event_manager, p_self)
  *        ...
  * }
  *
  * libvlc_my_cool_object_release()
  * {
  *         ...
- *         libvlc_event_manager_release( p_self->p_event_manager );
+ *         libvlc_event_manager_release(&p_self->event_manager);
  *         ...
  * }
  *
@@ -67,7 +67,7 @@
  *        libvlc_event_t event;
  *        event.type = libvlc_MyCoolObjectDidSomething;
  *        event.u.my_cool_object_did_something.what_it_did = kSomething;
- *        libvlc_event_send( p_self->p_event_manager, &event );
+ *        libvlc_event_send(&p_self->event_manager, &event);
  * }
  * */
 
@@ -78,54 +78,25 @@ typedef struct libvlc_event_listener_t
     libvlc_callback_t   pf_callback;
 } libvlc_event_listener_t;
 
-typedef struct libvlc_event_manager_t
-{
-    void * p_obj;
-    vlc_array_t listeners;
-    vlc_mutex_t lock;
-} libvlc_event_sender_t;
-
 /*
  * Internal libvlc functions
  */
 
-/**************************************************************************
- *       libvlc_event_manager_new (internal) :
- *
- * Init an object's event manager.
- **************************************************************************/
-libvlc_event_manager_t *
-libvlc_event_manager_new( void * p_obj )
+void libvlc_event_manager_init(libvlc_event_manager_t *em, void *obj)
 {
-    libvlc_event_manager_t * p_em;
-
-    p_em = malloc(sizeof( libvlc_event_manager_t ));
-    if( !p_em )
-    {
-        libvlc_printerr( "Not enough memory" );
-        return NULL;
-    }
-
-    p_em->p_obj = p_obj;
-    vlc_array_init(&p_em->listeners);
-    vlc_mutex_init_recursive(&p_em->lock);
-    return p_em;
+    em->p_obj = obj;
+    vlc_array_init(&em->listeners);
+    vlc_mutex_init_recursive(&em->lock);
 }
 
-/**************************************************************************
- *       libvlc_event_manager_release (internal) :
- *
- * Release an object's event manager.
- **************************************************************************/
-void libvlc_event_manager_release( libvlc_event_manager_t * p_em )
+void libvlc_event_manager_destroy(libvlc_event_manager_t *em)
 {
-    vlc_mutex_destroy(&p_em->lock);
+    vlc_mutex_destroy(&em->lock);
 
-    for (int i = 0; i < vlc_array_count(&p_em->listeners); i++)
-        free(vlc_array_item_at_index(&p_em->listeners, i));
+    for (size_t i = 0; i < vlc_array_count(&em->listeners); i++)
+        free(vlc_array_item_at_index(&em->listeners, i));
 
-    vlc_array_clear(&p_em->listeners);
-    free( p_em );
+    vlc_array_clear(&em->listeners);
 }
 
 /**************************************************************************
@@ -140,7 +111,7 @@ void libvlc_event_send( libvlc_event_manager_t * p_em,
     p_event->p_obj = p_em->p_obj;
 
     vlc_mutex_lock(&p_em->lock);
-    for (int i = 0; i < vlc_array_count(&p_em->listeners); i++)
+    for (size_t i = 0; i < vlc_array_count(&p_em->listeners); i++)
     {
         libvlc_event_listener_t *listener;
 
@@ -268,10 +239,17 @@ int libvlc_event_attach(libvlc_event_manager_t *em, libvlc_event_type_t type,
     listener->p_user_data = opaque;
     listener->pf_callback = callback;
 
+    int i_ret;
     vlc_mutex_lock(&em->lock);
-    vlc_array_append(&em->listeners, listener);
+    if(vlc_array_append(&em->listeners, listener) != 0)
+    {
+        i_ret = VLC_EGENERIC;
+        free(listener);
+    }
+    else
+        i_ret = VLC_SUCCESS;
     vlc_mutex_unlock(&em->lock);
-    return 0;
+    return i_ret;
 }
 
 /**************************************************************************
@@ -283,7 +261,7 @@ void libvlc_event_detach(libvlc_event_manager_t *em, libvlc_event_type_t type,
                          libvlc_callback_t callback, void *opaque)
 {
     vlc_mutex_lock(&em->lock);
-    for (int i = 0; i < vlc_array_count(&em->listeners); i++)
+    for (size_t i = 0; i < vlc_array_count(&em->listeners); i++)
     {
          libvlc_event_listener_t *listener;
 

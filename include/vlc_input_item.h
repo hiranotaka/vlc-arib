@@ -57,8 +57,6 @@ struct info_category_t
  */
 struct input_item_t
 {
-    int        i_id;                 /**< Identifier of the item */
-
     char       *psz_name;            /**< text describing this item */
     char       *psz_uri;             /**< mrl of this item */
 
@@ -83,6 +81,8 @@ struct input_item_t
 
     int         i_epg;               /**< Number of EPG entries */
     vlc_epg_t   **pp_epg;            /**< EPG entries */
+    int64_t     i_epg_time;          /** EPG timedate as epoch time */
+    const vlc_epg_t *p_epg_table;    /** running/selected program cur/next EPG table */
 
     int         i_slaves;            /**< Number of slaves */
     input_item_slave_t **pp_slaves;  /**< Slave entries that will be loaded by
@@ -103,8 +103,6 @@ struct input_item_t
     bool        b_preparse_interact; /**< Force interaction with the user when
                                           preparsing.*/
 };
-
-TYPEDEF_ARRAY(input_item_t*, input_item_array_t)
 
 enum input_item_type_e
 {
@@ -143,19 +141,33 @@ enum slave_priority
     SLAVE_PRIORITY_USER
 };
 
+/* Extensions must be in alphabetical order */
+#define MASTER_EXTENSIONS \
+    "asf", "avi", "divx", \
+    "f4v", "flv", "m1v", \
+    "m2v", "m4v", "mkv", \
+    "mov", "mp2", "mp2v", \
+    "mp4", "mp4v", "mpe", \
+    "mpeg", "mpeg1", "mpeg2", \
+    "mpeg4", "mpg", "mpv2", \
+    "mxf", "ogv", "ogx", \
+    "ps", "vro","webm", \
+    "wmv", "wtv"
+
 #define SLAVE_SPU_EXTENSIONS \
-    "idx", "sub",  "srt", \
-    "ssa", "ass",  "smi", \
-    "utf", "utf8", "utf-8", \
-    "rt",   "aqt", "txt", \
-    "usf", "jss",  "cdg", \
-    "psb", "mpsub","mpl2", \
-    "pjs", "dks", "stl", \
-    "vtt", "sbv"
+    "aqt", "ass",  "cdg", \
+    "dks", "idx", "jss", \
+    "mpl2", "mpsub", "pjs", \
+    "psb", "rt", "sami", "sbv", \
+    "scc", "smi", "srt", \
+    "ssa",  "stl", "sub", \
+    "ttml", "tt", "usf", \
+    "vtt", "webvtt"
+
 #define SLAVE_AUDIO_EXTENSIONS \
-    "ac3", "m4a", "aac", \
-    "eac3",  "dtshd", "flac", \
-    "pcm", "dts"
+    "aac", "ac3", "dts", \
+    "dtshd", "eac3", "flac", \
+    "m4a", "mp3", "pcm" \
 
 struct input_item_slave
 {
@@ -165,32 +177,15 @@ struct input_item_slave
     char                psz_uri[];  /**< Slave mrl */
 };
 
-typedef int (*input_item_compar_cb)( input_item_t *, input_item_t * );
-
 struct input_item_node_t
 {
     input_item_t *         p_item;
     int                    i_children;
     input_item_node_t      **pp_children;
-    input_item_node_t      *p_parent;
-    input_item_compar_cb   compar_cb;
-    bool                   b_can_loop;
 };
 
 VLC_API void input_item_CopyOptions( input_item_t *p_child, input_item_t *p_parent );
 VLC_API void input_item_SetName( input_item_t *p_item, const char *psz_name );
-
-/**
- * Add one subitem to this item
- *
- * This won't hold the item, but can tell to interested third parties
- * Like the playlist, that there is a new sub item. With this design
- * It is not the input item's responsibility to keep all the ref of
- * the input item children.
- *
- * Sends a vlc_InputItemSubItemTreeAdded and a vlc_InputItemSubItemAdded event
- */
-VLC_API void input_item_PostSubItem( input_item_t *p_parent, input_item_t *p_child );
 
 /**
  * Start adding multiple subitems.
@@ -210,29 +205,15 @@ VLC_API input_item_node_t * input_item_node_AppendItem( input_item_node_t *p_nod
 VLC_API void input_item_node_AppendNode( input_item_node_t *p_parent, input_item_node_t *p_child );
 
 /**
- * Sort all p_item children of the node recursively.
+ * Remove a node from its parent.
  */
-VLC_API void input_item_node_Sort( input_item_node_t *p_node,
-                                   input_item_compar_cb compar_cb );
+void input_item_node_RemoveNode( input_item_node_t *parent,
+                                 input_item_node_t *child );
 
 /**
  * Delete a node created with input_item_node_Create() and all its children.
  */
 VLC_API void input_item_node_Delete( input_item_node_t *p_node );
-
-/**
- * End adding multiple subitems.
- *
- * Sends a vlc_InputItemSubItemTreeAdded event to notify that the item pointed to
- * by the given root node has created new subitems that are pointed to by all the
- * children of the node.
- *
- * Also sends vlc_InputItemSubItemAdded event for every child under the given root node;
- *
- * In the end deletes the node and all its children nodes.
- */
-VLC_API void input_item_node_PostAndDelete( input_item_node_t *p_node );
-
 
 /**
  * Option flags
@@ -378,10 +359,6 @@ VLC_API input_item_t *input_item_Hold(input_item_t *);
 /** Releases an input item, i.e. decrements its reference counter. */
 VLC_API void input_item_Release(input_item_t *);
 
-/* Historical hack... */
-#define vlc_gc_incref(i) input_item_Hold(i)
-#define vlc_gc_decref(i) input_item_Release(i)
-
 typedef enum input_item_meta_request_option_t
 {
     META_REQUEST_OPTION_NONE          = 0x00,
@@ -412,19 +389,15 @@ VLC_API void libvlc_MetadataCancel( libvlc_int_t *, void * );
  ******************/
 struct input_stats_t
 {
-    vlc_mutex_t         lock;
-
     /* Input */
     int64_t i_read_packets;
     int64_t i_read_bytes;
     float f_input_bitrate;
-    float f_average_input_bitrate;
 
     /* Demux */
     int64_t i_demux_read_packets;
     int64_t i_demux_read_bytes;
     float f_demux_bitrate;
-    float f_average_demux_bitrate;
     int64_t i_demux_corrupted;
     int64_t i_demux_discontinuity;
 
@@ -436,14 +409,66 @@ struct input_stats_t
     int64_t i_displayed_pictures;
     int64_t i_lost_pictures;
 
-    /* Sout */
-    int64_t i_sent_packets;
-    int64_t i_sent_bytes;
-    float f_send_bitrate;
-
     /* Aout */
     int64_t i_played_abuffers;
     int64_t i_lost_abuffers;
 };
+
+/**
+ * Access pf_readdir helper struct
+ * \see vlc_readdir_helper_init()
+ * \see vlc_readdir_helper_additem()
+ * \see vlc_readdir_helper_finish()
+ */
+struct vlc_readdir_helper
+{
+    input_item_node_t *p_node;
+    void **pp_slaves;
+    size_t i_slaves;
+    void **pp_dirs;
+    size_t i_dirs;
+    int i_sub_autodetect_fuzzy;
+    bool b_show_hiddenfiles;
+    bool b_flatten;
+    char *psz_ignored_exts;
+};
+
+/**
+ * Init a vlc_readdir_helper struct
+ *
+ * \param p_rdh need to be cleaned with vlc_readdir_helper_finish()
+ * \param p_node node that will be used to add items
+ */
+VLC_API void vlc_readdir_helper_init(struct vlc_readdir_helper *p_rdh,
+                                     vlc_object_t *p_obj, input_item_node_t *p_node);
+#define vlc_readdir_helper_init(p_rdh, p_obj, p_node) \
+    vlc_readdir_helper_init(p_rdh, VLC_OBJECT(p_obj), p_node)
+
+/**
+ * Finish adding items to the node
+ *
+ * \param b_success if true, items of the node will be sorted.
+ */
+VLC_API void vlc_readdir_helper_finish(struct vlc_readdir_helper *p_rdh, bool b_success);
+
+/**
+ * Add a new input_item_t entry to the node of the vlc_readdir_helper struct.
+ *
+ * \param p_rdh previously inited vlc_readdir_helper struct
+ * \param psz_uri uri of the new item
+ * \param psz_flatpath flattened path of the new item. If not NULL, this
+ *        function will create an input item for each sub folders (separated
+ *        by '/') of psz_flatpath (so, this will un-flatten the folder
+ *        hierarchy). Either psz_flatpath or psz_filename must be valid.
+ * \param psz_filename file name of the new item. If NULL, the file part of path
+ *        will be used as a filename. Either psz_flatpath or psz_filename must
+ *        be valid.
+ * \param i_type see \ref input_item_type_e
+ * \param i_net see \ref input_item_net_type
+ */
+VLC_API int vlc_readdir_helper_additem(struct vlc_readdir_helper *p_rdh,
+                                       const char *psz_uri, const char *psz_flatpath,
+                                       const char *psz_filename,
+                                       int i_type, int i_net);
 
 #endif

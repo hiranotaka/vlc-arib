@@ -208,7 +208,7 @@ static block_t *Shoot(demux_t *demux)
         wl_display_roundtrip(sys->display);
 
     wl_buffer_destroy(buffer);
-    block = block_File(fd);
+    block = block_File(fd, true);
 
     if (block != NULL)
     {
@@ -254,7 +254,7 @@ static void *Thread(void *data)
             block_t *block = Shoot(demux);
 
             block->i_pts = block->i_dts = mdate();
-            es_out_Control(demux->out, ES_OUT_SET_PCR, block->i_pts);
+            es_out_SetPCR(demux->out, block->i_pts);
             es_out_Send(demux->out, sys->es, block);
         }
 

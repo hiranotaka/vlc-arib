@@ -42,6 +42,9 @@ namespace adaptive
 
                 virtual bool                    isLive() const = 0;
                 void                            setType(const std::string &);
+                void                            setMinBuffering( mtime_t );
+                mtime_t                         getMinBuffering() const;
+                mtime_t                         getMaxBuffering() const;
                 virtual void                    debug() = 0;
 
                 void    addPeriod               (BasePeriod *period);
@@ -64,8 +67,8 @@ namespace adaptive
                 Property<time_t>                    availabilityStartTime;
                 Property<mtime_t>                   minUpdatePeriod;
                 Property<mtime_t>                   maxSegmentDuration;
-                Property<mtime_t>                   minBufferTime;
                 Property<mtime_t>                   timeShiftBufferDepth;
+                Property<mtime_t>                   suggestedPresentationDelay;
 
             protected:
                 vlc_object_t                       *p_object;
@@ -73,7 +76,7 @@ namespace adaptive
                 std::vector<std::string>            baseUrls;
                 std::string                         playlistUrl;
                 std::string                         type;
-
+                mtime_t                             minBufferTime;
         };
     }
 }

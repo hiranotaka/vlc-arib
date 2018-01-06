@@ -127,12 +127,10 @@ int module_get_score( const module_t *m )
  */
 const char *module_gettext (const module_t *m, const char *str)
 {
-    if (m->parent != NULL)
-        m = m->parent;
     if (unlikely(str == NULL || *str == '\0'))
         return "";
 #ifdef ENABLE_NLS
-    const char *domain = m->domain;
+    const char *domain = m->plugin->textdomain;
     return dgettext ((domain != NULL) ? domain : PACKAGE_NAME, str);
 #else
     (void)m;
@@ -174,7 +172,7 @@ static int module_load (vlc_object_t *obj, module_t *m,
 {
     int ret = VLC_SUCCESS;
 
-    if (module_Map (obj, m))
+    if (module_Map(obj, m->plugin))
         return VLC_EGENERIC;
 
     if (m->pf_activate != NULL)
@@ -185,6 +183,10 @@ static int module_load (vlc_object_t *obj, module_t *m,
         ret = init (m->pf_activate, ap);
         va_end (ap);
     }
+
+    if (ret != VLC_SUCCESS)
+        vlc_objres_clear(obj);
+
     return ret;
 }
 
@@ -324,13 +326,14 @@ done:
     return module;
 }
 
-
+#undef vlc_module_unload
 /**
  * Deinstantiates a module.
  * \param module the module pointer as returned by vlc_module_load()
  * \param deinit deactivation callback
  */
-void vlc_module_unload(module_t *module, vlc_deactivate_t deinit, ...)
+void vlc_module_unload(vlc_object_t *obj, module_t *module,
+                       vlc_deactivate_t deinit, ...)
 {
     if (module->pf_deactivate != NULL)
     {
@@ -340,6 +343,8 @@ void vlc_module_unload(module_t *module, vlc_deactivate_t deinit, ...)
         deinit(module->pf_deactivate, ap);
         va_end(ap);
     }
+
+    vlc_objres_clear(obj);
 }
 
 
@@ -370,7 +375,7 @@ module_t *module_need(vlc_object_t *obj, const char *cap, const char *name,
 void module_unneed(vlc_object_t *obj, module_t *module)
 {
     msg_Dbg(obj, "removing module \"%s\"", module_get_object(module));
-    vlc_module_unload(module, generic_stop, obj);
+    vlc_module_unload(obj, module, generic_stop, obj);
 }
 
 /**
@@ -422,9 +427,18 @@ bool module_exists (const char * psz_name)
  */
 module_config_t *module_config_get( const module_t *module, unsigned *restrict psize )
 {
+    const vlc_plugin_t *plugin = module->plugin;
+
+    if (plugin->module != module)
+    {   /* For backward compatibility, pretend non-first modules have no
+         * configuration items. */
+        *psize = 0;
+        return NULL;
+    }
+
     unsigned i,j;
-    unsigned size = module->confsize;
-    module_config_t *config = malloc( size * sizeof( *config ) );
+    size_t size = plugin->conf.size;
+    module_config_t *config = vlc_alloc( size, sizeof( *config ) );
 
     assert( psize != NULL );
     *psize = 0;
@@ -434,7 +448,7 @@ module_config_t *module_config_get( const module_t *module, unsigned *restrict p
 
     for( i = 0, j = 0; i < size; i++ )
     {
-        const module_config_t *item = module->p_config + i;
+        const module_config_t *item = plugin->conf.items + i;
         if( item->b_internal /* internal option */
          || item->b_removed /* removed option */ )
             continue;

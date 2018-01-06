@@ -35,18 +35,19 @@
 
 #include <vlc_common.h>
 #include <vlc_vout_display.h>
-#include <vlc_atomic.h>
 
+#include <stdatomic.h>
 #include <windows.h>
 #include <windowsx.h>                                        /* GET_X_LPARAM */
 #include <shellapi.h>                                         /* ExtractIcon */
+
+#define vout_display_sys_win32_t vout_display_sys_t
 
 #include "common.h"
 
 /*****************************************************************************
  * Local prototypes.
  *****************************************************************************/
-#define WM_VLC_HIDE_MOUSE   (WM_APP + 0)
 #define WM_VLC_CHANGE_TEXT  (WM_APP + 1)
 
 struct event_thread_t
@@ -70,9 +71,14 @@ struct event_thread_t
     HCURSOR cursor_arrow;
     HCURSOR cursor_empty;
     unsigned button_pressed;
+    mtime_t hide_timeout;
+    mtime_t last_moved;
 
     /* Gestures */
     win32_gesture_sys_t *p_gesture;
+
+    /* Sensors */
+    void *p_sensors;
 
     /* Title */
     char *psz_title;
@@ -113,6 +119,24 @@ static HCURSOR EmptyCursor( HINSTANCE instance );
 /* Mouse events sending functions */
 static void MouseReleased( event_thread_t *p_event, unsigned button );
 static void MousePressed( event_thread_t *p_event, HWND hwnd, unsigned button );
+
+static void CALLBACK HideMouse(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
+{
+    VLC_UNUSED(uMsg); VLC_UNUSED(dwTime);
+    if (hwnd)
+    {
+        event_thread_t *p_event = (event_thread_t *)idEvent;
+        UpdateCursor( p_event, false );
+    }
+}
+
+static void UpdateCursorMoved( event_thread_t *p_event )
+{
+    UpdateCursor( p_event, true );
+    p_event->last_moved = mdate();
+    if( p_event->hwnd )
+        SetTimer( p_event->hwnd, (UINT_PTR)p_event, p_event->hide_timeout, HideMouse );
+}
 
 /* Local helpers */
 static inline bool isMouseEvent( WPARAM type )
@@ -206,16 +230,12 @@ static void *EventThread( void *p_this )
                 (abs(mouse_pos.y - old_mouse_pos.y)) > 2 ) )
             {
                 old_mouse_pos = mouse_pos;
-                UpdateCursor( p_event, true );
+                UpdateCursorMoved( p_event );
             }
         }
         else if( isMouseEvent( msg.message ) )
         {
-            UpdateCursor( p_event, true );
-        }
-        else if( msg.message == WM_VLC_HIDE_MOUSE )
-        {
-            UpdateCursor( p_event, false );
+            UpdateCursorMoved( p_event );
         }
 
         /* */
@@ -243,9 +263,6 @@ static void *EventThread( void *p_this )
             }
             break;
         case WM_NCMOUSEMOVE:
-            break;
-
-        case WM_VLC_HIDE_MOUSE:
             break;
 
         case WM_LBUTTONDOWN:
@@ -342,7 +359,7 @@ static void *EventThread( void *p_this )
             if( p_event->psz_title )
             {
                 const size_t i_length = strlen(p_event->psz_title);
-                pwz_title = malloc( 2 * (i_length + 1) );
+                pwz_title = vlc_alloc( i_length + 1, 2 );
                 if( pwz_title )
                 {
                     mbstowcs( pwz_title, p_event->psz_title, 2 * i_length );
@@ -384,11 +401,6 @@ static void *EventThread( void *p_this )
     Win32VoutCloseWindow( p_event );
     vlc_restorecancel(canc);
     return NULL;
-}
-
-void EventThreadMouseHide( event_thread_t *p_event )
-{
-    PostMessage( p_event->hwnd, WM_VLC_HIDE_MOUSE, 0, 0 );
 }
 
 void EventThreadUpdateTitle( event_thread_t *p_event, const char *psz_fallback )
@@ -470,6 +482,7 @@ event_thread_t *EventThreadCreate( vout_display_t *vd)
     p_event->button_pressed = 0;
     p_event->psz_title = NULL;
     p_event->source = vd->source;
+    p_event->hwnd = NULL;
     atomic_init(&p_event->has_moved, false);
     vout_display_PlacePicture(&p_event->place, &vd->source, vd->cfg, false);
 
@@ -575,10 +588,7 @@ static void UpdateCursor( event_thread_t *p_event, bool b_show )
     HWND hwnd = WindowFromPoint(p);
     if( hwnd == p_event->hvideownd || hwnd == p_event->hwnd )
     {
-        if( b_show )
-            SetCursor( cursor );
-        else
-            SetCursorPos( p.x, p.y );
+        SetCursor( cursor );
     }
 }
 
@@ -707,6 +717,8 @@ static int Win32VoutCreateWindow( event_thread_t *p_event )
     {
         p_event->vlc_icon = ExtractIcon( hInstance, vlc_path, 0 );
     }
+    p_event->hide_timeout = var_InheritInteger( p_event->vd, "mouse-hide-timeout" );
+    UpdateCursorMoved( p_event );
 
     /* Fill in the window class structure */
     wc.style         = CS_OWNDC|CS_DBLCLKS;          /* style: dbl click */
@@ -798,7 +810,10 @@ static int Win32VoutCreateWindow( event_thread_t *p_event )
         return VLC_EGENERIC;
     }
 
-    InitGestures( p_event->hwnd, &p_event->p_gesture );
+    bool b_isProjected  = (vd->fmt.projection_mode != PROJECTION_MODE_RECTANGULAR);
+    InitGestures( p_event->hwnd, &p_event->p_gesture, b_isProjected );
+
+    p_event->p_sensors = HookWindowsSensors(vd, p_event->hwnd);
 
     if( p_event->hparent )
     {
@@ -888,6 +903,8 @@ static void Win32VoutCloseWindow( event_thread_t *p_event )
         DestroyIcon( p_event->vlc_icon );
 
     DestroyCursor( p_event->cursor_empty );
+
+    UnhookWindowsSensors(p_event->p_sensors);
 
     CloseGestures( p_event->p_gesture);
 }

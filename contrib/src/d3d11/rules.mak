@@ -19,6 +19,8 @@ DST_DXGITYPE_H = $(PREFIX)/include/dxgitype.h
 DST_DXGI12_H = $(PREFIX)/include/dxgi1_2.h
 DST_DXGI13_H = $(PREFIX)/include/dxgi1_3.h
 DST_DXGI14_H = $(PREFIX)/include/dxgi1_4.h
+DST_DXGI15_H = $(PREFIX)/include/dxgi1_5.h
+DST_DXGI16_H = $(PREFIX)/include/dxgi1_6.h
 
 
 ifdef HAVE_WIN32
@@ -71,6 +73,14 @@ $(DST_DXGI14_H): $(SRC)/d3d11/dxgi1_4.idl $(DST_DXGI13_H)
 	mkdir -p -- "$(PREFIX)/include/"
 	$(WIDL) -DBOOL=WINBOOL -Idxgi12 -I$(IDL_INC_PATH) -h -o $@ $<
 
+$(DST_DXGI15_H): $(SRC)/d3d11/dxgi1_5.idl $(DST_DXGI14_H)
+	mkdir -p -- "$(PREFIX)/include/"
+	$(WIDL) -DBOOL=WINBOOL -Idxgi12 -I$(IDL_INC_PATH) -h -o $@ $<
+
+$(DST_DXGI16_H): $(SRC)/d3d11/dxgi1_6.idl $(DST_DXGI15_H)
+	mkdir -p -- "$(PREFIX)/include/"
+	$(WIDL) -DBOOL=WINBOOL -Idxgi12 -I$(IDL_INC_PATH) -h -o $@ $<
+
 .dxgitype: $(DST_DXGITYPE_H)
 	touch $@
 
@@ -83,5 +93,11 @@ $(DST_DXGI14_H): $(SRC)/d3d11/dxgi1_4.idl $(DST_DXGI13_H)
 .dxgi14: .dxgi13 $(DST_DXGI14_H)
 	touch $@
 
-.d3d11: $(DST_D3D11_H) $(DST_DXGIDEBUG_H) .dxgi14
+.dxgi15: .dxgi14 $(DST_DXGI15_H)
+	touch $@
+
+.dxgi16: .dxgi15 $(DST_DXGI16_H)
+	touch $@
+
+.d3d11: $(DST_D3D11_H) $(DST_DXGIDEBUG_H) .dxgi16
 	touch $@

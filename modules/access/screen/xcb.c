@@ -161,7 +161,7 @@ static int Open (vlc_object_t *obj)
     p_sys->conn = conn;
 
    /* Find configured screen */
-    if (!strcmp (demux->psz_access, "screen"))
+    if (!strcasecmp(demux->psz_name, "screen"))
     {
         const xcb_setup_t *setup = xcb_get_setup (conn);
         const xcb_screen_t *scr = NULL;
@@ -184,7 +184,7 @@ static int Open (vlc_object_t *obj)
     }
     else
     /* Determine capture window */
-    if (!strcmp (demux->psz_access, "window"))
+    if (!strcasecmp(demux->psz_name, "window"))
     {
         char *end;
         unsigned long ul = strtoul (demux->psz_location, &end, 0);
@@ -502,7 +502,7 @@ noshm:
     {
         block->i_pts = block->i_dts = mdate ();
 
-        es_out_Control (demux->out, ES_OUT_SET_PCR, block->i_pts);
+        es_out_SetPCR(demux->out, block->i_pts);
         es_out_Send (demux->out, sys->es, block);
     }
     else

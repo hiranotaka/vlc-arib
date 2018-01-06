@@ -36,11 +36,6 @@ access_LTLIBRARIES += libimem_plugin.la
 libaccess_imem_plugin_la_SOURCES = access/imem.c
 access_LTLIBRARIES += libaccess_imem_plugin.la
 
-librar_plugin_la_SOURCES = access/rar/rar.c access/rar/rar.h \
-	access/rar/access.c access/rar/stream.c access/rar/module.c
-librar_plugin_la_CPPFLAGS = $(AM_CPPFLAGS)
-access_LTLIBRARIES += librar_plugin.la
-
 libsdp_plugin_la_SOURCES = access/sdp.c
 access_LTLIBRARIES += libsdp_plugin.la
 
@@ -49,30 +44,6 @@ access_LTLIBRARIES += libtimecode_plugin.la
 
 libvdr_plugin_la_SOURCES = access/vdr.c
 access_LTLIBRARIES += libvdr_plugin.la
-
-libzip_plugin_la_SOURCES = access/zip/zip.h access/zip/zipstream.c access/zip/zipaccess.c
-libzip_plugin_la_CFLAGS = $(AM_CFLAGS) $(MINIZIP_CFLAGS)
-libzip_plugin_la_LIBADD = $(MINIZIP_LIBS)
-libunzip_la_SOURCES = access/zip/unzip/unzip.c access/zip/unzip/unzip.h access/zip/unzip/crypt.h \
-	access/zip/unzip/ioapi.c access/zip/unzip/ioapi.h
-libunzip_la_LIBADD = -lz
-libunzip_la_LDFLAGS = -static
-if HAVE_ZLIB
-access_LTLIBRARIES += libzip_plugin.la
-if !HAVE_MINIZIP
-noinst_LTLIBRARIES += libunzip.la
-libzip_plugin_la_CFLAGS += -I$(srcdir)/access/zip/unzip
-libzip_plugin_la_LIBADD += libunzip.la
-endif
-endif
-
-libaccess_archive_plugin_la_SOURCES = access/archive/access.c access/archive/stream.c \
-					access/archive/archive.h access/archive/archive.c
-libaccess_archive_plugin_la_CFLAGS = $(AM_CFLAGS) $(ARCHIVE_CFLAGS)
-libaccess_archive_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
-libaccess_archive_plugin_la_LIBADD = $(ARCHIVE_LIBS)
-access_LTLIBRARIES += $(LTLIBaccess_archive)
-EXTRA_LTLIBRARIES += libaccess_archive_plugin.la
 
 ### Audio capture ###
 
@@ -109,7 +80,7 @@ access_LTLIBRARIES += $(LTLIBaccess_qtsound)
 EXTRA_LTLIBRARIES += libaccess_qtsound_plugin.la
 
 libaccess_wasapi_plugin_la_SOURCES = access/wasapi.c
-libaccess_wasapi_plugin_la_LIBADD = -lole32 -lksuser
+libaccess_wasapi_plugin_la_LIBADD = $(LIBCOM) -lksuser
 if HAVE_WASAPI
 if !HAVE_WINSTORE
 access_LTLIBRARIES += libaccess_wasapi_plugin.la
@@ -179,14 +150,14 @@ libv4l2_plugin_la_SOURCES = \
 	access/v4l2/v4l2.h
 libv4l2_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/access/v4l2
 libv4l2_plugin_la_CFLAGS = $(AM_CFLAGS) $(ZVBI_CFLAGS)
-libv4l2_plugin_la_LIBADD = $(LIBDL) $(LIBM) $(ZVBI_LIBS)
+libv4l2_plugin_la_LIBADD = $(LIBDL) $(LIBM) $(ZVBI_LIBS) $(LIBPTHREAD)
 if HAVE_V4L2
 access_LTLIBRARIES += libv4l2_plugin.la
 endif
 
 libdshow_plugin_la_SOURCES = access/dshow/vlc_dshow.h access/dshow/dshow.cpp access/dshow/access.h \
 	access/dshow/filter.cpp access/dshow/filter.h access/dshow/crossbar.cpp
-libdshow_plugin_la_LIBADD = -lole32 -loleaut32 -luuid -lstrmiids -lksuser
+libdshow_plugin_la_LIBADD = $(LIBCOM) -loleaut32 -luuid -lstrmiids -lksuser
 if HAVE_WIN32_DESKTOP
 access_LTLIBRARIES += libdshow_plugin.la
 endif
@@ -249,7 +220,7 @@ EXTRA_LTLIBRARIES += libvnc_plugin.la
 
 libcdda_plugin_la_SOURCES = access/cdda.c access/vcd/cdrom.c access/vcd/cdrom.h access/vcd/cdrom_internals.h
 libcdda_plugin_la_CFLAGS = $(AM_CFLAGS) $(LIBCDDB_CFLAGS)
-libcdda_plugin_la_LIBADD = $(LIBCDDB_LIBS)
+libcdda_plugin_la_LIBADD = $(LIBCDDB_LIBS) $(LIBM)
 libcdda_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
 if HAVE_DARWIN
 libcdda_plugin_la_LIBADD += -liconv
@@ -294,10 +265,6 @@ liblibbluray_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
 access_LTLIBRARIES += $(LTLIBlibbluray)
 EXTRA_LTLIBRARIES += liblibbluray_plugin.la
 
-libaccess_bd_plugin_la_SOURCES = access/bd/bd.c access/bd/mpls.c access/bd/mpls.h access/bd/clpi.c access/bd/clpi.h
-access_LTLIBRARIES += libaccess_bd_plugin.la
-
-
 ### Digital TV ###
 
 libdtv_plugin_la_SOURCES = \
@@ -319,7 +286,7 @@ if HAVE_WIN32_DESKTOP
 # Use an import library for C++ to retain C linker on other platforms.
 libbda_la_SOURCES = access/dtv/bdadefs.h access/dtv/bdagraph.cpp access/dtv/bdagraph.hpp
 libbda_la_LDFLAGS = -static
-libbda_la_LIBADD = -lstrmiids -lole32 -loleaut32 -luuid
+libbda_la_LIBADD = -lstrmiids $(LIBCOM) -loleaut32 -luuid
 noinst_LTLIBRARIES += libbda.la
 
 libdtv_plugin_la_DEPENDENCIES = libbda.la
@@ -344,13 +311,6 @@ libdvb_plugin_la_LIBADD = $(DVBPSI_LIBS)
 endif
 endif
 
-libaccess_eyetv_plugin_la_SOURCES = access/eyetv.m
-libaccess_eyetv_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)' \
-	-Wl,-framework,Foundation
-access_LTLIBRARIES += $(LTLIBaccess_eyetv)
-EXTRA_LTLIBRARIES += libaccess_eyetv_plugin.la
-
-
 ### Network streams ###
 
 libftp_plugin_la_SOURCES = access/ftp.c
@@ -363,7 +323,7 @@ access_LTLIBRARIES += libhttp_plugin.la
 
 liblive555_plugin_la_SOURCES = access/live555.cpp access/mms/asf.c access/mms/buffer.c
 liblive555_plugin_la_CXXFLAGS = $(AM_CXXFLAGS) $(CXXFLAGS_live555)
-liblive555_plugin_la_LIBADD = $(LIBS_live555)
+liblive555_plugin_la_LIBADD = $(LIBS_live555) $(SOCKET_LIBS)
 liblive555_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)' \
 	$(LDFLAGS_live555)
 access_LTLIBRARIES += $(LTLIBlive555)
@@ -384,7 +344,7 @@ libsmb_plugin_la_SOURCES = access/smb.c access/smb_common.h
 libsmb_plugin_la_CFLAGS = $(AM_CFLAGS) $(SMBCLIENT_CFLAGS)
 libsmb_plugin_la_LIBADD = $(SMBCLIENT_LIBS)
 if HAVE_WIN32
-libsmb_plugin_la_LIBADD += -lmpr
+libsmb_plugin_la_LIBADD += -lmpr -lnetapi32
 endif
 libsmb_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
 access_LTLIBRARIES += $(LTLIBsmb)
@@ -442,6 +402,9 @@ access_LTLIBRARIES += libavio_plugin.la
 endif
 endif
 
+libsatip_plugin_la_SOURCES = access/satip.c
+libsatip_plugin_la_LIBADD = $(SOCKET_LIBS) $(LIBPTHREAD)
+access_LTLIBRARIES += libsatip_plugin.la
 
 ### Misc ###
 
@@ -454,3 +417,12 @@ libaccess_mtp_plugin_la_LIBADD = $(MTP_LIBS)
 libaccess_mtp_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
 access_LTLIBRARIES += $(LTLIBaccess_mtp)
 EXTRA_LTLIBRARIES += libaccess_mtp_plugin.la
+
+### SRT ###
+
+libaccess_srt_plugin_la_SOURCES = access/srt.c
+libaccess_srt_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(SRT_CPPFLAGS)
+libaccess_srt_plugin_la_LIBADD = $(SRT_LIBS)
+libaccess_srt_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(accessdir)'
+access_LTLIBRARIES += $(LTLIBaccess_srt)
+EXTRA_LTLIBRARIES += libaccess_srt_plugin.la

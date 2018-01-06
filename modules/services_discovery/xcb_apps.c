@@ -65,6 +65,7 @@ struct services_discovery_sys_t
     xcb_atom_t        net_wm_name;
     xcb_window_t      root_window;
     void             *apps;
+    input_item_t     *apps_root;
 };
 
 static void *Run (void *);
@@ -82,7 +83,7 @@ static int vlc_sd_probe_Open (vlc_object_t *obj)
     if (xcb_connection_has_error (conn))
         return VLC_PROBE_CONTINUE;
     xcb_disconnect (conn);
-    return vlc_sd_probe_Add (probe, "xcb_apps{longname=\"Screen capture\"}",
+    return vlc_sd_probe_Add (probe, "xcb_apps",
                              N_("Screen capture"), SD_CAT_DEVICES);
 }
 
@@ -97,6 +98,7 @@ static int Open (vlc_object_t *obj)
     if (p_sys == NULL)
         return VLC_ENOMEM;
     sd->p_sys = p_sys;
+    sd->description = _("Screen capture");
 
     /* Connect to X server */
     char *display = var_InheritString (obj, "x11-display");
@@ -162,6 +164,11 @@ static int Open (vlc_object_t *obj)
     }
 
     p_sys->apps = NULL;
+    p_sys->apps_root = input_item_NewExt("vlc://nop", _("Applications"), -1,
+                                         ITEM_TYPE_NODE, ITEM_LOCAL);
+    if (likely(p_sys->apps_root != NULL))
+        services_discovery_AddItem(sd, p_sys->apps_root);
+
     UpdateApps (sd);
 
     if (vlc_clone (&p_sys->thread, Run, sd, VLC_THREAD_PRIORITY_LOW))
@@ -170,6 +177,9 @@ static int Open (vlc_object_t *obj)
 
 error:
     xcb_disconnect (p_sys->conn);
+    tdestroy (p_sys->apps, DelApp);
+    if (p_sys->apps_root != NULL)
+        input_item_Release(p_sys->apps_root);
     free (p_sys);
     return VLC_EGENERIC;
 }
@@ -187,6 +197,8 @@ static void Close (vlc_object_t *obj)
     vlc_join (p_sys->thread, NULL);
     xcb_disconnect (p_sys->conn);
     tdestroy (p_sys->apps, DelApp);
+    if (p_sys->apps_root != NULL)
+        input_item_Release(p_sys->apps_root);
     free (p_sys);
 }
 
@@ -264,13 +276,13 @@ static struct app *AddApp (services_discovery_t *sd, xcb_window_t xid)
     struct app *app = malloc (sizeof (*app));
     if (app == NULL)
     {
-        vlc_gc_decref (item);
+        input_item_Release (item);
         return NULL;
     }
     app->xid = xid;
     app->item = item;
     app->owner = sd;
-    services_discovery_AddItem (sd, item, _("Applications"));
+    services_discovery_AddSubItem(sd, p_sys->apps_root, item);
     return app;
 }
 
@@ -279,7 +291,7 @@ static void DelApp (void *data)
     struct app *app = data;
 
     services_discovery_RemoveItem (app->owner, app->item);
-    vlc_gc_decref (app->item);
+    input_item_Release (app->item);
     free (app);
 }
 
@@ -350,6 +362,6 @@ static void AddDesktop(services_discovery_t *sd)
     if (item == NULL)
         return;
 
-    services_discovery_AddItem (sd, item, NULL);
+    services_discovery_AddItem(sd, item);
     input_item_Release (item);
 }

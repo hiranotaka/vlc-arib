@@ -55,7 +55,7 @@ int64_t rtp_get_ts( const sout_stream_t *p_stream, const sout_stream_id_sys_t *i
 
 /* RTP packetization */
 void rtp_packetize_common (sout_stream_id_sys_t *id, block_t *out,
-                           int b_marker, int64_t i_pts);
+                           bool b_m_bit, int64_t i_pts);
 void rtp_packetize_send (sout_stream_id_sys_t *id, block_t *out);
 size_t rtp_mtu (const sout_stream_id_sys_t *id);
 
@@ -77,7 +77,7 @@ typedef struct rtp_format_t
     uint8_t      payload_type;
     unsigned     clock_rate;
     unsigned     channels;
-    int          cat;
+    enum es_format_category_e cat;
     /* Used in SDP only */
     unsigned     bitrate;
     const char  *ptname;

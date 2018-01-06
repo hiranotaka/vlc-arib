@@ -40,7 +40,7 @@ static void Close(vlc_object_t *);
 vlc_module_begin ()
     set_description(N_("SCTE-18 decoder"))
     set_shortname(N_("SCTE-18"))
-    set_capability( "decoder", 51)
+    set_capability( "spu decoder", 51)
     set_category(CAT_INPUT)
     set_subcategory(SUBCAT_INPUT_SCODEC)
     set_callbacks(Open, Close)
@@ -169,12 +169,11 @@ error:
     return NULL;
 }
 
-static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
+static int Decode( decoder_t *p_dec, block_t *p_block )
 {
-    if ( pp_block == NULL || *pp_block == NULL )
-        return NULL;
-    block_t *p_block = *pp_block; *pp_block = NULL;
-    subpicture_t  *p_spu = NULL;
+    if ( p_block == NULL ) /* No Drain */
+        return VLCDEC_SUCCESS;
+    subpicture_t *p_spu = NULL;
 
     if (p_block->i_flags & (BLOCK_FLAG_CORRUPTED))
         goto exit;
@@ -196,7 +195,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
             p_spu->b_ephemer  = true;
             p_spu->b_absolute = false;
 
-            p_spu_sys->align = SUBPICTURE_ALIGN_TOP;
+            p_spu_sys->region.inner_align = SUBPICTURE_ALIGN_TOP;
             p_spu_sys->p_default_style->i_style_flags = STYLE_BOLD | STYLE_BACKGROUND;
             p_spu_sys->p_default_style->i_features |= STYLE_HAS_FLAGS;
             p_spu_sys->p_default_style->i_background_color = 0x000000;
@@ -205,7 +204,8 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
             p_spu_sys->p_default_style->i_font_color = 0xFF0000;
             p_spu_sys->p_default_style->i_features |= STYLE_HAS_FONT_COLOR;
 
-            p_spu_sys->p_segments = text_segment_New( p_cea->psz_alert_text );
+            p_spu_sys->region.p_segments = text_segment_New( p_cea->psz_alert_text );
+            decoder_QueueSub( p_dec, p_spu );
         }
         msg_Info( p_dec, "Received %s", p_cea->psz_alert_text );
         scte18_cea_Free( p_cea );
@@ -213,7 +213,7 @@ static subpicture_t *Decode( decoder_t *p_dec, block_t **pp_block )
 
 exit:
     block_Release( p_block );
-    return p_spu;
+    return VLCDEC_SUCCESS;
 }
 
 static int Open( vlc_object_t *object )
@@ -235,8 +235,8 @@ static int Open( vlc_object_t *object )
     }
 
     dec->p_sys = p_sys;
-    dec->pf_decode_sub = Decode;
-    es_format_Init( &dec->fmt_out, SPU_ES, 0 );
+    dec->pf_decode = Decode;
+    dec->fmt_out.i_codec = 0;
 
     return VLC_SUCCESS;
 }

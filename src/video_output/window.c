@@ -59,6 +59,7 @@ vout_window_t *vout_window_New(vlc_object_t *obj, const char *module,
     vout_window_t *window = &w->wnd;
 
     memset(&window->handle, 0, sizeof(window->handle));
+    window->info.has_double_click = false;
     window->control = NULL;
     window->sys = NULL;
 
@@ -81,7 +82,6 @@ vout_window_t *vout_window_New(vlc_object_t *obj, const char *module,
         w->inhibit = vlc_inhibit_Create(VLC_OBJECT (window));
         if (w->inhibit != NULL)
             vlc_inhibit_Set(w->inhibit, VLC_INHIBIT_VIDEO);
-            /* FIXME: ^ wait for vout activation, pause */
     }
     else
         w->inhibit = NULL;
@@ -108,8 +108,17 @@ void vout_window_Delete(vout_window_t *window)
         vlc_inhibit_Destroy (w->inhibit);
     }
 
-    vlc_module_unload(w->module, vout_window_stop, window);
+    vlc_module_unload(window, w->module, vout_window_stop, window);
     vlc_object_release(window);
+}
+
+void vout_window_SetInhibition(vout_window_t *window, bool enabled)
+{
+    window_t *w = (window_t *)window;
+    unsigned flags = enabled ? VLC_INHIBIT_VIDEO : VLC_INHIBIT_NONE;
+
+    if (w->inhibit != NULL)
+        vlc_inhibit_Set(w->inhibit, flags);
 }
 
 /* Video output display integration */
@@ -149,6 +158,13 @@ static void vout_display_window_CloseNotify(vout_window_t *window)
     vout_SendEventClose(vout);
 }
 
+static void vout_display_window_MouseEvent(vout_window_t *window,
+                                           const vout_window_mouse_event_t *mouse)
+{
+    vout_thread_t *vout = (vout_thread_t *)window->obj.parent;
+    vout_WindowMouseEvent(vout, mouse);
+}
+
 /**
  * Creates a video window, initially without any attached display.
  */
@@ -168,6 +184,7 @@ vout_window_t *vout_display_window_New(vout_thread_t *vout,
         .sys = state,
         .resized = vout_display_window_ResizeNotify,
         .closed = vout_display_window_CloseNotify,
+        .mouse_event = vout_display_window_MouseEvent,
     };
     vout_window_t *window;
 

@@ -1,6 +1,6 @@
 # FLAC
 
-FLAC_VERSION := 1.3.1
+FLAC_VERSION := 1.3.2
 FLAC_URL := http://downloads.xiph.org/releases/flac/flac-$(FLAC_VERSION).tar.xz
 
 PKGS += flac
@@ -18,6 +18,7 @@ flac: flac-$(FLAC_VERSION).tar.xz .sum-flac
 ifdef HAVE_WINSTORE
 	$(APPLY) $(SRC)/flac/console_write.patch
 	$(APPLY) $(SRC)/flac/remove_blocking_code_useless_flaclib.patch
+	$(APPLY) $(SRC)/flac/no-createfilea.patch
 endif
 ifdef HAVE_DARWIN_OS
 	cd $(UNPACK_DIR) && sed -e 's,-dynamiclib,-dynamiclib -arch $(ARCH),' -i.orig configure
@@ -49,10 +50,7 @@ endif
 FLAC_CFLAGS := $(CFLAGS)
 ifdef HAVE_WIN32
 FLAC_CFLAGS += -mstackrealign
-endif
-
-ifdef HAVE_WIN32
-	FLAC_CFLAGS="-DFLAC__NO_DLL"
+FLAC_CFLAGS +="-DFLAC__NO_DLL"
 endif
 
 DEPS_flac = ogg $(DEPS_ogg)
@@ -60,5 +58,5 @@ DEPS_flac = ogg $(DEPS_ogg)
 .flac: flac
 	cd $< && $(HOSTVARS) CFLAGS="$(FLAC_CFLAGS)" ./configure $(FLACCONF)
 	cd $</include && $(MAKE) install
-	cd $</src && $(MAKE) -C share install && $(MAKE) -C libFLAC install
+	cd $</src && $(MAKE) -C libFLAC install && $(MAKE) -C share install
 	touch $@

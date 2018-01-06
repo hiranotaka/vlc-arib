@@ -26,11 +26,60 @@
 #include "../playlist/BaseAdaptationSet.h"
 #include "../playlist/BasePeriod.h"
 #include <limits>
+#include <algorithm>
 
 using namespace adaptive::logic;
 
-RepresentationSelector::RepresentationSelector()
+RepresentationSelector::RepresentationSelector(int maxwidth, int maxheight)
 {
+    this->maxwidth = maxwidth;
+    this->maxheight = maxheight;
+}
+
+RepresentationSelector::~RepresentationSelector()
+{
+}
+
+BaseRepresentation * RepresentationSelector::lowest(BaseAdaptationSet *adaptSet) const
+{
+    std::vector<BaseRepresentation *> reps = adaptSet->getRepresentations();
+    /* No maxsize check here */
+    BaseRepresentation *rep = (reps.empty()) ? NULL : *(reps.begin());
+    if(rep && rep->getWidth() <= maxwidth && rep->getHeight() <= maxheight)
+        return rep;
+    return NULL;
+}
+
+BaseRepresentation * RepresentationSelector::highest(BaseAdaptationSet *adaptSet) const
+{
+    std::vector<BaseRepresentation *> reps = adaptSet->getRepresentations();
+
+    std::vector<BaseRepresentation *>::const_reverse_iterator it;
+    for(it=reps.rbegin(); it!=reps.rend(); ++it)
+    {
+        if( (*it)->getWidth() <= maxwidth && (*it)->getHeight() <= maxheight )
+            return *it;
+    }
+    return NULL;
+}
+
+BaseRepresentation * RepresentationSelector::higher(BaseAdaptationSet *adaptSet, BaseRepresentation *rep) const
+{
+    std::vector<BaseRepresentation *> reps = adaptSet->getRepresentations();
+    std::vector<BaseRepresentation *>::iterator it = std::upper_bound(reps.begin(), reps.end(), rep,
+                                                                      BaseRepresentation::bwCompare);
+    BaseRepresentation *upperRep = (it == reps.end()) ? rep : *it;
+    if( upperRep->getWidth() > maxwidth || upperRep->getHeight() > maxheight )
+        upperRep = rep;
+    return upperRep;
+}
+
+BaseRepresentation * RepresentationSelector::lower(BaseAdaptationSet *adaptSet, BaseRepresentation *rep) const
+{
+    std::vector<BaseRepresentation *> reps = adaptSet->getRepresentations();
+    std::vector<BaseRepresentation *>::iterator it = std::lower_bound(reps.begin(), reps.end(), rep,
+                                                                      BaseRepresentation::bwCompare);
+    return (it > reps.begin()) ? *(--it) : rep;
 }
 
 BaseRepresentation * RepresentationSelector::select(BaseAdaptationSet *adaptSet) const
@@ -55,29 +104,6 @@ BaseRepresentation * RepresentationSelector::select(BaseAdaptationSet *adaptSet,
     return best;
 }
 
-BaseRepresentation * RepresentationSelector::select(BaseAdaptationSet *adaptSet, uint64_t bitrate,
-                                                int width, int height) const
-{
-    if(adaptSet == NULL)
-        return NULL;
-
-    std::vector<BaseRepresentation *> resMatchReps;
-
-    /* subset matching WxH */
-    std::vector<BaseRepresentation *> reps = adaptSet->getRepresentations();
-    std::vector<BaseRepresentation *>::const_iterator repIt;
-    for(repIt=reps.begin(); repIt!=reps.end(); ++repIt)
-    {
-        if((*repIt)->getWidth() == width && (*repIt)->getHeight() == height)
-            resMatchReps.push_back(*repIt);
-    }
-
-    if(resMatchReps.empty())
-        return select(adaptSet, bitrate);
-    else
-        return select(resMatchReps, 0, bitrate);
-}
-
 BaseRepresentation * RepresentationSelector::select(std::vector<BaseRepresentation *>& reps,
                                                 uint64_t minbitrate, uint64_t maxbitrate) const
 {
@@ -85,6 +111,9 @@ BaseRepresentation * RepresentationSelector::select(std::vector<BaseRepresentati
     std::vector<BaseRepresentation *>::const_iterator repIt;
     for(repIt=reps.begin(); repIt!=reps.end(); ++repIt)
     {
+        if( (*repIt)->getWidth() > maxwidth || (*repIt)->getHeight() > maxheight )
+            continue;
+
         if ( !lowest || (*repIt)->getBandwidth() < lowest->getBandwidth())
             lowest = *repIt;
 

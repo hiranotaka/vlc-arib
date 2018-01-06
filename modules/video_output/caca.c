@@ -42,6 +42,7 @@
 #endif
 
 #include <caca.h>
+#include "event_thread.h"
 
 /*****************************************************************************
  * Module descriptor
@@ -78,6 +79,7 @@ struct vout_display_sys_t {
     cucul_dither_t *dither;
 
     picture_pool_t *pool;
+    vout_display_event_thread_t *et;
 };
 
 /**
@@ -176,6 +178,8 @@ static int Open(vlc_object_t *object)
         caca_set_display_title(sys->dp,
                                VOUT_TITLE "(Colour AsCii Art)");
 
+    sys->et = VoutDisplayEventCreateThread(vd);
+
     /* Fix format */
     video_format_t fmt = vd->fmt;
     if (fmt.i_chroma != VLC_CODEC_RGB32) {
@@ -185,12 +189,9 @@ static int Open(vlc_object_t *object)
         fmt.i_bmask = 0x000000ff;
     }
 
-    /* TODO */
-    vout_display_info_t info = vd->info;
-
     /* Setup vout_display now that everything is fine */
     vd->fmt = fmt;
-    vd->info = info;
+    vd->info.needs_hide_mouse = true;
 
     vd->pool    = Pool;
     vd->prepare = Prepare;
@@ -199,7 +200,6 @@ static int Open(vlc_object_t *object)
     vd->manage  = Manage;
 
     /* Fix initial state */
-    vout_display_SendEventFullscreen(vd, false);
     Refresh(vd);
 
     return VLC_SUCCESS;
@@ -231,6 +231,7 @@ static void Close(vlc_object_t *object)
     vout_display_t *vd = (vout_display_t *)object;
     vout_display_sys_t *sys = vd->sys;
 
+    VoutDisplayEventKillThread(sys->et);
     if (sys->pool)
         picture_pool_Release(sys->pool);
     if (sys->dither)

@@ -42,7 +42,11 @@ int MediaCodecNdk_Init(mc_api*);
 #define MC_API_NO_QUIRKS 0
 #define MC_API_QUIRKS_NEED_CSD 0x1
 #define MC_API_VIDEO_QUIRKS_IGNORE_PADDING 0x2
-#define MC_API_AUDIO_QUIRKS_NEED_CHANNELS 0x4
+#define MC_API_VIDEO_QUIRKS_SUPPORT_INTERLACED 0x4
+#define MC_API_AUDIO_QUIRKS_NEED_CHANNELS 0x8
+
+/* MediaCodec only QUIRKS */
+#define MC_API_VIDEO_QUIRKS_ADAPTIVE 0x1000
 
 struct mc_api_out
 {
@@ -80,18 +84,20 @@ struct mc_api_out
                 int sample_rate;
             } audio;
         } conf;
-    } u;
+    };
 };
 
 union mc_api_args
 {
     struct
     {
-        AWindowHandler *p_awh;
+        void *p_surface;
+        void *p_jsurface;
         int i_width;
         int i_height;
         int i_angle;
         bool b_tunneled_playback;
+        bool b_adaptive_playback;
     } video;
     struct
     {
@@ -107,20 +113,19 @@ struct mc_api
     /* Set before init */
     vlc_object_t *  p_obj;
     const char *    psz_mime;
-    int             i_cat;
+    enum es_format_category_e i_cat;
     vlc_fourcc_t    i_codec;
 
     /* Set after configure */
     int  i_quirks;
     char *psz_name;
-    bool b_support_interlaced;
+    bool b_support_rotation;
 
     bool b_started;
     bool b_direct_rendering;
 
     void (*clean)(mc_api *);
-    int (*configure)(mc_api *, size_t i_h264_profile,
-                     unsigned int i_width, unsigned int i_height);
+    int (*configure)(mc_api *, int i_profile);
     int (*start)(mc_api *, union mc_api_args *p_args);
     int (*stop)(mc_api *);
     int (*flush)(mc_api *);
@@ -146,6 +151,13 @@ struct mc_api
 
     /* i_index is the index returned by dequeue_out and should be >= 0 */
     int (*release_out)(mc_api *, int i_index, bool b_render);
+
+    /* render a buffer at a specified ts */
+    int (*release_out_ts)(mc_api *, int i_index, int64_t i_ts_ns);
+
+    /* Dynamically sets the output surface
+     * Returns 0 on success, or MC_API_ERROR */
+    int (*set_output_surface)(mc_api*, void *p_surface, void *p_jsurface);
 };
 
 #endif

@@ -51,7 +51,6 @@ void ProbePES( demux_t *p_demux, ts_pid_t *pid, const uint8_t *p_pesstart, size_
 {
     demux_sys_t *p_sys = p_demux->p_sys;
     const uint8_t *p_pes = p_pesstart;
-    pid->probed.i_type = -1;
 
     if( b_adaptfield )
     {
@@ -69,7 +68,7 @@ void ProbePES( demux_t *p_demux, ts_pid_t *pid, const uint8_t *p_pesstart, size_
         {
             if( i_data < len )
                 return;
-            if( len >= 7 && (p_pes[1] & 0x10) )
+            if( len >= 7 && (p_pes[0] & 0x10) )
                 pid->probed.i_pcr_count++;
             p_pes += len;
             i_data -= len;
@@ -87,16 +86,16 @@ void ProbePES( demux_t *p_demux, ts_pid_t *pid, const uint8_t *p_pesstart, size_
     if( p_pes[7] & 0x80 ) // PTS
     {
         i_pesextoffset += 5;
-        if ( i_data < i_pesextoffset )
+        if ( i_data < i_pesextoffset ||
+            !ExtractPESTimestamp( &p_pes[9], p_pes[7] >> 6, &i_dts ) )
             return;
-        i_dts = ExtractPESTimestamp( &p_pes[9] );
     }
     if( p_pes[7] & 0x40 ) // DTS
     {
         i_pesextoffset += 5;
-        if ( i_data < i_pesextoffset )
+        if ( i_data < i_pesextoffset ||
+            !ExtractPESTimestamp( &p_pes[14], 0x01, &i_dts ) )
             return;
-        i_dts = ExtractPESTimestamp( &p_pes[14] );
     }
     if( p_pes[7] & 0x20 ) // ESCR
         i_pesextoffset += 6;
@@ -148,53 +147,39 @@ void ProbePES( demux_t *p_demux, ts_pid_t *pid, const uint8_t *p_pesstart, size_
         return;
 
     const uint8_t *p_data = &p_pes[i_payloadoffset];
+    const uint8_t i_stream_id = pid->probed.i_stream_id = p_pes[3];
     /* NON MPEG audio & subpictures STREAM */
-    if(p_pes[3] == 0xBD)
+    if(i_stream_id == 0xBD)
     {
         if( !memcmp( p_data, "\x7F\xFE\x80\x01", 4 ) )
         {
-            pid->probed.i_type = 0x06;
             pid->probed.i_fourcc = VLC_CODEC_DTS;
+            pid->probed.i_cat = AUDIO_ES;
         }
         else if( !memcmp( p_data, "\x0B\x77", 2 ) )
         {
-            pid->probed.i_type = 0x06;
             pid->probed.i_fourcc = VLC_CODEC_EAC3;
+            pid->probed.i_cat = AUDIO_ES;
         }
     }
     /* MPEG AUDIO STREAM */
-    else if(p_pes[3] >= 0xC0 && p_pes[3] <= 0xDF)
+    else if(i_stream_id >= 0xC0 && i_stream_id <= 0xDF)
     {
+        pid->probed.i_cat = AUDIO_ES;
         if( p_data[0] == 0xFF && (p_data[1] & 0xE0) == 0xE0 )
         {
-            switch(p_data[1] & 18)
-            {
-            /* 10 - MPEG Version 2 (ISO/IEC 13818-3)
-               11 - MPEG Version 1 (ISO/IEC 11172-3) */
-                case 0x10:
-                    pid->probed.i_type = 0x04;
-                    break;
-                case 0x18:
-                    pid->probed.i_type = 0x03;
-                default:
-                    break;
-            }
-
             switch(p_data[1] & 6)
             {
             /* 01 - Layer III
                10 - Layer II
                11 - Layer I */
                 case 0x06:
-                    pid->probed.i_type = 0x04;
                     pid->probed.i_fourcc = VLC_CODEC_MPGA;
                     break;
                 case 0x04:
-                    pid->probed.i_type = 0x04;
                     pid->probed.i_fourcc = VLC_CODEC_MP2;
                     break;
                 case 0x02:
-                    pid->probed.i_type = 0x04;
                     pid->probed.i_fourcc = VLC_CODEC_MP3;
                 default:
                     break;
@@ -202,16 +187,15 @@ void ProbePES( demux_t *p_demux, ts_pid_t *pid, const uint8_t *p_pesstart, size_
         }
     }
     /* VIDEO STREAM */
-    else if( p_pes[3] >= 0xE0 && p_pes[3] <= 0xEF )
+    else if( i_stream_id >= 0xE0 && i_stream_id <= 0xEF )
     {
+        pid->probed.i_cat = VIDEO_ES;
         if( !memcmp( p_data, "\x00\x00\x00\x01", 4 ) )
         {
-            pid->probed.i_type = 0x1b;
             pid->probed.i_fourcc = VLC_CODEC_H264;
         }
         else if( !memcmp( p_data, "\x00\x00\x01", 4 ) )
         {
-            pid->probed.i_type = 0x02;
             pid->probed.i_fourcc = VLC_CODEC_MPGV;
         }
     }
@@ -235,6 +219,7 @@ static void BuildPATCallback( void *p_opaque, block_t *p_block )
 {
     ts_pid_t *pat_pid = (ts_pid_t *) p_opaque;
     dvbpsi_packet_push( pat_pid->u.p_pat->handle, p_block->p_buffer );
+    block_Release( p_block );
 }
 
 static void BuildPMTCallback( void *p_opaque, block_t *p_block )
@@ -245,7 +230,9 @@ static void BuildPMTCallback( void *p_opaque, block_t *p_block )
     {
         dvbpsi_packet_push( program_pid->u.p_pmt->handle,
                             p_block->p_buffer );
-        p_block = p_block->p_next;
+        block_t *p_next = p_block->p_next;
+        block_Release( p_block );
+        p_block = p_next;
     }
 }
 
@@ -273,10 +260,10 @@ void MissingPATPMTFixup( demux_t *p_demux )
     ts_pid_next_context_t pidnextctx = ts_pid_NextContextInitValue;
     while( (p_pid = ts_pid_Next( &p_sys->pids, &pidnextctx )) )
     {
-        if( !SEEN(p_pid) || p_pid->probed.i_type == -1 )
+        if( !SEEN(p_pid) || p_pid->probed.i_fourcc == 0 )
             continue;
 
-        if( i_pcr_pid == 0x1FFF && ( p_pid->probed.i_type == 0x03 ||
+        if( i_pcr_pid == 0x1FFF && ( p_pid->probed.i_cat == AUDIO_ES ||
                                      p_pid->probed.i_pcr_count ) )
             i_pcr_pid = p_pid->i_pid;
 
@@ -286,14 +273,14 @@ void MissingPATPMTFixup( demux_t *p_demux )
     if( i_num_pes == 0 )
         return;
 
-    ts_stream_t patstream =
+    tsmux_stream_t patstream =
     {
         .i_pid = 0,
         .i_continuity_counter = 0x10,
         .b_discontinuity = false
     };
 
-    ts_stream_t pmtprogramstream =
+    tsmux_stream_t pmtprogramstream =
     {
         .i_pid = i_program_pid,
         .i_continuity_counter = 0x0,
@@ -313,12 +300,15 @@ void MissingPATPMTFixup( demux_t *p_demux )
         return;
     }
 
+    ts_mux_standard mux_standard = (p_sys->standard == TS_STANDARD_ATSC) ? TS_MUX_STANDARD_ATSC
+                                                                         : TS_MUX_STANDARD_DVB;
     struct esstreams_t
     {
-        pes_stream_t pes;
-        ts_stream_t ts;
+        pesmux_stream_t pes;
+        tsmux_stream_t ts;
+        es_format_t fmt;
     };
-    es_format_t esfmt = {0};
+
     struct esstreams_t *esstreams = calloc( i_num_pes, sizeof(struct esstreams_t) );
     pes_mapped_stream_t *mapped = calloc( i_num_pes, sizeof(pes_mapped_stream_t) );
     if( esstreams && mapped )
@@ -326,28 +316,43 @@ void MissingPATPMTFixup( demux_t *p_demux )
         int j=0;
         for( int i=0; i<p_sys->pids.i_all; i++ )
         {
-            const ts_pid_t *p_pid = p_sys->pids.pp_all[i];
+            p_pid = p_sys->pids.pp_all[i];
 
             if( !SEEN(p_pid) ||
-                p_pid->probed.i_type == -1 )
+                p_pid->probed.i_fourcc == 0 )
                 continue;
 
-            esstreams[j].pes.i_codec = p_pid->probed.i_fourcc;
-            esstreams[j].pes.i_stream_type = p_pid->probed.i_type;
+            es_format_Init(&esstreams[j].fmt, p_pid->probed.i_cat, p_pid->probed.i_fourcc);
+
+            if( VLC_SUCCESS !=
+                FillPMTESParams(mux_standard, &esstreams[j].fmt, &esstreams[j].ts, &esstreams[j].pes ) )
+            {
+                es_format_Clean( &esstreams[j].fmt );
+                continue;
+            }
+
+            /* Important for correct remapping: Enforce probed PES stream id */
+            esstreams[j].pes.i_stream_id = p_pid->probed.i_stream_id;
+
             esstreams[j].ts.i_pid = p_pid->i_pid;
             mapped[j].pes = &esstreams[j].pes;
             mapped[j].ts = &esstreams[j].ts;
-            mapped[j].fmt = &esfmt;
+            mapped[j].fmt = &esstreams[j].fmt;
             j++;
         }
 
         BuildPMT( GetPID(p_sys, 0)->u.p_pat->handle, VLC_OBJECT(p_demux),
+                 mux_standard,
                 p_program_pid, BuildPMTCallback,
                 0, 1,
                 i_pcr_pid,
                 NULL,
                 1, &pmtprogramstream, &i_program_number,
-                i_num_pes, mapped );
+                j, mapped );
+
+        /* Cleanup */
+        for( int i=0; i<j; i++ )
+            es_format_Clean( &esstreams[i].fmt );
     }
     free(esstreams);
     free(mapped);

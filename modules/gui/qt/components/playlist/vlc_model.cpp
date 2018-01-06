@@ -25,6 +25,8 @@
 #include "input_manager.hpp"                            /* THEMIM */
 #include "pixmaps/types/type_unknown.xpm"
 
+#include <QImageReader>
+
 VLCModelSubInterface::VLCModelSubInterface()
 {
 }
@@ -52,13 +54,13 @@ VLCModel::VLCModel( intf_thread_t *_p_intf, QObject *parent )
     /* Icons initialization */
 #define ADD_ICON(type, x) icons[ITEM_TYPE_##type] = QIcon( x )
     ADD_ICON( UNKNOWN , QPixmap( type_unknown_xpm ) );
-    ADD_ICON( FILE, ":/type/file" );
-    ADD_ICON( DIRECTORY, ":/type/directory" );
-    ADD_ICON( DISC, ":/type/disc" );
-    ADD_ICON( CARD, ":/type/capture-card" );
-    ADD_ICON( STREAM, ":/type/stream" );
-    ADD_ICON( PLAYLIST, ":/type/playlist" );
-    ADD_ICON( NODE, ":/type/node" );
+    ADD_ICON( FILE, ":/type/file.svg" );
+    ADD_ICON( DIRECTORY, ":/type/directory.svg" );
+    ADD_ICON( DISC, ":/type/disc.svg" );
+    ADD_ICON( CARD, ":/type/capture-card.svg" );
+    ADD_ICON( STREAM, ":/type/stream.svg" );
+    ADD_ICON( PLAYLIST, ":/type/playlist.svg" );
+    ADD_ICON( NODE, ":/type/node.svg" );
 #undef ADD_ICON
 }
 
@@ -83,24 +85,26 @@ QPixmap VLCModel::getArtPixmap( const QModelIndex & index, const QSize & size )
 
     if( !QPixmapCache::find( key, artPix ))
     {
-        if( artUrl.isEmpty() || !artPix.load( artUrl ) )
+        if( artUrl.isEmpty() == false )
         {
-            key = QString("noart%1%2").arg(size.width()).arg(size.height());
-            if( !QPixmapCache::find( key, artPix ) )
+            QImageReader reader( artUrl );
+            reader.setDecideFormatFromContent( true );
+            artPix = QPixmap::fromImageReader( &reader ).scaled( size );
+            if ( artPix.isNull() == false )
             {
-                artPix = QPixmap( ":/noart" ).scaled( size,
-                                                      Qt::KeepAspectRatio,
-                                                      Qt::SmoothTransformation );
                 QPixmapCache::insert( key, artPix );
+                return artPix;
             }
         }
-        else
+        key = QString("noart%1%2").arg(size.width()).arg(size.height());
+        if( !QPixmapCache::find( key, artPix ) )
         {
-            artPix = artPix.scaled( size, Qt::KeepAspectRatio, Qt::SmoothTransformation );
+            artPix = QPixmap( ":/noart" ).scaled( size,
+                                          Qt::KeepAspectRatio,
+                                          Qt::SmoothTransformation );
             QPixmapCache::insert( key, artPix );
         }
     }
-
     return artPix;
 }
 
@@ -145,11 +149,11 @@ int VLCModel::metaToColumn( int _meta )
     return column;
 }
 
-int VLCModel::itemId( const QModelIndex &index, int type ) const
+int VLCModel::itemId( const QModelIndex &index ) const
 {
     AbstractPLItem *item = getItem( index );
     if ( !item ) return -1;
-    return item->id( type );
+    return item->id();
 }
 
 AbstractPLItem *VLCModel::getItem( const QModelIndex &index ) const
@@ -163,7 +167,7 @@ QString VLCModel::getURI( const QModelIndex &index ) const
 {
     AbstractPLItem *item = getItem( index );
     if ( !item ) return QString();
-    return item->getURI().toString();
+    return item->getURI();
 }
 
 input_item_t * VLCModel::getInputItem( const QModelIndex &index ) const
@@ -196,9 +200,8 @@ void VLCModel::ensureArtRequested( const QModelIndex &index )
 {
     if ( index.isValid() && hasChildren( index ) )
     {
-        int i_art_policy = var_GetInteger( THEPL, "album-art" );
         bool b_access = var_InheritBool( THEPL, "metadata-network-access" );
-        if ( i_art_policy != ALBUM_ART_ALL && ! b_access ) return;
+        if ( !b_access ) return;
         int nbnodes = rowCount( index );
         QModelIndex child;
         for( int row = 0 ; row < nbnodes ; row++ )

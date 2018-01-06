@@ -33,7 +33,6 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_demux.h>
-#include <assert.h>
 
 /*****************************************************************************
  * Module descriptor
@@ -137,7 +136,7 @@ static int Open( vlc_object_t * p_this )
     const uint8_t *p_peek;
     bool b_y4m = false;
 
-    if( stream_Peek( p_demux->s, &p_peek, 9 ) == 9 )
+    if( vlc_stream_Peek( p_demux->s, &p_peek, 9 ) == 9 )
     {
         /* http://wiki.multimedia.cx/index.php?title=YUV4MPEG2 */
         if( !strncmp( (char *)p_peek, "YUV4MPEG2", 9 ) )
@@ -150,10 +149,10 @@ static int Open( vlc_object_t * p_this )
     if( !p_demux->obj.force )
     {
         /* guess preset based on file extension */
-        if( !p_demux->psz_file )
+        if( !p_demux->psz_filepath )
             return VLC_EGENERIC;
 
-        const char *psz_ext = strrchr( p_demux->psz_file, '.' );
+        const char *psz_ext = strrchr( p_demux->psz_filepath, '.' );
         if( !psz_ext )
             return VLC_EGENERIC;
         psz_ext++;
@@ -191,7 +190,7 @@ valid:
     if( b_y4m )
     {
         /* The string should start with "YUV4MPEG2" */
-        char *psz = stream_ReadLine( p_demux->s );
+        char *psz = vlc_stream_ReadLine( p_demux->s );
         char *psz_buf;
         int a = 1;
         int b = 1;
@@ -359,7 +358,6 @@ valid:
     return VLC_SUCCESS;
 
 error:
-    stream_Seek( p_demux->s, 0 ); // Workaround, but y4m uses stream_ReadLines
     free( p_sys );
     return VLC_EGENERIC;
 }
@@ -386,26 +384,27 @@ static int Demux( demux_t *p_demux )
     mtime_t i_pcr = date_Get( &p_sys->pcr );
 
     /* Call the pace control */
-    es_out_Control( p_demux->out, ES_OUT_SET_PCR, VLC_TS_0 + i_pcr );
+    es_out_SetPCR( p_demux->out, VLC_TS_0 + i_pcr );
 
     if( p_sys->b_y4m )
     {
         /* Skip the frame header */
         /* Skip "FRAME" */
-        if( stream_Read( p_demux->s, NULL, 5 ) < 5 )
+        if( vlc_stream_Read( p_demux->s, NULL, 5 ) < 5 )
             return 0;
         /* Find \n */
         for( ;; )
         {
             uint8_t b;
-            if( stream_Read( p_demux->s, &b, 1 ) < 1 )
+            if( vlc_stream_Read( p_demux->s, &b, 1 ) < 1 )
                 return 0;
             if( b == 0x0a )
                 break;
         }
     }
 
-    if( ( p_block = stream_Block( p_demux->s, p_sys->frame_size ) ) == NULL )
+    p_block = vlc_stream_Block( p_demux->s, p_sys->frame_size );
+    if( p_block == NULL )
     {
         /* EOF */
         return 0;

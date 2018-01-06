@@ -39,8 +39,6 @@
 #include <vlc_common.h>
 #include <vlc_update.h>
 
-#ifdef UPDATE_CHECK
-
 #include <assert.h>
 
 #include <vlc_pgpkey.h>
@@ -188,7 +186,7 @@ static bool GetUpdateFile( update_t *p_update )
     char *psz_version_line = NULL;
     char *psz_update_data = NULL;
 
-    p_stream = stream_UrlNew( p_update->p_libvlc, UPDATE_VLC_STATUS_URL );
+    p_stream = vlc_stream_NewURL( p_update->p_libvlc, UPDATE_VLC_STATUS_URL );
     if( !p_stream )
     {
         msg_Err( p_update->p_libvlc, "Failed to open %s for reading",
@@ -197,7 +195,7 @@ static bool GetUpdateFile( update_t *p_update )
     }
 
     uint64_t i_read;
-    if( stream_GetSize( p_stream, &i_read ) || i_read >= UINT16_MAX )
+    if( vlc_stream_GetSize( p_stream, &i_read ) || i_read >= UINT16_MAX )
     {
         msg_Err(p_update->p_libvlc, "Status file too large");
         goto error;
@@ -207,7 +205,8 @@ static bool GetUpdateFile( update_t *p_update )
     if( !psz_update_data )
         goto error;
 
-    if( stream_Read( p_stream, psz_update_data, i_read ) != (ssize_t)i_read )
+    if( vlc_stream_Read( p_stream, psz_update_data,
+                         i_read ) != (ssize_t)i_read )
     {
         msg_Err( p_update->p_libvlc, "Couldn't download update file %s",
                 UPDATE_VLC_STATUS_URL );
@@ -215,7 +214,7 @@ static bool GetUpdateFile( update_t *p_update )
     }
     psz_update_data[i_read] = '\0';
 
-    stream_Delete( p_stream );
+    vlc_stream_Delete( p_stream );
     p_stream = NULL;
 
     /* first line : version number */
@@ -376,7 +375,7 @@ static bool GetUpdateFile( update_t *p_update )
 
 error:
     if( p_stream )
-        stream_Delete( p_stream );
+        vlc_stream_Delete( p_stream );
     free( psz_version_line );
     free( psz_update_data );
     return false;
@@ -551,7 +550,7 @@ static void* update_DownloadReal( void *obj )
     canc = vlc_savecancel ();
 
     /* Open the stream */
-    p_stream = stream_UrlNew( p_udt, p_update->release.psz_url );
+    p_stream = vlc_stream_NewURL( p_udt, p_update->release.psz_url );
     if( !p_stream )
     {
         msg_Err( p_udt, "Failed to open %s for reading", p_update->release.psz_url );
@@ -559,7 +558,7 @@ static void* update_DownloadReal( void *obj )
     }
 
     /* Get the stream size */
-    if( stream_GetSize( p_stream, &l_size ) || l_size == 0 )
+    if( vlc_stream_GetSize( p_stream, &l_size ) || l_size == 0 )
         goto end;
 
     /* Get the file name and open it*/
@@ -604,7 +603,7 @@ static void* update_DownloadReal( void *obj )
         goto end;
 
     while( !atomic_load( &p_udt->aborted ) &&
-           ( i_read = stream_Read( p_stream, p_buffer, 1 << 10 ) ) &&
+           ( i_read = vlc_stream_Read( p_stream, p_buffer, 1 << 10 ) ) &&
            !vlc_dialog_is_cancelled( p_udt, p_dialog_id ) )
     {
         if( fwrite( p_buffer, i_read, 1, p_file ) < 1 )
@@ -721,8 +720,8 @@ static void* update_DownloadReal( void *obj )
 
 #ifdef _WIN32
     const char *psz_msg =
-        _("The new version was successfully downloaded."
-        "Do you want to close VLC and install it now?");
+        _("The new version was successfully downloaded. "
+          "Do you want to close VLC and install it now?");
     int answer = vlc_dialog_wait_question( p_udt, VLC_DIALOG_QUESTION_NORMAL,
                                            _("Cancel"), _("Install"), NULL,
                                            _("Update VLC media player"), "%s",
@@ -740,7 +739,7 @@ end:
     if( p_dialog_id != NULL )
         vlc_dialog_release( p_udt, p_dialog_id );
     if( p_stream )
-        stream_Delete( p_stream );
+        vlc_stream_Delete( p_stream );
     if( p_file )
         fclose( p_file );
     free( psz_destdir );
@@ -756,40 +755,3 @@ update_release_t *update_GetRelease( update_t *p_update )
 {
     return &p_update->release;
 }
-
-#else
-#undef update_New
-update_t *update_New( vlc_object_t *p_this )
-{
-    (void)p_this;
-    return NULL;
-}
-
-void update_Delete( update_t *p_update )
-{
-    (void)p_update;
-}
-
-void update_Check( update_t *p_update, void (*pf_callback)( void*, bool ),
-                   void *p_data )
-{
-    (void)p_update; (void)pf_callback; (void)p_data;
-}
-
-bool update_NeedUpgrade( update_t *p_update )
-{
-    (void)p_update;
-    return false;
-}
-
-void update_Download( update_t *p_update, const char *psz_destdir )
-{
-    (void)p_update; (void)psz_destdir;
-}
-
-update_release_t *update_GetRelease( update_t *p_update )
-{
-    (void)p_update;
-    return NULL;
-}
-#endif

@@ -51,13 +51,13 @@ struct access_sys_t
 /*****************************************************************************
  * DirInit: Init the directory access with a directory stream
  *****************************************************************************/
-int DirInit (access_t *access, DIR *dir)
+int DirInit (stream_t *access, DIR *dir)
 {
-    access_sys_t *sys = malloc(sizeof (*sys));
+    access_sys_t *sys = vlc_obj_malloc(VLC_OBJECT(access), sizeof (*sys));
     if (unlikely(sys == NULL))
         goto error;
 
-    if (!strcmp(access->psz_access, "fd"))
+    if (!strcmp(access->psz_name, "fd"))
     {
         if (unlikely(asprintf(&sys->base_uri, "fd://%s",
                               access->psz_location) == -1))
@@ -77,7 +77,6 @@ int DirInit (access_t *access, DIR *dir)
 
 error:
     closedir(dir);
-    free(sys);
     return VLC_ENOMEM;
 }
 
@@ -86,7 +85,7 @@ error:
  *****************************************************************************/
 int DirOpen (vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
 
     if (access->psz_filepath == NULL)
         return VLC_EGENERIC;
@@ -103,15 +102,14 @@ int DirOpen (vlc_object_t *obj)
  *****************************************************************************/
 void DirClose(vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
     access_sys_t *sys = access->p_sys;
 
     free(sys->base_uri);
     closedir(sys->dir);
-    free(sys);
 }
 
-int DirRead (access_t *access, input_item_node_t *node)
+int DirRead (stream_t *access, input_item_node_t *node)
 {
     access_sys_t *sys = access->p_sys;
     const char *entry;
@@ -119,8 +117,8 @@ int DirRead (access_t *access, input_item_node_t *node)
 
     bool special_files = var_InheritBool(access, "list-special-files");
 
-    struct access_fsdir fsdir;
-    access_fsdir_init(&fsdir, access, node);
+    struct vlc_readdir_helper rdh;
+    vlc_readdir_helper_init(&rdh, access, node);
 
     while (ret == VLC_SUCCESS && (entry = vlc_readdir(sys->dir)) != NULL)
     {
@@ -183,11 +181,12 @@ int DirRead (access_t *access, input_item_node_t *node)
             ret = VLC_ENOMEM;
             break;
         }
-        ret = access_fsdir_additem(&fsdir, uri, entry, type, ITEM_NET_UNKNOWN);
+        ret = vlc_readdir_helper_additem(&rdh, uri, NULL, entry, type,
+                                         ITEM_NET_UNKNOWN);
         free(uri);
     }
 
-    access_fsdir_finish(&fsdir, ret == VLC_SUCCESS);
+    vlc_readdir_helper_finish(&rdh, ret == VLC_SUCCESS);
 
     return ret;
 }

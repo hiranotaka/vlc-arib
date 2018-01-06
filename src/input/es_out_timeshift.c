@@ -114,6 +114,11 @@ typedef struct attribute_packed
         } int_epg;
         struct
         {
+            int       i_int;
+            vlc_epg_event_t *p_evt;
+        } int_epg_evt;
+        struct
+        {
             es_out_id_t *p_es;
             bool        b_bool;
         } es_bool;
@@ -122,6 +127,11 @@ typedef struct attribute_packed
             es_out_id_t *p_es;
             es_format_t *p_fmt;
         } es_fmt;
+        struct
+        {
+            int i_cat;
+            int i_policy;
+        } es_policy;
         struct
         {
             /* FIXME Really too big (double make the whole thing too big) */
@@ -341,7 +351,7 @@ es_out_t *input_EsOutTimeshiftNew( input_thread_t *p_input, es_out_t *p_next_out
         const DWORD count = GetTempPath( 0, NULL );
         if( count > 0 )
         {
-            TCHAR *path = malloc( (count + 1) * sizeof(TCHAR) );
+            TCHAR *path = vlc_alloc( count + 1, sizeof(TCHAR) );
             if( path != NULL )
             {
                 DWORD ret = GetTempPath( count + 1, path );
@@ -502,7 +512,7 @@ static int ControlLockedGetWakeup( es_out_t *p_out, mtime_t *pi_wakeup )
 
     if( p_sys->b_delayed )
     {
-        assert( !p_sys->p_input->p->b_can_pace_control );
+        assert( !input_priv(p_sys->p_input)->b_can_pace_control );
         *pi_wakeup = 0;
     }
     else
@@ -535,7 +545,7 @@ static int ControlLockedSetPauseState( es_out_t *p_out, bool b_source_paused, bo
     else
     {
         i_ret = VLC_EGENERIC;
-        if( !p_sys->p_input->p->b_can_pace_control )
+        if( !input_priv(p_sys->p_input)->b_can_pace_control )
         {
             if( !p_sys->b_delayed )
                 TsStart( p_out );
@@ -570,7 +580,7 @@ static int ControlLockedSetRate( es_out_t *p_out, int i_src_rate, int i_rate )
     else
     {
         i_ret = VLC_EGENERIC;
-        if( !p_sys->p_input->p->b_can_pace_control )
+        if( !input_priv(p_sys->p_input)->b_can_pace_control )
         {
             if( !p_sys->b_delayed )
                 TsStart( p_out );
@@ -627,13 +637,17 @@ static int ControlLocked( es_out_t *p_out, int i_query, va_list args )
     case ES_OUT_SET_NEXT_DISPLAY_TIME:
     case ES_OUT_SET_GROUP_META:
     case ES_OUT_SET_GROUP_EPG:
+    case ES_OUT_SET_GROUP_EPG_EVENT:
+    case ES_OUT_SET_EPG_TIME:
     case ES_OUT_SET_ES_SCRAMBLED_STATE:
     case ES_OUT_DEL_GROUP:
     case ES_OUT_SET_META:
     case ES_OUT_SET_ES:
     case ES_OUT_RESTART_ES:
+    case ES_OUT_RESTART_ALL_ES:
     case ES_OUT_SET_ES_DEFAULT:
     case ES_OUT_SET_ES_STATE:
+    case ES_OUT_SET_ES_CAT_POLICY:
     case ES_OUT_SET_ES_FMT:
     case ES_OUT_SET_TIMES:
     case ES_OUT_SET_JITTER:
@@ -704,15 +718,15 @@ static int ControlLocked( es_out_t *p_out, int i_query, va_list args )
     {
         return ControlLockedSetFrameNext( p_out );
     }
+
     case ES_OUT_GET_PCR_SYSTEM:
-    {
         if( p_sys->b_delayed )
             return VLC_EGENERIC;
+        /* fall through */
+    case ES_OUT_GET_GROUP_FORCED:
+    case ES_OUT_POST_SUBNODE:
+        return es_out_vaControl( p_sys->p_out, i_query, args );
 
-        mtime_t *pi_system = (mtime_t*)va_arg( args, mtime_t * );
-        mtime_t *pi_delay  = (mtime_t*)va_arg( args, mtime_t * );
-        return es_out_ControlGetPcrSystem( p_sys->p_out, pi_system, pi_delay );
-    }
     case ES_OUT_MODIFY_PCR_SYSTEM:
     {
         const bool    b_absolute = va_arg( args, int );
@@ -723,15 +737,7 @@ static int ControlLocked( es_out_t *p_out, int i_query, va_list args )
 
         return es_out_ControlModifyPcrSystem( p_sys->p_out, b_absolute, i_system );
     }
-    case ES_OUT_GET_GROUP_FORCED:
-    {
-        int *pi_group = va_arg( args, int * );
-        return es_out_Control( p_sys->p_out, ES_OUT_GET_GROUP_FORCED, pi_group );
-    }
 
-    default:
-        msg_Err( p_sys->p_input, "Unknown es_out_Control query !" );
-        // ft
     /* Invalid queries for this es_out level */
     case ES_OUT_SET_ES_BY_ID:
     case ES_OUT_RESTART_ES_BY_ID:
@@ -739,6 +745,7 @@ static int ControlLocked( es_out_t *p_out, int i_query, va_list args )
     case ES_OUT_GET_ES_OBJECTS_BY_ID:
     case ES_OUT_SET_DELAY:
     case ES_OUT_SET_RECORD_STATE:
+    default:
         vlc_assert_unreachable();
         return VLC_EGENERIC;
     }
@@ -887,7 +894,7 @@ static int TsPopCmdLocked( ts_thread_t *p_ts, ts_cmd_t *p_cmd, bool b_flush )
 
     TsStoragePopCmd( p_ts->p_storage_r, p_cmd, b_flush );
 
-    while( p_ts->p_storage_r && TsStorageIsEmpty( p_ts->p_storage_r ) )
+    while( TsStorageIsEmpty( p_ts->p_storage_r ) )
     {
         ts_storage_t *p_next = p_ts->p_storage_r->p_next;
         if( !p_next )
@@ -1139,7 +1146,7 @@ static ts_storage_t *TsStorageNew( const char *psz_tmp_path, int64_t i_tmp_size_
     p_storage->i_cmd_w = 0;
     p_storage->i_cmd_r = 0;
     p_storage->i_cmd_max = 30000;
-    p_storage->p_cmd = malloc( p_storage->i_cmd_max * sizeof(*p_storage->p_cmd) );
+    p_storage->p_cmd = vlc_alloc( p_storage->i_cmd_max, sizeof(*p_storage->p_cmd) );
     //fprintf( stderr, "\nSTORAGE name=%s size=%d KiB\n", p_storage->psz_file, p_storage->i_cmd_max * sizeof(*p_storage->p_cmd) /1024 );
 
     if( !p_storage->p_cmd )
@@ -1395,6 +1402,7 @@ static int CmdInitControl( ts_cmd_t *p_cmd, int i_query, va_list args, bool b_co
 
     case ES_OUT_RESET_PCR:           /* no arg */
     case ES_OUT_SET_EOS:
+    case ES_OUT_RESTART_ALL_ES:
         break;
 
     case ES_OUT_SET_META:        /* arg1=const vlc_meta_t* */
@@ -1426,21 +1434,9 @@ static int CmdInitControl( ts_cmd_t *p_cmd, int i_query, va_list args, bool b_co
 
         if( b_copy )
         {
-            p_cmd->u.control.u.int_epg.p_epg = vlc_epg_New( p_epg->psz_name );
+            p_cmd->u.control.u.int_epg.p_epg = vlc_epg_Duplicate( p_epg );
             if( !p_cmd->u.control.u.int_epg.p_epg )
                 return VLC_EGENERIC;
-            for( int i = 0; i < p_epg->i_event; i++ )
-            {
-                vlc_epg_event_t *p_evt = p_epg->pp_event[i];
-
-                vlc_epg_AddEvent( p_cmd->u.control.u.int_epg.p_epg,
-                                  p_evt->i_start, p_evt->i_duration,
-                                  p_evt->psz_name,
-                                  p_evt->psz_short_description,
-                                  p_evt->psz_description, 0 );
-            }
-            vlc_epg_SetCurrent( p_cmd->u.control.u.int_epg.p_epg,
-                                p_epg->p_current ? p_epg->p_current->i_start : -1 );
         }
         else
         {
@@ -1449,12 +1445,38 @@ static int CmdInitControl( ts_cmd_t *p_cmd, int i_query, va_list args, bool b_co
         }
         break;
     }
+    case ES_OUT_SET_GROUP_EPG_EVENT:   /* arg1=int i_group arg2=const vlc_epg_event_t* */
+    {
+        p_cmd->u.control.u.int_epg_evt.i_int = (int)va_arg( args, int );
+        const vlc_epg_event_t *p_evt = va_arg( args, const vlc_epg_event_t * );
+
+        if( b_copy )
+        {
+            p_cmd->u.control.u.int_epg_evt.p_evt = vlc_epg_event_Duplicate( p_evt );
+            if( !p_cmd->u.control.u.int_epg_evt.p_evt )
+                return VLC_EGENERIC;
+        }
+        else
+        {
+            /* The cast is only needed to avoid warning */
+            p_cmd->u.control.u.int_epg_evt.p_evt = (vlc_epg_event_t*)p_evt;
+        }
+        break;
+    }
+    case ES_OUT_SET_EPG_TIME: /* arg1=int64_t (seconds) */
+        p_cmd->u.control.u.i_i64 = (int64_t)va_arg( args, int64_t );
+        break;
 
     /* Modified control */
     case ES_OUT_SET_ES:      /* arg1= es_out_id_t*                   */
     case ES_OUT_RESTART_ES:  /* arg1= es_out_id_t*                   */
     case ES_OUT_SET_ES_DEFAULT: /* arg1= es_out_id_t*                */
         p_cmd->u.control.u.p_es = (es_out_id_t*)va_arg( args, es_out_id_t * );
+        break;
+
+    case ES_OUT_SET_ES_CAT_POLICY:
+        p_cmd->u.control.u.es_policy.i_cat = (int) va_arg( args, int );
+        p_cmd->u.control.u.es_policy.i_policy = (int) va_arg( args, int );
         break;
 
     case ES_OUT_SET_ES_STATE:/* arg1= es_out_id_t* arg2=bool   */
@@ -1532,6 +1554,7 @@ static int CmdExecuteControl( es_out_t *p_out, ts_cmd_t *p_cmd )
 
     case ES_OUT_RESET_PCR:           /* no arg */
     case ES_OUT_SET_EOS:
+    case ES_OUT_RESTART_ALL_ES:
         return es_out_Control( p_out, i_query );
 
     case ES_OUT_SET_GROUP_META:  /* arg1=int i_group arg2=const vlc_meta_t* */
@@ -1541,6 +1564,13 @@ static int CmdExecuteControl( es_out_t *p_out, ts_cmd_t *p_cmd )
     case ES_OUT_SET_GROUP_EPG:   /* arg1=int i_group arg2=const vlc_epg_t* */
         return es_out_Control( p_out, i_query, p_cmd->u.control.u.int_epg.i_int,
                                                p_cmd->u.control.u.int_epg.p_epg );
+
+    case ES_OUT_SET_GROUP_EPG_EVENT: /* arg1=int i_group arg2=const vlc_epg_event_t* */
+        return es_out_Control( p_out, i_query, p_cmd->u.control.u.int_epg_evt.i_int,
+                                               p_cmd->u.control.u.int_epg_evt.p_evt );
+
+    case ES_OUT_SET_EPG_TIME: /* arg1=int64_t */
+        return es_out_Control( p_out, i_query, p_cmd->u.control.u.i_i64 );
 
     case ES_OUT_SET_ES_SCRAMBLED_STATE: /* arg1=int es_out_id_t* arg2=bool */
         return es_out_Control( p_out, i_query, p_cmd->u.control.u.es_bool.p_es->p_es,
@@ -1559,6 +1589,10 @@ static int CmdExecuteControl( es_out_t *p_out, ts_cmd_t *p_cmd )
     case ES_OUT_SET_ES_STATE:/* arg1= es_out_id_t* arg2=bool   */
         return es_out_Control( p_out, i_query, p_cmd->u.control.u.es_bool.p_es->p_es,
                                                p_cmd->u.control.u.es_bool.b_bool );
+
+    case ES_OUT_SET_ES_CAT_POLICY:
+        return es_out_Control( p_out, i_query, p_cmd->u.control.u.es_policy.i_cat,
+                                               p_cmd->u.control.u.es_policy.i_policy );
 
     case ES_OUT_SET_ES_FMT:     /* arg1= es_out_id_t* arg2=es_format_t* */
         return es_out_Control( p_out, i_query, p_cmd->u.control.u.es_fmt.p_es->p_es,
@@ -1591,14 +1625,16 @@ static void CmdCleanControl( ts_cmd_t *p_cmd )
         if( p_cmd->u.control.u.int_epg.p_epg )
             vlc_epg_Delete( p_cmd->u.control.u.int_epg.p_epg );
         break;
+    case ES_OUT_SET_GROUP_EPG_EVENT:
+        if( p_cmd->u.control.u.int_epg_evt.p_evt )
+            vlc_epg_event_Delete( p_cmd->u.control.u.int_epg_evt.p_evt );
+        break;
     case ES_OUT_SET_ES_FMT:
         if( p_cmd->u.control.u.es_fmt.p_fmt )
         {
             es_format_Clean( p_cmd->u.control.u.es_fmt.p_fmt );
             free( p_cmd->u.control.u.es_fmt.p_fmt );
         }
-        // ft
-    default:
         break;
     }
 }

@@ -39,6 +39,7 @@ EPGRuler::EPGRuler( QWidget* parent )
     setMinimumHeight( height() );
     setMaximumHeight( height() );
     m_offset = 0;
+    m_scale = 1.0;
 }
 
 void EPGRuler::setScale( double scale )
@@ -47,15 +48,17 @@ void EPGRuler::setScale( double scale )
     update();
 }
 
-void EPGRuler::setStartTime( const QDateTime& startTime )
+void EPGRuler::setRange( const QDateTime& startTime, const QDateTime& endTime )
 {
-    m_startTime = startTime;
-    update();
-}
-
-void EPGRuler::setDuration( int duration )
-{
-    m_duration = duration;
+    if( !startTime.isValid() || !endTime.isValid() )
+    {
+        m_startTime = QDateTime();
+    }
+    else
+    {
+        m_startTime = startTime;
+        m_duration = startTime.secsTo( endTime );
+    }
     update();
 }
 
@@ -72,6 +75,12 @@ void EPGRuler::paintEvent( QPaintEvent *event )
     const QSize header( 0, maximumHeight() - contentsMargins().top() );
     const int spacing = m_scale * 3600;
     QPainter p( this );
+
+    if( !m_startTime.isValid() )
+    {
+        QWidget::paintEvent( event );
+        return;
+    }
 
     QDateTime localStartTime;
     localStartTime = m_startTime.addSecs( m_offset / m_scale );

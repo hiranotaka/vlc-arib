@@ -128,8 +128,8 @@ subpicture_t *subpicture_NewFromPicture( vlc_object_t *p_obj,
          return NULL;
     }
 
-    p_subpic->i_original_picture_width  = fmt_out.i_width;
-    p_subpic->i_original_picture_height = fmt_out.i_height;
+    p_subpic->i_original_picture_width  = fmt_out.i_visible_width;
+    p_subpic->i_original_picture_height = fmt_out.i_visible_height;
 
     fmt_out.i_sar_num =
     fmt_out.i_sar_den = 0;
@@ -186,9 +186,12 @@ subpicture_region_private_t *subpicture_region_private_New( video_format_t *p_fm
         return NULL;
 
     if ( video_format_Copy( &p_private->fmt, p_fmt ) != VLC_SUCCESS )
+    {
+        free( p_private );
         return NULL;
-    p_private->p_picture = NULL;
+    }
 
+    p_private->p_picture = NULL;
     return p_private;
 }
 
@@ -227,6 +230,7 @@ subpicture_region_t *subpicture_region_New( const video_format_t *p_fmt )
     }
 
     p_region->i_alpha = 0xff;
+    p_region->b_balanced_text = true;
 
     if( p_fmt->i_chroma == VLC_CODEC_TEXT )
         return p_region;

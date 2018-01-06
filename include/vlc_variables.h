@@ -60,9 +60,6 @@
  * @{
  */
 #define VLC_VAR_HASCHOICE 0x0100
-#define VLC_VAR_HASMIN    0x0200
-#define VLC_VAR_HASMAX    0x0400
-#define VLC_VAR_HASSTEP   0x0800
 
 #define VLC_VAR_ISCOMMAND 0x2000
 
@@ -80,18 +77,6 @@
  * @{
  */
 
-/**
- * Set the minimum value of this variable
- * \param p_val The new minimum value
- * \param p_val2 Unused
- */
-#define VLC_VAR_SETMIN              0x0010
-/**
- * Set the maximum value of this variable
- * \param p_val The new maximum value
- * \param p_val2 Unused
- */
-#define VLC_VAR_SETMAX              0x0011
 #define VLC_VAR_SETSTEP             0x0012
 
 /**
@@ -111,10 +96,10 @@
 #define VLC_VAR_ADDCHOICE           0x0020
 #define VLC_VAR_DELCHOICE           0x0021
 #define VLC_VAR_CLEARCHOICES        0x0022
-#define VLC_VAR_SETDEFAULT          0x0023
 #define VLC_VAR_GETCHOICES          0x0024
 
 #define VLC_VAR_CHOICESCOUNT        0x0026
+#define VLC_VAR_SETMINMAX           0x0027
 
 /**@}*/
 

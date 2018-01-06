@@ -56,14 +56,15 @@
 
 VLMDialog::VLMDialog( intf_thread_t *_p_intf ) : QVLCFrame( _p_intf )
 {
-    p_vlm = vlm_New( p_intf );
+    vlm_t *p_vlm = vlm_New( p_intf );
 
     if( !p_vlm )
     {
         msg_Warn( p_intf, "Couldn't build VLM object ");
+        vlm = NULL;
         return;
     }
-    vlmWrapper = new VLMWrapper( p_vlm );
+    vlm = new VLMWrapper( p_vlm );
 
     // UI stuff
     ui.setupUi( this );
@@ -164,15 +165,9 @@ VLMDialog::VLMDialog( intf_thread_t *_p_intf ) : QVLCFrame( _p_intf )
 
 VLMDialog::~VLMDialog()
 {
-    delete vlmWrapper;
+    delete vlm;
 
     getSettings()->setValue("VLM/geometry", saveGeometry());
-   /* TODO :you have to destroy vlm here to close
-    * but we shouldn't destroy vlm here in case somebody else wants it */
-    if( p_vlm )
-    {
-        vlm_Delete( p_vlm );
-    }
 }
 
 void VLMDialog::showScheduleWidget( int i )
@@ -228,24 +223,24 @@ void VLMDialog::addVLMItem()
     {
     case QVLM_Broadcast:
         typeShortName = "Bcast";
-        vlmAwidget = new VLMBroadcast( name, inputText, inputOptions, outputText,
+        vlmAwidget = new VLMBroadcast( vlm, name, inputText, inputOptions, outputText,
                                        b_checked, b_looped, this );
-        VLMWrapper::AddBroadcast( name, inputText, inputOptions, outputText, b_checked,
-                                  b_looped );
+        vlm->AddBroadcast( name, inputText, inputOptions, outputText,
+                           b_checked, b_looped );
     break;
     case QVLM_VOD:
         typeShortName = "VOD";
-        vlmAwidget = new VLMVod( name, inputText, inputOptions, outputText,
+        vlmAwidget = new VLMVod( vlm, name, inputText, inputOptions, outputText,
                                  b_checked, ui.muxLedit->text(), this );
-        VLMWrapper::AddVod( name, inputText, inputOptions, outputText, b_checked );
+        vlm->AddVod( name, inputText, inputOptions, outputText, b_checked );
         break;
     case QVLM_Schedule:
         typeShortName = "Sched";
-        vlmAwidget = new VLMSchedule( name, inputText, inputOptions, outputText,
+        vlmAwidget = new VLMSchedule( vlm, name, inputText, inputOptions, outputText,
                                       schetime, schedate, repeatnum,
                                       repeatdays, b_checked, this );
-        VLMWrapper::AddSchedule( name, inputText, inputOptions, outputText, schetime,
-                                 schedate, repeatnum, repeatdays, b_checked);
+        vlm->AddSchedule( name, inputText, inputOptions, outputText, schetime,
+                          schedate, repeatnum, repeatdays, b_checked);
         break;
     default:
         msg_Warn( p_intf, "Something bad happened" );
@@ -273,10 +268,7 @@ bool VLMDialog::exportVLMConf()
 
     if( !saveVLMConfFileName.isEmpty() )
     {
-        vlm_message_t *message;
-        QString command = "save \"" + saveVLMConfFileName + "\"";
-        vlm_ExecuteCommand( p_vlm , qtu( command ) , &message );
-        vlm_MessageDelete( message );
+        vlm->SaveConfig( saveVLMConfFileName );
         return true;
     }
 
@@ -285,15 +277,14 @@ bool VLMDialog::exportVLMConf()
 
 void VLMDialog::mediasPopulator()
 {
-    if( p_vlm )
+    if( vlm != NULL )
     {
-        int i_nMedias;
         QString typeShortName;
         int vlmItemCount;
-        vlm_media_t ***ppp_dsc = (vlm_media_t ***)malloc( sizeof( vlm_media_t** ) );
+        vlm_media_t **pp_dsc;
 
         /* Get medias information and numbers */
-        vlm_Control( p_vlm, VLM_GET_MEDIAS, ppp_dsc, &i_nMedias );
+        int i_nMedias = vlm->GetMedias( pp_dsc );
 
         /* Loop on all of them */
         for( int i = 0; i < i_nMedias; i++ )
@@ -301,28 +292,28 @@ void VLMDialog::mediasPopulator()
             VLMAWidget * vlmAwidget;
             vlmItemCount = vlmItems.count();
 
-            QString mediaName = qfu( (*ppp_dsc)[i]->psz_name );
+            QString mediaName = qfu( pp_dsc[i]->psz_name );
             /* It may have several inputs, we take the first one by default
                  - an evolution will be to manage these inputs in the gui */
-            QString inputText = qfu( (*ppp_dsc)[i]->ppsz_input[0] );
+            QString inputText = qfu( pp_dsc[i]->ppsz_input[0] );
 
-            QString outputText = qfu( (*ppp_dsc)[i]->psz_output );
+            QString outputText = qfu( pp_dsc[i]->psz_output );
 
             /* Schedule media is a quite especial, maybe there is another way to grab information */
-            if( (*ppp_dsc)[i]->b_vod )
+            if( pp_dsc[i]->b_vod )
             {
                 typeShortName = "VOD";
-                QString mux = qfu( (*ppp_dsc)[i]->vod.psz_mux );
-                vlmAwidget = new VLMVod( mediaName, inputText, inputOptions,
-                                         outputText, (*ppp_dsc)[i]->b_enabled,
-                                         mux, this );
+                QString mux = qfu( pp_dsc[i]->vod.psz_mux );
+                vlmAwidget = new VLMVod( vlm, mediaName, inputText,
+                                         inputOptions, outputText,
+                                         pp_dsc[i]->b_enabled, mux, this );
             }
             else
             {
                 typeShortName = "Bcast";
-                vlmAwidget = new VLMBroadcast( mediaName, inputText, inputOptions,
-                                               outputText, (*ppp_dsc)[i]->b_enabled,
-                                               (*ppp_dsc)[i]->broadcast.b_loop, this );
+                vlmAwidget = new VLMBroadcast( vlm, mediaName, inputText, inputOptions,
+                                               outputText, pp_dsc[i]->b_enabled,
+                                               pp_dsc[i]->broadcast.b_loop, this );
             }
             /* Add an Item of the Side List */
             ui.vlmListItem->addItem( typeShortName + " : " + mediaName );
@@ -333,7 +324,6 @@ void VLMDialog::mediasPopulator()
             vlmItems.append( vlmAwidget );
             clearWidgets();
         }
-        free( ppp_dsc );
     }
 }
 
@@ -347,18 +337,13 @@ bool VLMDialog::importVLMConf()
 
     if( !openVLMConfFileName.isEmpty() )
     {
-        vlm_message_t *message;
-        int status;
-        QString command = "load \"" + openVLMConfFileName + "\"";
-        status = vlm_ExecuteCommand( p_vlm, qtu( command ) , &message );
-        vlm_MessageDelete( message );
-        if( status == 0 )
+        if( vlm->LoadConfig( openVLMConfFileName ) )
         {
             mediasPopulator();
         }
         else
         {
-            msg_Warn( p_intf, "Failed to import vlm configuration file : %s", qtu( command ) );
+            msg_Warn( p_intf, "Failed to import vlm configuration file : %s", qtu( openVLMConfFileName ) );
             return false;
         }
         return true;
@@ -476,12 +461,14 @@ void VLMDialog::saveModifications()
  * VLMAWidget - Abstract class
  ********************************/
 
-VLMAWidget::VLMAWidget( const QString& _name, const QString& _input,
-                        const QString& _inputOptions, const QString& _output,
-                        bool _enabled, VLMDialog *_parent, int _type )
+VLMAWidget::VLMAWidget( VLMWrapper *_vlm, const QString& _name,
+                        const QString& _input, const QString& _inputOptions,
+                        const QString& _output, bool _enabled,
+                        VLMDialog *_parent, int _type )
                       : QGroupBox( _name, _parent )
 {
     parent = _parent;
+    vlm = _vlm;
     name = _name;
     input = _input;
     inputOptions = _inputOptions;
@@ -502,12 +489,12 @@ VLMAWidget::VLMAWidget( const QString& _name, const QString& _input,
     objLayout->addWidget( time, 1, 3, 1, 2 );*/
 
     QToolButton *modifyButton = new QToolButton;
-    modifyButton->setIcon( QIcon( ":/menu/settings" ) );
+    modifyButton->setIcon( QIcon( ":/menu/settings.svg" ) );
     modifyButton->setToolTip( qtr("Change") );
     objLayout->addWidget( modifyButton, 0, 5 );
 
     QToolButton *deleteButton = new QToolButton;
-    deleteButton->setIcon( QIcon( ":/menu/quit" ) );
+    deleteButton->setIcon( QIcon( ":/toolbar/clear.svg" ) );
     deleteButton->setToolTip("Delete");
     objLayout->addWidget( deleteButton, 0, 6 );
 
@@ -528,31 +515,33 @@ void VLMAWidget::del()
 
 void VLMAWidget::toggleEnabled( bool b_enable )
 {
-    VLMWrapper::EnableItem( name, b_enable );
+    vlm->EnableItem( name, b_enable );
 }
 
 /****************
  * VLMBroadcast
  ****************/
-VLMBroadcast::VLMBroadcast( const QString& _name, const QString& _input,
+VLMBroadcast::VLMBroadcast( VLMWrapper *vlm, const QString& _name,
+                            const QString& _input,
                             const QString& _inputOptions,
                             const QString& _output, bool _enabled,
                             bool _looped, VLMDialog *_parent )
-                          : VLMAWidget( _name, _input, _inputOptions, _output,
-                                        _enabled, _parent, QVLM_Broadcast )
+                          : VLMAWidget( vlm, _name, _input, _inputOptions,
+                                        _output, _enabled, _parent,
+                                        QVLM_Broadcast )
 {
     nameLabel->setText( qtr("Broadcast: ") + name );
     type = QVLM_Broadcast;
     b_looped = _looped;
 
     playButton = new QToolButton;
-    playButton->setIcon( QIcon( ":/menu/play" ) );
+    playButton->setIcon( QIcon( ":/toolbar/play_b.svg" ) );
     playButton->setToolTip( qtr("Play") );
     objLayout->addWidget( playButton, 1, 0 );
     b_playing = true;
 
     QToolButton *stopButton = new QToolButton;
-    stopButton->setIcon( QIcon( ":/toolbar/stop_b" ) );
+    stopButton->setIcon( QIcon( ":/toolbar/stop_b.svg" ) );
     stopButton->setToolTip( qtr("Stop") );
     objLayout->addWidget( stopButton, 1, 1 );
 
@@ -569,24 +558,24 @@ VLMBroadcast::VLMBroadcast( const QString& _name, const QString& _input,
 
 void VLMBroadcast::update()
 {
-    VLMWrapper::EditBroadcast( name, input, inputOptions, output, b_enabled, b_looped );
+    vlm->EditBroadcast( name, input, inputOptions, output, b_enabled, b_looped );
     if( b_looped )
-        loopButton->setIcon( QIcon( ":/buttons/playlist/repeat_all" ) );
+        loopButton->setIcon( QIcon( ":/buttons/playlist/repeat_all.svg" ) );
     else
-        loopButton->setIcon( QIcon( ":/buttons/playlist/repeat_off" ) );
+        loopButton->setIcon( QIcon( ":/buttons/playlist/repeat_off.svg" ) );
 }
 
 void VLMBroadcast::togglePlayPause()
 {
     if( b_playing )
     {
-        VLMWrapper::ControlBroadcast( name, ControlBroadcastPause );
-        playButton->setIcon( QIcon( ":/menu/pause" ) );
+        vlm->ControlBroadcast( name, ControlBroadcastPause );
+        playButton->setIcon( QIcon( ":/toolbar/pause_b.svg" ) );
     }
     else
     {
-        VLMWrapper::ControlBroadcast( name, ControlBroadcastPlay );
-        playButton->setIcon( QIcon( ":/menu/play" ) );
+        vlm->ControlBroadcast( name, ControlBroadcastPlay );
+        playButton->setIcon( QIcon( ":/toolbar/play_b.svg" ) );
     }
     b_playing = !b_playing;
 }
@@ -599,20 +588,20 @@ void VLMBroadcast::toggleLoop()
 
 void VLMBroadcast::stop()
 {
-    VLMWrapper::ControlBroadcast( name, ControlBroadcastStop );
-    playButton->setIcon( QIcon( ":/menu/play" ) );
+    vlm->ControlBroadcast( name, ControlBroadcastStop );
+    playButton->setIcon( QIcon( ":/menu/play.svg" ) );
 }
 
 /****************
  * VLMSchedule
  ****************/
-VLMSchedule::VLMSchedule( const QString& name_, const QString& input,
-                          const QString& inputOptions,
+VLMSchedule::VLMSchedule( VLMWrapper *vlm, const QString& name_,
+                          const QString& input, const QString& inputOptions,
                           const QString& output, QDateTime _schetime,
                           QDateTime _schedate, int _scherepeatnumber,
                           int _repeatDays, bool enabled, VLMDialog *parent )
-            : VLMAWidget( name_, input, inputOptions, output, enabled, parent,
-                          QVLM_Schedule )
+            : VLMAWidget( vlm, name_, input, inputOptions, output, enabled,
+                          parent, QVLM_Schedule )
 {
     nameLabel->setText( qtr("Schedule: ") + name );
     schetime = _schetime;
@@ -625,17 +614,17 @@ VLMSchedule::VLMSchedule( const QString& name_, const QString& input,
 
 void VLMSchedule::update()
 {
-   VLMWrapper::EditSchedule( name, input, inputOptions, output, schetime, schedate,
-                             rNumber, rDays, b_enabled);
+    vlm->EditSchedule( name, input, inputOptions, output, schetime, schedate,
+                       rNumber, rDays, b_enabled);
 }
 
 /****************
  * VLMVOD
  ****************/
-VLMVod::VLMVod( const QString& name_, const QString& input,
+VLMVod::VLMVod( VLMWrapper *vlm, const QString& name_, const QString& input,
                 const QString& inputOptions, const QString& output,
                 bool enabled, const QString& _mux, VLMDialog *parent)
-       : VLMAWidget( name_, input, inputOptions, output, enabled, parent,
+       : VLMAWidget( vlm, name_, input, inputOptions, output, enabled, parent,
                      QVLM_VOD )
 {
     nameLabel->setText( qtr("VOD: ") + name );
@@ -650,14 +639,13 @@ VLMVod::VLMVod( const QString& name_, const QString& input,
 void VLMVod::update()
 {
     muxLabel->setText( mux );
-    VLMWrapper::EditVod( name, input, inputOptions, output, b_enabled, mux );
+    vlm->EditVod( name, input, inputOptions, output, b_enabled, mux );
 }
 
 
 /*******************
  * VLMWrapper
  *******************/
-vlm_t * VLMWrapper::p_vlm = NULL;
 
 VLMWrapper::VLMWrapper( vlm_t *_p_vlm )
 {
@@ -666,7 +654,15 @@ VLMWrapper::VLMWrapper( vlm_t *_p_vlm )
 
 VLMWrapper::~VLMWrapper()
 {
-    p_vlm = NULL;
+    vlm_Delete( p_vlm );
+}
+
+int VLMWrapper::GetMedias( vlm_media_t **& array )
+{
+    int count;
+
+    vlm_Control( p_vlm, VLM_GET_MEDIAS, &array, &count );
+    return count;
 }
 
 void VLMWrapper::AddBroadcast( const QString& name, const QString& input,
@@ -892,6 +888,26 @@ void VLMWrapper::EditSchedule( const QString& name, const QString& input,
        vlm_ExecuteCommand( p_vlm, qtu( command ), &message );
        vlm_MessageDelete( message );
     }
+}
+
+void VLMWrapper::SaveConfig( const QString& filename )
+{
+    /* FIXME: escaping */
+    QString command = "save \"" + filename + "\"";
+    vlm_message_t *message;
+
+    vlm_ExecuteCommand( p_vlm , qtu( command ), &message );
+    vlm_MessageDelete( message );
+}
+
+bool VLMWrapper::LoadConfig( const QString& filename )
+{
+    /* FIXME: escaping */
+    QString command = "load \"" + filename + "\"";
+    vlm_message_t *message;
+    int status = vlm_ExecuteCommand( p_vlm, qtu( command ) , &message );
+    vlm_MessageDelete( message );
+    return status == 0;
 }
 
 void VLMDialog::toggleVisible()

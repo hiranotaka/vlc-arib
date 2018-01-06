@@ -25,8 +25,8 @@
 
 using namespace dash;
 
-DASHStream::DASHStream(demux_t *demux, const StreamFormat &format)
-    :AbstractStream(demux, format)
+DASHStream::DASHStream(demux_t *demux)
+    :AbstractStream(demux)
 {
 }
 
@@ -49,7 +49,7 @@ AbstractDemuxer * DASHStream::createDemux(const StreamFormat &format)
             break;
 
         case StreamFormat::WEBVTT:
-            ret = new SlaveDemuxer(p_realdemux, "subtitle", fakeesout->getEsOut(), demuxersource);
+            ret = new SlaveDemuxer(p_realdemux, "webvtt", fakeesout->getEsOut(), demuxersource);
             break;
 
         case StreamFormat::TTML:
@@ -66,21 +66,19 @@ AbstractDemuxer * DASHStream::createDemux(const StreamFormat &format)
         delete ret;
         ret = NULL;
     }
-    else fakeesout->commandsqueue.Commit();
+    else commandsqueue->Commit();
 
     return ret;
 }
 
 AbstractStream * DASHStreamFactory::create(demux_t *realdemux, const StreamFormat &format,
-                                   SegmentTracker *tracker, HTTPConnectionManager *manager) const
+                                   SegmentTracker *tracker, AbstractConnectionManager *manager) const
 {
-    AbstractStream *stream;
-    try
+    AbstractStream *stream = new (std::nothrow) DASHStream(realdemux);
+    if(stream && !stream->init(format, tracker, manager))
     {
-        stream = new DASHStream(realdemux, format);
-    } catch (int) {
+        delete stream;
         return NULL;
     }
-    stream->bind(tracker, manager);
     return stream;
 }

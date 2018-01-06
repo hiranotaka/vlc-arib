@@ -30,7 +30,7 @@
  *****************************************************************************/
 
 #ifdef HAVE_ZLIB_H
-int32_t zlib_decompress_extra( demux_t * p_demux, mkv_track_t * tk )
+int32_t zlib_decompress_extra( demux_t * p_demux, mkv_track_t & tk )
 {
     int result;
     z_stream d_stream;
@@ -45,14 +45,12 @@ int32_t zlib_decompress_extra( demux_t * p_demux, mkv_track_t * tk )
     if( inflateInit( &d_stream ) != Z_OK )
     {
         msg_Err( p_demux, "Couldn't initiate inflation ignore track %u",
-                 tk->i_number );
-        free(tk->p_extra_data);
-        delete tk;
+                 tk.i_number );
         return 1;
     }
 
-    d_stream.next_in = tk->p_extra_data;
-    d_stream.avail_in = tk->i_extra_data;
+    d_stream.next_in = tk.p_extra_data;
+    d_stream.avail_in = tk.i_extra_data;
     do
     {
         n++;
@@ -60,11 +58,9 @@ int32_t zlib_decompress_extra( demux_t * p_demux, mkv_track_t * tk )
         if( alloc == NULL )
         {
             msg_Err( p_demux, "Couldn't allocate buffer to inflate data, ignore track %u",
-                      tk->i_number );
+                      tk.i_number );
             free(p_new_extra);
             inflateEnd( &d_stream );
-            free(tk->p_extra_data);
-            delete tk;
             return 1;
         }
 
@@ -77,28 +73,24 @@ int32_t zlib_decompress_extra( demux_t * p_demux, mkv_track_t * tk )
             msg_Err( p_demux, "Zlib decompression failed. Result: %d", result );
             inflateEnd( &d_stream );
             free(p_new_extra);
-            free(tk->p_extra_data);
-            delete tk;
             return 1;
         }
     }
     while ( d_stream.avail_out == 0 && d_stream.avail_in != 0  &&
             result != Z_STREAM_END );
 
-    free( tk->p_extra_data );
-    tk->i_extra_data = d_stream.total_out;
-    p_new_extra = static_cast<uint8_t *>( realloc(p_new_extra, tk->i_extra_data) );
+    free( tk.p_extra_data );
+    tk.i_extra_data = d_stream.total_out;
+    p_new_extra = static_cast<uint8_t *>( realloc(p_new_extra, tk.i_extra_data) );
     if( !p_new_extra )
     {
         msg_Err( p_demux, "Couldn't allocate buffer to inflate data, ignore track %u",
-                 tk->i_number );
+                 tk.i_number );
         inflateEnd( &d_stream );
-        free(p_new_extra);
-        delete tk;
         return 1;
     }
 
-    tk->p_extra_data = p_new_extra;
+    tk.p_extra_data = p_new_extra;
 
     inflateEnd( &d_stream );
     return 0;
@@ -247,7 +239,7 @@ void handle_real_audio(demux_t * p_demux, mkv_track_t * p_tk, block_t * p_blk, m
 
 void send_Block( demux_t * p_demux, mkv_track_t * p_tk, block_t * p_block, unsigned int i_number_frames, mtime_t i_duration )
 {
-    demux_sys_t        *p_sys = p_demux->p_sys;
+    demux_sys_t *p_sys = (demux_sys_t *)p_demux->p_sys;
     matroska_segment_c *p_segment = p_sys->p_current_vsegment->CurrentSegment();
 
     if( p_tk->fmt.i_cat == AUDIO_ES && p_tk->i_chans_to_reorder )
@@ -267,6 +259,12 @@ void send_Block( demux_t * p_demux, mkv_track_t * p_tk, block_t * p_block, unsig
     {
         p_block->i_length = i_duration * p_tk->f_timecodescale *
             (double) p_segment->i_timescale / ( 1000.0 * i_number_frames );
+    }
+
+    if( p_tk->b_discontinuity )
+    {
+        p_block->i_flags |= BLOCK_FLAG_DISCONTINUITY;
+        p_tk->b_discontinuity = false;
     }
 
     es_out_Send( p_demux->out, p_tk->p_es, p_block);
@@ -314,7 +312,7 @@ static inline void fill_wvpk_block(uint16_t version, uint32_t block_samples, uin
     memcpy( dst + 32, src, srclen );
 }
 
-block_t * packetize_wavpack( mkv_track_t * p_tk, uint8_t * buffer, size_t  size)
+block_t * packetize_wavpack( const mkv_track_t & tk, uint8_t * buffer, size_t  size)
 {
     uint16_t version = 0x403;
     uint32_t block_samples;
@@ -322,8 +320,8 @@ block_t * packetize_wavpack( mkv_track_t * p_tk, uint8_t * buffer, size_t  size)
     uint32_t crc;
     block_t * p_block = NULL;
 
-    if( p_tk->i_extra_data >= 2 )
-        version = GetWLE( p_tk->p_extra_data );
+    if( tk.i_extra_data >= 2 )
+        version = GetWLE( tk.p_extra_data );
 
     if( size < 12 )
         return NULL;

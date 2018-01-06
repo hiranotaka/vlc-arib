@@ -48,6 +48,7 @@ namespace adaptive
                 virtual ~BaseRepresentation ();
 
                 virtual StreamFormat getStreamFormat() const;
+                BaseAdaptationSet* getAdaptationSet();
                 /*
                  *  @return The bitrate required for this representation
                  *          in bits per seconds.
@@ -72,6 +73,8 @@ namespace adaptive
                 virtual std::string contextualize(size_t, const std::string &,
                                                   const BaseSegmentTemplate *) const;
 
+                static bool         bwCompare(const BaseRepresentation *a,
+                                              const BaseRepresentation *b);
             protected:
                 virtual bool        validateCodec(const std::string &) const;
                 BaseAdaptationSet                  *adaptationSet;

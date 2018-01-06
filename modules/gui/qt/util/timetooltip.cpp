@@ -35,8 +35,7 @@ TimeTooltip::TimeTooltip( QWidget *parent ) :
 {
     setWindowFlags( Qt::Tool                    |
                     Qt::WindowStaysOnTopHint    |
-                    Qt::FramelessWindowHint     |
-                    Qt::X11BypassWindowManagerHint );
+                    Qt::FramelessWindowHint     );
 
     // Tell Qt that it doesn't need to erase the background before
     // a paintEvent occurs. This should save some CPU cycles.
@@ -69,7 +68,7 @@ void TimeTooltip::adjustPosition()
 
     // The desired label position is just above the target
     QPoint position( mTarget.x() - size.width() / 2,
-#if defined( Q_OS_WIN ) && HAS_QT5
+#if defined( Q_OS_WIN )
         mTarget.y() - 2 * size.height() - TIP_HEIGHT / 2 );
 #else
         mTarget.y() - size.height() + TIP_HEIGHT / 2 );

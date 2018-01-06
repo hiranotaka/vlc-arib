@@ -49,6 +49,9 @@
 #include <QRegion>
 #include <QSignalMapper>
 #include <QTimer>
+#include <QApplication>
+#include <QWindow>
+#include <QScreen>
 
 //#define DEBUG_LAYOUT 1
 
@@ -100,12 +103,9 @@ void AbstractController::setupButton( QAbstractButton *aButton )
     sizePolicy.setHorizontalStretch( 0 );
     sizePolicy.setVerticalStretch( 0 );
 
-    qreal scalingFactorX = static_cast<qreal>(aButton->logicalDpiX()) / DPI_REF_VALUE;
-    qreal scalingFactorY = static_cast<qreal>(aButton->logicalDpiY()) / DPI_REF_VALUE;
-
     aButton->setSizePolicy( sizePolicy );
-    aButton->setFixedSize( QSize( 26.0*scalingFactorX, 26.0*scalingFactorY ) );
-    aButton->setIconSize( QSize( 20.0*scalingFactorX, 20.0*scalingFactorY ) );
+    aButton->setFixedSize( QSize( 26, 26 ) );
+    aButton->setIconSize( QSize( 20, 20 ) );
     aButton->setFocusPolicy( Qt::NoFocus );
 }
 
@@ -167,15 +167,14 @@ void AbstractController::createAndAddWidget( QBoxLayout *controlLayout_,
         buttonGroupLayout = NULL;
     }
 
-    qreal scalingFactorX = static_cast<qreal>(logicalDpiX())/DPI_REF_VALUE;
     /* Special case for SPACERS, who aren't QWidgets */
     if( i_type == WIDGET_SPACER )
     {
-        controlLayout_->addSpacing( static_cast<int>(12*scalingFactorX) );
+        controlLayout_->addSpacing( 12 );
     }
     else if(  i_type == WIDGET_SPACER_EXTEND )
     {
-        controlLayout_->addStretch( static_cast<int>(12*scalingFactorX) );
+        controlLayout_->addStretch( 12 );
     }
     else
     {
@@ -211,7 +210,7 @@ void AbstractController::createAndAddWidget( QBoxLayout *controlLayout_,
     a_button->setIcon( QIcon( iconL[button] ) );
 #define BUTTON_SET_BAR2( button, image, tooltip ) \
     button->setToolTip( tooltip );          \
-    button->setIcon( QIcon( ":/"#image ) );
+    button->setIcon( QIcon( ":/"#image ".svg" ) );
 
 #define ENABLE_ON_VIDEO( a ) \
     CONNECT( THEMIM->getIM(), voutChanged( bool ), a, setEnabled( bool ) ); \
@@ -525,12 +524,8 @@ void AbstractController::applyAttributes( QToolButton *tmpButton, bool b_flat, b
             tmpButton->setAutoRaise( b_flat );
         if( b_big )
         {
-
-            qreal scalingFactorX = static_cast<qreal>(tmpButton->logicalDpiX()) / DPI_REF_VALUE;
-            qreal scalingFactorY = static_cast<qreal>(tmpButton->logicalDpiY()) / DPI_REF_VALUE;
-
-            tmpButton->setFixedSize( QSize( 32.0*scalingFactorX, 32.0*scalingFactorY ) );
-            tmpButton->setIconSize( QSize( 26.0*scalingFactorX, 26.0*scalingFactorY ) );
+            tmpButton->setFixedSize( QSize( 32, 32 ) );
+            tmpButton->setIconSize( QSize( 26, 26 ) );
         }
     }
 }
@@ -622,7 +617,7 @@ QFrame *AbstractController::telexFrame()
     QToolButton *telexTransparent = new QToolButton;
     setupButton( telexTransparent );
     BUTTON_SET_BAR2( telexTransparent, toolbar/tvtelx,
-                     qtr( "Toggle Transparency " ) );
+                     qtr( "Toggle Transparency" ) );
     telexTransparent->setEnabled( false );
     telexTransparent->setCheckable( true );
     telexLayout->addWidget( telexTransparent );
@@ -649,7 +644,14 @@ QFrame *AbstractController::telexFrame()
     QSignalMapper *contextButtonMapper = new QSignalMapper( this );
     QToolButton *contextButton = NULL;
     int i_iconminsize = __MAX( 16, telexOn->minimumHeight() );
+
+#if HAS_QT56
+    qreal f_ratio = QApplication::primaryScreen()->devicePixelRatio();
+    QPixmap iconPixmap( i_iconminsize * f_ratio, i_iconminsize * f_ratio );
+#else
     QPixmap iconPixmap( i_iconminsize, i_iconminsize );
+#endif
+
     iconPixmap.fill( Qt::transparent );
     QPainter iconPixmapPainter( &iconPixmap );
     QLinearGradient iconPixmapPainterGradient( iconPixmap.rect().center() / 2,
@@ -798,6 +800,10 @@ FullscreenControllerWidget::FullscreenControllerWidget( intf_thread_t *_p_i, QWi
     b_fullscreen        = false;
     i_hide_timeout      = 1;
     i_screennumber      = -1;
+#ifdef QT5_HAS_WAYLAND
+    b_hasWayland = QGuiApplication::platformName()
+           .startsWith(QLatin1String("wayland"), Qt::CaseInsensitive);
+#endif
 
     vout.clear();
 
@@ -844,7 +850,9 @@ FullscreenControllerWidget::FullscreenControllerWidget( intf_thread_t *_p_i, QWi
     previousPosition = getSettings()->value( "FullScreen/pos" ).toPoint();
     screenRes = getSettings()->value( "FullScreen/screen" ).toRect();
     isWideFSC = getSettings()->value( "FullScreen/wide" ).toBool();
-    i_screennumber = var_InheritInteger( p_intf, "qt-fullscreen-screennumber" );
+    i_screennumber = -1;
+
+    CONNECT( this, fullscreenChanged( bool ), THEMIM, changeFullscreen( bool ) );
 }
 
 FullscreenControllerWidget::~FullscreenControllerWidget()
@@ -865,7 +873,16 @@ void FullscreenControllerWidget::restoreFSC()
         setMinimumWidth( FSC_WIDTH );
         adjustSize();
 
+        if ( targetScreen() < 0 )
+            return;
+
         QRect currentRes = QApplication::desktop()->screenGeometry( targetScreen() );
+#ifdef QT5_HAS_WAYLAND
+        if ( !b_hasWayland )
+            windowHandle()->setScreen(QGuiApplication::screens()[targetScreen()]);
+#else
+        windowHandle()->setScreen(QGuiApplication::screens()[targetScreen()]);
+#endif
 
         if( currentRes == screenRes &&
             QApplication::desktop()->screen()->geometry().contains( previousPosition, true ) )
@@ -979,9 +996,16 @@ void FullscreenControllerWidget::toggleFullwidth()
     restoreFSC();
 }
 
+
+void FullscreenControllerWidget::setTargetScreen(int screennumber)
+{
+    i_screennumber = screennumber;
+}
+
+
 int FullscreenControllerWidget::targetScreen()
 {
-    if( i_screennumber < 0 || i_screennumber > QApplication::desktop()->numScreens() )
+    if( i_screennumber < 0 || i_screennumber >= QApplication::desktop()->screenCount() )
         return QApplication::desktop()->screenNumber( p_intf->p_sys->p_mi );
     return i_screennumber;
 }
@@ -1116,29 +1140,24 @@ void FullscreenControllerWidget::keyPressEvent( QKeyEvent *event )
 }
 
 /* */
-static int FullscreenControllerWidgetFullscreenChanged( vlc_object_t *vlc_object,
-                const char *variable, vlc_value_t old_val,
-                vlc_value_t new_val,  void *data )
+int FullscreenControllerWidget::FullscreenChanged( vlc_object_t *obj,
+        const char *, vlc_value_t, vlc_value_t new_val, void *data )
 {
-    VLC_UNUSED( variable ); VLC_UNUSED( old_val );
-
-    vout_thread_t *p_vout = (vout_thread_t *) vlc_object;
+    vout_thread_t *p_vout = (vout_thread_t *) obj;
 
     msg_Dbg( p_vout, "Qt: Fullscreen state changed" );
     FullscreenControllerWidget *p_fs = (FullscreenControllerWidget *)data;
 
     p_fs->fullscreenChanged( p_vout, new_val.b_bool, var_GetInteger( p_vout, "mouse-hide-timeout" ) );
+    p_fs->emit fullscreenChanged( new_val.b_bool );
 
     return VLC_SUCCESS;
 }
 /* */
-static int FullscreenControllerWidgetMouseMoved( vlc_object_t *vlc_object, const char *variable,
-                                                 vlc_value_t old_val, vlc_value_t new_val,
-                                                 void *data )
+static int FullscreenControllerWidgetMouseMoved( vlc_object_t *obj,
+        const char *, vlc_value_t, vlc_value_t new_val, void *data )
 {
-    VLC_UNUSED( variable ); VLC_UNUSED( old_val );
-
-    vout_thread_t *p_vout = (vout_thread_t *)vlc_object;
+    vout_thread_t *p_vout = (vout_thread_t *) obj;
     FullscreenControllerWidget *p_fs = (FullscreenControllerWidget *)data;
 
     /* Get the value from the Vout - Trust the vout more than Qt */
@@ -1173,7 +1192,7 @@ void FullscreenControllerWidget::setVoutList( vout_thread_t **pp_vout, int i_vou
     foreach( vout_thread_t *p_vout, del )
     {
         var_DelCallback( p_vout, "fullscreen",
-                         FullscreenControllerWidgetFullscreenChanged, this );
+                         FullscreenControllerWidget::FullscreenChanged, this );
         vlc_mutex_lock( &lock );
         fullscreenChanged( p_vout, false, 0 );
         vout.removeAll( p_vout );
@@ -1198,10 +1217,9 @@ void FullscreenControllerWidget::setVoutList( vout_thread_t **pp_vout, int i_vou
         vlc_mutex_lock( &lock );
         vout.append( p_vout );
         var_AddCallback( p_vout, "fullscreen",
-                         FullscreenControllerWidgetFullscreenChanged, this );
-	CONNECT( this, fullscreenChanged( bool ), THEMIM, changeFullscreen( bool ) );
+                         FullscreenControllerWidget::FullscreenChanged, this );
         /* I miss a add and fire */
-        fullscreenChanged( p_vout, var_GetBool( p_vout, "fullscreen" ),
+        emit fullscreenChanged( p_vout, var_InheritBool( THEPL, "fullscreen" ),
                            var_GetInteger( p_vout, "mouse-hide-timeout" ) );
         vlc_mutex_unlock( &lock );
     }
@@ -1237,7 +1255,6 @@ void FullscreenControllerWidget::fullscreenChanged( vout_thread_t *p_vout,
         IMEvent *eHide = new IMEvent( IMEvent::FullscreenControlHide, 0 );
         QApplication::postEvent( this, eHide );
     }
-    emit fullscreenChanged( b_fullscreen );
     vlc_mutex_unlock( &lock );
 }
 

@@ -42,7 +42,7 @@
         SHARD_APPIDINFOIDLIST   = 0x00000005,
         SHARD_LINK              = 0x00000006,
         SHARD_APPIDINFOLINK     = 0x00000007,
-        SHARD_SHELLITEM         = 0x00000008 
+        SHARD_SHELLITEM         = 0x00000008
     } SHARD; */
     #define SHARD_PATHW 0x00000003
 
@@ -156,26 +156,6 @@ void RecentsMRL::save()
     getSettings()->setValue( "RecentsMRL/times", times );
 }
 
-playlist_item_t *RecentsMRL::toPlaylist(int length)
-{
-    playlist_Lock(THEPL);
-    playlist_item_t *p_node_recent = playlist_NodeCreate(THEPL, _("Recently Played"), THEPL->p_root, PLAYLIST_END, PLAYLIST_RO_FLAG, NULL);
-    playlist_Unlock(THEPL);
-
-    if ( p_node_recent == NULL )  return NULL;
-
-    if (length == 0 || recents.count() < length)
-        length = recents.count();
-
-    for (int i = 0; i < length; i++)
-    {
-        input_item_t *p_input = input_item_New(qtu(recents.at(i)), NULL);
-        playlist_NodeAddInput(THEPL, p_input, p_node_recent, PLAYLIST_APPEND, PLAYLIST_END, false);
-    }
-
-    return p_node_recent;
-}
-
 void RecentsMRL::playMRL( const QString &mrl )
 {
     Open::openMRL( p_intf, mrl );
@@ -232,14 +212,9 @@ int Open::openMRLwithOptions( intf_thread_t* p_intf,
     }
 
     /* Add to playlist */
-    int i_ret = playlist_AddExt( THEPL,
-                  qtu(mrl), title,
-                  PLAYLIST_APPEND | (b_start ? PLAYLIST_GO : PLAYLIST_PREPARSE),
-                  PLAYLIST_END,
-                  -1,
+    int i_ret = playlist_AddExt( THEPL, qtu(mrl), title, b_start,
                   i_options, ppsz_options, VLC_INPUT_OPTION_TRUSTED,
-                  b_playlist,
-                  pl_Unlocked );
+                  b_playlist );
 
     /* Add to recent items, only if played */
     if( i_ret == VLC_SUCCESS && b_start && b_playlist )

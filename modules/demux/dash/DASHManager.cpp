@@ -49,10 +49,12 @@ using namespace dash;
 using namespace dash::mpd;
 using namespace adaptive::logic;
 
-DASHManager::DASHManager(demux_t *demux_, MPD *mpd,
+DASHManager::DASHManager(demux_t *demux_,
+                         AuthStorage *auth,
+                         MPD *mpd,
                          AbstractStreamFactory *factory,
                          AbstractAdaptationLogic::LogicType type) :
-             PlaylistManager(demux_, mpd, factory, type)
+             PlaylistManager(demux_, auth, mpd, factory, type)
 {
 }
 
@@ -99,15 +101,13 @@ bool DASHManager::updatePlaylist()
     /* do update */
     if(nextPlaylistupdate)
     {
-        std::string url(p_demux->psz_access);
-        url.append("://");
-        url.append(p_demux->psz_location);
+        std::string url(p_demux->psz_url);
 
-        block_t *p_block = Retrieve::HTTP(VLC_OBJECT(p_demux), url);
+        block_t *p_block = Retrieve::HTTP(VLC_OBJECT(p_demux), authStorage, url);
         if(!p_block)
             return false;
 
-        stream_t *mpdstream = stream_MemoryNew(p_demux, p_block->p_buffer, p_block->i_buffer, true);
+        stream_t *mpdstream = vlc_stream_MemoryNew(p_demux, p_block->p_buffer, p_block->i_buffer, true);
         if(!mpdstream)
         {
             block_Release(p_block);
@@ -117,7 +117,7 @@ bool DASHManager::updatePlaylist()
         xml::DOMParser parser(mpdstream);
         if(!parser.parse(true))
         {
-            stream_Delete(mpdstream);
+            vlc_stream_Delete(mpdstream);
             block_Release(p_block);
             return false;
         }
@@ -139,7 +139,7 @@ bool DASHManager::updatePlaylist()
             playlist->mergeWith(newmpd, minsegmentTime);
             delete newmpd;
         }
-        stream_Delete(mpdstream);
+        vlc_stream_Delete(mpdstream);
         block_Release(p_block);
     }
 
@@ -159,7 +159,7 @@ int DASHManager::doControl(int i_query, va_list args)
             if(!mpd->programInfo.Get())
                 break;
 
-            vlc_meta_t *p_meta = (vlc_meta_t *) va_arg (args, vlc_meta_t*);
+            vlc_meta_t *p_meta = va_arg (args, vlc_meta_t *);
             vlc_meta_t *meta = vlc_meta_New();
             if (meta == NULL)
                 return VLC_EGENERIC;

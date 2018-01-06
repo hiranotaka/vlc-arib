@@ -52,6 +52,14 @@ static inline void vout_SendEventMouseMoved(vout_thread_t *vout, int x, int y)
 {
     var_SetCoords(vout, "mouse-moved", x, y);
 }
+static inline void vout_SendEventViewpointMoved(vout_thread_t *vout,
+                                                const vlc_viewpoint_t *p_viewpoint)
+{
+    var_SetAddress(vout, "viewpoint-moved", (void *) p_viewpoint);
+    /* This variable can only be read from callbacks */
+    var_Change(vout, "viewpoint-moved", VLC_VAR_SETVALUE,
+               &(vlc_value_t) { .p_address = NULL }, NULL);
+}
 static inline void vout_SendEventMousePressed(vout_thread_t *vout, int button)
 {
     int key = KEY_UNSET;
@@ -72,7 +80,9 @@ static inline void vout_SendEventMousePressed(vout_thread_t *vout, int button)
         var_ToggleBool(vout->obj.libvlc, "intf-toggle-fscontrol");
         return;
     case MOUSE_BUTTON_RIGHT:
+#if !defined(_WIN32)
         var_SetBool(vout->obj.libvlc, "intf-popupmenu", true);
+#endif
         return;
     case MOUSE_BUTTON_WHEEL_UP:    key = KEY_MOUSEWHEELUP;    break;
     case MOUSE_BUTTON_WHEEL_DOWN:  key = KEY_MOUSEWHEELDOWN;  break;
@@ -84,21 +94,24 @@ static inline void vout_SendEventMousePressed(vout_thread_t *vout, int button)
 static inline void vout_SendEventMouseReleased(vout_thread_t *vout, int button)
 {
     var_NAndInteger(vout, "mouse-button-down", 1 << button);
+#if defined(_WIN32)
+    switch (button)
+    {
+    case MOUSE_BUTTON_RIGHT:
+        var_SetBool(vout->obj.libvlc, "intf-popupmenu", true);
+        return;
+    }
+#endif
 }
 static inline void vout_SendEventMouseDoubleClick(vout_thread_t *vout)
 {
     //vout_ControlSetFullscreen(vout, !var_GetBool(vout, "fullscreen"));
     var_ToggleBool(vout, "fullscreen");
 }
-static inline void vout_SendEventMouseVisible(vout_thread_t *vout)
+static inline void vout_SendEventViewpointChangeable(vout_thread_t *vout,
+                                                     bool b_can_change)
 {
-    /* TODO */
-    VLC_UNUSED(vout);
-}
-static inline void vout_SendEventMouseHidden(vout_thread_t *vout)
-{
-    /* TODO */
-    VLC_UNUSED(vout);
+    var_SetBool(vout, "viewpoint-changeable", b_can_change);
 }
 
 #if 0

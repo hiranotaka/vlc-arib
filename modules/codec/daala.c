@@ -80,9 +80,10 @@ static int  OpenDecoder   ( vlc_object_t * );
 static int  OpenPacketizer( vlc_object_t * );
 static void CloseDecoder  ( vlc_object_t * );
 
-static void *DecodeBlock  ( decoder_t *, block_t ** );
+static int DecodeVideo( decoder_t *p_dec, block_t *p_block );
+static block_t *Packetize ( decoder_t *, block_t ** );
 static int  ProcessHeaders( decoder_t * );
-static void *ProcessPacket ( decoder_t *, daala_packet *, block_t ** );
+static void *ProcessPacket ( decoder_t *, daala_packet *, block_t * );
 
 static picture_t *DecodePacket( decoder_t *, daala_packet * );
 
@@ -117,7 +118,7 @@ vlc_module_begin ()
     set_subcategory( SUBCAT_INPUT_VCODEC )
     set_shortname( "Daala" )
     set_description( N_("Daala video decoder") )
-    set_capability( "decoder", 100 )
+    set_capability( "video decoder", 100 )
     set_callbacks( OpenDecoder, CloseDecoder )
     add_shortcut( "daala" )
     add_submodule ()
@@ -179,14 +180,11 @@ static int OpenDecoder( vlc_object_t *p_this )
     p_sys->dcx = NULL;
 
     /* Set output properties */
-    p_dec->fmt_out.i_cat = VIDEO_ES;
     p_dec->fmt_out.i_codec = VLC_CODEC_I420;
 
     /* Set callbacks */
-    p_dec->pf_decode_video = (picture_t *(*)(decoder_t *, block_t **))
-        DecodeBlock;
-    p_dec->pf_packetize    = (block_t *(*)(decoder_t *, block_t **))
-        DecodeBlock;
+    p_dec->pf_decode    = DecodeVideo;
+    p_dec->pf_packetize = Packetize;
 
     /* Init supporting Daala structures needed in header parsing */
     daala_comment_init( &p_sys->dc );
@@ -215,15 +213,10 @@ static int OpenPacketizer( vlc_object_t *p_this )
  ****************************************************************************
  * This function must be fed with Daala packets.
  ****************************************************************************/
-static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
+static void *DecodeBlock( decoder_t *p_dec, block_t *p_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    block_t *p_block;
     daala_packet dpacket;
-
-    if( !pp_block || !*pp_block ) return NULL;
-
-    p_block = *pp_block;
 
     /* Block to Daala packet */
     dpacket.packet = p_block->p_buffer;
@@ -252,7 +245,28 @@ static void *DecodeBlock( decoder_t *p_dec, block_t **pp_block )
     if( !p_sys->b_decoded_first_keyframe )
         p_block->i_flags |= BLOCK_FLAG_PREROLL; /* Wait until we've decoded the first keyframe */
 
-    return ProcessPacket( p_dec, &dpacket, pp_block );
+    return ProcessPacket( p_dec, &dpacket, p_block );
+}
+
+static int DecodeVideo( decoder_t *p_dec, block_t *p_block )
+{
+    if( p_block == NULL ) /* No Drain */
+        return VLCDEC_SUCCESS;
+
+    picture_t *p_pic = DecodeBlock( p_dec, p_block );
+    if( p_pic != NULL )
+        decoder_QueueVideo( p_dec, p_pic );
+    return VLCDEC_SUCCESS;
+}
+
+static block_t *Packetize( decoder_t *p_dec, block_t **pp_block )
+{
+    if( pp_block == NULL ) /* No Drain */
+        return NULL;
+    block_t *p_block = *pp_block; *pp_block = NULL;
+    if( p_block == NULL )
+        return NULL;
+    return DecodeBlock( p_dec, p_block );
 }
 
 /*****************************************************************************
@@ -402,10 +416,9 @@ cleanup:
  * ProcessPacket: processes a daala packet.
  *****************************************************************************/
 static void *ProcessPacket( decoder_t *p_dec, daala_packet *p_dpacket,
-                            block_t **pp_block )
+                            block_t *p_block )
 {
     decoder_sys_t *p_sys = p_dec->p_sys;
-    block_t *p_block = *pp_block;
     void *p_buf;
 
     if( ( p_block->i_flags&(BLOCK_FLAG_CORRUPTED) ) != 0 )
@@ -422,8 +435,6 @@ static void *ProcessPacket( decoder_t *p_dec, daala_packet *p_dpacket,
     {
         p_sys->i_pts = p_block->i_pts;
     }
-
-    *pp_block = NULL; /* To avoid being fed the same packet again */
 
     if( p_sys->b_packetizer )
     {
@@ -467,6 +478,8 @@ static picture_t *DecodePacket( decoder_t *p_dec, daala_packet *p_dpacket )
         p_sys->b_decoded_first_keyframe = true;
 
     /* Get a new picture */
+    if( decoder_UpdateVideoFormat( p_dec ) )
+        return NULL;
     p_pic = decoder_NewPicture( p_dec );
     if( !p_pic ) return NULL;
 

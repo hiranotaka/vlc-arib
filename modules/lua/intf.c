@@ -47,15 +47,18 @@ static void *Run( void * );
 static const char * const ppsz_intf_options[] = { "intf", "config", NULL };
 
 /*****************************************************************************
+ * Local structures
+ *****************************************************************************/
+struct intf_sys_t
+{
+    char *psz_filename;
+    lua_State *L;
+    vlc_thread_t thread;
+    vlclua_dtable_t dtable;
+};
+/*****************************************************************************
  *
  *****************************************************************************/
-static inline void luaL_register_submodule( lua_State *L, const char *psz_name,
-                                            const luaL_Reg *l )
-{
-    lua_newtable( L );
-    luaL_register( L, NULL, l );
-    lua_setfield( L, -2, psz_name );
-}
 
 static char *MakeConfig( intf_thread_t *p_intf, const char *name )
 {
@@ -198,6 +201,9 @@ static const luaL_Reg p_reg[] = { { NULL, NULL } };
 
 static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
 {
+    if( lua_Disabled( p_this ) )
+        return VLC_EGENERIC;
+
     intf_thread_t *p_intf = (intf_thread_t*)p_this;
     lua_State *L;
 

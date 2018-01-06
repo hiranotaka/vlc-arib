@@ -2,6 +2,10 @@ chromadir = $(pluginsdir)/video_chroma
 
 libchain_plugin_la_SOURCES = video_chroma/chain.c
 
+libchroma_copy_la_SOURCES = video_chroma/copy.c video_chroma/copy.h
+libchroma_copy_la_LDFLAGS = -static
+noinst_LTLIBRARIES += libchroma_copy.la
+
 libchroma_omx_plugin_la_SOURCES = video_chroma/omxdl.c
 libchroma_omx_plugin_la_CFLAGS = $(AM_CFLAGS) $(OMXIP_CFLAGS)
 libchroma_omx_plugin_la_LIBADD = $(OMXIP_LIBS)
@@ -21,10 +25,15 @@ libi420_yuy2_plugin_la_SOURCES = video_chroma/i420_yuy2.c video_chroma/i420_yuy2
 libi420_yuy2_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DMODULE_NAME_IS_i420_yuy2
 
-libi420_nv12_plugin_la_SOURCES = video_chroma/i420_nv12.c \
-	video_chroma/copy.c video_chroma/copy.h
+libi420_nv12_plugin_la_SOURCES = video_chroma/i420_nv12.c
 libi420_nv12_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DMODULE_NAME_IS_i420_nv12
+libi420_nv12_plugin_la_LIBADD = libchroma_copy.la
+
+libi420_10_p010_plugin_la_SOURCES = video_chroma/i420_10_p010.c
+libi420_10_p010_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) \
+	-DMODULE_NAME_IS_i420_10_p010
+libi420_10_p010_plugin_la_LIBADD = libchroma_copy.la
 
 libi422_i420_plugin_la_SOURCES = video_chroma/i422_i420.c
 
@@ -44,6 +53,7 @@ chroma_LTLIBRARIES = \
 	libi420_rgb_plugin.la \
 	libi420_yuy2_plugin.la \
 	libi420_nv12_plugin.la \
+	libi420_10_p010_plugin.la \
 	libi422_i420_plugin.la \
 	libi422_yuy2_plugin.la \
 	libgrey_yuv_plugin.la \
@@ -107,26 +117,32 @@ chroma_LTLIBRARIES += \
 	libi422_yuy2_sse2_plugin.la
 endif
 
-# DXVA2
-libdxa9_plugin_la_SOURCES = video_chroma/dxa9.c \
-	video_chroma/copy.c video_chroma/copy.h
-
-if HAVE_AVCODEC_DXVA2
-chroma_LTLIBRARIES += \
-	libdxa9_plugin.la
+libcvpx_plugin_la_SOURCES = codec/vt_utils.c codec/vt_utils.h video_chroma/cvpx.c
+if HAVE_OSX
+libcvpx_plugin_la_CFLAGS = $(AM_CFLAGS) -mmacosx-version-min=10.8
 endif
-
-# D3D11VA
-libd3d11_surface_plugin_la_SOURCES = video_chroma/d3d11_surface.c \
-	video_chroma/dxgi_fmt.c video_chroma/dxgi_fmt.h \
-	video_chroma/copy.c video_chroma/copy.h
-
-if HAVE_AVCODEC_D3D11VA
-chroma_LTLIBRARIES += \
-	libd3d11_surface_plugin.la
+if HAVE_IOS
+libcvpx_plugin_la_CFLAGS = $(AM_CFLAGS) -miphoneos-version-min=8.0
 endif
+if HAVE_TVOS
+libcvpx_plugin_la_CFLAGS = $(AM_CFLAGS) -mtvos-version-min=10.2
+endif
+libcvpx_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(chromadir)' -Wl,-framework,Foundation -Wl,-framework,VideoToolbox -Wl,-framework,CoreMedia -Wl,-framework,CoreVideo
+EXTRA_LTLIBRARIES += libcvpx_plugin.la
+chroma_LTLIBRARIES += $(LTLIBcvpx)
 
-libcvpx_i420_plugin_la_SOURCES = video_chroma/cvpx_i420.c video_chroma/copy.c video_chroma/copy.h
-libcvpx_i420_plugin_la_LDFLAGS = $(AM_LDFLAGS) -rpath '$(chromadir)' -Wl,-framework,Foundation -Wl,-framework,VideoToolbox -Wl,-framework,CoreMedia -Wl,-framework,CoreVideo
-EXTRA_LTLIBRARIES += libcvpx_i420_plugin.la
-chroma_LTLIBRARIES += $(LTLIBcvpx_i420)
+# Tests
+chroma_copy_sse_test_SOURCES = $(libchroma_copy_la_SOURCES)
+chroma_copy_sse_test_CFLAGS = -DCOPY_TEST
+chroma_copy_sse_test_LDADD = ../src/libvlccore.la
+
+chroma_copy_test_SOURCES = $(libchroma_copy_la_SOURCES)
+chroma_copy_test_CFLAGS = -DCOPY_TEST -DCOPY_TEST_NOOPTIM
+chroma_copy_test_LDADD = ../src/libvlccore.la
+
+if HAVE_SSE2
+check_PROGRAMS += chroma_copy_sse_test
+TESTS += chroma_copy_sse_test
+endif
+check_PROGRAMS += chroma_copy_test
+TESTS += chroma_copy_test

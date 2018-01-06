@@ -33,51 +33,6 @@
 #include <windows.h>
 #include <wchar.h>
 
-extern DWORD LoadLibraryFlags;
-
-#if (_WIN32_WINNT < 0x601)
-static BOOL WINAPI SetThreadErrorModeFallback(DWORD mode, DWORD *oldmode)
-{
-    /* TODO: cache the pointer */
-    HANDLE h = GetModuleHandle(_T("kernel32.dll"));
-    if (unlikely(h == NULL))
-        return FALSE;
-
-    BOOL WINAPI (*SetThreadErrorModeReal)(DWORD, DWORD *);
-
-    SetThreadErrorModeReal = GetProcAddress(h, "SetThreadErrorMode");
-    if (SetThreadErrorModeReal != NULL)
-        return SetThreadErrorModeReal(mode, oldmode);
-
-# if (_WIN32_WINNT >= 0x600)
-    DWORD curmode = GetErrorMode();
-# else
-    UINT WINAPI (*GetErrorModeReal)(void);
-    DWORD curmode = 0;
-
-    GetErrorModeReal = (void *)GetProcAddress(h, "GetErrorMode");
-    if (GetErrorModeReal != NULL)
-        curmode = GetErrorModeReal();
-    else
-    {
-        /* We are on XP, 2003, 2003/R2 or some special versions of Vista:
-           No SetThreadErrorMode, no GetErrorMode.
-           We will set the mode for the whole process, which is quite bad,
-           but is our only solution */
-        SetErrorMode( mode );
-        return TRUE;
-    }
-# endif
-    /* Extra flags should be OK. Missing flags are NOT OK. */
-    if ((mode & curmode) != mode)
-        return FALSE;
-    if (oldmode != NULL)
-        *oldmode = curmode;
-    return TRUE;
-}
-# define SetThreadErrorMode SetThreadErrorModeFallback
-#endif
-
 static char *GetWindowsError( void )
 {
     wchar_t wmsg[256];
@@ -107,11 +62,11 @@ int module_Load( vlc_object_t *p_this, const char *psz_file,
     DWORD mode;
     if (SetThreadErrorMode (SEM_FAILCRITICALERRORS, &mode) != 0)
     {
-        handle = LoadLibraryExW (wfile, NULL, LoadLibraryFlags );
+        handle = LoadLibraryExW(wfile, NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
         SetThreadErrorMode (mode, NULL);
     }
 #else
-    LoadPackagedLibrary( wfile )
+    handle = LoadPackagedLibrary( wfile, 0 );
 #endif
     free (wfile);
 

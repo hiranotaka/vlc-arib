@@ -52,6 +52,10 @@
 #include <windows.storage.h>
 #include <roapi.h>
 
+#ifndef CSIDL_LOCAL_APPDATA
+# define CSIDL_LOCAL_APPDATA 0x001C
+#endif
+
 static HRESULT WinRTSHGetFolderPath(HWND hwnd, int csidl, HANDLE hToken, DWORD dwFlags, LPWSTR pszPath)
 {
     VLC_UNUSED(hwnd);
@@ -256,8 +260,13 @@ char *config_GetUserDir (vlc_userdir_t type)
             return config_GetShellDir (CSIDL_PERSONAL);
         case VLC_CONFIG_DIR:
         case VLC_DATA_DIR:
-        case VLC_CACHE_DIR:
             return config_GetAppDir ();
+        case VLC_CACHE_DIR:
+#if !VLC_WINSTORE_APP
+            return config_GetAppDir ();
+#else
+            return config_GetShellDir (CSIDL_LOCAL_APPDATA);
+#endif
 
         case VLC_DESKTOP_DIR:
         case VLC_DOWNLOAD_DIR:

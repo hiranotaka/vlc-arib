@@ -29,65 +29,62 @@
 
 #include <vlc_common.h>
 #include <vlc_access.h>
+#include <vlc_keystore.h>
 #include <vlc_plugin.h>
-#include <vlc_network.h> /* FIXME: only for vlc_getProxyUrl() */
+#include <vlc_url.h>
 
 #include "connmgr.h"
+#include "resource.h"
 #include "file.h"
 #include "live.h"
 
 struct access_sys_t
 {
     struct vlc_http_mgr *manager;
-    union
-    {
-        struct vlc_http_file *file;
-        struct vlc_http_live *live;
-    };
+    struct vlc_http_resource *resource;
 };
 
-static block_t *FileRead(access_t *access)
+static block_t *FileRead(stream_t *access, bool *restrict eof)
 {
     access_sys_t *sys = access->p_sys;
 
-    block_t *b = vlc_http_file_read(sys->file);
+    block_t *b = vlc_http_file_read(sys->resource);
     if (b == NULL)
-        access->info.b_eof = true;
+        *eof = true;
     return b;
 }
 
-static int FileSeek(access_t *access, uint64_t pos)
+static int FileSeek(stream_t *access, uint64_t pos)
 {
     access_sys_t *sys = access->p_sys;
-    access->info.b_eof = false;
 
-    if (vlc_http_file_seek(sys->file, pos))
+    if (vlc_http_file_seek(sys->resource, pos))
         return VLC_EGENERIC;
     return VLC_SUCCESS;
 }
 
-static int FileControl(access_t *access, int query, va_list args)
+static int FileControl(stream_t *access, int query, va_list args)
 {
     access_sys_t *sys = access->p_sys;
 
     switch (query)
     {
-        case ACCESS_CAN_SEEK:
-            *va_arg(args, bool *) = vlc_http_file_can_seek(sys->file);
+        case STREAM_CAN_SEEK:
+            *va_arg(args, bool *) = vlc_http_file_can_seek(sys->resource);
             break;
 
-        case ACCESS_CAN_FASTSEEK:
+        case STREAM_CAN_FASTSEEK:
             *va_arg(args, bool *) = false;
             break;
 
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg(args, bool *) = true;
             break;
 
-        case ACCESS_GET_SIZE:
+        case STREAM_GET_SIZE:
         {
-            uintmax_t val = vlc_http_file_get_size(sys->file);
+            uintmax_t val = vlc_http_file_get_size(sys->resource);
             if (val >= UINT64_MAX)
                 return VLC_EGENERIC;
 
@@ -95,16 +92,16 @@ static int FileControl(access_t *access, int query, va_list args)
             break;
         }
 
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
             *va_arg(args, int64_t *) = INT64_C(1000) *
                 var_InheritInteger(access, "network-caching");
             break;
 
-        case ACCESS_GET_CONTENT_TYPE:
-            *va_arg(args, char **) = vlc_http_file_get_type(sys->file);
+        case STREAM_GET_CONTENT_TYPE:
+            *va_arg(args, char **) = vlc_http_file_get_type(sys->resource);
             break;
 
-        case ACCESS_SET_PAUSE_STATE:
+        case STREAM_SET_PAUSE_STATE:
             break;
 
         default:
@@ -113,43 +110,43 @@ static int FileControl(access_t *access, int query, va_list args)
     return VLC_SUCCESS;
 }
 
-static block_t *LiveRead(access_t *access)
+static block_t *LiveRead(stream_t *access, bool *restrict eof)
 {
     access_sys_t *sys = access->p_sys;
 
-    block_t *b = vlc_http_live_read(sys->live);
+    block_t *b = vlc_http_live_read(sys->resource);
     if (b == NULL) /* TODO: loop instead of EOF, see vlc_http_live_read() */
-        access->info.b_eof = true;
+        *eof = true;
     return b;
 }
 
-static int NoSeek(access_t *access, uint64_t pos)
+static int NoSeek(stream_t *access, uint64_t pos)
 {
     (void) access;
     (void) pos;
     return VLC_EGENERIC;
 }
 
-static int LiveControl(access_t *access, int query, va_list args)
+static int LiveControl(stream_t *access, int query, va_list args)
 {
     access_sys_t *sys = access->p_sys;
 
     switch (query)
     {
-        case ACCESS_CAN_SEEK:
-        case ACCESS_CAN_FASTSEEK:
-        case ACCESS_CAN_PAUSE:
-        case ACCESS_CAN_CONTROL_PACE:
+        case STREAM_CAN_SEEK:
+        case STREAM_CAN_FASTSEEK:
+        case STREAM_CAN_PAUSE:
+        case STREAM_CAN_CONTROL_PACE:
             *va_arg(args, bool *) = false;
             break;
 
-        case ACCESS_GET_PTS_DELAY:
+        case STREAM_GET_PTS_DELAY:
             *va_arg(args, int64_t *) = INT64_C(1000) *
                 var_InheritInteger(access, "network-caching");
             break;
 
-        case ACCESS_GET_CONTENT_TYPE:
-            *va_arg(args, char **) = vlc_http_live_get_type(sys->live);
+        case STREAM_GET_CONTENT_TYPE:
+            *va_arg(args, char **) = vlc_http_live_get_type(sys->resource);
             break;
 
         default:
@@ -160,16 +157,7 @@ static int LiveControl(access_t *access, int query, va_list args)
 
 static int Open(vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
-
-    if (!strcasecmp(access->psz_access, "http"))
-    {
-        char *proxy = vlc_getProxyUrl(access->psz_url);
-        free(proxy);
-        if (proxy != NULL)
-            return VLC_EGENERIC; /* FIXME not implemented yet */
-    }
-
+    stream_t *access = (stream_t *)obj;
     access_sys_t *sys = malloc(sizeof (*sys));
     int ret = VLC_ENOMEM;
 
@@ -177,15 +165,20 @@ static int Open(vlc_object_t *obj)
         return VLC_ENOMEM;
 
     sys->manager = NULL;
-    sys->file = NULL;
+    sys->resource = NULL;
 
     void *jar = NULL;
     if (var_InheritBool(obj, "http-forward-cookies"))
         jar = var_InheritAddress(obj, "http-cookies");
 
-    bool h2c = var_InheritBool(obj, "http2");
+    struct vlc_credential crd;
+    struct vlc_url_t crd_url;
+    char *psz_realm = NULL;
 
-    sys->manager = vlc_http_mgr_create(obj, jar, h2c);
+    vlc_UrlParse(&crd_url, access->psz_url);
+    vlc_credential_init(&crd, &crd_url);
+
+    sys->manager = vlc_http_mgr_create(obj, jar);
     if (sys->manager == NULL)
         goto error;
 
@@ -193,32 +186,48 @@ static int Open(vlc_object_t *obj)
     char *referer = var_InheritString(obj, "http-referrer");
     bool live = var_InheritBool(obj, "http-continuous");
 
-    if (live)
-        sys->live = vlc_http_live_create(sys->manager, access->psz_url, ua,
-                                         referer);
-    else
-        sys->file = vlc_http_file_create(sys->manager, access->psz_url, ua,
-                                         referer);
+    sys->resource = (live ? vlc_http_live_create : vlc_http_file_create)(
+        sys->manager, access->psz_url, ua, referer);
     free(referer);
     free(ua);
 
-    char *redir;
+    if (sys->resource == NULL)
+        goto error;
 
-    if (live)
+    if (vlc_credential_get(&crd, obj, NULL, NULL, NULL, NULL))
+        vlc_http_res_set_login(sys->resource,
+                               crd.psz_username, crd.psz_password);
+
+    ret = VLC_EGENERIC;
+
+    int status = vlc_http_res_get_status(sys->resource);
+
+    while (status == 401) /* authentication */
     {
-        if (sys->live == NULL)
-            goto error;
+        crd.psz_authtype = "Basic";
+        free(psz_realm);
+        psz_realm = vlc_http_res_get_basic_realm(sys->resource);
 
-        redir = vlc_http_live_get_redirect(sys->live);
+        if (psz_realm == NULL)
+            break;
+        crd.psz_realm = psz_realm;
+        if (!vlc_credential_get(&crd, obj, NULL, NULL, _("HTTP authentication"),
+                                _("Please enter a valid login name and "
+                                  "a password for realm %s."), crd.psz_realm))
+            break;
+
+        vlc_http_res_set_login(sys->resource,
+                               crd.psz_username, crd.psz_password);
+        status = vlc_http_res_get_status(sys->resource);
     }
-    else
+
+    if (status < 0)
     {
-        if (sys->file == NULL)
-            goto error;
-
-        redir = vlc_http_file_get_redirect(sys->file);
+        msg_Err(access, "HTTP connection failure");
+        goto error;
     }
 
+    char *redir = vlc_http_res_get_redirect(sys->resource);
     if (redir != NULL)
     {
         access->psz_url = redir;
@@ -226,24 +235,17 @@ static int Open(vlc_object_t *obj)
         goto error;
     }
 
-    ret = VLC_EGENERIC;
-
-    int status = live ? vlc_http_live_get_status(sys->live)
-                      : vlc_http_file_get_status(sys->file);
-    if (status < 0)
-    {
-        msg_Err(access, "HTTP connection failure");
-        goto error;
-    }
-    if (status == 401) /* authentication */
-        goto error; /* FIXME not implemented yet */
     if (status >= 300)
     {
         msg_Err(access, "HTTP %d error", status);
         goto error;
     }
 
-    access->info.b_eof = false;
+    vlc_credential_store(&crd, obj);
+    free(psz_realm);
+    vlc_credential_clean(&crd);
+    vlc_UrlClean(&crd_url);
+
     access->pf_read = NULL;
     if (live)
     {
@@ -261,23 +263,23 @@ static int Open(vlc_object_t *obj)
     return VLC_SUCCESS;
 
 error:
-    if (sys->file != NULL)
-        vlc_http_file_destroy(sys->file);
+    if (sys->resource != NULL)
+        vlc_http_res_destroy(sys->resource);
     if (sys->manager != NULL)
         vlc_http_mgr_destroy(sys->manager);
+    free(psz_realm);
+    vlc_credential_clean(&crd);
+    vlc_UrlClean(&crd_url);
     free(sys);
     return ret;
 }
 
 static void Close(vlc_object_t *obj)
 {
-    access_t *access = (access_t *)obj;
+    stream_t *access = (stream_t *)obj;
     access_sys_t *sys = access->p_sys;
 
-    if (access->pf_block == LiveRead)
-        vlc_http_live_destroy(sys->live);
-    else
-        vlc_http_file_destroy(sys->file);
+    vlc_http_res_destroy(sys->resource);
     vlc_http_mgr_destroy(sys->manager);
     free(sys);
 }
@@ -290,9 +292,6 @@ vlc_module_begin()
     set_capability("access", 2)
     add_shortcut("https", "http")
     set_callbacks(Open, Close)
-
-    add_bool("http2", false, N_("Force HTTP/2"),
-             N_("Force HTTP version 2.0 over TCP."), true)
 
     add_bool("http-continuous", false, N_("Continuous stream"),
              N_("Keep reading a resource that keeps being updated."), true)

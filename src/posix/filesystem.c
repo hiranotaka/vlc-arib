@@ -134,17 +134,19 @@ int vlc_memfd (void)
 
 int vlc_close (int fd)
 {
+    int ret;
 #ifdef POSIX_CLOSE_RESTART
-    return posix_close (fd, 0);
+    ret = posix_close(fd, 0);
 #else
-    int ret = close (fd);
+    ret = close(fd);
     /* POSIX.2008 (and earlier) does not specify if the file descriptor is
      * closed on failure. Assume it is as on Linux and most other common OSes.
      * Also emulate the correct error code as per newer POSIX versions. */
     if (unlikely(ret != 0) && unlikely(errno == EINTR))
         errno = EINPROGRESS;
-    return ret;
 #endif
+    assert(ret == 0 || errno != EBADF); /* something is corrupt? */
+    return ret;
 }
 
 int vlc_mkdir (const char *dirname, mode_t mode)
@@ -291,15 +293,6 @@ static void vlc_socket_setup(int fd, bool nonblock)
 }
 #endif
 
-/**
- * Creates a socket file descriptor. The new file descriptor has the
- * close-on-exec flag set.
- * @param pf protocol family
- * @param type socket type
- * @param proto network protocol
- * @param nonblock true to create a non-blocking socket
- * @return a new file descriptor or -1
- */
 int vlc_socket (int pf, int type, int proto, bool nonblock)
 {
 #ifdef SOCK_CLOEXEC
@@ -346,15 +339,6 @@ int vlc_socketpair(int pf, int type, int proto, int fds[2], bool nonblock)
     return ret;
 }
 
-/**
- * Accepts an inbound connection request on a listening socket.
- * The new file descriptor has the close-on-exec flag set.
- * @param lfd listening socket file descriptor
- * @param addr pointer to the peer address or NULL [OUT]
- * @param alen pointer to the length of the peer address or NULL [OUT]
- * @param nonblock whether to put the new socket in non-blocking mode
- * @return a new file descriptor, or -1 on error.
- */
 int vlc_accept (int lfd, struct sockaddr *addr, socklen_t *alen, bool nonblock)
 {
 #ifdef HAVE_ACCEPT4

@@ -43,41 +43,16 @@
 #include "interrupt.h"
 #include "libvlc.h"
 
-#ifndef NDEBUG
-static void vlc_interrupt_destructor(void *data)
-{
-    vlc_interrupt_t *ctx = data;
-
-    assert(ctx->attached);
-    ctx->attached = false;
-}
-#endif
-
-static unsigned vlc_interrupt_refs = 0;
-static vlc_rwlock_t vlc_interrupt_lock = VLC_STATIC_RWLOCK;
-static vlc_threadvar_t vlc_interrupt_var;
+static thread_local vlc_interrupt_t *vlc_interrupt_var;
 
 /**
  * Initializes an interruption context.
  */
 void vlc_interrupt_init(vlc_interrupt_t *ctx)
 {
-    vlc_rwlock_wrlock(&vlc_interrupt_lock);
-    assert(vlc_interrupt_refs < UINT_MAX);
-    if (vlc_interrupt_refs++ == 0)
-#ifndef NDEBUG
-        vlc_threadvar_create(&vlc_interrupt_var, vlc_interrupt_destructor);
-#else
-        vlc_threadvar_create(&vlc_interrupt_var, NULL);
-#endif
-    vlc_rwlock_unlock(&vlc_interrupt_lock);
-
     vlc_mutex_init(&ctx->lock);
     ctx->interrupted = false;
     atomic_init(&ctx->killed, false);
-#ifndef NDEBUG
-    ctx->attached = false;
-#endif
     ctx->callback = NULL;
 }
 
@@ -96,14 +71,7 @@ vlc_interrupt_t *vlc_interrupt_create(void)
 void vlc_interrupt_deinit(vlc_interrupt_t *ctx)
 {
     assert(ctx->callback == NULL);
-    assert(!ctx->attached);
     vlc_mutex_destroy(&ctx->lock);
-
-    vlc_rwlock_wrlock(&vlc_interrupt_lock);
-    assert(vlc_interrupt_refs > 0);
-    if (--vlc_interrupt_refs == 0)
-        vlc_threadvar_delete(&vlc_interrupt_var);
-    vlc_rwlock_unlock(&vlc_interrupt_lock);
 }
 
 void vlc_interrupt_destroy(vlc_interrupt_t *ctx)
@@ -130,41 +98,10 @@ void vlc_interrupt_raise(vlc_interrupt_t *ctx)
 
 vlc_interrupt_t *vlc_interrupt_set(vlc_interrupt_t *newctx)
 {
-    vlc_interrupt_t *oldctx;
+    vlc_interrupt_t *oldctx = vlc_interrupt_var;
 
-    /* This function is called to push or pop an interrupt context. Either way
-     * either newctx or oldctx (or both) are non-NULL. Thus vlc_interrupt_refs
-     * must be larger than zero and vlc_interrupt_var must be valid. And so the
-     * read/write lock is not needed. */
-    assert(vlc_interrupt_refs > 0);
-
-    oldctx = vlc_threadvar_get(vlc_interrupt_var);
-#ifndef NDEBUG
-    if (oldctx != NULL)
-    {
-        assert(oldctx->attached);
-        oldctx->attached = false;
-    }
-    if (newctx != NULL)
-    {
-        assert(!newctx->attached);
-        newctx->attached = true;
-    }
-#endif
-    vlc_threadvar_set(vlc_interrupt_var, newctx);
-
+    vlc_interrupt_var = newctx;
     return oldctx;
-}
-
-static vlc_interrupt_t *vlc_interrupt_get(void)
-{
-    vlc_interrupt_t *ctx = NULL;
-
-    vlc_rwlock_rdlock(&vlc_interrupt_lock);
-    if (vlc_interrupt_refs > 0)
-        ctx = vlc_threadvar_get(vlc_interrupt_var);
-    vlc_rwlock_unlock(&vlc_interrupt_lock);
-    return ctx;
 }
 
 /**
@@ -178,7 +115,7 @@ static void vlc_interrupt_prepare(vlc_interrupt_t *ctx,
                                   void (*cb)(void *), void *data)
 {
     assert(ctx != NULL);
-    assert(ctx == vlc_interrupt_get());
+    assert(ctx == vlc_interrupt_var);
 
     vlc_mutex_lock(&ctx->lock);
     assert(ctx->callback == NULL);
@@ -206,7 +143,7 @@ static int vlc_interrupt_finish(vlc_interrupt_t *ctx)
     int ret = 0;
 
     assert(ctx != NULL);
-    assert(ctx == vlc_interrupt_get());
+    assert(ctx == vlc_interrupt_var);
 
     /* Wait for pending callbacks to prevent access by other threads. */
     vlc_mutex_lock(&ctx->lock);
@@ -222,14 +159,14 @@ static int vlc_interrupt_finish(vlc_interrupt_t *ctx)
 
 void vlc_interrupt_register(void (*cb)(void *), void *opaque)
 {
-    vlc_interrupt_t *ctx = vlc_interrupt_get();
+    vlc_interrupt_t *ctx = vlc_interrupt_var;
     if (ctx != NULL)
         vlc_interrupt_prepare(ctx, cb, opaque);
 }
 
 int vlc_interrupt_unregister(void)
 {
-    vlc_interrupt_t *ctx = vlc_interrupt_get();
+    vlc_interrupt_t *ctx = vlc_interrupt_var;
     return (ctx != NULL) ? vlc_interrupt_finish(ctx) : 0;
 }
 
@@ -248,7 +185,7 @@ void vlc_interrupt_kill(vlc_interrupt_t *ctx)
 
 bool vlc_killed(void)
 {
-    vlc_interrupt_t *ctx = vlc_interrupt_get();
+    vlc_interrupt_t *ctx = vlc_interrupt_var;
 
     return (ctx != NULL) && atomic_load(&ctx->killed);
 }
@@ -260,7 +197,7 @@ static void vlc_interrupt_sem(void *opaque)
 
 int vlc_sem_wait_i11e(vlc_sem_t *sem)
 {
-    vlc_interrupt_t *ctx = vlc_interrupt_get();
+    vlc_interrupt_t *ctx = vlc_interrupt_var;
     if (ctx == NULL)
         return vlc_sem_wait(sem), 0;
 
@@ -290,7 +227,7 @@ static void vlc_mwait_i11e_cleanup(void *opaque)
 
 int vlc_mwait_i11e(mtime_t deadline)
 {
-    vlc_interrupt_t *ctx = vlc_interrupt_get();
+    vlc_interrupt_t *ctx = vlc_interrupt_var;
     if (ctx == NULL)
         return mwait(deadline), 0;
 
@@ -325,7 +262,7 @@ void vlc_interrupt_forward_start(vlc_interrupt_t *to, void *data[2])
 {
     data[0] = data[1] = NULL;
 
-    vlc_interrupt_t *from = vlc_interrupt_get();
+    vlc_interrupt_t *from = vlc_interrupt_var;
     if (from == NULL)
         return;
 
@@ -434,7 +371,7 @@ static int vlc_poll_i11e_inner(struct pollfd *restrict fds, unsigned nfds,
 
 int vlc_poll_i11e(struct pollfd *fds, unsigned nfds, int timeout)
 {
-    vlc_interrupt_t *ctx = vlc_interrupt_get();
+    vlc_interrupt_t *ctx = vlc_interrupt_var;
     if (ctx == NULL)
         return poll(fds, nfds, timeout);
 
@@ -448,7 +385,7 @@ int vlc_poll_i11e(struct pollfd *fds, unsigned nfds, int timeout)
     }
     else
     {   /* Slow path but poll() is slow with large nfds anyway. */
-        struct pollfd *ufd = malloc((nfds + 1) * sizeof (*ufd));
+        struct pollfd *ufd = vlc_alloc(nfds + 1, sizeof (*ufd));
         if (unlikely(ufd == NULL))
             return -1; /* ENOMEM */
 
@@ -514,7 +451,7 @@ ssize_t vlc_writev_i11e(int fd, const struct iovec *iov, int count)
  */
 ssize_t vlc_read_i11e(int fd, void *buf, size_t count)
 {
-    struct iovec iov = { buf, count };
+    struct iovec iov = { .iov_base = buf, .iov_len = count };
     return vlc_readv_i11e(fd, &iov, 1);
 }
 
@@ -527,7 +464,7 @@ ssize_t vlc_read_i11e(int fd, void *buf, size_t count)
  */
 ssize_t vlc_write_i11e(int fd, const void *buf, size_t count)
 {
-    struct iovec iov = { (void *)buf, count };
+    struct iovec iov = { .iov_base = (void*)buf, .iov_len = count };
     return vlc_writev_i11e(fd, &iov, 1);
 }
 
@@ -631,7 +568,7 @@ static void vlc_poll_i11e_cleanup(void *opaque)
 
 int vlc_poll_i11e(struct pollfd *fds, unsigned nfds, int timeout)
 {
-    vlc_interrupt_t *ctx = vlc_interrupt_get();
+    vlc_interrupt_t *ctx = vlc_interrupt_var;
     if (ctx == NULL)
         return vlc_poll(fds, nfds, timeout);
 

@@ -127,8 +127,6 @@ typedef struct
  * There is no input frame parameter, because the input frames
  * are taken from the history buffer.
  *
- * This algorithm does CUSTOM_PTS timestamp mangling.
- *
  * See the file comment for a detailed description of the algorithm.
  *
  * @param p_filter The filter instance. Must be non-NULL.
@@ -141,7 +139,7 @@ typedef struct
  * @see CalculateInterlaceScore()
  * @see EstimateNumBlocksWithMotion()
  */
-int RenderIVTC( filter_t *p_filter, picture_t *p_dst );
+int RenderIVTC( filter_t *p_filter, picture_t *p_dst, picture_t *p_pic );
 
 /**
  * Clears the inverse telecine subsystem state.
